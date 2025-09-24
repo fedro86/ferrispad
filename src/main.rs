@@ -1,10 +1,13 @@
 use fltk::{
     app, dialog,
+    enums::Color, // Added for colors
     menu::MenuBar,
     prelude::*,
     text::{TextBuffer, TextEditor},
     window::Window,
 };
+use std::cell::RefCell; // Added for RefCell
+use std::rc::Rc;        // Added for Rc
 use std::fs;
 
 fn main() {
@@ -16,17 +19,21 @@ fn main() {
     let mut text_editor = TextEditor::new(5, 35, 630, 440, "");
     text_editor.set_buffer(text_buf.clone());
 
-    // --- Menu Actions ---
+    // --- State for line numbers ---
+    // Start with line numbers hidden.
+    let show_linenumbers = Rc::new(RefCell::new(false)); 
+    // Set initial colors for the line number bar.
+    text_editor.set_linenumber_bgcolor(Color::from_rgb(240, 240, 240)); // Light gray
+    text_editor.set_linenumber_fgcolor(Color::from_rgb(100, 100, 100)); // Dark gray text
 
-    // File -> New
+    // --- File Menu ---
     let mut buf_new = text_buf.clone();
-    let mut wind_new = wind.clone(); // <-- THIS IS THE FIX
+    let mut wind_new = wind.clone();
     menu.add("File/New", fltk::enums::Shortcut::Ctrl | 'n', fltk::menu::MenuFlag::Normal, move |_| {
         buf_new.set_text("");
-        wind_new.set_label("RustPad"); // Use the clone here
+        wind_new.set_label("RustPad");
     });
-
-    // File -> Open
+    // ... (other File menu items remain the same)
     let mut buf_open = text_buf.clone();
     let mut wind_open = wind.clone();
     menu.add("File/Open...", fltk::enums::Shortcut::Ctrl | 'o', fltk::menu::MenuFlag::Normal, move |_| {
@@ -40,8 +47,6 @@ fn main() {
             }
         }
     });
-
-    // File -> Save As
     let buf_save = text_buf.clone();
     let mut wind_save = wind.clone();
     menu.add("File/Save As...", fltk::enums::Shortcut::Ctrl | 's', fltk::menu::MenuFlag::Normal, move |_| {
@@ -52,11 +57,28 @@ fn main() {
             }
         }
     });
-
-    // File -> Exit
     menu.add("File/Quit", fltk::enums::Shortcut::Ctrl | 'q', fltk::menu::MenuFlag::Normal, move |_| {
         app.quit();
     });
+
+    // --- View Menu ---
+    let mut editor_clone = text_editor.clone();
+    let linenumbers_state = show_linenumbers.clone();
+    menu.add(
+        "View/Toggle Line Numbers",
+        fltk::enums::Shortcut::None,
+        fltk::menu::MenuFlag::Toggle, // Makes it a checkable item
+        move |_| {
+            let mut state = linenumbers_state.borrow_mut(); // Get mutable access
+            *state = !*state; // Flip the boolean
+            if *state {
+                editor_clone.set_linenumber_width(40); // Show with 40px width
+            } else {
+                editor_clone.set_linenumber_width(0); // Hide by setting width to 0
+            }
+            editor_clone.redraw(); // Tell the editor to update its appearance
+        },
+    );
 
     wind.end();
     wind.show();
