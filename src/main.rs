@@ -3,6 +3,7 @@ use fltk::{
     dialog, // for alert_default
     enums::{Color, Font},
     group::Flex,
+    image::PngImage,
     menu::MenuBar,
     prelude::*,
     text::{TextBuffer, TextEditor, WrapMode}, // NEW: Import WrapMode
@@ -118,7 +119,14 @@ fn native_save_dialog(filter: &str) -> Option<String> {
 
 fn main() {
     let app = app::App::default();
-    let mut wind = Window::new(100, 100, 640, 480, "FerrisPad");
+    let mut wind = Window::new(100, 100, 640, 480, "🦀 FerrisPad");
+
+    // Load and set the crab emoji as window icon from embedded asset
+    let icon_data = include_bytes!("../assets/crab-notepad-emoji-8bit.png");
+    if let Ok(mut icon) = PngImage::from_data(icon_data) {
+        icon.scale(32, 32, true, true);
+        wind.set_icon(Some(icon));
+    }
 
     let mut flex = Flex::new(0, 0, 640, 480, None);
     flex.set_type(fltk::group::FlexType::Column);
@@ -188,7 +196,7 @@ fn main() {
         fltk::menu::MenuFlag::Normal,
         move |_| {
             buf_new.set_text("");
-            wind_new.set_label("FerrisPad");
+            wind_new.set_label("🦀 FerrisPad");
         },
     );
 
@@ -204,7 +212,7 @@ fn main() {
                 match fs::read_to_string(&path) {
                     Ok(content) => {
                         buf_open.set_text(&content);
-                        wind_open.set_label(&format!("FerrisPad - {}", path));
+                        wind_open.set_label(&format!("🦀 FerrisPad - {}", path));
                     }
                     Err(e) => dialog::alert_default(&format!("Error opening file: {}", e)),
                 }
@@ -222,7 +230,7 @@ fn main() {
         move |_| {
             if let Some(path) = native_save_dialog("*.txt") {
                 match fs::write(&path, buf_save.text()) {
-                    Ok(_) => wind_save.set_label(&format!("FerrisPad - {}", path)),
+                    Ok(_) => wind_save.set_label(&format!("🦀 FerrisPad - {}", path)),
                     Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
                 }
             }
