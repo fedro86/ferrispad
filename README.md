@@ -59,8 +59,8 @@ xcode-select --install
 
 ### Build from Source
 ```bash
-git clone https://github.com/yourusername/rustpad
-cd rustpad
+git clone https://github.com/fedro86/ferrispad
+cd ferrispad
 cargo build --release
 ```
 
