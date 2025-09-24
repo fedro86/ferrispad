@@ -1,7 +1,7 @@
 use fltk::{
     app,
     dialog, // for alert_default
-    enums::Color,
+    enums::{Color, Font},
     group::Flex,
     menu::MenuBar,
     prelude::*,
@@ -156,8 +156,29 @@ fn main() {
         text_editor.wrap_mode(WrapMode::None, 0);
     }
 
+    // Set up better font for the editor
+    text_editor.set_text_font(Font::ScreenBold); // Nice monospace font
+    text_editor.set_text_size(16); // Slightly larger for better readability
+
     // Apply initial theme
     apply_theme(&mut text_editor, &mut wind, &mut menu, settings.dark_mode_enabled);
+
+    // Set up cursor blinking
+    let cursor_visible = Rc::new(RefCell::new(true));
+    let mut editor_blink = text_editor.clone();
+    let cursor_state = cursor_visible.clone();
+
+    app::add_timeout3(0.5, move |handle| {
+        let mut visible = cursor_state.borrow_mut();
+        *visible = !*visible;
+        if *visible {
+            editor_blink.show_cursor(true);
+        } else {
+            editor_blink.show_cursor(false);
+        }
+        editor_blink.redraw();
+        app::repeat_timeout3(0.5, handle);
+    });
 
     let mut buf_new = text_buf.clone();
     let mut wind_new = wind.clone();
@@ -281,6 +302,74 @@ fn main() {
             let mut state = dark_mode_state.borrow_mut();
             *state = !*state;
             apply_theme(&mut editor_clone_dm, &mut wind_clone_dm, &mut menu_clone_dm, *state);
+        },
+    );
+
+    // Add font selection submenu under Format
+    let mut editor_font1 = text_editor.clone();
+    menu.add(
+        "Format/Font/Screen (Bold)",
+        fltk::enums::Shortcut::None,
+        fltk::menu::MenuFlag::Normal,
+        move |_| {
+            editor_font1.set_text_font(Font::ScreenBold);
+            editor_font1.redraw();
+        },
+    );
+
+    let mut editor_font2 = text_editor.clone();
+    menu.add(
+        "Format/Font/Courier",
+        fltk::enums::Shortcut::None,
+        fltk::menu::MenuFlag::Normal,
+        move |_| {
+            editor_font2.set_text_font(Font::Courier);
+            editor_font2.redraw();
+        },
+    );
+
+    let mut editor_font3 = text_editor.clone();
+    menu.add(
+        "Format/Font/Helvetica Mono",
+        fltk::enums::Shortcut::None,
+        fltk::menu::MenuFlag::Normal,
+        move |_| {
+            editor_font3.set_text_font(Font::Screen);
+            editor_font3.redraw();
+        },
+    );
+
+    // Add font size options under Format
+    let mut editor_size1 = text_editor.clone();
+    menu.add(
+        "Format/Font Size/Small (12)",
+        fltk::enums::Shortcut::None,
+        fltk::menu::MenuFlag::Normal,
+        move |_| {
+            editor_size1.set_text_size(12);
+            editor_size1.redraw();
+        },
+    );
+
+    let mut editor_size2 = text_editor.clone();
+    menu.add(
+        "Format/Font Size/Medium (16)",
+        fltk::enums::Shortcut::None,
+        fltk::menu::MenuFlag::Normal,
+        move |_| {
+            editor_size2.set_text_size(16);
+            editor_size2.redraw();
+        },
+    );
+
+    let mut editor_size3 = text_editor.clone();
+    menu.add(
+        "Format/Font Size/Large (20)",
+        fltk::enums::Shortcut::None,
+        fltk::menu::MenuFlag::Normal,
+        move |_| {
+            editor_size3.set_text_size(20);
+            editor_size3.redraw();
         },
     );
 
