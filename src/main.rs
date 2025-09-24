@@ -5,7 +5,7 @@ use fltk::{
     group::Flex,
     menu::MenuBar,
     prelude::*,
-    text::{TextBuffer, TextEditor},
+    text::{TextBuffer, TextEditor, WrapMode}, // NEW: Import WrapMode
     window::Window,
 };
 use std::cell::RefCell;
@@ -17,7 +17,7 @@ use fltk::dialog::{FileDialogType, NativeFileChooser};
 fn native_open_dialog(filter: &str) -> Option<String> {
     let mut nfc = NativeFileChooser::new(FileDialogType::BrowseFile);
     nfc.set_filter(filter);
-    nfc.show(); // returns (), blocks until close
+    nfc.show();
     let filename = nfc.filename();
     let s = filename.to_string_lossy();
     if s.is_empty() { None } else { Some(s.to_string()) }
@@ -26,7 +26,7 @@ fn native_open_dialog(filter: &str) -> Option<String> {
 fn native_save_dialog(filter: &str) -> Option<String> {
     let mut nfc = NativeFileChooser::new(FileDialogType::BrowseSaveFile);
     nfc.set_filter(filter);
-    nfc.show(); // returns (), blocks until close
+    nfc.show();
     let filename = nfc.filename();
     let s = filename.to_string_lossy();
     if s.is_empty() { None } else { Some(s.to_string()) }
@@ -52,6 +52,9 @@ fn main() {
     let show_linenumbers = Rc::new(RefCell::new(false));
     text_editor.set_linenumber_bgcolor(Color::from_rgb(240, 240, 240));
     text_editor.set_linenumber_fgcolor(Color::from_rgb(100, 100, 100));
+
+    // NEW: State for word wrap feature
+    let word_wrap = Rc::new(RefCell::new(false));
 
     let mut buf_new = text_buf.clone();
     let mut wind_new = wind.clone();
@@ -111,7 +114,7 @@ fn main() {
         },
     );
 
-    let mut editor_clone = text_editor.clone();
+    let mut editor_clone_ln = text_editor.clone();
     let linenumbers_state = show_linenumbers.clone();
     menu.add(
         "View/Toggle Line Numbers",
@@ -121,11 +124,32 @@ fn main() {
             let mut state = linenumbers_state.borrow_mut();
             *state = !*state;
             if *state {
-                editor_clone.set_linenumber_width(40);
+                editor_clone_ln.set_linenumber_width(40);
             } else {
-                editor_clone.set_linenumber_width(0);
+                editor_clone_ln.set_linenumber_width(0);
             }
-            editor_clone.redraw();
+            editor_clone_ln.redraw();
+        },
+    );
+
+    // NEW: Add "Toggle Word Wrap" menu item
+    let mut editor_clone_ww = text_editor.clone();
+    let word_wrap_state = word_wrap.clone();
+    menu.add(
+        "View/Toggle Word Wrap",
+        fltk::enums::Shortcut::None,
+        fltk::menu::MenuFlag::Toggle,
+        move |_| {
+            let mut state = word_wrap_state.borrow_mut();
+            *state = !*state;
+            if *state {
+                // Wrap text at the widget's bounds
+                editor_clone_ww.wrap_mode(WrapMode::AtBounds, 0);
+            } else {
+                // Disable wrapping
+                editor_clone_ww.wrap_mode(WrapMode::None, 0);
+            }
+            editor_clone_ww.redraw();
         },
     );
 
