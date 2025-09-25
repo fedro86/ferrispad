@@ -119,8 +119,12 @@ fn native_save_dialog(filter: &str) -> Option<String> {
 }
 
 fn main() {
-    let app = app::App::default();
+    let app = app::App::default().with_scheme(app::AppScheme::Gtk);
+
     let mut wind = Window::new(100, 100, 640, 480, "Untitled - 🦀 FerrisPad");
+
+    // Set window class for proper identification by window managers
+    wind.set_xclass("FerrisPad");
 
     // Load and set the crab emoji as window icon from embedded asset
     let icon_data = include_bytes!("../assets/crab-notepad-emoji-8bit.png");

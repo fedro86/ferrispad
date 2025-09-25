@@ -25,6 +25,9 @@ This isn't meant to change the landscape of text editors. It's meant to be that 
 ⌨️ **Standard Shortcuts** - Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Q
 🖋️ **Font Options** - Multiple monospace fonts and sizes
 👁️ **Blinking Cursor** - Clear visual feedback
+🦀 **Proper Icons** - Beautiful crab mascot icons in all standard sizes
+🖥️ **Desktop Integration** - Application menu entry and system icon support
+📄 **File Title Display** - Shows filename (or "Untitled") in window title
 
 ## Screenshots
 
@@ -64,9 +67,32 @@ cd ferrispad
 cargo build --release
 ```
 
+### Install Desktop Integration (Linux)
+For proper icon display and application menu integration:
+```bash
+./install-desktop.sh
+```
+
+This will:
+- Install FerrisPad icons in all standard sizes (16x16 to 512x512)
+- Create desktop entry for application menu
+- Register with the desktop environment
+- Enable proper icon display in taskbar/dock
+
+To uninstall:
+```bash
+./uninstall-desktop.sh
+```
+
 ### Run
 ```bash
+# Run from source
 cargo run --release
+
+# Or run the compiled binary
+./target/release/FerrisPad
+
+# Or launch from application menu (after installing desktop integration)
 ```
 
 ## Usage
@@ -114,6 +140,35 @@ FerrisPad follows the Unix philosophy: do one thing and do it well. It's not try
 - Handles text editing reliably
 - Stays out of your way
 - Provides a solid foundation for customization
+
+## Troubleshooting
+
+### Icons Not Showing
+If the crab icon doesn't appear in your taskbar or application menu:
+
+1. **Run the installation script**:
+   ```bash
+   ./install-desktop.sh
+   ```
+
+2. **Clear icon cache**:
+   ```bash
+   rm -rf ~/.cache/icon-theme.cache
+   gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor/
+   ```
+
+3. **Restart your desktop environment** or log out and log back in
+
+4. **Check if icons were installed**:
+   ```bash
+   ls ~/.local/share/icons/hicolor/32x32/apps/ferrispad.png
+   ```
+
+### Application Not in Menu
+If FerrisPad doesn't appear in your application menu:
+```bash
+update-desktop-database ~/.local/share/applications
+```
 
 ## Contributing
 

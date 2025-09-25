@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=FerrisPad
+GenericName=Text Editor
+Comment=A blazingly fast, minimalist notepad written in Rust
+Icon=ferrispad
+Exec=/home/frc/code-folder/continuous_learning/rustpad/target/release/FerrisPad
+StartupWMClass=FerrisPad
+MimeType=text/plain;text/x-csrc;text/x-chdr;text/x-c++src;text/x-c++hdr;text/x-java;text/x-pascal;text/x-perl;text/x-python;text/x-sh;text/x-tcl;text/x-tex;text/x-makefile;text/sgml;text/xml;text/css;text/javascript;text/x-rust;
+Categories=Utility;TextEditor;Development;
+Keywords=text;editor;notepad;rust;programming;
+Terminal=false
+StartupNotify=true

@@ -2,6 +2,17 @@
 name = "FerrisPad"
 version = "0.1.0"
 edition = "2024"
+description = "A blazingly fast, minimalist notepad written in Rust"
+license = "MIT"
+authors = ["Your Name <your.email@example.com>"]
+homepage = "https://github.com/fedro86/ferrispad"
+repository = "https://github.com/fedro86/ferrispad"
+keywords = ["text-editor", "notepad", "rust", "fltk", "gui"]
+categories = ["text-editors", "gui"]
+
+[[bin]]
+name = "FerrisPad"
+path = "src/main.rs"
 
 [dependencies]
 fltk = "1.4"
