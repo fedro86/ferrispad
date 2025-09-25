@@ -139,7 +139,7 @@ fn main() {
     let mut menu = MenuBar::new(0, 0, 0, 30, "");
     flex.fixed(&menu, 30);
 
-    let text_buf = TextBuffer::default();
+    let mut text_buf = TextBuffer::default();
     let mut text_editor = TextEditor::new(0, 0, 0, 0, "");
     text_editor.set_buffer(text_buf.clone());
 
@@ -153,6 +153,8 @@ fn main() {
     let dark_mode = Rc::new(RefCell::new(settings.dark_mode_enabled));
     let show_linenumbers = Rc::new(RefCell::new(settings.line_numbers_enabled));
     let word_wrap = Rc::new(RefCell::new(settings.word_wrap_enabled));
+    let has_unsaved_changes = Rc::new(RefCell::new(false));
+    let current_file_path = Rc::new(RefCell::new(Option::<String>::None));
 
     // Apply settings to editor
     if settings.line_numbers_enabled {
@@ -193,8 +195,16 @@ fn main() {
         app::repeat_timeout3(0.5, handle);
     });
 
+    // Set up text change detection
+    let changes_state = has_unsaved_changes.clone();
+    text_buf.add_modify_callback(move |_, _, _, _, _| {
+        *changes_state.borrow_mut() = true;
+    });
+
     let mut buf_new = text_buf.clone();
     let mut wind_new = wind.clone();
+    let changes_new = has_unsaved_changes.clone();
+    let path_new = current_file_path.clone();
     menu.add(
         "File/New",
         fltk::enums::Shortcut::Ctrl | 'n',
@@ -202,12 +212,16 @@ fn main() {
         move |_| {
             buf_new.set_text("");
             wind_new.set_label("Untitled - 🦀 FerrisPad");
+            *changes_new.borrow_mut() = false; // Reset unsaved changes flag
+            *path_new.borrow_mut() = None; // Clear current file path
         },
     );
 
     // OPEN -> native dialog
     let mut buf_open = text_buf.clone();
     let mut wind_open = wind.clone();
+    let changes_open = has_unsaved_changes.clone();
+    let path_open = current_file_path.clone();
     menu.add(
         "File/Open...",
         fltk::enums::Shortcut::Ctrl | 'o',
@@ -221,6 +235,8 @@ fn main() {
                             .and_then(|n| n.to_str())
                             .unwrap_or("Unknown");
                         wind_open.set_label(&format!("{} - 🦀 FerrisPad", filename));
+                        *changes_open.borrow_mut() = false; // Reset unsaved changes flag
+                        *path_open.borrow_mut() = Some(path); // Store current file path
                     }
                     Err(e) => dialog::alert_default(&format!("Error opening file: {}", e)),
                 }
@@ -231,6 +247,8 @@ fn main() {
     // SAVE AS -> native dialog
     let buf_save = text_buf.clone();
     let mut wind_save = wind.clone();
+    let changes_save = has_unsaved_changes.clone();
+    let path_save = current_file_path.clone();
     menu.add(
         "File/Save As...",
         fltk::enums::Shortcut::Ctrl | 's',
@@ -243,6 +261,8 @@ fn main() {
                             .and_then(|n| n.to_str())
                             .unwrap_or("Unknown");
                         wind_save.set_label(&format!("{} - 🦀 FerrisPad", filename));
+                        *changes_save.borrow_mut() = false; // Reset unsaved changes flag
+                        *path_save.borrow_mut() = Some(path); // Store current file path
                     },
                     Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
                 }
@@ -250,12 +270,76 @@ fn main() {
         },
     );
 
+    let changes_quit = has_unsaved_changes.clone();
+    let path_quit = current_file_path.clone();
+    let buf_quit = text_buf.clone();
+    let mut wind_quit = wind.clone();
     menu.add(
         "File/Quit",
         fltk::enums::Shortcut::Ctrl | 'q',
         fltk::menu::MenuFlag::Normal,
         move |_| {
-            app.quit();
+            if *changes_quit.borrow() {
+                // There are unsaved changes, ask user for confirmation with 3 options
+                let choice = dialog::choice2_default(
+                    "You have unsaved changes.",
+                    "Save",
+                    "Quit Without Saving",
+                    "Cancel"
+                );
+
+                match choice {
+                    Some(0) => { // User chose "Save"
+                        let saved = if let Some(ref current_path) = *path_quit.borrow() {
+                            // File has been saved before, save to existing path
+                            match fs::write(current_path, buf_quit.text()) {
+                                Ok(_) => {
+                                    *changes_quit.borrow_mut() = false;
+                                    true
+                                }
+                                Err(e) => {
+                                    dialog::alert_default(&format!("Error saving file: {}", e));
+                                    false
+                                }
+                            }
+                        } else {
+                            // New file, open save dialog
+                            if let Some(path) = native_save_dialog("*.txt") {
+                                match fs::write(&path, buf_quit.text()) {
+                                    Ok(_) => {
+                                        let filename = Path::new(&path).file_name()
+                                            .and_then(|n| n.to_str())
+                                            .unwrap_or("Unknown");
+                                        wind_quit.set_label(&format!("{} - 🦀 FerrisPad", filename));
+                                        *changes_quit.borrow_mut() = false;
+                                        *path_quit.borrow_mut() = Some(path);
+                                        true
+                                    }
+                                    Err(e) => {
+                                        dialog::alert_default(&format!("Error saving file: {}", e));
+                                        false
+                                    }
+                                }
+                            } else {
+                                false // User canceled save dialog
+                            }
+                        };
+
+                        if saved {
+                            app.quit();
+                        }
+                    }
+                    Some(1) => { // User chose "Quit Without Saving"
+                        app.quit();
+                    }
+                    _ => { // User chose "Cancel" or closed dialog
+                        // Do nothing (don't quit)
+                    }
+                }
+            } else {
+                // No unsaved changes, quit immediately
+                app.quit();
+            }
         },
     );
 
@@ -393,6 +477,75 @@ fn main() {
             editor_size3.redraw();
         },
     );
+
+    // Handle window close button (X)
+    let changes_close = has_unsaved_changes.clone();
+    let path_close = current_file_path.clone();
+    let buf_close = text_buf.clone();
+    let mut wind_close = wind.clone();
+    wind.set_callback(move |_| {
+        if *changes_close.borrow() {
+            // There are unsaved changes, ask user for confirmation with 3 options
+            let choice = dialog::choice2_default(
+                "You have unsaved changes.",
+                "Save",
+                "Quit Without Saving",
+                "Cancel"
+            );
+
+            match choice {
+                Some(0) => { // User chose "Save"
+                    let saved = if let Some(ref current_path) = *path_close.borrow() {
+                        // File has been saved before, save to existing path
+                        match fs::write(current_path, buf_close.text()) {
+                            Ok(_) => {
+                                *changes_close.borrow_mut() = false;
+                                true
+                            }
+                            Err(e) => {
+                                dialog::alert_default(&format!("Error saving file: {}", e));
+                                false
+                            }
+                        }
+                    } else {
+                        // New file, open save dialog
+                        if let Some(path) = native_save_dialog("*.txt") {
+                            match fs::write(&path, buf_close.text()) {
+                                Ok(_) => {
+                                    let filename = Path::new(&path).file_name()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or("Unknown");
+                                    wind_close.set_label(&format!("{} - 🦀 FerrisPad", filename));
+                                    *changes_close.borrow_mut() = false;
+                                    *path_close.borrow_mut() = Some(path);
+                                    true
+                                }
+                                Err(e) => {
+                                    dialog::alert_default(&format!("Error saving file: {}", e));
+                                    false
+                                }
+                            }
+                        } else {
+                            false // User canceled save dialog
+                        }
+                    };
+
+                    if saved {
+                        app.quit();
+                    }
+                }
+                Some(1) => { // User chose "Quit Without Saving"
+                    app.quit();
+                }
+                _ => { // User chose "Cancel" or closed dialog
+                    // Do nothing (don't close)
+                }
+            }
+        } else {
+            // No unsaved changes, quit immediately
+            app.quit();
+        }
+    });
 
     wind.end();
     wind.show();

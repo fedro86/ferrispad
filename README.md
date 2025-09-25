@@ -67,7 +67,9 @@ cd ferrispad
 cargo build --release
 ```
 
-### Install Desktop Integration (Linux)
+### Install Desktop Integration
+
+#### Linux
 For proper icon display and application menu integration:
 ```bash
 ./install-desktop.sh
@@ -83,6 +85,14 @@ To uninstall:
 ```bash
 ./uninstall-desktop.sh
 ```
+
+#### macOS
+Currently, the desktop integration scripts are Linux-specific. On macOS:
+- The compiled binary will run fine: `./target/release/FerrisPad`
+- Icons may not display properly in the dock
+- For proper macOS integration, the app would need to be packaged as a `.app` bundle
+
+**Note**: macOS app bundle creation is planned for future releases.
 
 ### Run
 ```bash
