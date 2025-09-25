@@ -11,4 +11,4 @@ MimeType=text/plain;text/x-csrc;text/x-chdr;text/x-c++src;text/x-c++hdr;text/x-j
 Categories=Utility;TextEditor;Development;
 Keywords=text;editor;notepad;rust;programming;
 Terminal=false
-StartupNotify=true
+StartupNotify=false
