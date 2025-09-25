@@ -13,6 +13,7 @@ use std::process::Command;
 use std::cell::RefCell;
 use std::fs;
 use std::rc::Rc;
+use std::path::Path;
 
 use fltk::dialog::{FileDialogType, NativeFileChooser};
 
@@ -119,7 +120,7 @@ fn native_save_dialog(filter: &str) -> Option<String> {
 
 fn main() {
     let app = app::App::default();
-    let mut wind = Window::new(100, 100, 640, 480, "🦀 FerrisPad");
+    let mut wind = Window::new(100, 100, 640, 480, "Untitled - 🦀 FerrisPad");
 
     // Load and set the crab emoji as window icon from embedded asset
     let icon_data = include_bytes!("../assets/crab-notepad-emoji-8bit.png");
@@ -196,7 +197,7 @@ fn main() {
         fltk::menu::MenuFlag::Normal,
         move |_| {
             buf_new.set_text("");
-            wind_new.set_label("🦀 FerrisPad");
+            wind_new.set_label("Untitled - 🦀 FerrisPad");
         },
     );
 
@@ -212,7 +213,10 @@ fn main() {
                 match fs::read_to_string(&path) {
                     Ok(content) => {
                         buf_open.set_text(&content);
-                        wind_open.set_label(&format!("🦀 FerrisPad - {}", path));
+                        let filename = Path::new(&path).file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("Unknown");
+                        wind_open.set_label(&format!("{} - 🦀 FerrisPad", filename));
                     }
                     Err(e) => dialog::alert_default(&format!("Error opening file: {}", e)),
                 }
@@ -230,7 +234,12 @@ fn main() {
         move |_| {
             if let Some(path) = native_save_dialog("*.txt") {
                 match fs::write(&path, buf_save.text()) {
-                    Ok(_) => wind_save.set_label(&format!("🦀 FerrisPad - {}", path)),
+                    Ok(_) => {
+                        let filename = Path::new(&path).file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("Unknown");
+                        wind_save.set_label(&format!("{} - 🦀 FerrisPad", filename));
+                    },
                     Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
                 }
             }
