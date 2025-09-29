@@ -1,9 +1,27 @@
 #!/bin/bash
 
 # Install FerrisPad desktop entry and icons
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve PROJECT_ROOT - handles both direct execution and symlinks
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+# If it's a symlink, resolve it
+if [ -L "$SCRIPT_PATH" ]; then
+    SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+fi
+PROJECT_ROOT="$(cd "$(dirname "$SCRIPT_PATH")" && cd .. && pwd)"
 
 echo "Installing FerrisPad desktop integration..."
+
+# Generate icons if they don't exist or if generate-icons.sh is newer
+if [ ! -f "${PROJECT_ROOT}/icons/hicolor/48x48/apps/ferrispad.png" ] || \
+   [ "${PROJECT_ROOT}/scripts/generate-icons.sh" -nt "${PROJECT_ROOT}/icons/hicolor/48x48/apps/ferrispad.png" ]; then
+    echo "Generating icons with rounded corners..."
+    if [ -x "${PROJECT_ROOT}/scripts/generate-icons.sh" ]; then
+        "${PROJECT_ROOT}/scripts/generate-icons.sh"
+    else
+        echo "Warning: scripts/generate-icons.sh not found or not executable"
+        echo "Icons may have sharp edges"
+    fi
+fi
 
 # Create necessary directories
 mkdir -p ~/.local/share/applications
@@ -12,16 +30,16 @@ mkdir -p ~/.local/share/icons/hicolor/{16x16,24x24,32x32,48x48,64x64,128x128,256
 # Install icons in all standard sizes
 echo "Installing icons..."
 for size in 16x16 24x24 32x32 48x48 64x64 128x128 256x256 512x512; do
-    if [ -f "${SCRIPT_DIR}/icons/hicolor/${size}/apps/ferrispad.png" ]; then
-        cp "${SCRIPT_DIR}/icons/hicolor/${size}/apps/ferrispad.png" \
+    if [ -f "${PROJECT_ROOT}/icons/hicolor/${size}/apps/ferrispad.png" ]; then
+        cp "${PROJECT_ROOT}/icons/hicolor/${size}/apps/ferrispad.png" \
            ~/.local/share/icons/hicolor/${size}/apps/ferrispad.png
         echo "  Installed ${size} icon"
     fi
 done
 
 # Copy desktop entry with correct paths
-sed "s|Icon=.*|Icon=ferrispad|g; s|Exec=.*|Exec=${SCRIPT_DIR}/target/release/FerrisPad|g" \
-    "${SCRIPT_DIR}/FerrisPad.desktop" > ~/.local/share/applications/FerrisPad.desktop
+sed "s|Icon=.*|Icon=ferrispad|g; s|Exec=.*|Exec=${PROJECT_ROOT}/target/release/FerrisPad|g" \
+    "${PROJECT_ROOT}/FerrisPad.desktop" > ~/.local/share/applications/FerrisPad.desktop
 
 # Make desktop entry executable
 chmod +x ~/.local/share/applications/FerrisPad.desktop
@@ -42,7 +60,7 @@ echo "Registering with desktop environment..."
 for size in 16 24 32 48 64 128 256 512; do
     if command -v xdg-icon-resource >/dev/null 2>&1; then
         xdg-icon-resource install --size ${size} \
-            "${SCRIPT_DIR}/icons/hicolor/${size}x${size}/apps/ferrispad.png" ferrispad 2>/dev/null || true
+            "${PROJECT_ROOT}/icons/hicolor/${size}x${size}/apps/ferrispad.png" ferrispad 2>/dev/null || true
     fi
 done
 
