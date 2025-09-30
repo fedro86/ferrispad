@@ -1,11 +1,17 @@
 # Claude
 .claude
 
+# macOS system files
+.DS_Store
+
 /target
 /data
 /docs/temp/*
 /docs/internal/*
 /icons/*
+
+# Binaries
+docs/assets/binaries/*
 
 # Temporary build artifacts
 FerrisPad.app/
