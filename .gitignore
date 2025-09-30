@@ -7,9 +7,6 @@
 /docs/internal/*
 /icons/*
 
-# Binary releases (large files)
-/docs/assets/binaries/**/*.zip
-/docs/assets/binaries/**/*.dmg
-/docs/assets/binaries/**/*.deb
-/docs/assets/binaries/**/*.exe
-/docs/assets/binaries/**/*.tar.gz
+# Temporary build artifacts
+FerrisPad.app/
+FerrisPad.iconset/

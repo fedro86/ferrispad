@@ -106,20 +106,148 @@ build_macos() {
 
         mkdir -p "${BINARY_DIR}/macos"
 
-        # Create a simple tar.gz (DMG creation requires additional tools)
-        cd target/release
-        tar -czf "../../${BINARY_DIR}/macos/${PROJECT_NAME}-v${VERSION}-macos-$(uname -m).tar.gz" ${PROJECT_NAME}
-        cd ../..
+        # Create .app bundle
+        echo -e "${YELLOW}Creating .app bundle...${NC}"
+        APP_BUNDLE="${PROJECT_NAME}.app"
+        rm -rf "$APP_BUNDLE"
+        mkdir -p "${APP_BUNDLE}/Contents/MacOS"
+        mkdir -p "${APP_BUNDLE}/Contents/Resources"
 
-        echo -e "${GREEN}✓ macOS tar.gz created: ${BINARY_DIR}/macos/${PROJECT_NAME}-v${VERSION}-macos-$(uname -m).tar.gz${NC}"
-        echo -e "${YELLOW}ℹ For .dmg creation, use tools like create-dmg or appdmg${NC}"
+        # Copy binary
+        cp "target/release/${PROJECT_NAME}" "${APP_BUNDLE}/Contents/MacOS/"
+
+        # Create Info.plist
+        cat > "${APP_BUNDLE}/Contents/Info.plist" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>${PROJECT_NAME}</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.ferrispad.editor</string>
+    <key>CFBundleName</key>
+    <string>${PROJECT_NAME}</string>
+    <key>CFBundleVersion</key>
+    <string>${VERSION}</string>
+    <key>CFBundleShortVersionString</key>
+    <string>${VERSION}</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleIconFile</key>
+    <string>icon.icns</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+</dict>
+</plist>
+EOF
+
+        # Generate .icns icon with rounded corners (macOS standard sizes)
+        echo -e "${YELLOW}Generating .icns icon...${NC}"
+        if command -v sips &> /dev/null && [ -f "assets/crab-notepad-emoji-8bit.png" ]; then
+            ICONSET_DIR="${PROJECT_NAME}.iconset"
+            rm -rf "$ICONSET_DIR"
+            mkdir -p "$ICONSET_DIR"
+
+            # Function to create rounded corner mask
+            create_rounded_icon() {
+                local size=$1
+                local output=$2
+                local radius=$((size / 8))
+
+                if command -v convert &> /dev/null; then
+                    # Create mask
+                    convert -size ${size}x${size} xc:none \
+                        -draw "roundrectangle 0,0 $((size-1)),$((size-1)) ${radius},${radius}" \
+                        -alpha extract \
+                        /tmp/mask_${size}.png
+
+                    # Apply rounded corners
+                    convert "assets/crab-notepad-emoji-8bit.png" \
+                        -resize ${size}x${size} \
+                        -gravity center \
+                        -extent ${size}x${size} \
+                        /tmp/mask_${size}.png \
+                        -alpha off \
+                        -compose CopyOpacity \
+                        -composite \
+                        "$output"
+
+                    rm -f /tmp/mask_${size}.png
+                else
+                    # Fallback to simple resize if ImageMagick not available
+                    sips -z $size $size "assets/crab-notepad-emoji-8bit.png" --out "$output" &>/dev/null
+                fi
+            }
+
+            # Generate all required icon sizes for .icns
+            create_rounded_icon 16 "${ICONSET_DIR}/icon_16x16.png"
+            create_rounded_icon 32 "${ICONSET_DIR}/icon_16x16@2x.png"
+            create_rounded_icon 32 "${ICONSET_DIR}/icon_32x32.png"
+            create_rounded_icon 64 "${ICONSET_DIR}/icon_32x32@2x.png"
+            create_rounded_icon 128 "${ICONSET_DIR}/icon_128x128.png"
+            create_rounded_icon 256 "${ICONSET_DIR}/icon_128x128@2x.png"
+            create_rounded_icon 256 "${ICONSET_DIR}/icon_256x256.png"
+            create_rounded_icon 512 "${ICONSET_DIR}/icon_256x256@2x.png"
+            create_rounded_icon 512 "${ICONSET_DIR}/icon_512x512.png"
+            create_rounded_icon 1024 "${ICONSET_DIR}/icon_512x512@2x.png"
+
+            # Convert iconset to icns
+            iconutil -c icns "$ICONSET_DIR" -o "${APP_BUNDLE}/Contents/Resources/icon.icns"
+            rm -rf "$ICONSET_DIR"
+            echo -e "${GREEN}✓ .icns icon created with rounded corners${NC}"
+        else
+            echo -e "${YELLOW}⚠ Icon generation skipped (requires sips and source icon)${NC}"
+        fi
+
+        echo -e "${GREEN}✓ .app bundle created${NC}"
+
+        # Create DMG
+        echo -e "${YELLOW}Creating .dmg...${NC}"
+
+        # Check if create-dmg is installed
+        if ! command -v create-dmg &> /dev/null; then
+            echo -e "${YELLOW}⚠ create-dmg not found. Installing via Homebrew...${NC}"
+            if command -v brew &> /dev/null; then
+                brew install create-dmg
+            else
+                echo -e "${RED}✗ Homebrew not found. Please install create-dmg manually:${NC}"
+                echo -e "${YELLOW}  brew install create-dmg${NC}"
+                echo -e "${YELLOW}Creating .zip as fallback...${NC}"
+                zip -r "${BINARY_DIR}/macos/${PROJECT_NAME}-v${VERSION}-macos.zip" "$APP_BUNDLE"
+                echo -e "${GREEN}✓ macOS .zip created: ${BINARY_DIR}/macos/${PROJECT_NAME}-v${VERSION}-macos.zip${NC}"
+                return 0
+            fi
+        fi
+
+        # Create DMG with create-dmg
+        create-dmg \
+            --volname "${PROJECT_NAME}" \
+            --volicon "${APP_BUNDLE}/Contents/Resources/icon.icns" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "${PROJECT_NAME}.app" 175 190 \
+            --hide-extension "${PROJECT_NAME}.app" \
+            --app-drop-link 425 190 \
+            "${BINARY_DIR}/macos/${PROJECT_NAME}-v${VERSION}-macos.dmg" \
+            "$APP_BUNDLE"
+
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✓ macOS .dmg created: ${BINARY_DIR}/macos/${PROJECT_NAME}-v${VERSION}-macos.dmg${NC}"
+            echo -e "${YELLOW}ℹ Users can mount the DMG and drag to Applications folder${NC}"
+        else
+            echo -e "${YELLOW}⚠ DMG creation failed, creating .zip as fallback...${NC}"
+            zip -r "${BINARY_DIR}/macos/${PROJECT_NAME}-v${VERSION}-macos.zip" "$APP_BUNDLE"
+            echo -e "${GREEN}✓ macOS .zip created: ${BINARY_DIR}/macos/${PROJECT_NAME}-v${VERSION}-macos.zip${NC}"
+        fi
     else
         echo -e "${RED}✗ macOS build failed${NC}"
         return 1
     fi
 }
 
-# Windows binary (cross-compile from Linux)
+# Windows binary (cross-compile from Linux/macOS)
 build_windows() {
     echo -e "${YELLOW}Building Windows binary...${NC}"
 
@@ -131,7 +259,12 @@ build_windows() {
 
     # Check if mingw is available
     if ! command -v x86_64-w64-mingw32-gcc &> /dev/null; then
-        echo -e "${RED}✗ MinGW not found. Install with: sudo apt-get install mingw-w64${NC}"
+        echo -e "${RED}✗ MinGW not found.${NC}"
+        if [ "$CURRENT_OS" == "macos" ]; then
+            echo -e "${YELLOW}Install with: brew install mingw-w64${NC}"
+        else
+            echo -e "${YELLOW}Install with: sudo apt-get install mingw-w64${NC}"
+        fi
         return 1
     fi
 
