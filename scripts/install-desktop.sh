@@ -39,10 +39,10 @@ done
 
 # Copy desktop entry with correct paths
 sed "s|Icon=.*|Icon=ferrispad|g; s|Exec=.*|Exec=${PROJECT_ROOT}/target/release/FerrisPad|g" \
-    "${PROJECT_ROOT}/FerrisPad.desktop" > ~/.local/share/applications/FerrisPad.desktop
+    "${PROJECT_ROOT}/ferrispad.desktop" > ~/.local/share/applications/ferrispad.desktop
 
 # Make desktop entry executable
-chmod +x ~/.local/share/applications/FerrisPad.desktop
+chmod +x ~/.local/share/applications/ferrispad.desktop
 
 # Update icon cache
 echo "Updating icon cache..."

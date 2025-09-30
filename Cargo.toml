@@ -1,7 +1,7 @@
 [package]
 name = "FerrisPad"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 description = "A blazingly fast, minimalist notepad written in Rust"
 license = "MIT"
 authors = ["Your Name <your.email@example.com>"]
@@ -16,3 +16,26 @@ path = "src/main.rs"
 
 [dependencies]
 fltk = "1.4"
+
+[package.metadata.deb]
+maintainer = "FerrisPad Contributors <noreply@example.com>"
+copyright = "2024, FerrisPad Contributors"
+extended-description = """
+FerrisPad is a simple, ultra-fast text editor built with Rust and FLTK.
+It's designed for those who want something that just works - no bells and whistles,
+no feature bloat, just a clean, responsive notepad that opens instantly.
+"""
+depends = "$auto"
+section = "editors"
+priority = "optional"
+assets = [
+    ["target/release/FerrisPad", "usr/bin/", "755"],
+    ["icons/hicolor/16x16/apps/ferrispad.png", "usr/share/icons/hicolor/16x16/apps/", "644"],
+    ["icons/hicolor/32x32/apps/ferrispad.png", "usr/share/icons/hicolor/32x32/apps/", "644"],
+    ["icons/hicolor/48x48/apps/ferrispad.png", "usr/share/icons/hicolor/48x48/apps/", "644"],
+    ["icons/hicolor/64x64/apps/ferrispad.png", "usr/share/icons/hicolor/64x64/apps/", "644"],
+    ["icons/hicolor/128x128/apps/ferrispad.png", "usr/share/icons/hicolor/128x128/apps/", "644"],
+    ["icons/hicolor/256x256/apps/ferrispad.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
+    ["icons/hicolor/512x512/apps/ferrispad.png", "usr/share/icons/hicolor/512x512/apps/", "644"],
+    ["ferrispad.desktop", "usr/share/applications/", "644"],
+]

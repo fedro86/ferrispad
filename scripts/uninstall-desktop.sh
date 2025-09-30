@@ -5,8 +5,8 @@
 echo "Uninstalling FerrisPad desktop integration..."
 
 # Remove desktop entry
-if [ -f ~/.local/share/applications/FerrisPad.desktop ]; then
-    rm ~/.local/share/applications/FerrisPad.desktop
+if [ -f ~/.local/share/applications/ferrispad.desktop ]; then
+    rm ~/.local/share/applications/ferrispad.desktop
     echo "  Removed desktop entry"
 fi
 

@@ -67,7 +67,7 @@ check_file "$PROJECT_ROOT/scripts/generate-icons.sh" "Generate icons script exis
 check_file "$PROJECT_ROOT/scripts/install-desktop.sh" "Install script exists"
 check_file "$PROJECT_ROOT/scripts/uninstall-desktop.sh" "Uninstall script exists"
 check_file "$PROJECT_ROOT/data/img/ferrispad-logo.png" "Source logo exists"
-check_file "$PROJECT_ROOT/FerrisPad.desktop" "Desktop file exists"
+check_file "$PROJECT_ROOT/ferrispad.desktop" "Desktop file exists"
 check_file "$PROJECT_ROOT/target/release/FerrisPad" "Binary exists" || echo "  ⚠️  Note: Run 'cargo build --release' to create the binary"
 echo ""
 
@@ -110,11 +110,11 @@ echo ""
 # Test 5: Desktop File Validation
 echo "✅ Testing Desktop File Validation..."
 if command -v desktop-file-validate >/dev/null 2>&1; then
-    if desktop-file-validate "$PROJECT_ROOT/FerrisPad.desktop" 2>/dev/null; then
+    if desktop-file-validate "$PROJECT_ROOT/ferrispad.desktop" 2>/dev/null; then
         print_test "Desktop file validation" "PASS" ""
     else
         # Check for warnings vs errors
-        validation_output=$(desktop-file-validate "$PROJECT_ROOT/FerrisPad.desktop" 2>&1)
+        validation_output=$(desktop-file-validate "$PROJECT_ROOT/ferrispad.desktop" 2>&1)
         if echo "$validation_output" | grep -q "error:"; then
             print_test "Desktop file validation" "FAIL" "Validation errors found"
         else

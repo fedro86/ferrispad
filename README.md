@@ -45,34 +45,69 @@ This isn't meant to change the landscape of text editors. It's meant to be that 
 
 ## Installation
 
-### Prerequisites
-- Rust (latest stable version)
-- FLTK dependencies for your system
+### Download Pre-Built Binaries
 
-#### Linux (Ubuntu/Debian)
-```bash
-sudo apt-get install libfltk1.3-dev libfontconfig1-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev
-```
+**Visit our website:** 👉 **[www.ferrispad.com](https://www.ferrispad.com)** 👈
 
-#### macOS
+Download ready-to-use binaries for:
+- **Linux** - `.deb` package or standalone binary
+- **macOS** - Universal binary (Intel + Apple Silicon)
+- **Windows** - Portable `.zip` archive
+
+### Quick Install (Linux/Ubuntu)
+
 ```bash
-# FLTK should work out of the box with Xcode command line tools
-xcode-select --install
+# Download and install the .deb package
+wget https://www.ferrispad.com/assets/binaries/ubuntu/FerrisPad-v0.1.0-ubuntu-amd64.deb
+sudo dpkg -i FerrisPad-v0.1.0-ubuntu-amd64.deb
+
+# Launch from application menu or run
+FerrisPad
 ```
 
 ### Build from Source
+
+#### Prerequisites
+- Rust (latest stable version)
+- FLTK dependencies for your system
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt-get install libfltk1.3-dev libfontconfig1-dev libxext-dev libxft-dev \
+  libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev \
+  libgl1-mesa-dev libglu1-mesa-dev
+```
+
+**macOS:**
+```bash
+xcode-select --install
+```
+
+#### Build Commands
+
 ```bash
 git clone https://github.com/fedro86/ferrispad
 cd ferrispad
 cargo build --release
 ```
 
-### Install Desktop Integration
-
-#### Linux
-For proper icon display and application menu integration:
+**Build Distribution Packages:**
 ```bash
-./install-desktop.sh
+# Interactive build menu for all platforms
+./scripts/build-releases.sh
+
+# Or build .deb package directly (Linux)
+cargo install cargo-deb
+cargo deb
+```
+
+See [BUILD_GUIDE.md](BUILD_GUIDE.md) for detailed build instructions
+
+### Install Desktop Integration (Linux)
+
+For proper icon display and application menu integration when building from source:
+```bash
+./scripts/install-desktop.sh
 ```
 
 This will:
@@ -83,16 +118,10 @@ This will:
 
 To uninstall:
 ```bash
-./uninstall-desktop.sh
+./scripts/uninstall-desktop.sh
 ```
 
-#### macOS
-Currently, the desktop integration scripts are Linux-specific. On macOS:
-- The compiled binary will run fine: `./target/release/FerrisPad`
-- Icons may not display properly in the dock
-- For proper macOS integration, the app would need to be packaged as a `.app` bundle
-
-**Note**: macOS app bundle creation is planned for future releases.
+**Note**: The `.deb` package automatically handles desktop integration.
 
 ### Run
 ```bash
@@ -134,6 +163,10 @@ FerrisPad is intentionally simple and well-structured, making it easy to extend.
 Key files:
 - `src/main.rs` - Main application logic
 - `assets/` - Application icons and resources
+- `scripts/` - Build and installation scripts
+- `docs/` - Website and documentation
+
+See [BUILD_GUIDE.md](BUILD_GUIDE.md) for building distribution packages
 
 ## Technology Stack
 

@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="FerrisPad - A blazingly fast, minimalist notepad written in Rust. Download for Windows, macOS, and Ubuntu.">
+    <meta name="keywords" content="text editor, notepad, rust, fltk, ferrispad, download">
+    <meta name="author" content="FerrisPad Contributors">
+
+    <!-- Open Graph / Social Media -->
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="FerrisPad - Blazingly Fast Notepad">
+    <meta property="og:description" content="A minimalist, ultra-fast text editor built with Rust">
+    <meta property="og:image" content="assets/logo.png">
+
+    <title>FerrisPad - Blazingly Fast Notepad</title>
+    <link rel="icon" type="image/png" href="assets/favicon.png">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container">
+            <div class="nav-brand">
+                <img src="assets/logo.png" alt="FerrisPad Logo" class="nav-logo">
+                <span class="nav-title">FerrisPad</span>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#download">Download</a></li>
+                <li><a href="#compile">Build</a></li>
+                <li><a href="https://github.com/fedro86/ferrispad" target="_blank" rel="noopener">GitHub</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container">
+            <img src="assets/logo.png" alt="FerrisPad Logo" class="hero-logo">
+            <h1 class="hero-title">FerrisPad</h1>
+            <p class="hero-subtitle">A blazingly fast, minimalist notepad written in Rust 🦀</p>
+            <p class="hero-description">
+                Lightning-fast startup. Clean interface. Zero bloat. Just a notepad that works.
+            </p>
+            <div class="hero-buttons">
+                <a href="#download" class="btn btn-primary" id="primary-download">
+                    <svg class="btn-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    Download for <span id="detected-os">Your OS</span>
+                </a>
+                <a href="#compile" class="btn btn-secondary">Compile from Source</a>
+            </div>
+            <p class="version-info">Latest version: v0.1.0</p>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features">
+        <div class="container">
+            <h2 class="section-title">Why FerrisPad?</h2>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Lightning Fast</h3>
+                    <p>Opens instantly. No splash screens, no loading delays. Just pure speed.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🎨</div>
+                    <h3>Light & Dark Modes</h3>
+                    <p>Automatically detects your system theme for comfortable editing.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📝</div>
+                    <h3>Clean Interface</h3>
+                    <p>Minimal, distraction-free design focused on what matters: your text.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⌨️</div>
+                    <h3>Standard Shortcuts</h3>
+                    <p>Familiar keyboard shortcuts: Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Q.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔢</div>
+                    <h3>Essential Tools</h3>
+                    <p>Line numbers, word wrap, multiple fonts, and customizable font sizes.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🦀</div>
+                    <h3>Built with Rust</h3>
+                    <p>Memory-safe, blazingly fast, and reliable. Powered by Rust and FLTK.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Screenshots Section -->
+    <section class="screenshots">
+        <div class="container">
+            <h2 class="section-title">See It In Action</h2>
+            <div class="screenshots-grid">
+                <div class="screenshot-card">
+                    <h3>Light Mode</h3>
+                    <img src="assets/screenshots/screenshot-light.png" alt="FerrisPad Light Mode" class="screenshot-img">
+                    <p>Clean, bright interface with line numbers and monospace font</p>
+                </div>
+                <div class="screenshot-card">
+                    <h3>Dark Mode</h3>
+                    <img src="assets/screenshots/screenshot-dark.png" alt="FerrisPad Dark Mode" class="screenshot-img">
+                    <p>Easy on the eyes dark theme with syntax-friendly colors</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Download Section -->
+    <section id="download" class="download">
+        <div class="container">
+            <h2 class="section-title">Download FerrisPad</h2>
+            <p class="section-subtitle">Choose your platform and start editing instantly</p>
+
+            <div class="download-grid">
+                <!-- Windows -->
+                <div class="download-card">
+                    <div class="download-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/>
+                        </svg>
+                    </div>
+                    <h3>Windows</h3>
+                    <p>Windows 10/11 (64-bit)</p>
+                    <a href="assets/binaries/windows/FerrisPad-v0.1.0-windows-x64.zip" class="btn btn-download" download>
+                        Download .zip
+                    </a>
+                    <details class="install-details">
+                        <summary>Installation Instructions</summary>
+                        <ol>
+                            <li>Download and extract the .zip file</li>
+                            <li>Run <code>FerrisPad.exe</code></li>
+                            <li>Optionally, create a desktop shortcut</li>
+                        </ol>
+                    </details>
+                </div>
+
+                <!-- macOS -->
+                <div class="download-card">
+                    <div class="download-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+                        </svg>
+                    </div>
+                    <h3>macOS</h3>
+                    <p>macOS 11+ (Universal)</p>
+                    <a href="assets/binaries/macos/FerrisPad-v0.1.0-macos-universal.dmg" class="btn btn-download" download>
+                        Download .dmg
+                    </a>
+                    <details class="install-details">
+                        <summary>Installation Instructions</summary>
+                        <ol>
+                            <li>Download and open the .dmg file</li>
+                            <li>Drag FerrisPad to Applications</li>
+                            <li>Launch from Applications or Spotlight</li>
+                            <li>If blocked, go to System Preferences > Security & Privacy and allow it</li>
+                        </ol>
+                    </details>
+                </div>
+
+                <!-- Ubuntu/Linux -->
+                <div class="download-card">
+                    <div class="download-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M22 12.05c0-5.5-4.5-9.95-10-9.95S2 6.55 2 12.05s4.5 9.95 10 9.95 10-4.45 10-9.95zM5.55 13.2c-.88 0-1.6-.72-1.6-1.6s.72-1.6 1.6-1.6 1.6.72 1.6 1.6-.72 1.6-1.6 1.6zm2.92 5.15c-.44-.76-.18-1.74.58-2.18.76-.44 1.74-.18 2.18.58.44.76.18 1.74-.58 2.18-.76.44-1.74.18-2.18-.58zm0-10.7c.44-.76 1.42-1.02 2.18-.58.76.44 1.02 1.42.58 2.18-.44.76-1.42 1.02-2.18.58-.76-.44-1.02-1.42-.58-2.18zm2.35 7.74l2.97-5.15 2.97 5.15z"/>
+                        </svg>
+                    </div>
+                    <h3>Ubuntu/Linux</h3>
+                    <p>Ubuntu 20.04+ / Debian-based</p>
+                    <a href="assets/binaries/ubuntu/FerrisPad-v0.1.0-ubuntu-amd64.deb" class="btn btn-download" download>
+                        Download .deb
+                    </a>
+                    <details class="install-details">
+                        <summary>Installation Instructions</summary>
+                        <ol>
+                            <li>Download the .deb file</li>
+                            <li>Install with: <code>sudo dpkg -i FerrisPad-v0.1.0-ubuntu-amd64.deb</code></li>
+                            <li>Or double-click the file to install via Software Center</li>
+                            <li>Launch from Applications menu or run <code>ferrispad</code></li>
+                        </ol>
+                    </details>
+                </div>
+            </div>
+
+            <div class="download-note">
+                <p><strong>Note:</strong> Binary releases are coming soon! In the meantime, you can <a href="#compile">compile from source</a>.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Compile from Source Section -->
+    <section id="compile" class="compile">
+        <div class="container">
+            <h2 class="section-title">Compile from Source</h2>
+            <p class="section-subtitle">Build FerrisPad yourself in just a few steps</p>
+
+            <div class="compile-steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h3>Install Prerequisites</h3>
+                        <div class="code-tabs">
+                            <button class="code-tab active" data-os="linux">Linux</button>
+                            <button class="code-tab" data-os="macos">macOS</button>
+                            <button class="code-tab" data-os="windows">Windows</button>
+                        </div>
+                        <div class="code-block active" data-os="linux">
+                            <pre><code># Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Install FLTK dependencies
+sudo apt-get install libfltk1.3-dev libfontconfig1-dev libxext-dev \
+  libxft-dev libxinerama-dev libxcursor-dev libxrender-dev \
+  libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev</code></pre>
+                            <button class="copy-btn" data-clipboard="curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh&#10;sudo apt-get install libfltk1.3-dev libfontconfig1-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev">Copy</button>
+                        </div>
+                        <div class="code-block" data-os="macos">
+                            <pre><code># Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Install Xcode Command Line Tools
+xcode-select --install</code></pre>
+                            <button class="copy-btn" data-clipboard="curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh&#10;xcode-select --install">Copy</button>
+                        </div>
+                        <div class="code-block" data-os="windows">
+                            <pre><code># Install Rust from https://rustup.rs/
+# Download and run rustup-init.exe
+
+# FLTK should work out of the box on Windows</code></pre>
+                            <button class="copy-btn" data-clipboard="# Install Rust from https://rustup.rs/">Copy</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h3>Clone and Build</h3>
+                        <div class="code-block active">
+                            <pre><code># Clone the repository
+git clone https://github.com/fedro86/ferrispad
+cd ferrispad
+
+# Build in release mode
+cargo build --release
+
+# The binary will be at: ./target/release/FerrisPad</code></pre>
+                            <button class="copy-btn" data-clipboard="git clone https://github.com/fedro86/ferrispad&#10;cd ferrispad&#10;cargo build --release">Copy</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h3>Run FerrisPad</h3>
+                        <div class="code-block active">
+                            <pre><code># Run directly
+cargo run --release
+
+# Or use the compiled binary
+./target/release/FerrisPad
+
+# Optional: Install desktop integration (Linux only)
+./install-desktop.sh</code></pre>
+                            <button class="copy-btn" data-clipboard="cargo run --release">Copy</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="compile-help">
+                <h3>Need Help?</h3>
+                <p>Check out the <a href="https://github.com/fedro86/ferrispad#readme" target="_blank" rel="noopener">full documentation</a> or <a href="https://github.com/fedro86/ferrispad/issues" target="_blank" rel="noopener">open an issue</a> on GitHub.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <img src="assets/logo.png" alt="FerrisPad Logo" class="footer-logo">
+                    <p>Built with ❤️ and 🦀</p>
+                </div>
+                <div class="footer-links">
+                    <div class="footer-column">
+                        <h4>Project</h4>
+                        <ul>
+                            <li><a href="https://github.com/fedro86/ferrispad" target="_blank" rel="noopener">GitHub</a></li>
+                            <li><a href="https://github.com/fedro86/ferrispad/issues" target="_blank" rel="noopener">Report Issue</a></li>
+                            <li><a href="https://github.com/fedro86/ferrispad/blob/master/LICENSE" target="_blank" rel="noopener">MIT License</a></li>
+                        </ul>
+                    </div>
+                    <div class="footer-column">
+                        <h4>Resources</h4>
+                        <ul>
+                            <li><a href="https://github.com/fedro86/ferrispad#readme" target="_blank" rel="noopener">Documentation</a></li>
+                            <li><a href="https://www.rust-lang.org/" target="_blank" rel="noopener">Rust Language</a></li>
+                            <li><a href="https://www.fltk.org/" target="_blank" rel="noopener">FLTK Toolkit</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2024 FerrisPad Contributors. Licensed under MIT.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="js/main.js"></script>
+</body>
+</html>
