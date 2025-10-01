@@ -56,6 +56,8 @@ git tag -a "${VERSION}" -m "Release ${VERSION}"
 
 # Push the tag to GitHub
 git push origin "${VERSION}"
+
+VERSION="0.1.3" && git tag -a "${VERSION}" -m "Release ${VERSION}" && git push origin "${VERSION}" 
 ```
 
 **Note:** This project uses tags **without** the "v" prefix (e.g., `0.1.2` instead of `v0.1.2`) to match the existing tagging convention.

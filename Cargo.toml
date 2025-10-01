@@ -17,6 +17,9 @@ path = "src/main.rs"
 [dependencies]
 fltk = "1.4"
 
+[build-dependencies]
+winres = "0.1"
+
 [package.metadata.deb]
 maintainer = "FerrisPad Contributors <fc@ferrispad.com>"
 copyright = "2025, FerrisPad Contributors"
