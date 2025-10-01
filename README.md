@@ -65,6 +65,25 @@ sudo dpkg -i FerrisPad-v0.1.3-ubuntu-amd64.deb
 FerrisPad
 ```
 
+### Windows Security Warning
+
+When running FerrisPad on Windows for the first time, you may see a "Windows protected your PC" warning. This is **normal** for open source software that is not code-signed with a commercial certificate (which costs $100-400/year).
+
+**FerrisPad is safe to run**. The source code is completely open and auditable on GitHub.
+
+**To run FerrisPad:**
+1. Click "More info" on the warning dialog
+2. Click "Run anyway"
+
+**Alternative method:**
+1. Right-click the downloaded `.zip` file
+2. Select "Properties"
+3. Check the "Unblock" box at the bottom
+4. Click "OK"
+5. Extract and run normally
+
+This warning appears for many open source projects including GIMP, Audacity, and other community-developed software. If we add paid code signing in the future, this warning will disappear.
+
 ### Build from Source
 
 #### Prerequisites
