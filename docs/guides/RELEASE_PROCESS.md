@@ -12,15 +12,38 @@ FerrisPad uses GitHub Actions to automatically build binaries for:
 ## Prerequisites
 
 - Commit and push all changes to the `master` branch
-- Ensure version numbers are updated in:
-  - `Cargo.toml` (version field)
-  - `docs/js/main.js` (download URLs)
-  - `docs/index.html` (version display)
-  - `README.md` (installation instructions)
 
 ## Creating a Release
 
-### 1. Create and Push a Version Tag
+### 1. Bump the Version
+
+Use the automated version bump script to update all files:
+
+```bash
+# For a stable release
+./scripts/bump-version.sh 0.1.4
+
+# For a pre-release
+./scripts/bump-version.sh 0.2.0-beta.1
+```
+
+This script automatically updates:
+- `Cargo.toml` - version field
+- `docs/js/main.js` - download URLs
+- `docs/index.html` - version display and download URLs
+- `README.md` - installation instructions and download URLs
+- `scripts/build-releases.sh` - VERSION variable
+
+After running the script, review and commit the changes:
+
+```bash
+git diff                                # Review changes
+git add -A                              # Stage all changes
+git commit -m "chore: bump version to 0.1.4"
+git push                                # Push to GitHub
+```
+
+### 2. Create and Push the Release Tag
 
 #### For Stable Releases
 
@@ -60,7 +83,7 @@ git push origin "${VERSION}"
 
 **Pre-release detection:** Tags containing `-alpha`, `-beta`, or `-rc` will automatically be marked as pre-releases in the workflow.
 
-### 2. Automatic Build Process
+### 3. Automatic Build Process
 
 Once the tag is pushed, GitHub Actions will automatically:
 
@@ -74,14 +97,14 @@ Once the tag is pushed, GitHub Actions will automatically:
    - `FerrisPad-v0.1.1-windows-x64.zip`
    - `FerrisPad-v0.1.1-macos.dmg`
 
-### 3. Monitor the Build
+### 4. Monitor the Build
 
 1. Go to the **Actions** tab in GitHub
 2. Click on the "Build and Release" workflow
 3. Monitor each job (Linux, Windows, macOS)
 4. Build typically takes 5-10 minutes total
 
-### 4. Add Release Notes and Description
+### 5. Add Release Notes and Description
 
 Once the build completes, enhance the release with proper documentation:
 
@@ -183,7 +206,7 @@ Please test and report issues:
 **Feedback**: Please report issues at https://github.com/fedro86/ferrispad/issues
 ```
 
-### 5. Verify the Release
+### 6. Verify the Release
 
 After adding release notes:
 
@@ -287,16 +310,29 @@ For cross-platform testing, use the GitHub Actions workflow instead of local cro
 
 **Note:** Tags do NOT include the "v" prefix (e.g., `0.1.2` not `v0.1.2`)
 
-### One-Line Release Commands
+### Quick Release Workflow
 
 ```bash
-# Stable release
-VERSION="0.1.2" && git tag -a "${VERSION}" -m "Release ${VERSION}" && git push origin "${VERSION}"
+# 1. Bump version and update all files
+./scripts/bump-version.sh 0.1.4
 
-# Beta release
+# 2. Review, commit, and push changes
+git diff && git add -A && git commit -m "chore: bump version to 0.1.4" && git push
+
+# 3. Create and push tag (triggers GitHub Actions build)
+VERSION="0.1.4" && git tag -a "${VERSION}" -m "Release ${VERSION}" && git push origin "${VERSION}"
+```
+
+### One-Line Commands (After version bump)
+
+```bash
+# Stable release tag
+VERSION="0.1.4" && git tag -a "${VERSION}" -m "Release ${VERSION}" && git push origin "${VERSION}"
+
+# Beta release tag
 VERSION="0.2.0-beta.1" && git tag -a "${VERSION}" -m "Beta ${VERSION}" && git push origin "${VERSION}"
 
-# Release candidate
+# Release candidate tag
 VERSION="0.2.0-rc.1" && git tag -a "${VERSION}" -m "RC ${VERSION}" && git push origin "${VERSION}"
 ```
 
