@@ -40,10 +40,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.ref }}
-          release_name: FerrisPad ${{ github.ref }}
+          tag_name: ${{ steps.get_version.outputs.version }}
+          release_name: FerrisPad v${{ steps.get_version.outputs.version }}
           body: |
-            ## 🦀 FerrisPad ${{ github.ref }}
+            ## 🦀 FerrisPad v${{ steps.get_version.outputs.version }}
 
             Automated release build. Please add release notes by editing this release.
 
