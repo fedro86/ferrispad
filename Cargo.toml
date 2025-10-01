@@ -1,11 +1,11 @@
 [package]
 name = "FerrisPad"
-version = "0.1.0"
-edition = "2021"
+version = "0.1.1"
+edition = "2025"
 description = "A blazingly fast, minimalist notepad written in Rust"
 license = "MIT"
-authors = ["Your Name <your.email@example.com>"]
-homepage = "https://github.com/fedro86/ferrispad"
+authors = ["Federico Conticello <fc@ferrispad.com>"]
+homepage = "www.ferrispad.com"
 repository = "https://github.com/fedro86/ferrispad"
 keywords = ["text-editor", "notepad", "rust", "fltk", "gui"]
 categories = ["text-editors", "gui"]
@@ -18,8 +18,8 @@ path = "src/main.rs"
 fltk = "1.4"
 
 [package.metadata.deb]
-maintainer = "FerrisPad Contributors <noreply@example.com>"
-copyright = "2024, FerrisPad Contributors"
+maintainer = "FerrisPad Contributors <fc@ferrispad.com>"
+copyright = "2025, FerrisPad Contributors"
 extended-description = """
 FerrisPad is a simple, ultra-fast text editor built with Rust and FLTK.
 It's designed for those who want something that just works - no bells and whistles,

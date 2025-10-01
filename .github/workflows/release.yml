@@ -1,0 +1,242 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  PROJECT_NAME: FerrisPad
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Detect if this is a pre-release (contains -alpha, -beta, or -rc)
+          if [[ "$VERSION" =~ -(alpha|beta|rc) ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: FerrisPad ${{ github.ref }}
+          body: |
+            ## 🦀 FerrisPad ${{ github.ref }}
+
+            Automated release build. Please add release notes by editing this release.
+
+            ### 📦 Downloads
+
+            - **Linux**: Ubuntu/Debian `.deb` package
+            - **Windows**: Portable `.zip` archive
+            - **macOS**: Universal `.dmg` installer (Intel + Apple Silicon)
+
+            ### 📝 Installation
+
+            See the [Installation Guide](https://github.com/fedro86/ferrispad#installation) for detailed instructions.
+          draft: false
+          prerelease: ${{ steps.get_version.outputs.is_prerelease }}
+
+  build-linux:
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install FLTK dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfltk1.3-dev libfontconfig1-dev libxext-dev \
+            libxft-dev libxinerama-dev libxcursor-dev libxrender-dev \
+            libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev
+
+      - name: Build binary
+        run: cargo build --release --verbose
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+
+      - name: Create .deb package
+        run: cargo deb
+
+      - name: Get .deb filename
+        id: get_deb
+        run: |
+          DEB_FILE=$(find target/debian -name "*.deb" -type f | head -n 1)
+          echo "deb_path=$DEB_FILE" >> $GITHUB_OUTPUT
+          echo "deb_name=$(basename $DEB_FILE)" >> $GITHUB_OUTPUT
+
+      - name: Rename .deb file
+        run: |
+          mv ${{ steps.get_deb.outputs.deb_path }} \
+             ${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-ubuntu-amd64.deb
+
+      - name: Upload .deb to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-ubuntu-amd64.deb
+          asset_name: ${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-ubuntu-amd64.deb
+          asset_content_type: application/vnd.debian.binary-package
+
+  build-windows:
+    needs: create-release
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build binary
+        run: cargo build --release --verbose
+
+      - name: Create zip archive
+        run: |
+          cd target/release
+          7z a ../../${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-windows-x64.zip ${{ env.PROJECT_NAME }}.exe
+
+      - name: Upload zip to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-windows-x64.zip
+          asset_name: ${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-windows-x64.zip
+          asset_content_type: application/zip
+
+  build-macos:
+    needs: create-release
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Build universal binary
+        run: |
+          # Add ARM64 target
+          rustup target add aarch64-apple-darwin
+
+          # Build for both architectures
+          cargo build --release --target x86_64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin
+
+          # Create universal binary
+          mkdir -p target/universal/release
+          lipo -create \
+            target/x86_64-apple-darwin/release/${{ env.PROJECT_NAME }} \
+            target/aarch64-apple-darwin/release/${{ env.PROJECT_NAME }} \
+            -output target/universal/release/${{ env.PROJECT_NAME }}
+
+      - name: Create .app bundle
+        run: |
+          APP_BUNDLE="${{ env.PROJECT_NAME }}.app"
+          mkdir -p "${APP_BUNDLE}/Contents/MacOS"
+          mkdir -p "${APP_BUNDLE}/Contents/Resources"
+
+          # Copy universal binary
+          cp target/universal/release/${{ env.PROJECT_NAME }} "${APP_BUNDLE}/Contents/MacOS/"
+
+          # Create Info.plist
+          cat > "${APP_BUNDLE}/Contents/Info.plist" << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>${{ env.PROJECT_NAME }}</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.ferrispad.editor</string>
+              <key>CFBundleName</key>
+              <string>${{ env.PROJECT_NAME }}</string>
+              <key>CFBundleVersion</key>
+              <string>${{ needs.create-release.outputs.version }}</string>
+              <key>CFBundleShortVersionString</key>
+              <string>${{ needs.create-release.outputs.version }}</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleIconFile</key>
+              <string>icon.icns</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Create .icns icon
+        run: |
+          if [ -f "assets/crab-notepad-emoji-8bit.png" ]; then
+            ICONSET_DIR="${{ env.PROJECT_NAME }}.iconset"
+            mkdir -p "$ICONSET_DIR"
+
+            # Generate all required icon sizes
+            sips -z 16 16     assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_16x16.png"
+            sips -z 32 32     assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_16x16@2x.png"
+            sips -z 32 32     assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_32x32.png"
+            sips -z 64 64     assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_32x32@2x.png"
+            sips -z 128 128   assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_128x128.png"
+            sips -z 256 256   assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_128x128@2x.png"
+            sips -z 256 256   assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_256x256.png"
+            sips -z 512 512   assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_256x256@2x.png"
+            sips -z 512 512   assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_512x512.png"
+            sips -z 1024 1024 assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_512x512@2x.png"
+
+            # Convert to icns
+            iconutil -c icns "$ICONSET_DIR" -o "${{ env.PROJECT_NAME }}.app/Contents/Resources/icon.icns"
+            rm -rf "$ICONSET_DIR"
+          fi
+
+      - name: Create DMG
+        run: |
+          create-dmg \
+            --volname "${{ env.PROJECT_NAME }}" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "${{ env.PROJECT_NAME }}.app" 175 190 \
+            --hide-extension "${{ env.PROJECT_NAME }}.app" \
+            --app-drop-link 425 190 \
+            "${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-macos.dmg" \
+            "${{ env.PROJECT_NAME }}.app" || true
+
+      - name: Upload DMG to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-macos.dmg
+          asset_name: ${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-macos.dmg
+          asset_content_type: application/x-apple-diskimage

@@ -16,3 +16,6 @@ docs/assets/binaries/*
 # Temporary build artifacts
 FerrisPad.app/
 FerrisPad.iconset/
+
+# Sh excluded files
+scripts/trigger_build_gh_worflow.sh
