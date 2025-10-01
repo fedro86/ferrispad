@@ -54,7 +54,7 @@ jobs:
           mv "$DEB_FILE" "${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-ubuntu-amd64.deb"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: linux-deb
           path: ${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-ubuntu-amd64.deb
@@ -85,7 +85,7 @@ jobs:
           7z a ../../${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-windows-x64.zip ${{ env.PROJECT_NAME }}.exe
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: windows-zip
           path: ${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-windows-x64.zip
@@ -185,7 +185,7 @@ jobs:
             "${{ env.PROJECT_NAME }}.app" || true
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: macos-dmg
           path: ${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-macos.dmg
@@ -211,7 +211,7 @@ jobs:
           fi
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
 
