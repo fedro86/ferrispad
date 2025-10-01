@@ -156,18 +156,43 @@ jobs:
       - name: Create .icns icon
         run: |
           if [ -f "assets/crab-notepad-emoji-8bit.png" ]; then
+            # Install ImageMagick for better icon processing
+            brew install imagemagick
+
             ICONSET_DIR="${{ env.PROJECT_NAME }}.iconset"
             mkdir -p "$ICONSET_DIR"
-            sips -z 16 16     assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_16x16.png"
-            sips -z 32 32     assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_16x16@2x.png"
-            sips -z 32 32     assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_32x32.png"
-            sips -z 64 64     assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_32x32@2x.png"
-            sips -z 128 128   assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_128x128.png"
-            sips -z 256 256   assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_128x128@2x.png"
-            sips -z 256 256   assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_256x256.png"
-            sips -z 512 512   assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_256x256@2x.png"
-            sips -z 512 512   assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_512x512.png"
-            sips -z 1024 1024 assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_512x512@2x.png"
+
+            # Function to create macOS-style icon with background and rounded corners
+            create_macos_icon() {
+              local size=$1
+              local output=$2
+              local radius=$((size / 5))  # macOS-like squircle radius
+
+              # Create icon with gradient background, centered logo, and rounded corners
+              magick -size ${size}x${size} \
+                gradient:'#FF6B35-#F7931E' \
+                \( assets/crab-notepad-emoji-8bit.png -resize $((size * 70 / 100))x$((size * 70 / 100)) \) \
+                -gravity center -composite \
+                \( +clone -alpha extract \
+                   -draw "fill black polygon 0,0 0,${radius} ${radius},0 fill white circle ${radius},${radius} ${radius},0" \
+                   \( +clone -flip \) -compose Multiply -composite \
+                   \( +clone -flop \) -compose Multiply -composite \
+                \) -alpha off -compose CopyOpacity -composite \
+                "$output"
+            }
+
+            # Generate all required icon sizes
+            create_macos_icon 16 "${ICONSET_DIR}/icon_16x16.png"
+            create_macos_icon 32 "${ICONSET_DIR}/icon_16x16@2x.png"
+            create_macos_icon 32 "${ICONSET_DIR}/icon_32x32.png"
+            create_macos_icon 64 "${ICONSET_DIR}/icon_32x32@2x.png"
+            create_macos_icon 128 "${ICONSET_DIR}/icon_128x128.png"
+            create_macos_icon 256 "${ICONSET_DIR}/icon_128x128@2x.png"
+            create_macos_icon 256 "${ICONSET_DIR}/icon_256x256.png"
+            create_macos_icon 512 "${ICONSET_DIR}/icon_256x256@2x.png"
+            create_macos_icon 512 "${ICONSET_DIR}/icon_512x512.png"
+            create_macos_icon 1024 "${ICONSET_DIR}/icon_512x512@2x.png"
+
             iconutil -c icns "$ICONSET_DIR" -o "${{ env.PROJECT_NAME }}.app/Contents/Resources/icon.icns"
             rm -rf "$ICONSET_DIR"
           fi
