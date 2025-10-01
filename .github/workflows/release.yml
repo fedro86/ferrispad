@@ -92,6 +92,7 @@ jobs:
 
   build-macos:
     runs-on: macos-latest
+    continue-on-error: true
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -192,6 +193,7 @@ jobs:
 
   create-release:
     needs: [build-linux, build-windows, build-macos]
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
