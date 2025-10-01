@@ -2,7 +2,7 @@
 
 # Generate FerrisPad icons with rounded corners from source logo
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && cd .. && pwd)"
-SOURCE_LOGO="${PROJECT_ROOT}/assets/crab-notepad-emoji-8bit.png"
+SOURCE_LOGO="${PROJECT_ROOT}/docs/assets/logo-transparent.png"
 
 echo "Generating FerrisPad icons with rounded corners..."
 
@@ -24,38 +24,42 @@ for size in 16x16 24x24 32x32 48x48 64x64 128x128 256x256 512x512; do
     mkdir -p "${PROJECT_ROOT}/icons/hicolor/${size}/apps"
 done
 
-# Function to create rounded corner mask
-create_rounded_mask() {
+# Function to create professional icon with gradient background and rounded corners
+create_professional_icon() {
     local size=$1
-    local radius=$((size / 8))  # Adjust this ratio for more/less rounding
+    local output=$2
+    local radius=$((size / 5))  # Professional squircle radius
 
-    convert -size ${size}x${size} xc:none \
-        -draw "roundrectangle 0,0 $((size-1)),$((size-1)) ${radius},${radius}" \
-        -alpha extract \
-        /tmp/mask_${size}.png
+    # Create icon with gradient background, centered logo, and rounded corners
+    if command -v magick &> /dev/null; then
+        magick -size ${size}x${size} \
+            gradient:'#FF6B35-#F7931E' \
+            \( "$SOURCE_LOGO" -resize $((size * 70 / 100))x$((size * 70 / 100)) \) \
+            -gravity center -composite \
+            \( +clone -alpha extract \
+               -draw "fill black polygon 0,0 0,${radius} ${radius},0 fill white circle ${radius},${radius} ${radius},0" \
+               \( +clone -flip \) -compose Multiply -composite \
+               \( +clone -flop \) -compose Multiply -composite \
+            \) -alpha off -compose CopyOpacity -composite \
+            "$output"
+    else
+        convert -size ${size}x${size} \
+            gradient:'#FF6B35-#F7931E' \
+            \( "$SOURCE_LOGO" -resize $((size * 70 / 100))x$((size * 70 / 100)) \) \
+            -gravity center -composite \
+            \( +clone -alpha extract \
+               -draw "fill black polygon 0,0 0,${radius} ${radius},0 fill white circle ${radius},${radius} ${radius},0" \
+               \( +clone -flip \) -compose Multiply -composite \
+               \( +clone -flop \) -compose Multiply -composite \
+            \) -alpha off -compose CopyOpacity -composite \
+            "$output"
+    fi
 }
 
 # Generate icons for each size
 for size in 16 24 32 48 64 128 256 512; do
     echo "  Generating ${size}x${size} icon..."
-
-    # Create rounded corner mask for this size
-    create_rounded_mask $size
-
-    # Resize source image and apply rounded corners
-    convert "$SOURCE_LOGO" \
-        -resize ${size}x${size} \
-        -gravity center \
-        -extent ${size}x${size} \
-        /tmp/mask_${size}.png \
-        -alpha off \
-        -compose CopyOpacity \
-        -composite \
-        "${PROJECT_ROOT}/icons/hicolor/${size}x${size}/apps/ferrispad.png"
-
-    # Clean up temporary mask
-    rm -f /tmp/mask_${size}.png
-
+    create_professional_icon $size "${PROJECT_ROOT}/icons/hicolor/${size}x${size}/apps/ferrispad.png"
     echo "    ✅ Created ${PROJECT_ROOT}/icons/hicolor/${size}x${size}/apps/ferrispad.png"
 done
 

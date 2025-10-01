@@ -155,7 +155,7 @@ jobs:
 
       - name: Create .icns icon
         run: |
-          if [ -f "assets/crab-notepad-emoji-8bit.png" ]; then
+          if [ -f "docs/assets/logo-transparent.png" ]; then
             # Install ImageMagick for better icon processing
             brew install imagemagick
 
@@ -171,7 +171,7 @@ jobs:
               # Create icon with gradient background, centered logo, and rounded corners
               magick -size ${size}x${size} \
                 gradient:'#FF6B35-#F7931E' \
-                \( assets/crab-notepad-emoji-8bit.png -resize $((size * 70 / 100))x$((size * 70 / 100)) \) \
+                \( docs/assets/logo-transparent.png -resize $((size * 70 / 100))x$((size * 70 / 100)) \) \
                 -gravity center -composite \
                 \( +clone -alpha extract \
                    -draw "fill black polygon 0,0 0,${radius} ${radius},0 fill white circle ${radius},${radius} ${radius},0" \

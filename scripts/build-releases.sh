@@ -144,39 +144,45 @@ EOF
 
         # Generate .icns icon with rounded corners (macOS standard sizes)
         echo -e "${YELLOW}Generating .icns icon...${NC}"
-        if command -v sips &> /dev/null && [ -f "assets/crab-notepad-emoji-8bit.png" ]; then
+        if command -v sips &> /dev/null && [ -f "docs/assets/logo-transparent.png" ]; then
             ICONSET_DIR="${PROJECT_NAME}.iconset"
             rm -rf "$ICONSET_DIR"
             mkdir -p "$ICONSET_DIR"
 
-            # Function to create rounded corner mask
+            # Function to create macOS-style icon with background and rounded corners
             create_rounded_icon() {
                 local size=$1
                 local output=$2
-                local radius=$((size / 8))
+                local radius=$((size / 5))  # macOS-like squircle radius
 
-                if command -v convert &> /dev/null; then
-                    # Create mask
-                    convert -size ${size}x${size} xc:none \
-                        -draw "roundrectangle 0,0 $((size-1)),$((size-1)) ${radius},${radius}" \
-                        -alpha extract \
-                        /tmp/mask_${size}.png
-
-                    # Apply rounded corners
-                    convert "assets/crab-notepad-emoji-8bit.png" \
-                        -resize ${size}x${size} \
-                        -gravity center \
-                        -extent ${size}x${size} \
-                        /tmp/mask_${size}.png \
-                        -alpha off \
-                        -compose CopyOpacity \
-                        -composite \
+                if command -v magick &> /dev/null; then
+                    # Create icon with gradient background, centered logo, and rounded corners
+                    magick -size ${size}x${size} \
+                        gradient:'#FF6B35-#F7931E' \
+                        \( docs/assets/logo-transparent.png -resize $((size * 70 / 100))x$((size * 70 / 100)) \) \
+                        -gravity center -composite \
+                        \( +clone -alpha extract \
+                           -draw "fill black polygon 0,0 0,${radius} ${radius},0 fill white circle ${radius},${radius} ${radius},0" \
+                           \( +clone -flip \) -compose Multiply -composite \
+                           \( +clone -flop \) -compose Multiply -composite \
+                        \) -alpha off -compose CopyOpacity -composite \
                         "$output"
-
-                    rm -f /tmp/mask_${size}.png
+                elif command -v convert &> /dev/null; then
+                    # Fallback to convert command (older ImageMagick)
+                    convert -size ${size}x${size} \
+                        gradient:'#FF6B35-#F7931E' \
+                        \( docs/assets/logo-transparent.png -resize $((size * 70 / 100))x$((size * 70 / 100)) \) \
+                        -gravity center -composite \
+                        \( +clone -alpha extract \
+                           -draw "fill black polygon 0,0 0,${radius} ${radius},0 fill white circle ${radius},${radius} ${radius},0" \
+                           \( +clone -flip \) -compose Multiply -composite \
+                           \( +clone -flop \) -compose Multiply -composite \
+                        \) -alpha off -compose CopyOpacity -composite \
+                        "$output"
                 else
                     # Fallback to simple resize if ImageMagick not available
-                    sips -z $size $size "assets/crab-notepad-emoji-8bit.png" --out "$output" &>/dev/null
+                    echo -e "${YELLOW}⚠ ImageMagick not found. Install with: brew install imagemagick${NC}"
+                    sips -z $size $size "docs/assets/logo-transparent.png" --out "$output" &>/dev/null
                 fi
             }
 
