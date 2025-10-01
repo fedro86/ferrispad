@@ -12,59 +12,22 @@ env:
   PROJECT_NAME: FerrisPad
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: write
+
 jobs:
-  create-release:
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      version: ${{ steps.get_version.outputs.version }}
-    steps:
-      - name: Get version from tag
-        id: get_version
-        run: |
-          # Extract version, removing 'v' prefix if present
-          VERSION=${GITHUB_REF#refs/tags/}
-          VERSION=${VERSION#v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-          # Detect if this is a pre-release (contains -alpha, -beta, or -rc)
-          if [[ "$VERSION" =~ -(alpha|beta|rc) ]]; then
-            echo "is_prerelease=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_prerelease=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.get_version.outputs.version }}
-          release_name: FerrisPad v${{ steps.get_version.outputs.version }}
-          body: |
-            ## 🦀 FerrisPad v${{ steps.get_version.outputs.version }}
-
-            Automated release build. Please add release notes by editing this release.
-
-            ### 📦 Downloads
-
-            - **Linux**: Ubuntu/Debian `.deb` package
-            - **Windows**: Portable `.zip` archive
-            - **macOS**: Universal `.dmg` installer (Intel + Apple Silicon)
-
-            ### 📝 Installation
-
-            See the [Installation Guide](https://github.com/fedro86/ferrispad#installation) for detailed instructions.
-          draft: false
-          prerelease: ${{ steps.get_version.outputs.is_prerelease }}
-
   build-linux:
-    needs: create-release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${VERSION#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -85,34 +48,30 @@ jobs:
       - name: Create .deb package
         run: cargo deb
 
-      - name: Get .deb filename
-        id: get_deb
-        run: |
-          DEB_FILE=$(find target/debian -name "*.deb" -type f | head -n 1)
-          echo "deb_path=$DEB_FILE" >> $GITHUB_OUTPUT
-          echo "deb_name=$(basename $DEB_FILE)" >> $GITHUB_OUTPUT
-
       - name: Rename .deb file
         run: |
-          mv ${{ steps.get_deb.outputs.deb_path }} \
-             ${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-ubuntu-amd64.deb
+          DEB_FILE=$(find target/debian -name "*.deb" -type f | head -n 1)
+          mv "$DEB_FILE" "${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-ubuntu-amd64.deb"
 
-      - name: Upload .deb to Release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-ubuntu-amd64.deb
-          asset_name: ${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-ubuntu-amd64.deb
-          asset_content_type: application/vnd.debian.binary-package
+          name: linux-deb
+          path: ${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-ubuntu-amd64.deb
 
   build-windows:
-    needs: create-release
     runs-on: windows-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get_version
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${VERSION#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -123,24 +82,26 @@ jobs:
       - name: Create zip archive
         run: |
           cd target/release
-          7z a ../../${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-windows-x64.zip ${{ env.PROJECT_NAME }}.exe
+          7z a ../../${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-windows-x64.zip ${{ env.PROJECT_NAME }}.exe
 
-      - name: Upload zip to Release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-windows-x64.zip
-          asset_name: ${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-windows-x64.zip
-          asset_content_type: application/zip
+          name: windows-zip
+          path: ${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-windows-x64.zip
 
   build-macos:
-    needs: create-release
     runs-on: macos-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${VERSION#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -150,14 +111,9 @@ jobs:
 
       - name: Build universal binary
         run: |
-          # Add ARM64 target
           rustup target add aarch64-apple-darwin
-
-          # Build for both architectures
           cargo build --release --target x86_64-apple-darwin
           cargo build --release --target aarch64-apple-darwin
-
-          # Create universal binary
           mkdir -p target/universal/release
           lipo -create \
             target/x86_64-apple-darwin/release/${{ env.PROJECT_NAME }} \
@@ -169,11 +125,8 @@ jobs:
           APP_BUNDLE="${{ env.PROJECT_NAME }}.app"
           mkdir -p "${APP_BUNDLE}/Contents/MacOS"
           mkdir -p "${APP_BUNDLE}/Contents/Resources"
-
-          # Copy universal binary
           cp target/universal/release/${{ env.PROJECT_NAME }} "${APP_BUNDLE}/Contents/MacOS/"
 
-          # Create Info.plist
           cat > "${APP_BUNDLE}/Contents/Info.plist" << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -186,9 +139,9 @@ jobs:
               <key>CFBundleName</key>
               <string>${{ env.PROJECT_NAME }}</string>
               <key>CFBundleVersion</key>
-              <string>${{ needs.create-release.outputs.version }}</string>
+              <string>${{ steps.get_version.outputs.version }}</string>
               <key>CFBundleShortVersionString</key>
-              <string>${{ needs.create-release.outputs.version }}</string>
+              <string>${{ steps.get_version.outputs.version }}</string>
               <key>CFBundlePackageType</key>
               <string>APPL</string>
               <key>CFBundleIconFile</key>
@@ -204,8 +157,6 @@ jobs:
           if [ -f "assets/crab-notepad-emoji-8bit.png" ]; then
             ICONSET_DIR="${{ env.PROJECT_NAME }}.iconset"
             mkdir -p "$ICONSET_DIR"
-
-            # Generate all required icon sizes
             sips -z 16 16     assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_16x16.png"
             sips -z 32 32     assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_16x16@2x.png"
             sips -z 32 32     assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_32x32.png"
@@ -216,8 +167,6 @@ jobs:
             sips -z 512 512   assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_256x256@2x.png"
             sips -z 512 512   assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_512x512.png"
             sips -z 1024 1024 assets/crab-notepad-emoji-8bit.png --out "${ICONSET_DIR}/icon_512x512@2x.png"
-
-            # Convert to icns
             iconutil -c icns "$ICONSET_DIR" -o "${{ env.PROJECT_NAME }}.app/Contents/Resources/icon.icns"
             rm -rf "$ICONSET_DIR"
           fi
@@ -232,15 +181,61 @@ jobs:
             --icon "${{ env.PROJECT_NAME }}.app" 175 190 \
             --hide-extension "${{ env.PROJECT_NAME }}.app" \
             --app-drop-link 425 190 \
-            "${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-macos.dmg" \
+            "${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-macos.dmg" \
             "${{ env.PROJECT_NAME }}.app" || true
 
-      - name: Upload DMG to Release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-macos.dmg
-          asset_name: ${{ env.PROJECT_NAME }}-v${{ needs.create-release.outputs.version }}-macos.dmg
-          asset_content_type: application/x-apple-diskimage
+          name: macos-dmg
+          path: ${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-macos.dmg
+
+  create-release:
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${VERSION#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          if [[ "$VERSION" =~ -(alpha|beta|rc) ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: FerrisPad v${{ steps.get_version.outputs.version }}
+          body: |
+            ## 🦀 FerrisPad v${{ steps.get_version.outputs.version }}
+
+            Automated release build. Please add release notes by editing this release.
+
+            ### 📦 Downloads
+
+            - **Linux**: Ubuntu/Debian `.deb` package
+            - **Windows**: Portable `.zip` archive
+            - **macOS**: Universal `.dmg` installer (Intel + Apple Silicon)
+
+            ### 📝 Installation
+
+            See the [Installation Guide](https://github.com/fedro86/ferrispad#installation) for detailed instructions.
+          draft: false
+          prerelease: ${{ steps.get_version.outputs.is_prerelease }}
+          files: |
+            artifacts/linux-deb/*
+            artifacts/windows-zip/*
+            artifacts/macos-dmg/*
