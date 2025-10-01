@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+-*'
   workflow_dispatch:
 
 env:
@@ -20,7 +22,9 @@ jobs:
       - name: Get version from tag
         id: get_version
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
+          # Extract version, removing 'v' prefix if present
+          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${VERSION#v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
           # Detect if this is a pre-release (contains -alpha, -beta, or -rc)

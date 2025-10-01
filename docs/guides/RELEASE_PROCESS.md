@@ -25,15 +25,17 @@ FerrisPad uses GitHub Actions to automatically build binaries for:
 #### For Stable Releases
 
 ```bash
-# Example for version 0.1.1
-VERSION="0.1.1"
+# Example for version 0.1.2
+VERSION="0.1.2"
 
-# Create annotated tag
-git tag -a "v${VERSION}" -m "Release v${VERSION}"
+# Create annotated tag (without 'v' prefix to match existing tags)
+git tag -a "${VERSION}" -m "Release ${VERSION}"
 
 # Push the tag to GitHub
-git push origin "v${VERSION}"
+git push origin "${VERSION}"
 ```
+
+**Note:** This project uses tags **without** the "v" prefix (e.g., `0.1.2` instead of `v0.1.2`) to match the existing tagging convention.
 
 #### For Pre-releases (Beta, RC, Alpha)
 
@@ -42,18 +44,18 @@ Pre-releases are perfect for testing before a stable release. They're marked as 
 ```bash
 # Beta release
 VERSION="0.2.0-beta.1"
-git tag -a "v${VERSION}" -m "Beta release v${VERSION}"
-git push origin "v${VERSION}"
+git tag -a "${VERSION}" -m "Beta release ${VERSION}"
+git push origin "${VERSION}"
 
 # Release Candidate
 VERSION="0.2.0-rc.1"
-git tag -a "v${VERSION}" -m "Release candidate v${VERSION}"
-git push origin "v${VERSION}"
+git tag -a "${VERSION}" -m "Release candidate ${VERSION}"
+git push origin "${VERSION}"
 
 # Alpha release
 VERSION="0.2.0-alpha.1"
-git tag -a "v${VERSION}" -m "Alpha release v${VERSION}"
-git push origin "v${VERSION}"
+git tag -a "${VERSION}" -m "Alpha release ${VERSION}"
+git push origin "${VERSION}"
 ```
 
 **Pre-release detection:** Tags containing `-alpha`, `-beta`, or `-rc` will automatically be marked as pre-releases in the workflow.
@@ -278,22 +280,24 @@ For cross-platform testing, use the GitHub Actions workflow instead of local cro
 
 | Type | Version Format | Example | Marked as Pre-release? |
 |------|---------------|---------|------------------------|
-| Stable | `X.Y.Z` | `v0.1.1` | No |
-| Beta | `X.Y.Z-beta.N` | `v0.2.0-beta.1` | Yes |
-| RC | `X.Y.Z-rc.N` | `v0.2.0-rc.1` | Yes |
-| Alpha | `X.Y.Z-alpha.N` | `v0.2.0-alpha.1` | Yes |
+| Stable | `X.Y.Z` | `0.1.2` | No |
+| Beta | `X.Y.Z-beta.N` | `0.2.0-beta.1` | Yes |
+| RC | `X.Y.Z-rc.N` | `0.2.0-rc.1` | Yes |
+| Alpha | `X.Y.Z-alpha.N` | `0.2.0-alpha.1` | Yes |
+
+**Note:** Tags do NOT include the "v" prefix (e.g., `0.1.2` not `v0.1.2`)
 
 ### One-Line Release Commands
 
 ```bash
 # Stable release
-VERSION="0.1.1" && git tag -a "v${VERSION}" -m "Release v${VERSION}" && git push origin "v${VERSION}"
+VERSION="0.1.2" && git tag -a "${VERSION}" -m "Release ${VERSION}" && git push origin "${VERSION}"
 
 # Beta release
-VERSION="0.2.0-beta.1" && git tag -a "v${VERSION}" -m "Beta v${VERSION}" && git push origin "v${VERSION}"
+VERSION="0.2.0-beta.1" && git tag -a "${VERSION}" -m "Beta ${VERSION}" && git push origin "${VERSION}"
 
 # Release candidate
-VERSION="0.2.0-rc.1" && git tag -a "v${VERSION}" -m "RC v${VERSION}" && git push origin "v${VERSION}"
+VERSION="0.2.0-rc.1" && git tag -a "${VERSION}" -m "RC ${VERSION}" && git push origin "${VERSION}"
 ```
 
 ### Workflow Status
