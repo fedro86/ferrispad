@@ -21,8 +21,11 @@ This isn't meant to change the landscape of text editors. It's meant to be that 
 🎨 **Light & Dark Modes** - Automatically detects your system theme
 📝 **Clean Interface** - Minimal, distraction-free design
 📄 **Essential Tools** - Line numbers, word wrap, font customization
-💾 **Native File Dialogs** - Familiar save/open experience
-⌨️ **Standard Shortcuts** - Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Q
+💾 **Smart Saving** - Quick save (Ctrl+S) and Save As (Ctrl+Shift+S)
+🔍 **Find & Replace** - Search and replace text with case-sensitive option
+📁 **Multi-Format Support** - Save as .txt, .md, .rs, .py, .json, and more
+⚙️ **Persistent Settings** - Save your preferences (theme, font, view options)
+⌨️ **Keyboard Shortcuts** - Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+F, Ctrl+H, Ctrl+Q
 🖋️ **Font Options** - Multiple monospace fonts and sizes
 👁️ **Blinking Cursor** - Clear visual feedback
 🦀 **Proper Icons** - Beautiful crab mascot icons in all standard sizes
@@ -58,8 +61,8 @@ Download ready-to-use binaries for:
 
 ```bash
 # Download and install the .deb package
-wget https://www.ferrispad.com/assets/binaries/ubuntu/FerrisPad-v0.1.3-ubuntu-amd64.deb
-sudo dpkg -i FerrisPad-v0.1.3-ubuntu-amd64.deb
+wget https://www.ferrispad.com/assets/binaries/ubuntu/FerrisPad-v0.1.4-ubuntu-amd64.deb
+sudo dpkg -i FerrisPad-v0.1.4-ubuntu-amd64.deb
 
 # Launch from application menu or run
 FerrisPad
@@ -156,31 +159,48 @@ cargo run --release
 ## Usage
 
 ### Keyboard Shortcuts
+
+**File Operations:**
 - **Ctrl+N** - New file
 - **Ctrl+O** - Open file
-- **Ctrl+S** - Save As
+- **Ctrl+S** - Save (quick save to existing file)
+- **Ctrl+Shift+S** - Save As (save with new name/location)
 - **Ctrl+Q** - Quit
 
-### View Options
-- **View → Toggle Line Numbers** - Show/hide line numbers
-- **View → Toggle Word Wrap** - Enable/disable text wrapping
-- **View → Toggle Dark Mode** - Switch between light and dark themes
+**Edit Operations:**
+- **Ctrl+F** - Find text
+- **Ctrl+H** - Find & Replace
 
-### Format Options
-- **Format → Font** - Choose from monospace font options
-- **Format → Font Size** - Select from Small (12), Medium (16), or Large (20)
+### Menu Options
+
+**File Menu:**
+- **Settings...** - Configure theme, font, and view preferences (saved automatically)
+
+**Edit Menu:**
+- **Find...** - Search for text with case-sensitive option
+- **Replace...** - Find and replace text with Replace and Replace All
+
+**View Menu:**
+- **Toggle Line Numbers** - Show/hide line numbers
+- **Toggle Word Wrap** - Enable/disable text wrapping
+- **Toggle Dark Mode** - Switch between light and dark themes
+
+**Format Menu:**
+- **Font** - Choose from Screen (Bold), Courier, or Helvetica Mono
+- **Font Size** - Select from Small (12), Medium (16), or Large (20)
 
 ## Building Your Own Features
 
 FerrisPad is intentionally simple and well-structured, making it easy to extend. The codebase is clean and documented, perfect for:
 
 - **Learning Rust GUI development** with FLTK
-- **Adding your own features** (syntax highlighting, find/replace, etc.)
+- **Adding your own features** (syntax highlighting, tabs, etc.)
 - **Customizing the interface** to your needs
 - **Understanding cross-platform desktop app architecture**
 
 Key files:
-- `src/main.rs` - Main application logic
+- `src/main.rs` - Main application logic and UI
+- `src/settings.rs` - Settings persistence module
 - `assets/` - Application icons and resources
 - `scripts/` - Build and installation scripts
 - `docs/` - Website and documentation
