@@ -25,12 +25,15 @@ This isn't meant to change the landscape of text editors. It's meant to be that 
 🔍 **Find & Replace** - Search and replace text with case-sensitive option
 📁 **Multi-Format Support** - Save as .txt, .md, .rs, .py, .json, and more
 ⚙️ **Persistent Settings** - Save your preferences (theme, font, view options)
+🔔 **Auto-Update Check** - Checks GitHub once per day for new versions (can be disabled)
+🔒 **Privacy-First** - No telemetry, user control, transparent data usage
 ⌨️ **Keyboard Shortcuts** - Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+F, Ctrl+H, Ctrl+Q
 🖋️ **Font Options** - Multiple monospace fonts and sizes
 👁️ **Blinking Cursor** - Clear visual feedback
 🦀 **Proper Icons** - Beautiful crab mascot icons in all standard sizes
 🖥️ **Desktop Integration** - Application menu entry and system icon support
 📄 **File Title Display** - Shows filename (or "Untitled") in window title
+ℹ️ **About Dialog** - Version info, copyright, license, and helpful links
 
 ## Screenshots
 
@@ -174,7 +177,7 @@ cargo run --release
 ### Menu Options
 
 **File Menu:**
-- **Settings...** - Configure theme, font, and view preferences (saved automatically)
+- **Settings...** - Configure theme, font, view preferences, and auto-update behavior (saved automatically)
 
 **Edit Menu:**
 - **Find...** - Search for text with case-sensitive option
@@ -188,6 +191,22 @@ cargo run --release
 **Format Menu:**
 - **Font** - Choose from Screen (Bold), Courier, or Helvetica Mono
 - **Font Size** - Select from Small (12), Medium (16), or Large (20)
+
+**Help Menu:**
+- **About FerrisPad** - View version, copyright, license, and helpful links
+- **Check for Updates...** - Manually check for new versions on GitHub
+
+### Privacy & Updates
+
+FerrisPad includes an optional auto-update checker that:
+- Checks GitHub's public API once per 24 hours for new releases
+- Can be completely disabled in **File → Settings**
+- Sends **no personal data** or telemetry
+- Is fully transparent and auditable (open source)
+- Notifies you with a subtle banner when updates are available
+- Never downloads or installs anything automatically
+
+The update check is privacy-first by design, following best practices from projects like VS Code, Firefox, and Notepad++.
 
 ## Building Your Own Features
 

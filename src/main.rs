@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod settings;
+mod updater;
 
 use fltk::{
     app,
@@ -21,6 +22,7 @@ use std::cell::RefCell;
 use std::fs;
 use std::rc::Rc;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use fltk::dialog::{FileDialogType, NativeFileChooser};
 use settings::{AppSettings, ThemeMode, FontChoice};
@@ -439,13 +441,13 @@ fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
 /// Show settings dialog and return updated settings if user clicked Save
 fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSettings> {
     let mut dialog = Window::default()
-        .with_size(350, 500)
+        .with_size(350, 580)
         .with_label("Settings")
         .center_screen();
     dialog.make_modal(true);
 
     let vpack = Group::default()
-        .with_size(320, 420)
+        .with_size(320, 500)
         .with_pos(15, 15);
 
     // Theme section
@@ -499,11 +501,23 @@ fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSettings> {
     check_line_numbers.set_value(current_settings.line_numbers_enabled);
     check_word_wrap.set_value(current_settings.word_wrap_enabled);
 
+    // Updates section
+    Frame::default().with_pos(15, 450).with_size(320, 25).with_label("Updates:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    let mut check_auto_update = CheckButton::default().with_pos(30, 480).with_size(280, 25).with_label("Automatically check for updates");
+    check_auto_update.set_value(current_settings.auto_check_updates);
+
+    // Info text
+    let mut info_frame = Frame::default().with_pos(30, 505).with_size(290, 35);
+    info_frame.set_label("FerrisPad checks GitHub once per day.\nNo personal data is sent.");
+    info_frame.set_label_size(11);
+    info_frame.set_label_color(Color::from_rgb(100, 100, 100));
+    info_frame.set_align(fltk::enums::Align::Left | fltk::enums::Align::Inside | fltk::enums::Align::Wrap);
+
     vpack.end();
 
     // Buttons at bottom
-    let mut save_btn = Button::default().with_pos(150, 460).with_size(90, 30).with_label("Save");
-    let mut cancel_btn = Button::default().with_pos(250, 460).with_size(90, 30).with_label("Cancel");
+    let mut save_btn = Button::default().with_pos(150, 540).with_size(90, 30).with_label("Save");
+    let mut cancel_btn = Button::default().with_pos(250, 540).with_size(90, 30).with_label("Cancel");
 
     dialog.end();
     dialog.show();
@@ -513,6 +527,7 @@ fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSettings> {
     let result_cancel = result.clone();
 
     let dialog_save = dialog.clone();
+    let current = current_settings.clone();
     save_btn.set_callback(move |_| {
         let new_settings = AppSettings {
             theme_mode: if theme_light.value() {
@@ -538,6 +553,11 @@ fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSettings> {
             },
             line_numbers_enabled: check_line_numbers.value(),
             word_wrap_enabled: check_word_wrap.value(),
+            // Update settings from UI
+            auto_check_updates: check_auto_update.value(),
+            update_channel: current.update_channel,
+            last_update_check: current.last_update_check,
+            skipped_versions: current.skipped_versions.clone(),
         };
 
         *result_save.borrow_mut() = Some(new_settings);
@@ -550,9 +570,12 @@ fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSettings> {
         dialog_cancel.clone().hide();
     });
 
-    let dialog_close = dialog.clone();
-    dialog.set_callback(move |_| {
-        dialog_close.clone().hide();
+    // Handle window close button (X) - just hide the dialog
+    let result_close = result.clone();
+    dialog.set_callback(move |w| {
+        // Don't propagate to parent - just hide
+        *result_close.borrow_mut() = None;
+        w.hide();
     });
 
     while dialog.shown() {
@@ -597,6 +620,261 @@ fn native_save_dialog(description: &str, pattern: &str) -> Option<String> {
     if s.is_empty() { None } else { Some(s.to_string()) }
 }
 
+/// Show About dialog
+fn show_about_dialog() {
+    let version = env!("CARGO_PKG_VERSION");
+    let mut dialog = Window::default()
+        .with_size(450, 400)
+        .with_label("About FerrisPad")
+        .center_screen();
+    dialog.make_modal(true);
+
+    let mut flex = Flex::new(10, 10, 430, 380, None);
+    flex.set_type(fltk::group::FlexType::Column);
+    flex.set_spacing(10);
+
+    // App icon/logo
+    let mut title = Frame::default();
+    title.set_label("🦀 FerrisPad");
+    title.set_label_size(24);
+    title.set_label_font(Font::HelveticaBold);
+    flex.fixed(&title, 40);
+
+    // Version
+    let mut version_frame = Frame::default();
+    version_frame.set_label(&format!("Version {}", version));
+    version_frame.set_label_size(14);
+    flex.fixed(&version_frame, 25);
+
+    // Description
+    let mut desc_frame = Frame::default();
+    desc_frame.set_label("A blazingly fast, minimalist notepad written in Rust");
+    desc_frame.set_label_size(12);
+    desc_frame.set_label_color(Color::from_rgb(100, 100, 100));
+    flex.fixed(&desc_frame, 25);
+
+    // Spacing
+    let mut _spacer1 = Frame::default();
+    flex.fixed(&_spacer1, 10);
+
+    // Info section
+    let info_text = format!(
+        "Copyright © 2025 FerrisPad Contributors\n\
+         Licensed under the MIT License\n\n\
+         Built with Rust 🦀 and FLTK\n\n\
+         Website: www.ferrispad.com\n\
+         GitHub: github.com/fedro86/ferrispad"
+    );
+
+    let mut info_frame = Frame::default();
+    info_frame.set_label(&info_text);
+    info_frame.set_label_size(12);
+    info_frame.set_align(fltk::enums::Align::Center | fltk::enums::Align::Inside);
+    flex.fixed(&info_frame, 120);
+
+    // Spacing
+    let mut _spacer2 = Frame::default();
+    flex.fixed(&_spacer2, 10);
+
+    // Credits
+    let mut credits_frame = Frame::default();
+    credits_frame.set_label("Made with ❤️ by developers who believe\nsoftware should be fast and simple");
+    credits_frame.set_label_size(11);
+    credits_frame.set_label_color(Color::from_rgb(100, 100, 100));
+    credits_frame.set_align(fltk::enums::Align::Center | fltk::enums::Align::Inside);
+    flex.fixed(&credits_frame, 40);
+
+    // Close button
+    let mut close_btn = Button::default().with_label("Close");
+    flex.fixed(&close_btn, 35);
+
+    flex.end();
+    dialog.end();
+
+    let mut dialog_close = dialog.clone();
+    close_btn.set_callback(move |_| {
+        dialog_close.hide();
+    });
+
+    dialog.show();
+    while dialog.shown() {
+        app::wait();
+    }
+}
+
+/// Check for updates and show UI dialog (manual check)
+fn check_for_updates_ui(settings: &Rc<RefCell<AppSettings>>) {
+    use updater::{check_for_updates, current_timestamp, UpdateCheckResult};
+
+    let current_version = env!("CARGO_PKG_VERSION");
+    let settings_borrowed = settings.borrow();
+    let channel = settings_borrowed.update_channel;
+    let skipped = settings_borrowed.skipped_versions.clone();
+    drop(settings_borrowed);
+
+    // Perform the check (this may take 1-3 seconds for network call)
+    let result = check_for_updates(current_version, channel, &skipped);
+
+    match result {
+        UpdateCheckResult::UpdateAvailable(release) => {
+            // Show update available dialog
+            show_update_available_dialog(release, settings);
+        }
+        UpdateCheckResult::NoUpdate => {
+            dialog::message_default(&format!(
+                "✅ You're up to date!\n\nFerrisPad {} is the latest version.",
+                current_version
+            ));
+        }
+        UpdateCheckResult::Error(err) => {
+            dialog::alert_default(&format!(
+                "Failed to check for updates:\n\n{}\n\nPlease try again later.",
+                err
+            ));
+        }
+    }
+
+    // Update last check timestamp
+    let mut settings_mut = settings.borrow_mut();
+    settings_mut.last_update_check = current_timestamp();
+    let _ = settings_mut.save();
+}
+
+/// Background check for updates on startup (non-blocking)
+fn check_for_updates_background(
+    settings: Arc<Mutex<AppSettings>>,
+    update_banner: Arc<Mutex<Option<updater::ReleaseInfo>>>,
+) {
+    use updater::{check_for_updates, current_timestamp, should_check_now, UpdateCheckResult};
+
+    // Check if we should run the check
+    let should_check = {
+        let settings_lock = settings.lock().unwrap();
+        settings_lock.auto_check_updates
+            && should_check_now(settings_lock.last_update_check)
+    };
+
+    if !should_check {
+        return; // Don't check if disabled or checked recently
+    }
+
+    let current_version = env!("CARGO_PKG_VERSION");
+    let (channel, skipped) = {
+        let settings_lock = settings.lock().unwrap();
+        (
+            settings_lock.update_channel,
+            settings_lock.skipped_versions.clone(),
+        )
+    };
+
+    // Perform the check (background, non-blocking)
+    let result = check_for_updates(current_version, channel, &skipped);
+
+    match result {
+        UpdateCheckResult::UpdateAvailable(release) => {
+            // Store the release info to show banner
+            *update_banner.lock().unwrap() = Some(release);
+            // Trigger UI redraw
+            app::awake();
+        }
+        UpdateCheckResult::NoUpdate | UpdateCheckResult::Error(_) => {
+            // Silent - don't bother user on startup
+        }
+    }
+
+    // Update last check timestamp
+    let mut settings_mut = settings.lock().unwrap();
+    settings_mut.last_update_check = current_timestamp();
+    let _ = settings_mut.save();
+}
+
+/// Show update available dialog with options
+fn show_update_available_dialog(release: updater::ReleaseInfo, settings: &Rc<RefCell<AppSettings>>) {
+    let current_version = env!("CARGO_PKG_VERSION");
+
+    let mut dialog = Window::new(100, 100, 500, 400, "Update Available");
+    dialog.make_modal(true);
+
+    let mut flex = Flex::new(10, 10, 480, 380, None);
+    flex.set_type(fltk::group::FlexType::Column);
+    flex.set_spacing(10);
+
+    // Title
+    let mut title = Frame::default().with_label("🦀 FerrisPad Update Available");
+    title.set_label_size(18);
+    title.set_label_font(Font::HelveticaBold);
+    flex.fixed(&title, 30);
+
+    // Version info
+    let version_text = format!(
+        "Current version: {}\nLatest version:  {}",
+        current_version, release.version()
+    );
+    let mut version_frame = Frame::default().with_label(&version_text);
+    version_frame.set_label_size(14);
+    flex.fixed(&version_frame, 50);
+
+    // Release notes
+    let mut notes_label = Frame::default().with_label("What's new:");
+    notes_label.set_label_size(14);
+    notes_label.set_label_font(Font::HelveticaBold);
+    flex.fixed(&notes_label, 25);
+
+    let mut notes_editor = TextEditor::default();
+    notes_editor.set_buffer(TextBuffer::default());
+    notes_editor.buffer().unwrap().set_text(&release.body);
+    notes_editor.wrap_mode(WrapMode::AtBounds, 0);
+
+    // Buttons row
+    let mut button_row = Flex::default();
+    button_row.set_type(fltk::group::FlexType::Row);
+    button_row.set_spacing(10);
+
+    let mut download_btn = Button::default().with_label("Download");
+    let mut skip_btn = Button::default().with_label("Skip This Version");
+    let mut later_btn = Button::default().with_label("Remind Later");
+
+    button_row.end();
+    flex.fixed(&button_row, 35);
+
+    flex.end();
+    dialog.end();
+
+    // Download button - open browser
+    let release_url = release.html_url.clone();
+    download_btn.set_callback(move |_| {
+        if let Err(e) = open::that(&release_url) {
+            dialog::alert_default(&format!("Failed to open browser: {}", e));
+        } else {
+            app::quit();
+        }
+    });
+
+    // Skip button - add to skipped versions
+    let settings_skip = settings.clone();
+    let version_to_skip = release.version();
+    let mut dialog_skip = dialog.clone();
+    skip_btn.set_callback(move |_| {
+        let mut settings_mut = settings_skip.borrow_mut();
+        if !settings_mut.skipped_versions.contains(&version_to_skip) {
+            settings_mut.skipped_versions.push(version_to_skip.clone());
+            let _ = settings_mut.save();
+        }
+        dialog_skip.hide();
+    });
+
+    // Later button - just close
+    let mut dialog_later = dialog.clone();
+    later_btn.set_callback(move |_| {
+        dialog_later.hide();
+    });
+
+    dialog.show();
+    while dialog.shown() {
+        app::wait();
+    }
+}
+
 fn main() {
     let app = app::App::default().with_scheme(app::AppScheme::Gtk);
 
@@ -617,6 +895,14 @@ fn main() {
 
     let mut menu = MenuBar::new(0, 0, 0, 30, "");
     flex.fixed(&menu, 30);
+
+    // Update notification banner (initially hidden)
+    let mut update_banner_frame = Frame::default().with_size(0, 0);
+    update_banner_frame.set_color(Color::from_rgb(255, 250, 205)); // Light yellow
+    update_banner_frame.set_label_color(Color::Black);
+    update_banner_frame.set_label_size(13);
+    update_banner_frame.hide(); // Hidden by default
+    flex.fixed(&update_banner_frame, 0); // 0 height when hidden
 
     let mut text_buf = TextBuffer::default();
     let mut text_editor = TextEditor::new(0, 0, 0, 0, "");
@@ -1130,6 +1416,28 @@ fn main() {
         },
     );
 
+    // Help Menu
+    menu.add(
+        "Help/About FerrisPad",
+        fltk::enums::Shortcut::None,
+        fltk::menu::MenuFlag::Normal,
+        move |_| {
+            show_about_dialog();
+        },
+    );
+
+    menu.add(
+        "Help/Check for Updates...",
+        fltk::enums::Shortcut::None,
+        fltk::menu::MenuFlag::Normal,
+        {
+            let settings_clone = _app_settings.clone();
+            move |_| {
+                check_for_updates_ui(&settings_clone);
+            }
+        },
+    );
+
     // Handle window close button (X)
     let changes_close = has_unsaved_changes.clone();
     let path_close = current_file_path.clone();
@@ -1199,6 +1507,64 @@ fn main() {
 
     wind.end();
     wind.show();
+
+    // Background update check on startup
+    let update_banner_data = Arc::new(Mutex::new(None));
+    let settings_arc = Arc::new(Mutex::new(settings.clone()));
+    let settings_for_check = settings_arc.clone();
+    let banner_data_clone = update_banner_data.clone();
+
+    // Spawn background thread for update check
+    std::thread::spawn(move || {
+        check_for_updates_background(settings_for_check, banner_data_clone);
+    });
+
+    // Set up periodic check to show banner if update is available
+    let mut banner_frame_check = update_banner_frame.clone();
+    let mut flex_check = flex.clone();
+    let banner_data_check = update_banner_data.clone();
+    let settings_banner = _app_settings.clone();
+    let mut wind_check = wind.clone();
+
+    app::add_timeout3(0.5, move |handle| {
+        if let Some(release) = banner_data_check.lock().unwrap().take() {
+            // Update found! Show the banner
+            let version = release.version();
+            banner_frame_check.set_label(&format!(
+                "  🦀 FerrisPad {} is available - Click to view details or press ESC to dismiss",
+                version
+            ));
+            banner_frame_check.show();
+            flex_check.fixed(&banner_frame_check, 30); // Set height when visible
+            wind_check.redraw();
+
+            // Make banner clickable
+            let release_clone = release.clone();
+            let settings_clone = settings_banner.clone();
+            banner_frame_check.handle(move |frame, event| {
+                match event {
+                    fltk::enums::Event::Push => {
+                        // Clicked - show update dialog
+                        show_update_available_dialog(release_clone.clone(), &settings_clone);
+                        frame.hide();
+                        true
+                    }
+                    fltk::enums::Event::KeyDown => {
+                        if app::event_key() == fltk::enums::Key::Escape {
+                            // ESC pressed - dismiss banner
+                            frame.hide();
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    _ => false,
+                }
+            });
+        }
+        app::repeat_timeout3(0.5, handle);
+    });
+
     app.run().unwrap();
 }
 

@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+use crate::updater::UpdateChannel;
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ThemeMode {
     Light,
@@ -32,6 +34,18 @@ pub struct AppSettings {
 
     #[serde(default = "default_font_size")]
     pub font_size: u32,
+
+    #[serde(default = "default_auto_check_updates")]
+    pub auto_check_updates: bool,
+
+    #[serde(default = "default_update_channel")]
+    pub update_channel: UpdateChannel,
+
+    #[serde(default)]
+    pub last_update_check: i64,
+
+    #[serde(default)]
+    pub skipped_versions: Vec<String>,
 }
 
 fn default_line_numbers() -> bool {
@@ -54,6 +68,14 @@ fn default_font_size() -> u32 {
     16
 }
 
+fn default_auto_check_updates() -> bool {
+    true
+}
+
+fn default_update_channel() -> UpdateChannel {
+    UpdateChannel::Stable
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -62,6 +84,10 @@ impl Default for AppSettings {
             theme_mode: default_theme_mode(),
             font: default_font(),
             font_size: default_font_size(),
+            auto_check_updates: default_auto_check_updates(),
+            update_channel: default_update_channel(),
+            last_update_check: 0,
+            skipped_versions: Vec::new(),
         }
     }
 }
@@ -134,6 +160,10 @@ mod tests {
         assert!(settings.word_wrap_enabled);
         assert_eq!(settings.theme_mode, ThemeMode::SystemDefault);
         assert_eq!(settings.font, FontChoice::ScreenBold);
+        assert!(settings.auto_check_updates);
+        assert_eq!(settings.update_channel, UpdateChannel::Stable);
+        assert_eq!(settings.last_update_check, 0);
+        assert!(settings.skipped_versions.is_empty());
     }
 
     #[test]
@@ -171,5 +201,46 @@ mod tests {
         };
         let json = serde_json::to_string(&settings).unwrap();
         assert!(json.contains("\"Courier\""));
+    }
+
+    #[test]
+    fn test_update_settings_serialization() {
+        let settings = AppSettings {
+            auto_check_updates: false,
+            update_channel: UpdateChannel::Beta,
+            last_update_check: 1234567890,
+            skipped_versions: vec!["0.1.5".to_string()],
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let loaded: AppSettings = serde_json::from_str(&json).unwrap();
+
+        assert!(!loaded.auto_check_updates);
+        assert_eq!(loaded.update_channel, UpdateChannel::Beta);
+        assert_eq!(loaded.last_update_check, 1234567890);
+        assert_eq!(loaded.skipped_versions, vec!["0.1.5".to_string()]);
+    }
+
+    #[test]
+    fn test_backward_compatibility() {
+        // Old config without update fields should use defaults
+        let json = r#"{
+            "line_numbers_enabled": false,
+            "word_wrap_enabled": true,
+            "theme_mode": "Dark",
+            "font": "Courier",
+            "font_size": 14
+        }"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+
+        // Old fields preserved
+        assert!(!settings.line_numbers_enabled);
+        assert_eq!(settings.font_size, 14);
+
+        // New fields use defaults
+        assert!(settings.auto_check_updates);
+        assert_eq!(settings.update_channel, UpdateChannel::Stable);
+        assert_eq!(settings.last_update_check, 0);
+        assert!(settings.skipped_versions.is_empty());
     }
 }
