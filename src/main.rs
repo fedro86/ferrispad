@@ -1,14 +1,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod settings;
+
 use fltk::{
     app,
+    button::{Button, RadioRoundButton, CheckButton},
     dialog, // for alert_default
     enums::{Color, Font},
-    group::Flex,
+    frame::Frame,
+    group::{Flex, Group},
     image::PngImage,
     menu::MenuBar,
     prelude::*,
-    text::{TextBuffer, TextEditor, WrapMode}, // NEW: Import WrapMode
+    text::{TextBuffer, TextEditor, WrapMode},
     window::Window,
 };
 use std::process::Command;
@@ -18,24 +22,9 @@ use std::rc::Rc;
 use std::path::Path;
 
 use fltk::dialog::{FileDialogType, NativeFileChooser};
+use settings::{AppSettings, ThemeMode, FontChoice};
 
-#[derive(Clone)]
-struct AppSettings {
-    line_numbers_enabled: bool,
-    word_wrap_enabled: bool,
-    dark_mode_enabled: bool,
-}
-
-impl AppSettings {
-    fn new() -> Self {
-        let system_dark_mode = detect_system_dark_mode();
-        Self {
-            line_numbers_enabled: true,  // Favorite setting: enabled by default
-            word_wrap_enabled: true,     // Favorite setting: enabled by default
-            dark_mode_enabled: system_dark_mode,  // Based on system detection
-        }
-    }
-}
+// AppSettings is now in settings.rs module
 
 fn detect_system_dark_mode() -> bool {
     // Try to detect system theme on Linux
@@ -136,6 +125,132 @@ fn extract_filename(path: &str) -> String {
         .unwrap_or_else(|| "Unknown".to_string())
 }
 
+/// Show settings dialog and return updated settings if user clicked Save
+fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSettings> {
+    let mut dialog = Window::default()
+        .with_size(350, 500)
+        .with_label("Settings")
+        .center_screen();
+    dialog.make_modal(true);
+
+    let vpack = Group::default()
+        .with_size(320, 420)
+        .with_pos(15, 15);
+
+    // Theme section
+    Frame::default().with_pos(15, 15).with_size(320, 25).with_label("Theme:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    let theme_group = Group::default().with_pos(30, 45).with_size(280, 75);
+    let mut theme_light = RadioRoundButton::default().with_pos(30, 45).with_size(280, 25).with_label("Light");
+    let mut theme_dark = RadioRoundButton::default().with_pos(30, 70).with_size(280, 25).with_label("Dark");
+    let mut theme_system = RadioRoundButton::default().with_pos(30, 95).with_size(280, 25).with_label("System Default");
+    theme_group.end();
+
+    match current_settings.theme_mode {
+        ThemeMode::Light => theme_light.set_value(true),
+        ThemeMode::Dark => theme_dark.set_value(true),
+        ThemeMode::SystemDefault => theme_system.set_value(true),
+    }
+
+    // Font section
+    Frame::default().with_pos(15, 130).with_size(320, 25).with_label("Font:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    let font_group = Group::default().with_pos(30, 160).with_size(280, 75);
+    let mut font_screenbold = RadioRoundButton::default().with_pos(30, 160).with_size(280, 25).with_label("Screen (Bold)");
+    let mut font_courier = RadioRoundButton::default().with_pos(30, 185).with_size(280, 25).with_label("Courier");
+    let mut font_helvetica = RadioRoundButton::default().with_pos(30, 210).with_size(280, 25).with_label("Helvetica Mono");
+    font_group.end();
+
+    match current_settings.font {
+        FontChoice::ScreenBold => font_screenbold.set_value(true),
+        FontChoice::Courier => font_courier.set_value(true),
+        FontChoice::HelveticaMono => font_helvetica.set_value(true),
+    }
+
+    // Font size section
+    Frame::default().with_pos(15, 245).with_size(320, 25).with_label("Font Size:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    let size_group = Group::default().with_pos(30, 275).with_size(280, 75);
+    let mut size_12 = RadioRoundButton::default().with_pos(30, 275).with_size(280, 25).with_label("Small (12)");
+    let mut size_16 = RadioRoundButton::default().with_pos(30, 300).with_size(280, 25).with_label("Medium (16)");
+    let mut size_20 = RadioRoundButton::default().with_pos(30, 325).with_size(280, 25).with_label("Large (20)");
+    size_group.end();
+
+    match current_settings.font_size {
+        12 => size_12.set_value(true),
+        16 => size_16.set_value(true),
+        20 => size_20.set_value(true),
+        _ => size_16.set_value(true),
+    }
+
+    // View options section
+    Frame::default().with_pos(15, 360).with_size(320, 25).with_label("View Options:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    let mut check_line_numbers = CheckButton::default().with_pos(30, 390).with_size(280, 25).with_label("Show Line Numbers");
+    let mut check_word_wrap = CheckButton::default().with_pos(30, 415).with_size(280, 25).with_label("Word Wrap");
+
+    check_line_numbers.set_value(current_settings.line_numbers_enabled);
+    check_word_wrap.set_value(current_settings.word_wrap_enabled);
+
+    vpack.end();
+
+    // Buttons at bottom
+    let mut save_btn = Button::default().with_pos(150, 460).with_size(90, 30).with_label("Save");
+    let mut cancel_btn = Button::default().with_pos(250, 460).with_size(90, 30).with_label("Cancel");
+
+    dialog.end();
+    dialog.show();
+
+    let result = Rc::new(RefCell::new(None));
+    let result_save = result.clone();
+    let result_cancel = result.clone();
+
+    let dialog_save = dialog.clone();
+    save_btn.set_callback(move |_| {
+        let new_settings = AppSettings {
+            theme_mode: if theme_light.value() {
+                ThemeMode::Light
+            } else if theme_dark.value() {
+                ThemeMode::Dark
+            } else {
+                ThemeMode::SystemDefault
+            },
+            font: if font_screenbold.value() {
+                FontChoice::ScreenBold
+            } else if font_courier.value() {
+                FontChoice::Courier
+            } else {
+                FontChoice::HelveticaMono
+            },
+            font_size: if size_12.value() {
+                12
+            } else if size_20.value() {
+                20
+            } else {
+                16
+            },
+            line_numbers_enabled: check_line_numbers.value(),
+            word_wrap_enabled: check_word_wrap.value(),
+        };
+
+        *result_save.borrow_mut() = Some(new_settings);
+        dialog_save.clone().hide();
+    });
+
+    let dialog_cancel = dialog.clone();
+    cancel_btn.set_callback(move |_| {
+        *result_cancel.borrow_mut() = None;
+        dialog_cancel.clone().hide();
+    });
+
+    let dialog_close = dialog.clone();
+    dialog.set_callback(move |_| {
+        dialog_close.clone().hide();
+    });
+
+    while dialog.shown() {
+        app::wait();
+    }
+
+    result.borrow().clone()
+}
+
 /// Generate platform-specific file filter string for native dialogs
 ///
 /// FLTK accepts these filter formats:
@@ -199,11 +314,19 @@ fn main() {
     flex.end();
     wind.resizable(&flex);
 
-    // Initialize settings with favorite defaults
-    let settings = AppSettings::new();
+    // Load settings from disk (or create defaults)
+    let settings = AppSettings::load();
 
-    // Initialize state variables from settings
-    let dark_mode = Rc::new(RefCell::new(settings.dark_mode_enabled));
+    // Determine initial dark mode based on settings
+    let initial_dark_mode = match settings.theme_mode {
+        ThemeMode::Light => false,
+        ThemeMode::Dark => true,
+        ThemeMode::SystemDefault => detect_system_dark_mode(),
+    };
+
+    // Initialize state variables from settings (wrapped in Rc<RefCell> for sharing)
+    let _app_settings = Rc::new(RefCell::new(settings.clone()));  // TODO: Use in settings dialog
+    let dark_mode = Rc::new(RefCell::new(initial_dark_mode));
     let show_linenumbers = Rc::new(RefCell::new(settings.line_numbers_enabled));
     let word_wrap = Rc::new(RefCell::new(settings.word_wrap_enabled));
     let has_unsaved_changes = Rc::new(RefCell::new(false));
@@ -224,12 +347,17 @@ fn main() {
         text_editor.wrap_mode(WrapMode::None, 0);
     }
 
-    // Set up better font for the editor
-    text_editor.set_text_font(Font::ScreenBold); // Nice monospace font
-    text_editor.set_text_size(16); // Slightly larger for better readability
+    // Apply font settings from config
+    let font_to_use = match settings.font {
+        FontChoice::ScreenBold => Font::ScreenBold,
+        FontChoice::Courier => Font::Courier,
+        FontChoice::HelveticaMono => Font::Screen,
+    };
+    text_editor.set_text_font(font_to_use);
+    text_editor.set_text_size(settings.font_size as i32);
 
     // Apply initial theme
-    apply_theme(&mut text_editor, &mut wind, &mut menu, settings.dark_mode_enabled);
+    apply_theme(&mut text_editor, &mut wind, &mut menu, initial_dark_mode);
 
     // Set up cursor blinking
     let cursor_visible = Rc::new(RefCell::new(true));
@@ -354,6 +482,107 @@ fn main() {
                     },
                     Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
                 }
+            }
+        },
+    );
+
+    // Settings menu item
+    let app_settings_menu = _app_settings.clone();
+    let mut editor_settings = text_editor.clone();
+    let mut wind_settings = wind.clone();
+    let mut menu_settings = menu.clone();
+    let menu_update = menu.clone();
+    let dark_mode_settings = dark_mode.clone();
+    let linenumbers_settings = show_linenumbers.clone();
+    let wordwrap_settings = word_wrap.clone();
+
+    menu.add(
+        "File/Settings...",
+        fltk::enums::Shortcut::None,
+        fltk::menu::MenuFlag::Normal,
+        move |_| {
+            let current = app_settings_menu.borrow().clone();
+            if let Some(new_settings) = show_settings_dialog(&current) {
+                // Save to disk
+                if let Err(e) = new_settings.save() {
+                    dialog::alert_default(&format!("Failed to save settings: {}", e));
+                    return;
+                }
+
+                // Apply new settings immediately
+                *app_settings_menu.borrow_mut() = new_settings.clone();
+
+                // Apply theme
+                let is_dark = match new_settings.theme_mode {
+                    ThemeMode::Light => false,
+                    ThemeMode::Dark => true,
+                    ThemeMode::SystemDefault => detect_system_dark_mode(),
+                };
+                *dark_mode_settings.borrow_mut() = is_dark;
+                apply_theme(&mut editor_settings, &mut wind_settings, &mut menu_settings, is_dark);
+
+                // Update Dark Mode menu checkbox
+                let idx = menu_update.find_index("View/Toggle Dark Mode");
+                if idx >= 0 {
+                    if let Some(mut item) = menu_update.at(idx) {
+                        if is_dark {
+                            item.set();
+                        } else {
+                            item.clear();
+                        }
+                    }
+                }
+
+                // Apply font
+                let font = match new_settings.font {
+                    FontChoice::ScreenBold => Font::ScreenBold,
+                    FontChoice::Courier => Font::Courier,
+                    FontChoice::HelveticaMono => Font::Screen,
+                };
+                editor_settings.set_text_font(font);
+                editor_settings.set_text_size(new_settings.font_size as i32);
+
+                // Apply line numbers
+                *linenumbers_settings.borrow_mut() = new_settings.line_numbers_enabled;
+                if new_settings.line_numbers_enabled {
+                    editor_settings.set_linenumber_width(40);
+                } else {
+                    editor_settings.set_linenumber_width(0);
+                }
+
+                // Update Line Numbers menu checkbox
+                let idx = menu_update.find_index("View/Toggle Line Numbers");
+                if idx >= 0 {
+                    if let Some(mut item) = menu_update.at(idx) {
+                        if new_settings.line_numbers_enabled {
+                            item.set();
+                        } else {
+                            item.clear();
+                        }
+                    }
+                }
+
+                // Apply word wrap
+                *wordwrap_settings.borrow_mut() = new_settings.word_wrap_enabled;
+                if new_settings.word_wrap_enabled {
+                    editor_settings.wrap_mode(WrapMode::AtBounds, 0);
+                } else {
+                    editor_settings.wrap_mode(WrapMode::None, 0);
+                }
+
+                // Update Word Wrap menu checkbox
+                let idx = menu_update.find_index("View/Toggle Word Wrap");
+                if idx >= 0 {
+                    if let Some(mut item) = menu_update.at(idx) {
+                        if new_settings.word_wrap_enabled {
+                            item.set();
+                        } else {
+                            item.clear();
+                        }
+                    }
+                }
+
+                editor_settings.redraw();
             }
         },
     );
@@ -484,7 +713,7 @@ fn main() {
     let _menu_item_dm = menu.add(
         "View/Toggle Dark Mode",
         fltk::enums::Shortcut::None,
-        if settings.dark_mode_enabled {
+        if initial_dark_mode {
             fltk::menu::MenuFlag::Toggle | fltk::menu::MenuFlag::Value
         } else {
             fltk::menu::MenuFlag::Toggle
@@ -496,7 +725,10 @@ fn main() {
         },
     );
 
-    // Add font selection submenu under Format
+    // TODO: Add Settings dialog window (modal with radio buttons and toggles)
+    // For now, keep Format menu as temporary way to change settings without saving
+
+    // Add font selection submenu under Format (temporary, no saving)
     let mut editor_font1 = text_editor.clone();
     menu.add(
         "Format/Font/Screen (Bold)",
@@ -530,7 +762,7 @@ fn main() {
         },
     );
 
-    // Add font size options under Format
+    // Add font size options under Format (temporary, no saving)
     let mut editor_size1 = text_editor.clone();
     menu.add(
         "Format/Font Size/Small (12)",
