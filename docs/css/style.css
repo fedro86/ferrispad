@@ -259,6 +259,7 @@ code {
 .btn-primary:hover {
     background: var(--accent-hover);
     border-color: var(--accent-hover);
+    color: white;
     transform: translateY(-2px);
     box-shadow: 0 4px 12px var(--shadow-hover);
 }
