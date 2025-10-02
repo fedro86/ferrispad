@@ -102,6 +102,18 @@ fn apply_theme(
     menu.redraw();
 }
 
+/// Get filter pattern for common text file formats
+///
+/// Includes: plain text, markdown, code files, config files, etc.
+fn get_common_text_formats_filter() -> String {
+    "*.{txt,md,markdown,rst,log,json,xml,yaml,yml,toml,ini,cfg,conf,rs,py,js,ts,jsx,tsx,c,cpp,h,hpp,java,go,sh,bash,html,css,scss,sass,sql}".to_string()
+}
+
+/// Get filter pattern for all files
+fn get_all_files_filter() -> String {
+    "*".to_string()
+}
+
 /// Generate platform-specific file filter string for native dialogs
 ///
 /// FLTK accepts these filter formats:
@@ -246,7 +258,7 @@ fn main() {
         fltk::enums::Shortcut::Ctrl | 'o',
         fltk::menu::MenuFlag::Normal,
         move |_| {
-            if let Some(path) = native_open_dialog("Text Files", "*.txt") {
+            if let Some(path) = native_open_dialog("Text Files", &get_common_text_formats_filter()) {
                 match fs::read_to_string(&path) {
                     Ok(content) => {
                         buf_open.set_text(&content);
@@ -273,7 +285,7 @@ fn main() {
         fltk::enums::Shortcut::Ctrl | 's',
         fltk::menu::MenuFlag::Normal,
         move |_| {
-            if let Some(path) = native_save_dialog("Text Files", "*.txt") {
+            if let Some(path) = native_save_dialog("All Files", &get_all_files_filter()) {
                 match fs::write(&path, buf_save.text()) {
                     Ok(_) => {
                         let filename = Path::new(&path).file_name()
@@ -323,7 +335,7 @@ fn main() {
                             }
                         } else {
                             // New file, open save dialog
-                            if let Some(path) = native_save_dialog("Text Files", "*.txt") {
+                            if let Some(path) = native_save_dialog("All Files", &get_all_files_filter()) {
                                 match fs::write(&path, buf_quit.text()) {
                                     Ok(_) => {
                                         let filename = Path::new(&path).file_name()
@@ -528,7 +540,7 @@ fn main() {
                         }
                     } else {
                         // New file, open save dialog
-                        if let Some(path) = native_save_dialog("Text Files", "*.txt") {
+                        if let Some(path) = native_save_dialog("All Files", &get_all_files_filter()) {
                             match fs::write(&path, buf_close.text()) {
                                 Ok(_) => {
                                     let filename = Path::new(&path).file_name()
@@ -600,5 +612,22 @@ mod tests {
         let filter2 = get_platform_filter("Different Description", "*.txt");
         assert_eq!(filter1, filter2);
         assert_eq!(filter1, "*.txt");
+    }
+
+    #[test]
+    fn test_common_text_formats_filter() {
+        let filter = get_common_text_formats_filter();
+        // Should include major text format extensions
+        assert!(filter.contains("txt"));
+        assert!(filter.contains("md"));
+        assert!(filter.contains("rs"));
+        assert!(filter.contains("py"));
+        assert!(filter.contains("json"));
+    }
+
+    #[test]
+    fn test_all_files_filter() {
+        let filter = get_all_files_filter();
+        assert_eq!(filter, "*");
     }
 }
