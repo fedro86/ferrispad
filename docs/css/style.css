@@ -574,10 +574,99 @@ section {
 }
 
 /* ===================================
+   Feedback Section
+   =================================== */
+.feedback {
+    background: var(--bg-secondary);
+    padding: var(--spacing-xl) 0;
+}
+
+.feedback-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.feedback-card {
+    background: var(--bg-primary);
+    padding: var(--spacing-md);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--border-color);
+    text-align: center;
+    transition: var(--transition);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.feedback-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 24px var(--shadow-hover);
+}
+
+.feedback-icon {
+    width: 64px;
+    height: 64px;
+    margin-bottom: var(--spacing-sm);
+    color: var(--accent-color);
+}
+
+.feedback-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+.feedback-card h3 {
+    color: var(--accent-color);
+    margin-bottom: var(--spacing-xs);
+}
+
+.feedback-card p {
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-md);
+    flex-grow: 1;
+}
+
+.btn-feedback {
+    background: var(--accent-color);
+    color: white;
+    padding: var(--spacing-xs) var(--spacing-md);
+    border-radius: var(--border-radius);
+    text-decoration: none;
+    display: inline-block;
+    transition: var(--transition);
+    font-weight: 600;
+}
+
+.btn-feedback:hover {
+    background: var(--accent-hover);
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px var(--shadow-hover);
+}
+
+.feedback-note {
+    text-align: center;
+    margin-top: var(--spacing-md);
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.feedback-note a {
+    color: var(--accent-color);
+    text-decoration: none;
+}
+
+.feedback-note a:hover {
+    text-decoration: underline;
+}
+
+/* ===================================
    Footer
    =================================== */
 .footer {
-    background: var(--bg-secondary);
+    background: var(--bg-primary);
     padding: var(--spacing-lg) 0 var(--spacing-md);
     border-top: 1px solid var(--border-color);
 }

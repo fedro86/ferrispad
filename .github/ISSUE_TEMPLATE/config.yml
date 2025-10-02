@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 GitHub Discussions
+    url: https://github.com/fedro86/ferrispad/discussions
+    about: Ask questions, share ideas, or chat with the community
+  - name: 📚 Documentation
+    url: https://github.com/fedro86/ferrispad#readme
+    about: Check the README for setup, usage, and troubleshooting
+  - name: 🌐 Official Website
+    url: https://www.ferrispad.com
+    about: Download binaries and learn more about FerrisPad
