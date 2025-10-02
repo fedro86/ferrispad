@@ -5,7 +5,7 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.4] - 2025-01-XX
+## [0.1.4] - 2025-10-02
 
 ### Added
 - **Find & Replace**: Full text search and replace functionality
@@ -46,44 +46,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test coverage (22 tests)
 - All features follow TDD (Test-Driven Development) principles
 
-## [0.1.3] - 2025-01-15
+## [0.1.3] - 2025-10-01
 
 ### Added
-- Desktop integration with proper icon support
-- Beautiful crab mascot icons in all standard sizes (16x16 to 512x512)
-- Application menu entry
-- File title display in window title bar
-- Installation and uninstallation scripts for Linux
+- Professional icons for all platforms (Windows, macOS, Linux)
+- Windows executable with embedded icon
+- Desktop integration improvements
 
 ### Changed
-- Improved icon rendering across different desktop environments
-- Enhanced desktop file with proper MIME types
-
-## [0.1.2] - 2025-01-10
-
-### Added
-- View menu with toggles for Line Numbers, Word Wrap, and Dark Mode
-- Format menu for font selection and font size
-- Light and Dark theme support
-- System theme detection (Linux)
+- Updated to Rust edition 2024
+- Improved build and release workflows
 
 ### Fixed
-- Cursor blinking now works properly
-- Window positioning and sizing improvements
+- macOS universal binary build
+- Download URLs for release artifacts
+- GitHub Actions workflow permissions
 
-## [0.1.1] - 2025-01-05
-
-### Added
-- Basic keyboard shortcuts (Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Q)
-- Line numbers toggle
-- Word wrap toggle
-- Font customization options
+## [0.1.2] - 2025-10-01
 
 ### Fixed
-- File saving reliability improvements
-- Memory leak fixes
+- GitHub Actions workflow to support tags without 'v' prefix
 
-## [0.1.0] - 2025-01-01
+## [0.1.1] - 2025-10-01
+
+### Added
+- MIT License
+- GitHub Releases integration
+- Build guides and documentation
+
+### Fixed
+- Binary file distribution issues
+- Download links to use GitHub releases
+
+## [0.1.0] - 2025-09-30
 
 ### Added
 - Initial release
@@ -94,8 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FLTK-based GUI
 - Rust implementation for speed and safety
 
-[0.1.4]: https://github.com/fedro86/ferrispad/compare/v0.1.3...v0.1.4
-[0.1.3]: https://github.com/fedro86/ferrispad/compare/v0.1.2...v0.1.3
-[0.1.2]: https://github.com/fedro86/ferrispad/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/fedro86/ferrispad/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/fedro86/ferrispad/releases/tag/v0.1.0
+[0.1.4]: https://github.com/fedro86/ferrispad/compare/0.1.3...0.1.4
+[0.1.3]: https://github.com/fedro86/ferrispad/compare/0.1.2...0.1.3
+[0.1.2]: https://github.com/fedro86/ferrispad/compare/0.1.1...0.1.2
+[0.1.1]: https://github.com/fedro86/ferrispad/compare/0.1.0...0.1.1
+[0.1.0]: https://github.com/fedro86/ferrispad/releases/tag/0.1.0
