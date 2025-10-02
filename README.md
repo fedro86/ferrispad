@@ -123,7 +123,7 @@ cargo install cargo-deb
 cargo deb
 ```
 
-See [BUILD_GUIDE.md](BUILD_GUIDE.md) for detailed build instructions
+See [BUILD_GUIDE.md](docs/guides/BUILD_GUIDE.md) for detailed build instructions
 
 ### Install Desktop Integration (Linux)
 
