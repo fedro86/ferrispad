@@ -104,23 +104,17 @@ fn apply_theme(
 
 /// Generate platform-specific file filter string for native dialogs
 ///
-/// Different platforms require different filter formats:
-/// - Linux (GTK): "Description\tPattern"
-/// - Windows: "Description\0Pattern\0\0"
-/// - macOS: "Pattern"
-fn get_platform_filter(description: &str, pattern: &str) -> String {
-    #[cfg(target_os = "linux")]
-    return format!("{}\t{}", description, pattern);
-
-    #[cfg(target_os = "windows")]
-    return format!("{}\0{}\0\0", description, pattern);
-
-    #[cfg(target_os = "macos")]
-    return pattern.to_string();
-
-    // Fallback for other platforms
-    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
-    return format!("{}\t{}", description, pattern);
+/// FLTK accepts these filter formats:
+/// - Simple wildcard: "*.txt"
+/// - Multiple wildcards: "*.{txt,md,rst}"
+/// - With description (optional): "Text Files\t*.txt"
+/// - Multiple filters: "Text Files\t*.txt\nMarkdown\t*.md"
+///
+/// For maximum compatibility, we use the simple format without description.
+fn get_platform_filter(_description: &str, pattern: &str) -> String {
+    // FLTK handles the platform-specific format internally
+    // We just pass the pattern directly
+    pattern.to_string()
 }
 
 fn native_open_dialog(description: &str, pattern: &str) -> Option<String> {
@@ -582,47 +576,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_platform_filter_linux() {
-        #[cfg(target_os = "linux")]
-        {
-            let filter = get_platform_filter("Text Files", "*.txt");
-            assert_eq!(filter, "Text Files\t*.txt");
-        }
-    }
-
-    #[test]
-    fn test_platform_filter_windows() {
-        #[cfg(target_os = "windows")]
-        {
-            let filter = get_platform_filter("Text Files", "*.txt");
-            assert_eq!(filter, "Text Files\0*.txt\0\0");
-        }
-    }
-
-    #[test]
-    fn test_platform_filter_macos() {
-        #[cfg(target_os = "macos")]
-        {
-            let filter = get_platform_filter("Text Files", "*.txt");
-            assert_eq!(filter, "*.txt");
-        }
+    fn test_platform_filter_simple() {
+        let filter = get_platform_filter("Text Files", "*.txt");
+        assert_eq!(filter, "*.txt");
     }
 
     #[test]
     fn test_platform_filter_multiple_extensions() {
-        #[cfg(target_os = "linux")]
-        {
-            let filter = get_platform_filter("Text Files", "*.{txt,md,rst}");
-            assert_eq!(filter, "Text Files\t*.{txt,md,rst}");
-        }
+        let filter = get_platform_filter("Text Files", "*.{txt,md,rst}");
+        assert_eq!(filter, "*.{txt,md,rst}");
     }
 
     #[test]
     fn test_platform_filter_all_files() {
-        #[cfg(target_os = "linux")]
-        {
-            let filter = get_platform_filter("All Files", "*");
-            assert_eq!(filter, "All Files\t*");
-        }
+        let filter = get_platform_filter("All Files", "*");
+        assert_eq!(filter, "*");
+    }
+
+    #[test]
+    fn test_platform_filter_ignores_description() {
+        // Description parameter is kept for API consistency but not used
+        let filter1 = get_platform_filter("Text Files", "*.txt");
+        let filter2 = get_platform_filter("Different Description", "*.txt");
+        assert_eq!(filter1, filter2);
+        assert_eq!(filter1, "*.txt");
     }
 }
