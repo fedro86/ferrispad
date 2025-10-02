@@ -36,13 +36,13 @@ This isn't meant to change the landscape of text editors. It's meant to be that 
 
 <div align="center">
   <h3>Light Mode</h3>
-  <img src="assets/screenshot-light.png" alt="FerrisPad Light Mode" width="600"/>
+  <img src="assets/screenshots/screenshot-light.png" alt="FerrisPad Light Mode" width="600"/>
   <p><em>Clean, bright interface with line numbers and monospace font</em></p>
 </div>
 
 <div align="center">
   <h3>Dark Mode</h3>
-  <img src="assets/screenshot-dark.png" alt="FerrisPad Dark Mode" width="600"/>
+  <img src="assets/screenshots/screenshot-dark.png" alt="FerrisPad Dark Mode" width="600"/>
   <p><em>Easy on the eyes dark theme with syntax-friendly colors</em></p>
 </div>
 
