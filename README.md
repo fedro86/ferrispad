@@ -88,7 +88,36 @@ When running FerrisPad on Windows for the first time, you may see a "Windows pro
 4. Click "OK"
 5. Extract and run normally
 
-This warning appears for many open source projects including GIMP, Audacity, and other community-developed software. If we add paid code signing in the future, this warning will disappear.
+This warning appears for many open source projects including GIMP, Audacity, and other community-developed software.
+
+### macOS Security Warning
+
+When opening FerrisPad on macOS for the first time, you may see a warning that the app "cannot be opened because it is from an unidentified developer" or "cannot be opened because Apple cannot check it for malicious software." This is **normal** for open source software not signed with an Apple Developer certificate (which costs $99/year).
+
+**FerrisPad is safe to run**. The source code is completely open and auditable on GitHub.
+
+**To open FerrisPad (choose one method):**
+
+**Method 1 (Terminal - Most Reliable):**
+```bash
+xattr -cr /Applications/FerrisPad.app
+```
+This removes the quarantine flag. After running this, open FerrisPad normally from Applications.
+
+**Method 2 (System Settings):**
+1. Try to open FerrisPad normally (it will be blocked)
+2. Go to System Settings → Privacy & Security
+3. Scroll down to the Security section
+4. Click "Open Anyway" next to the FerrisPad message
+5. Click "Open" to confirm
+
+**Method 3 (Right-click - May Not Work):**
+1. Right-click (or Control-click) FerrisPad.app in Applications
+2. Select "Open" from the menu
+3. If an "Open" button appears in the dialog, click it
+4. Note: This method doesn't work reliably on newer macOS versions
+
+This warning appears for many open source projects including GIMP, Audacity, Blender, and other community-developed software that aren't code-signed by Apple.
 
 ### Build from Source
 

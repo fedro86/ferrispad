@@ -190,8 +190,41 @@
                             <li>Download and open the .dmg file</li>
                             <li>Drag FerrisPad.app to Applications folder</li>
                             <li>Launch from Applications or Spotlight</li>
-                            <li>If blocked, go to System Settings > Privacy & Security and click "Open Anyway"</li>
                         </ol>
+                    </details>
+                    <details class="install-details" style="margin-top: 10px; border-left: 3px solid #ff6b35;">
+                        <summary><strong>⚠️ macOS Security Warning</strong></summary>
+                        <p style="margin: 10px 0; line-height: 1.6;">
+                            When opening FerrisPad for the first time, macOS may show a warning that the app "cannot be opened because it is from an unidentified developer" or "cannot be opened because Apple cannot check it for malicious software."
+                            This is <strong>normal</strong> for open source software not signed with an Apple Developer certificate (costs $99/year).
+                        </p>
+                        <p style="margin: 10px 0;"><strong>FerrisPad is safe to run.</strong> The source code is open and auditable on GitHub.</p>
+                        <p style="margin: 10px 0;"><strong>To open FerrisPad:</strong></p>
+                        <p style="margin: 10px 0; padding-left: 20px;"><strong>Method 1 (Terminal - Most Reliable):</strong></p>
+                        <ol style="margin: 10px 0;">
+                            <li>Open Terminal</li>
+                            <li>Run: <code>xattr -cr /Applications/FerrisPad.app</code></li>
+                            <li>This removes the quarantine flag</li>
+                            <li>Then open FerrisPad normally from Applications</li>
+                        </ol>
+                        <p style="margin: 10px 0; padding-left: 20px;"><strong>Method 2 (System Settings):</strong></p>
+                        <ol style="margin: 10px 0;">
+                            <li>Try to open FerrisPad normally (it will be blocked)</li>
+                            <li>Go to System Settings → Privacy & Security</li>
+                            <li>Scroll down to the Security section</li>
+                            <li>Click "Open Anyway" next to the FerrisPad message</li>
+                            <li>Click "Open" to confirm</li>
+                        </ol>
+                        <p style="margin: 10px 0; padding-left: 20px;"><strong>Method 3 (Right-click - May Not Work):</strong></p>
+                        <ol style="margin: 10px 0;">
+                            <li>Right-click (or Control-click) FerrisPad.app in Applications</li>
+                            <li>Select "Open" from the menu</li>
+                            <li>If an "Open" button appears in the dialog, click it</li>
+                            <li>Note: This doesn't work reliably on newer macOS versions</li>
+                        </ol>
+                        <p style="margin: 10px 0; font-size: 0.9em; color: #666;">
+                            This warning appears for many open source projects like GIMP, Audacity, Blender, and other community software that aren't code-signed by Apple.
+                        </p>
                     </details>
                 </div>
 
