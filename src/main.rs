@@ -102,14 +102,24 @@ fn apply_theme(
     menu.redraw();
 }
 
-/// Get filter pattern for common text file formats
+/// Get filter pattern for text file formats with multiple options
 ///
-/// Includes: plain text, markdown, code files, config files, etc.
-fn get_common_text_formats_filter() -> String {
-    "*.{txt,md,markdown,rst,log,json,xml,yaml,yml,toml,ini,cfg,conf,rs,py,js,ts,jsx,tsx,c,cpp,h,hpp,java,go,sh,bash,html,css,scss,sass,sql}".to_string()
+/// Returns a multi-line filter string where each line is a separate filter option.
+/// FLTK format: "Description\tPattern\nDescription2\tPattern2"
+/// Note: FLTK automatically adds "All Files (*)" option, so we don't include it
+fn get_text_files_filter_multiline() -> String {
+    vec![
+        "Text Files\t*.txt",
+        "Markdown Files\t*.{md,markdown}",
+        "Rust Files\t*.rs",
+        "Python Files\t*.py",
+        "JavaScript Files\t*.{js,jsx,ts,tsx}",
+        "Config Files\t*.{json,yaml,yml,toml,ini,cfg,conf}",
+        "Web Files\t*.{html,css,scss,sass}",
+    ].join("\n")
 }
 
-/// Get filter pattern for all files
+/// Get filter pattern for all files (used in Save dialogs)
 fn get_all_files_filter() -> String {
     "*".to_string()
 }
@@ -258,7 +268,8 @@ fn main() {
         fltk::enums::Shortcut::Ctrl | 'o',
         fltk::menu::MenuFlag::Normal,
         move |_| {
-            if let Some(path) = native_open_dialog("Text Files", &get_common_text_formats_filter()) {
+            // Use empty description since we're providing multi-line filter with descriptions
+            if let Some(path) = native_open_dialog("", &get_text_files_filter_multiline()) {
                 match fs::read_to_string(&path) {
                     Ok(content) => {
                         buf_open.set_text(&content);
@@ -615,19 +626,24 @@ mod tests {
     }
 
     #[test]
-    fn test_common_text_formats_filter() {
-        let filter = get_common_text_formats_filter();
-        // Should include major text format extensions
-        assert!(filter.contains("txt"));
-        assert!(filter.contains("md"));
-        assert!(filter.contains("rs"));
-        assert!(filter.contains("py"));
-        assert!(filter.contains("json"));
-    }
-
-    #[test]
     fn test_all_files_filter() {
         let filter = get_all_files_filter();
         assert_eq!(filter, "*");
+    }
+
+    #[test]
+    fn test_multiline_filter_format() {
+        let filter = get_text_files_filter_multiline();
+        // Should contain newline separators
+        assert!(filter.contains("\n"));
+        // Should contain tab separators between description and pattern
+        assert!(filter.contains("\t"));
+        // Should contain various file type options
+        assert!(filter.contains("Text Files"));
+        assert!(filter.contains("Markdown Files"));
+        assert!(filter.contains("Rust Files"));
+        assert!(filter.contains("Python Files"));
+        assert!(filter.contains("Config Files"));
+        // Note: "All Files" is automatically added by FLTK, not in our filter string
     }
 }
