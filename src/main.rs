@@ -124,6 +124,18 @@ fn get_all_files_filter() -> String {
     "*".to_string()
 }
 
+/// Extract filename from a file path
+///
+/// Returns the filename component of a path, or "Unknown" if it can't be extracted.
+fn extract_filename(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .filter(|s| !s.is_empty() && *s != ".")
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "Unknown".to_string())
+}
+
 /// Generate platform-specific file filter string for native dialogs
 ///
 /// FLTK accepts these filter formats:
@@ -273,9 +285,7 @@ fn main() {
                 match fs::read_to_string(&path) {
                     Ok(content) => {
                         buf_open.set_text(&content);
-                        let filename = Path::new(&path).file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("Unknown");
+                        let filename = extract_filename(&path);
                         wind_open.set_label(&format!("{} - 🦀 FerrisPad", filename));
                         *changes_open.borrow_mut() = false; // Reset unsaved changes flag
                         *path_open.borrow_mut() = Some(path); // Store current file path
@@ -286,25 +296,61 @@ fn main() {
         },
     );
 
-    // SAVE AS -> native dialog
-    let buf_save = text_buf.clone();
-    let mut wind_save = wind.clone();
-    let changes_save = has_unsaved_changes.clone();
-    let path_save = current_file_path.clone();
+    // SAVE -> quick save to existing file, or Save As dialog if new file
+    let buf_save_quick = text_buf.clone();
+    let mut wind_save_quick = wind.clone();
+    let changes_save_quick = has_unsaved_changes.clone();
+    let path_save_quick = current_file_path.clone();
     menu.add(
-        "File/Save As...",
+        "File/Save",
         fltk::enums::Shortcut::Ctrl | 's',
         fltk::menu::MenuFlag::Normal,
         move |_| {
-            if let Some(path) = native_save_dialog("All Files", &get_all_files_filter()) {
-                match fs::write(&path, buf_save.text()) {
+            let current_path = path_save_quick.borrow().clone();
+
+            if let Some(path) = current_path {
+                // File has been saved before, quick save without dialog
+                match fs::write(&path, buf_save_quick.text()) {
                     Ok(_) => {
-                        let filename = Path::new(&path).file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("Unknown");
-                        wind_save.set_label(&format!("{} - 🦀 FerrisPad", filename));
-                        *changes_save.borrow_mut() = false; // Reset unsaved changes flag
-                        *path_save.borrow_mut() = Some(path); // Store current file path
+                        *changes_save_quick.borrow_mut() = false;
+                        // Title already has correct filename, no need to update
+                    },
+                    Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
+                }
+            } else {
+                // New file, show Save As dialog
+                if let Some(path) = native_save_dialog("All Files", &get_all_files_filter()) {
+                    match fs::write(&path, buf_save_quick.text()) {
+                        Ok(_) => {
+                            let filename = extract_filename(&path);
+                            wind_save_quick.set_label(&format!("{} - 🦀 FerrisPad", filename));
+                            *changes_save_quick.borrow_mut() = false;
+                            *path_save_quick.borrow_mut() = Some(path);
+                        },
+                        Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
+                    }
+                }
+            }
+        },
+    );
+
+    // SAVE AS -> always show dialog for new location
+    let buf_save_as = text_buf.clone();
+    let mut wind_save_as = wind.clone();
+    let changes_save_as = has_unsaved_changes.clone();
+    let path_save_as = current_file_path.clone();
+    menu.add(
+        "File/Save As...",
+        fltk::enums::Shortcut::Ctrl | fltk::enums::Shortcut::Shift | 's',
+        fltk::menu::MenuFlag::Normal,
+        move |_| {
+            if let Some(path) = native_save_dialog("All Files", &get_all_files_filter()) {
+                match fs::write(&path, buf_save_as.text()) {
+                    Ok(_) => {
+                        let filename = extract_filename(&path);
+                        wind_save_as.set_label(&format!("{} - 🦀 FerrisPad", filename));
+                        *changes_save_as.borrow_mut() = false;
+                        *path_save_as.borrow_mut() = Some(path);
                     },
                     Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
                 }
@@ -349,9 +395,7 @@ fn main() {
                             if let Some(path) = native_save_dialog("All Files", &get_all_files_filter()) {
                                 match fs::write(&path, buf_quit.text()) {
                                     Ok(_) => {
-                                        let filename = Path::new(&path).file_name()
-                                            .and_then(|n| n.to_str())
-                                            .unwrap_or("Unknown");
+                                        let filename = extract_filename(&path);
                                         wind_quit.set_label(&format!("{} - 🦀 FerrisPad", filename));
                                         *changes_quit.borrow_mut() = false;
                                         *path_quit.borrow_mut() = Some(path);
@@ -554,9 +598,7 @@ fn main() {
                         if let Some(path) = native_save_dialog("All Files", &get_all_files_filter()) {
                             match fs::write(&path, buf_close.text()) {
                                 Ok(_) => {
-                                    let filename = Path::new(&path).file_name()
-                                        .and_then(|n| n.to_str())
-                                        .unwrap_or("Unknown");
+                                    let filename = extract_filename(&path);
                                     wind_close.set_label(&format!("{} - 🦀 FerrisPad", filename));
                                     *changes_close.borrow_mut() = false;
                                     *path_close.borrow_mut() = Some(path);
@@ -645,5 +687,25 @@ mod tests {
         assert!(filter.contains("Python Files"));
         assert!(filter.contains("Config Files"));
         // Note: "All Files" is automatically added by FLTK, not in our filter string
+    }
+
+    #[test]
+    fn test_extract_filename_from_path() {
+        assert_eq!(extract_filename("/home/user/test.txt"), "test.txt");
+        assert_eq!(extract_filename("/home/user/document.md"), "document.md");
+        assert_eq!(extract_filename("test.txt"), "test.txt");
+        assert_eq!(extract_filename("/path/with/many/levels/file.rs"), "file.rs");
+    }
+
+    #[test]
+    fn test_extract_filename_edge_cases() {
+        // Path ending with directory extracts directory name (reasonable behavior)
+        assert_eq!(extract_filename("/home/user/"), "user");
+        // Empty path
+        assert_eq!(extract_filename(""), "Unknown");
+        // Just a dot (current directory marker)
+        assert_eq!(extract_filename("."), "Unknown");
+        // Root path
+        assert_eq!(extract_filename("/"), "Unknown");
     }
 }
