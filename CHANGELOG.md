@@ -5,6 +5,63 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2025-10-02
+
+### Added
+- **In-App Update Checker**: Privacy-first update notification system
+  - Manual update check via Help → Check for Updates menu
+  - Auto-check on startup (once per 24 hours, fully optional)
+  - Notification banner when updates are available
+  - Settings toggle to enable/disable auto-updates
+  - GitHub API integration for release checking
+  - Semantic version comparison
+  - Background thread for non-blocking checks
+  - No telemetry or tracking - only checks GitHub public API
+- **About Dialog**: Standard application information
+  - Help → About FerrisPad menu item
+  - Displays version, copyright, license information
+  - Project website and GitHub links
+- **Privacy-First Design**: Complete transparency and user control
+  - Update checker can be completely disabled
+  - No personal data collection
+  - No usage tracking or analytics
+  - Open source and auditable code
+
+### Changed
+- Extended Settings dialog with Updates section
+- Enhanced Help menu with About and Check for Updates items
+- Updated website with privacy section and new features
+- Improved README with privacy commitments and update checker documentation
+
+### Fixed
+- Settings dialog close button no longer closes entire application
+- Proper event handling for modal dialogs
+
+### Technical
+- Added `src/updater.rs` module (267 lines)
+  - GitHub API integration
+  - Semantic versioning with semver crate
+  - Background update checking
+  - Thread-safe state management with Arc<Mutex<T>>
+  - Comprehensive test coverage (12 unit tests)
+- Extended `src/settings.rs` with update preferences
+  - auto_check_updates field
+  - update_channel (Stable/Beta)
+  - last_update_check timestamp
+  - skipped_versions list
+  - Backward compatibility with old config files
+- Enhanced `src/main.rs` (+288 lines)
+  - Background update check on startup
+  - Update notification banner
+  - About dialog implementation
+  - Manual check dialog
+- Added dependencies:
+  - reqwest (with rustls-tls for better portability)
+  - semver (for version comparison)
+  - open (for opening URLs in browser)
+- Total test count: 18 unit tests (all passing)
+- Comprehensive documentation (15 files, ~170 KB in docs/temp/0.1.5/)
+
 ## [0.1.4] - 2025-10-02
 
 ### Added
@@ -89,6 +146,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FLTK-based GUI
 - Rust implementation for speed and safety
 
+[0.1.5]: https://github.com/fedro86/ferrispad/compare/0.1.4...0.1.5
 [0.1.4]: https://github.com/fedro86/ferrispad/compare/0.1.3...0.1.4
 [0.1.3]: https://github.com/fedro86/ferrispad/compare/0.1.2...0.1.3
 [0.1.2]: https://github.com/fedro86/ferrispad/compare/0.1.1...0.1.2
