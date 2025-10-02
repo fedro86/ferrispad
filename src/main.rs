@@ -10,6 +10,7 @@ use fltk::{
     frame::Frame,
     group::{Flex, Group},
     image::PngImage,
+    input::Input,
     menu::MenuBar,
     prelude::*,
     text::{TextBuffer, TextEditor, WrapMode},
@@ -123,6 +124,316 @@ fn extract_filename(path: &str) -> String {
         .filter(|s| !s.is_empty() && *s != ".")
         .map(|s| s.to_string())
         .unwrap_or_else(|| "Unknown".to_string())
+}
+
+/// Find next occurrence of search string in text
+///
+/// Returns the byte position of the match, or None if not found.
+/// Searches from start_pos onwards.
+fn find_in_text(text: &str, search: &str, start_pos: usize, case_sensitive: bool) -> Option<usize> {
+    if search.is_empty() || start_pos >= text.len() {
+        return None;
+    }
+
+    let haystack = if case_sensitive {
+        text[start_pos..].to_string()
+    } else {
+        text[start_pos..].to_lowercase()
+    };
+
+    let needle = if case_sensitive {
+        search.to_string()
+    } else {
+        search.to_lowercase()
+    };
+
+    haystack.find(&needle).map(|pos| start_pos + pos)
+}
+
+/// Replace all occurrences of search string with replacement
+///
+/// Returns (new_text, count_of_replacements)
+fn replace_all_in_text(text: &str, search: &str, replace: &str, case_sensitive: bool) -> (String, usize) {
+    if search.is_empty() {
+        return (text.to_string(), 0);
+    }
+
+    let mut result = text.to_string();
+    let mut count = 0;
+    let mut pos = 0;
+
+    while let Some(found_pos) = find_in_text(&result, search, pos, case_sensitive) {
+        // Get the actual matched text (preserves original case)
+        let matched_text = &result[found_pos..found_pos + search.len()];
+
+        // Replace this occurrence
+        result.replace_range(found_pos..found_pos + matched_text.len(), replace);
+
+        // Move position forward by replacement length
+        pos = found_pos + replace.len();
+        count += 1;
+
+        // Prevent infinite loop if replace contains search
+        if replace.contains(search) && pos >= result.len() {
+            break;
+        }
+    }
+
+    (result, count)
+}
+
+/// Show Find & Replace dialog
+fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
+    let mut dialog = Window::default()
+        .with_size(400, 220)
+        .with_label("Find & Replace")
+        .center_screen();
+
+    Frame::default().with_pos(20, 20).with_size(80, 30).with_label("Find what:");
+    let find_input = Input::default().with_pos(110, 20).with_size(270, 30);
+
+    Frame::default().with_pos(20, 60).with_size(80, 30).with_label("Replace:");
+    let replace_input = Input::default().with_pos(110, 60).with_size(270, 30);
+
+    let case_check = CheckButton::default()
+        .with_pos(110, 100).with_size(200, 25).with_label("Match case");
+
+    let mut find_btn = Button::default()
+        .with_pos(20, 140).with_size(90, 30).with_label("Find Next");
+    let mut replace_btn = Button::default()
+        .with_pos(120, 140).with_size(90, 30).with_label("Replace");
+    let mut replace_all_btn = Button::default()
+        .with_pos(220, 140).with_size(100, 30).with_label("Replace All");
+    let mut close_btn = Button::default()
+        .with_pos(300, 180).with_size(90, 30).with_label("Close");
+
+    dialog.end();
+    dialog.make_resizable(false);
+    dialog.show();
+
+    let search_text = Rc::new(RefCell::new(String::new()));
+    let search_pos = Rc::new(RefCell::new(0usize));
+    let text_buf = buffer.clone();
+    let text_ed = editor.clone();
+
+    // Find Next button
+    let st = search_text.clone();
+    let sp = search_pos.clone();
+    let mut tb1 = text_buf.clone();
+    let mut te1 = text_ed.clone();
+    let find_input1 = find_input.clone();
+    let case_check1 = case_check.clone();
+
+    find_btn.set_callback(move |_| {
+        let query = find_input1.value();
+        if query.is_empty() {
+            dialog::message_default("Please enter text to find");
+            return;
+        }
+
+        let text = tb1.text();
+        let case_sensitive = case_check1.is_checked();
+
+        // If search text changed, start from current cursor position
+        let start_pos = if *st.borrow() != query {
+            *st.borrow_mut() = query.clone();
+            let cursor = te1.insert_position() as usize;
+            *sp.borrow_mut() = cursor;
+            cursor
+        } else {
+            *sp.borrow()
+        };
+
+        if let Some(pos) = find_in_text(&text, &query, start_pos, case_sensitive) {
+            // Select the found text
+            tb1.select(pos as i32, (pos + query.len()) as i32);
+            te1.set_insert_position((pos + query.len()) as i32);
+            te1.show_insert_position();
+
+            // Update search position for next search
+            *sp.borrow_mut() = pos + query.len();
+        } else {
+            // Not found, wrap around
+            if start_pos > 0 {
+                *sp.borrow_mut() = 0;
+                dialog::message_default("No more matches. Wrapped to beginning.");
+            } else {
+                dialog::message_default(&format!("Cannot find '{}'", query));
+            }
+        }
+    });
+
+    // Replace button
+    let sp2 = search_pos.clone();
+    let mut tb2 = text_buf.clone();
+    let mut te2 = text_ed.clone();
+    let find_input2 = find_input.clone();
+    let replace_input2 = replace_input.clone();
+    let case_check2 = case_check.clone();
+    let mut find_btn2 = find_btn.clone();
+
+    replace_btn.set_callback(move |_| {
+        let query = find_input2.value();
+        let replacement = replace_input2.value();
+
+        if query.is_empty() {
+            dialog::message_default("Please enter text to find");
+            return;
+        }
+
+        // Check if there's a current selection matching the search
+        if let Some((start, end)) = tb2.selection_position() {
+            if start != end {
+                let selected = tb2.selection_text();
+                let case_sensitive = case_check2.is_checked();
+
+                let matches = if case_sensitive {
+                    selected == query
+                } else {
+                    selected.to_lowercase() == query.to_lowercase()
+                };
+
+                if matches {
+                    // Replace the selection
+                    tb2.replace_selection(&replacement);
+                    te2.set_insert_position(start + replacement.len() as i32);
+
+                    // Find next occurrence
+                    *sp2.borrow_mut() = (start as usize) + replacement.len();
+                }
+            }
+        }
+
+        // Now find next
+        find_btn2.do_callback();
+    });
+
+    // Replace All button
+    let mut tb3 = text_buf.clone();
+    let mut te3 = text_ed.clone();
+    let find_input3 = find_input.clone();
+    let replace_input3 = replace_input.clone();
+    let case_check3 = case_check.clone();
+
+    replace_all_btn.set_callback(move |_| {
+        let query = find_input3.value();
+        let replacement = replace_input3.value();
+
+        if query.is_empty() {
+            dialog::message_default("Please enter text to find");
+            return;
+        }
+
+        let text = tb3.text();
+        let case_sensitive = case_check3.is_checked();
+
+        let (new_text, count) = replace_all_in_text(&text, &query, &replacement, case_sensitive);
+
+        if count > 0 {
+            tb3.set_text(&new_text);
+            te3.set_insert_position(0);
+            dialog::message_default(&format!("Replaced {} occurrence(s)", count));
+        } else {
+            dialog::message_default(&format!("Cannot find '{}'", query));
+        }
+    });
+
+    let dialog_close = dialog.clone();
+    close_btn.set_callback(move |_| {
+        dialog_close.clone().hide();
+    });
+
+    let dialog_x = dialog.clone();
+    dialog.set_callback(move |_| {
+        dialog_x.clone().hide();
+    });
+
+    while dialog.shown() {
+        app::wait();
+    }
+}
+
+/// Show Find dialog
+fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
+    let mut dialog = Window::default()
+        .with_size(400, 150)
+        .with_label("Find")
+        .center_screen();
+
+    Frame::default().with_pos(20, 20).with_size(80, 30).with_label("Find what:");
+    let find_input = Input::default().with_pos(110, 20).with_size(270, 30);
+
+    let case_check = CheckButton::default()
+        .with_pos(110, 60).with_size(200, 25).with_label("Match case");
+
+    let mut find_btn = Button::default()
+        .with_pos(200, 100).with_size(90, 30).with_label("Find Next");
+    let mut close_btn = Button::default()
+        .with_pos(300, 100).with_size(90, 30).with_label("Close");
+
+    dialog.end();
+    dialog.make_resizable(false);
+    dialog.show();
+
+    let search_text = Rc::new(RefCell::new(String::new()));
+    let search_pos = Rc::new(RefCell::new(0usize));
+    let mut text_buf = buffer.clone();
+    let mut text_ed = editor.clone();
+
+    let st = search_text.clone();
+    let sp = search_pos.clone();
+
+    find_btn.set_callback(move |_| {
+        let query = find_input.value();
+        if query.is_empty() {
+            dialog::message_default("Please enter text to find");
+            return;
+        }
+
+        let text = text_buf.text();
+        let case_sensitive = case_check.is_checked();
+
+        // If search text changed, start from beginning
+        let start_pos = if *st.borrow() != query {
+            *st.borrow_mut() = query.clone();
+            *sp.borrow_mut() = 0;
+            0
+        } else {
+            *sp.borrow()
+        };
+
+        if let Some(pos) = find_in_text(&text, &query, start_pos, case_sensitive) {
+            // Select the found text
+            text_buf.select(pos as i32, (pos + query.len()) as i32);
+            text_ed.set_insert_position((pos + query.len()) as i32);
+            text_ed.show_insert_position();
+
+            // Update search position for next search
+            *sp.borrow_mut() = pos + query.len();
+        } else {
+            // Not found, wrap around
+            if start_pos > 0 {
+                *sp.borrow_mut() = 0;
+                dialog::message_default("No more matches. Wrapped to beginning.");
+            } else {
+                dialog::message_default(&format!("Cannot find '{}'", query));
+            }
+        }
+    });
+
+    let dialog_close = dialog.clone();
+    close_btn.set_callback(move |_| {
+        dialog_close.clone().hide();
+    });
+
+    let dialog_x = dialog.clone();
+    dialog.set_callback(move |_| {
+        dialog_x.clone().hide();
+    });
+
+    while dialog.shown() {
+        app::wait();
+    }
 }
 
 /// Show settings dialog and return updated settings if user clicked Save
@@ -658,6 +969,29 @@ fn main() {
         },
     );
 
+    // Edit menu
+    let buf_find = text_buf.clone();
+    let mut editor_find = text_editor.clone();
+    menu.add(
+        "Edit/Find...",
+        fltk::enums::Shortcut::Ctrl | 'f',
+        fltk::menu::MenuFlag::Normal,
+        move |_| {
+            show_find_dialog(&buf_find, &mut editor_find);
+        },
+    );
+
+    let buf_replace = text_buf.clone();
+    let mut editor_replace = text_editor.clone();
+    menu.add(
+        "Edit/Replace...",
+        fltk::enums::Shortcut::Ctrl | 'h',
+        fltk::menu::MenuFlag::Normal,
+        move |_| {
+            show_replace_dialog(&buf_replace, &mut editor_replace);
+        },
+    );
+
     let mut editor_clone_ln = text_editor.clone();
     let linenumbers_state = show_linenumbers.clone();
     let _menu_item_ln = menu.add(
@@ -939,5 +1273,77 @@ mod tests {
         assert_eq!(extract_filename("."), "Unknown");
         // Root path
         assert_eq!(extract_filename("/"), "Unknown");
+    }
+
+    #[test]
+    fn test_find_next_simple() {
+        let text = "Hello world, hello Rust, hello FerrisPad";
+        let search = "hello";
+        let result = find_in_text(text, search, 0, false);
+        assert_eq!(result, Some(0)); // First occurrence (case-insensitive matches "Hello")
+    }
+
+    #[test]
+    fn test_find_case_sensitive() {
+        let text = "Hello world, hello Rust, hello FerrisPad";
+        let search = "Hello";
+        let result = find_in_text(text, search, 0, true);
+        assert_eq!(result, Some(0)); // First occurrence (exact case)
+    }
+
+    #[test]
+    fn test_find_no_match() {
+        let text = "Hello world";
+        let search = "rust";
+        let result = find_in_text(text, search, 0, false);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_find_from_position() {
+        let text = "cat dog cat mouse cat";
+        let search = "cat";
+        let result = find_in_text(text, search, 10, false);
+        assert_eq!(result, Some(18)); // Third occurrence
+    }
+
+    #[test]
+    fn test_replace_all_simple() {
+        let text = "cat cat cat";
+        let result = replace_all_in_text(text, "cat", "dog", false);
+        assert_eq!(result.0, "dog dog dog");
+        assert_eq!(result.1, 3); // 3 replacements
+    }
+
+    #[test]
+    fn test_replace_all_case_sensitive() {
+        let text = "Cat cat CAT";
+        let result = replace_all_in_text(text, "cat", "dog", true);
+        assert_eq!(result.0, "Cat dog CAT");
+        assert_eq!(result.1, 1); // Only middle one matches
+    }
+
+    #[test]
+    fn test_replace_all_case_insensitive() {
+        let text = "Cat cat CAT";
+        let result = replace_all_in_text(text, "cat", "dog", false);
+        assert_eq!(result.0, "dog dog dog");
+        assert_eq!(result.1, 3);
+    }
+
+    #[test]
+    fn test_replace_all_no_matches() {
+        let text = "hello world";
+        let result = replace_all_in_text(text, "rust", "ferris", false);
+        assert_eq!(result.0, "hello world");
+        assert_eq!(result.1, 0);
+    }
+
+    #[test]
+    fn test_replace_all_empty_replacement() {
+        let text = "hello world hello";
+        let result = replace_all_in_text(text, "hello", "", false);
+        assert_eq!(result.0, " world ");
+        assert_eq!(result.1, 2); // Both "hello" occurrences replaced
     }
 }
