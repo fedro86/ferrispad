@@ -78,6 +78,29 @@ fn detect_system_dark_mode() -> bool {
     false
 }
 
+/// Set Windows title bar theme (Windows 10 build 19041+)
+#[cfg(target_os = "windows")]
+fn set_windows_titlebar_theme(window: &Window, is_dark: bool) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE};
+
+    unsafe {
+        // Get the native window handle from FLTK
+        let hwnd = HWND(window.raw_handle() as isize);
+
+        // DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+        // Value: 1 (TRUE) for dark mode, 0 (FALSE) for light mode
+        let use_dark_mode: i32 = if is_dark { 1 } else { 0 };
+
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            &use_dark_mode as *const _ as *const _,
+            std::mem::size_of::<i32>() as u32,
+        );
+    }
+}
+
 fn apply_theme(
     editor: &mut TextEditor,
     window: &mut Window,
@@ -111,6 +134,11 @@ fn apply_theme(
         menu.set_text_color(Color::Black);
         menu.set_selection_color(Color::from_rgb(200, 200, 200)); // Hover color
     }
+
+    // Apply Windows title bar theme (Windows only)
+    #[cfg(target_os = "windows")]
+    set_windows_titlebar_theme(window, is_dark);
+
     editor.redraw();
     window.redraw();
     menu.redraw();
