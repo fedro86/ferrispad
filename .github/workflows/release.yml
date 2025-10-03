@@ -243,24 +243,37 @@ jobs:
         with:
           path: artifacts
 
+      - name: Extract release notes from CHANGELOG
+        id: extract_notes
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+
+          # Extract the version section from CHANGELOG.md
+          RELEASE_NOTES=$(awk -v ver="$VERSION" '
+              /^## \[/ {
+                  if (found) exit
+                  if ($0 ~ "\\[" ver "\\]") {
+                      found = 1
+                      next
+                  }
+              }
+              found && /^## \[/ { exit }
+              found { print }
+          ' CHANGELOG.md)
+
+          # If no notes found, use default message
+          if [ -z "$RELEASE_NOTES" ]; then
+            RELEASE_NOTES="Automated release build. See [CHANGELOG.md](https://github.com/fedro86/ferrispad/blob/master/CHANGELOG.md) for details."
+          fi
+
+          # Save to file for use in next step
+          echo "$RELEASE_NOTES" > release_notes.md
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           name: FerrisPad v${{ steps.get_version.outputs.version }}
-          body: |
-            ## 🦀 FerrisPad v${{ steps.get_version.outputs.version }}
-
-            Automated release build. Please add release notes by editing this release.
-
-            ### 📦 Downloads
-
-            - **Linux**: Ubuntu/Debian `.deb` package
-            - **Windows**: Portable `.zip` archive
-            - **macOS**: Universal `.dmg` installer (Intel + Apple Silicon)
-
-            ### 📝 Installation
-
-            See the [Installation Guide](https://github.com/fedro86/ferrispad#installation) for detailed instructions.
+          body_path: release_notes.md
           draft: false
           prerelease: ${{ steps.get_version.outputs.is_prerelease }}
           files: |

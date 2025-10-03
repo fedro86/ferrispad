@@ -5,6 +5,51 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2025-10-03
+
+### Added
+- **Windows Dark Mode Detection**: Automatic system theme detection on Windows
+  - Reads Windows Registry `AppsUseLightTheme` value
+  - Respects Windows system dark/light mode preference
+  - Content (editor, menus) automatically themes on startup
+- **Windows Title Bar Theming**: Dark/light title bar support
+  - Uses Windows DWM (Desktop Window Manager) API
+  - Title bar matches application theme
+  - Supports Windows 10 build 1809+ and Windows 11
+  - Dual attribute ID support (19 and 20) for cross-version compatibility
+  - Updates dynamically when theme changes via menu or settings
+
+### Changed
+- **Default Font**: Changed from Screen Bold to Courier for better readability
+- Improved bump-version script to handle pre-release versions (e.g., 0.1.5-rc.1)
+- Enhanced Windows security documentation with Defender exclusion instructions
+
+### Fixed
+- Version bump script now correctly updates download URLs for RC versions
+- Windows Registry dark mode detection properly isolated to Windows platform
+- Windows Defender quarantine workaround documented in README and website
+
+### Technical
+- Added platform-specific Windows dependencies:
+  - `winreg` 0.52 (Windows Registry access)
+  - `windows` 0.58 with `Win32_Foundation` and `Win32_Graphics_Dwm` features
+- Implemented `set_windows_titlebar_theme()` function (Windows only)
+  - Called after `window.show()` to ensure valid HWND
+  - Uses `DwmSetWindowAttribute()` with both attribute IDs (19 and 20)
+  - Graceful degradation on unsupported Windows versions
+- Platform-conditional compilation with `#[cfg(target_os = "windows")]`
+- Updated `detect_system_dark_mode()` with platform-specific blocks
+- Cross-platform verification (builds on Windows and Linux targets)
+- Comprehensive debugging documentation (32KB journey document)
+
+### Platform Support
+- Windows 11: Full support (dark mode + title bar)
+- Windows 10 2004+: Full support (dark mode + title bar)
+- Windows 10 1809-1903: Full support (dark mode + title bar via attribute 19)
+- Windows 10 <1809: Dark mode detection only (no title bar theming)
+- Linux: Unchanged (GNOME/GTK dark mode detection)
+- macOS: Unchanged (defaults to light mode, detection planned for future)
+
 ## [0.1.5] - 2025-10-02
 
 ### Added
@@ -146,6 +191,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FLTK-based GUI
 - Rust implementation for speed and safety
 
+[0.1.6]: https://github.com/fedro86/ferrispad/compare/0.1.5...0.1.6
 [0.1.5]: https://github.com/fedro86/ferrispad/compare/0.1.4...0.1.5
 [0.1.4]: https://github.com/fedro86/ferrispad/compare/0.1.3...0.1.4
 [0.1.3]: https://github.com/fedro86/ferrispad/compare/0.1.2...0.1.3
