@@ -30,27 +30,49 @@ use settings::{AppSettings, ThemeMode, FontChoice};
 // AppSettings is now in settings.rs module
 
 fn detect_system_dark_mode() -> bool {
-    // Try to detect system theme on Linux
-    if let Ok(output) = Command::new("gsettings")
-        .args(&["get", "org.gnome.desktop.interface", "gtk-theme"])
-        .output()
+    // Windows: Check registry for dark mode preference
+    #[cfg(target_os = "windows")]
     {
-        let theme = String::from_utf8_lossy(&output.stdout).to_lowercase();
-        if theme.contains("dark") {
-            return true;
+        use winreg::RegKey;
+        use winreg::enums::HKEY_CURRENT_USER;
+
+        if let Ok(hkcu) = RegKey::predef(HKEY_CURRENT_USER)
+            .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize")
+        {
+            // AppsUseLightTheme: 0 = dark mode, 1 = light mode
+            if let Ok(value) = hkcu.get_value::<u32, _>("AppsUseLightTheme") {
+                return value == 0;
+            }
         }
     }
 
-    // Try alternative method for other desktop environments
-    if let Ok(output) = Command::new("gsettings")
-        .args(&["get", "org.gnome.desktop.interface", "color-scheme"])
-        .output()
+    // Linux: Try to detect system theme on GNOME
+    #[cfg(target_os = "linux")]
     {
-        let scheme = String::from_utf8_lossy(&output.stdout);
-        if scheme.contains("prefer-dark") {
-            return true;
+        if let Ok(output) = Command::new("gsettings")
+            .args(&["get", "org.gnome.desktop.interface", "gtk-theme"])
+            .output()
+        {
+            let theme = String::from_utf8_lossy(&output.stdout).to_lowercase();
+            if theme.contains("dark") {
+                return true;
+            }
+        }
+
+        // Try alternative method for other desktop environments
+        if let Ok(output) = Command::new("gsettings")
+            .args(&["get", "org.gnome.desktop.interface", "color-scheme"])
+            .output()
+        {
+            let scheme = String::from_utf8_lossy(&output.stdout);
+            if scheme.contains("prefer-dark") {
+                return true;
+            }
         }
     }
+
+    // macOS: Could add detection here in the future
+    // For now, macOS defaults to light mode
 
     // Default to light mode if detection fails
     false
