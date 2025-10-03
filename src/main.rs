@@ -17,6 +17,7 @@ use fltk::{
     text::{TextBuffer, TextEditor, WrapMode},
     window::Window,
 };
+#[cfg(target_os = "linux")]
 use std::process::Command;
 use std::cell::RefCell;
 use std::fs;
@@ -86,7 +87,7 @@ fn set_windows_titlebar_theme(window: &Window, is_dark: bool) {
 
     unsafe {
         // Get the native window handle from FLTK
-        let hwnd = HWND(window.raw_handle() as isize);
+        let hwnd = HWND(window.raw_handle() as *mut std::ffi::c_void);
 
         // DWMWA_USE_IMMERSIVE_DARK_MODE = 20
         // Value: 1 (TRUE) for dark mode, 0 (FALSE) for light mode
