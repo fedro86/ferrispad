@@ -79,25 +79,35 @@ fn detect_system_dark_mode() -> bool {
     false
 }
 
-/// Set Windows title bar theme (Windows 10 build 19041+)
+/// Set Windows title bar theme (Windows 10 build 1809+)
+/// Must be called AFTER window.show() to have a valid HWND
 #[cfg(target_os = "windows")]
 fn set_windows_titlebar_theme(window: &Window, is_dark: bool) {
+    use std::mem::size_of;
+    use std::ptr::from_ref;
     use windows::Win32::Foundation::HWND;
-    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE};
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
 
     unsafe {
-        // Get the native window handle from FLTK
+        // Construct HWND - cast to pointer then transmute to avoid type mismatch
         let hwnd = HWND(window.raw_handle() as *mut std::ffi::c_void);
 
-        // DWMWA_USE_IMMERSIVE_DARK_MODE = 20
-        // Value: 1 (TRUE) for dark mode, 0 (FALSE) for light mode
-        let use_dark_mode: i32 = if is_dark { 1 } else { 0 };
+        let on: i32 = if is_dark { 1 } else { 0 };
 
+        // Try attribute 20 (Windows 11 / Windows 10 2004+)
         let _ = DwmSetWindowAttribute(
             hwnd,
-            DWMWA_USE_IMMERSIVE_DARK_MODE,
-            &use_dark_mode as *const _ as *const _,
-            std::mem::size_of::<i32>() as u32,
+            DWMWINDOWATTRIBUTE(20), // DWMWA_USE_IMMERSIVE_DARK_MODE
+            from_ref(&on).cast(),
+            size_of::<i32>() as u32,
+        );
+
+        // Also try attribute 19 (Windows 10 1809–1903)
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWINDOWATTRIBUTE(19),
+            from_ref(&on).cast(),
+            size_of::<i32>() as u32,
         );
     }
 }
@@ -135,10 +145,6 @@ fn apply_theme(
         menu.set_text_color(Color::Black);
         menu.set_selection_color(Color::from_rgb(200, 200, 200)); // Hover color
     }
-
-    // Apply Windows title bar theme (Windows only)
-    #[cfg(target_os = "windows")]
-    set_windows_titlebar_theme(window, is_dark);
 
     editor.redraw();
     window.redraw();
@@ -1168,6 +1174,8 @@ fn main() {
                 };
                 *dark_mode_settings.borrow_mut() = is_dark;
                 apply_theme(&mut editor_settings, &mut wind_settings, &mut menu_settings, is_dark);
+                #[cfg(target_os = "windows")]
+                set_windows_titlebar_theme(&wind_settings, is_dark);
 
                 // Update Dark Mode menu checkbox
                 let idx = menu_update.find_index("View/Toggle Dark Mode");
@@ -1393,6 +1401,8 @@ fn main() {
             let mut state = dark_mode_state.borrow_mut();
             *state = !*state;
             apply_theme(&mut editor_clone_dm, &mut wind_clone_dm, &mut menu_clone_dm, *state);
+            #[cfg(target_os = "windows")]
+            set_windows_titlebar_theme(&wind_clone_dm, *state);
         },
     );
 
@@ -1558,6 +1568,10 @@ fn main() {
 
     wind.end();
     wind.show();
+
+    // Apply Windows title bar theme AFTER window is shown
+    #[cfg(target_os = "windows")]
+    set_windows_titlebar_theme(&wind, initial_dark_mode);
 
     // Background update check on startup
     let update_banner_data = Arc::new(Mutex::new(None));
