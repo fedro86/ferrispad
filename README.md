@@ -73,15 +73,23 @@ FerrisPad
 
 ### Windows Security Warning
 
-When running FerrisPad on Windows for the first time, you may see a "Windows protected your PC" warning. This is **normal** for open source software that is not code-signed with a commercial certificate (which costs $100-400/year).
+When running FerrisPad on Windows for the first time, you may see a "Windows protected your PC" warning or Windows Defender may quarantine the executable. This is **normal** for open source software that is not code-signed with a commercial certificate (which costs $100-400/year).
 
 **FerrisPad is safe to run**. The source code is completely open and auditable on GitHub.
 
-**To run FerrisPad:**
+**If you see "Windows protected your PC" warning:**
 1. Click "More info" on the warning dialog
 2. Click "Run anyway"
 
-**Alternative method:**
+**If Windows Defender deletes the executable:**
+1. Open **Windows Security** (search in Start menu)
+2. Go to **Virus & threat protection** → **Manage settings**
+3. Scroll down to **Exclusions** → Click **Add or remove exclusions**
+4. Click **Add an exclusion** → Choose **Folder**
+5. Select the folder where you extracted FerrisPad
+6. Re-extract the `.zip` file to restore the executable
+
+**Alternative (before extraction):**
 1. Right-click the downloaded `.zip` file
 2. Select "Properties"
 3. Check the "Unblock" box at the bottom

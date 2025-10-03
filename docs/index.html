@@ -156,16 +156,30 @@
                     <details class="install-details" style="margin-top: 10px; border-left: 3px solid #ff6b35;">
                         <summary><strong>⚠️ Windows Security Warning</strong></summary>
                         <p style="margin: 10px 0; line-height: 1.6;">
-                            When running FerrisPad for the first time, Windows may show a "Windows protected your PC" warning.
+                            When running FerrisPad for the first time, Windows may show a "Windows protected your PC" warning or Windows Defender may quarantine the executable.
                             This is <strong>normal</strong> for open source software not signed with a commercial certificate (costs $100-400/year).
                         </p>
                         <p style="margin: 10px 0;"><strong>FerrisPad is safe to run.</strong> The source code is open and auditable on GitHub.</p>
-                        <p style="margin: 10px 0;"><strong>To run FerrisPad:</strong></p>
+
+                        <p style="margin: 15px 0 5px 0;"><strong>If you see "Windows protected your PC" warning:</strong></p>
                         <ol style="margin: 10px 0;">
                             <li>Click "More info" on the warning dialog</li>
                             <li>Click "Run anyway"</li>
                         </ol>
-                        <p style="margin: 10px 0;"><strong>Alternative:</strong> Right-click the .zip file → Properties → Check "Unblock" → OK → Extract and run.</p>
+
+                        <p style="margin: 15px 0 5px 0;"><strong>If Windows Defender deletes the executable:</strong></p>
+                        <ol style="margin: 10px 0;">
+                            <li>Open <strong>Windows Security</strong> (search in Start menu)</li>
+                            <li>Go to <strong>Virus & threat protection</strong> → <strong>Manage settings</strong></li>
+                            <li>Scroll down to <strong>Exclusions</strong> → Click <strong>Add or remove exclusions</strong></li>
+                            <li>Click <strong>Add an exclusion</strong> → Choose <strong>Folder</strong></li>
+                            <li>Select the folder where you extracted FerrisPad</li>
+                            <li>Re-extract the .zip file to restore the executable</li>
+                        </ol>
+
+                        <p style="margin: 15px 0 5px 0;"><strong>Alternative (before extraction):</strong></p>
+                        <p style="margin: 5px 0 5px 20px;">Right-click the .zip file → Properties → Check "Unblock" → OK → Extract and run.</p>
+
                         <p style="margin: 10px 0; font-size: 0.9em; color: #666;">
                             This warning appears for many open source projects like GIMP, Audacity, and other community software.
                         </p>
