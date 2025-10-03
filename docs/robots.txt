@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://www.ferrispad.com/sitemap.xml
+
+# Crawl delay (be nice to servers)
+Crawl-delay: 1
