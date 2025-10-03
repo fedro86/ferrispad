@@ -17,6 +17,7 @@ use fltk::{
     text::{TextBuffer, TextEditor, WrapMode},
     window::Window,
 };
+#[cfg(target_os = "linux")]
 use std::process::Command;
 use std::cell::RefCell;
 use std::fs;
@@ -30,30 +31,85 @@ use settings::{AppSettings, ThemeMode, FontChoice};
 // AppSettings is now in settings.rs module
 
 fn detect_system_dark_mode() -> bool {
-    // Try to detect system theme on Linux
-    if let Ok(output) = Command::new("gsettings")
-        .args(&["get", "org.gnome.desktop.interface", "gtk-theme"])
-        .output()
+    // Windows: Check registry for dark mode preference
+    #[cfg(target_os = "windows")]
     {
-        let theme = String::from_utf8_lossy(&output.stdout).to_lowercase();
-        if theme.contains("dark") {
-            return true;
+        use winreg::RegKey;
+        use winreg::enums::HKEY_CURRENT_USER;
+
+        if let Ok(hkcu) = RegKey::predef(HKEY_CURRENT_USER)
+            .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize")
+        {
+            // AppsUseLightTheme: 0 = dark mode, 1 = light mode
+            if let Ok(value) = hkcu.get_value::<u32, _>("AppsUseLightTheme") {
+                return value == 0;
+            }
         }
     }
 
-    // Try alternative method for other desktop environments
-    if let Ok(output) = Command::new("gsettings")
-        .args(&["get", "org.gnome.desktop.interface", "color-scheme"])
-        .output()
+    // Linux: Try to detect system theme on GNOME
+    #[cfg(target_os = "linux")]
     {
-        let scheme = String::from_utf8_lossy(&output.stdout);
-        if scheme.contains("prefer-dark") {
-            return true;
+        if let Ok(output) = Command::new("gsettings")
+            .args(&["get", "org.gnome.desktop.interface", "gtk-theme"])
+            .output()
+        {
+            let theme = String::from_utf8_lossy(&output.stdout).to_lowercase();
+            if theme.contains("dark") {
+                return true;
+            }
+        }
+
+        // Try alternative method for other desktop environments
+        if let Ok(output) = Command::new("gsettings")
+            .args(&["get", "org.gnome.desktop.interface", "color-scheme"])
+            .output()
+        {
+            let scheme = String::from_utf8_lossy(&output.stdout);
+            if scheme.contains("prefer-dark") {
+                return true;
+            }
         }
     }
+
+    // macOS: Could add detection here in the future
+    // For now, macOS defaults to light mode
 
     // Default to light mode if detection fails
     false
+}
+
+/// Set Windows title bar theme (Windows 10 build 1809+)
+/// Must be called AFTER window.show() to have a valid HWND
+#[cfg(target_os = "windows")]
+fn set_windows_titlebar_theme(window: &Window, is_dark: bool) {
+    use std::mem::size_of;
+    use std::ptr::from_ref;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
+
+    unsafe {
+        // Construct HWND - cast to pointer then transmute to avoid type mismatch
+        let hwnd = HWND(window.raw_handle() as *mut std::ffi::c_void);
+
+        let on: i32 = if is_dark { 1 } else { 0 };
+
+        // Try attribute 20 (Windows 11 / Windows 10 2004+)
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWINDOWATTRIBUTE(20), // DWMWA_USE_IMMERSIVE_DARK_MODE
+            from_ref(&on).cast(),
+            size_of::<i32>() as u32,
+        );
+
+        // Also try attribute 19 (Windows 10 1809–1903)
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWINDOWATTRIBUTE(19),
+            from_ref(&on).cast(),
+            size_of::<i32>() as u32,
+        );
+    }
 }
 
 fn apply_theme(
@@ -89,6 +145,7 @@ fn apply_theme(
         menu.set_text_color(Color::Black);
         menu.set_selection_color(Color::from_rgb(200, 200, 200)); // Hover color
     }
+
     editor.redraw();
     window.redraw();
     menu.redraw();
@@ -1117,6 +1174,8 @@ fn main() {
                 };
                 *dark_mode_settings.borrow_mut() = is_dark;
                 apply_theme(&mut editor_settings, &mut wind_settings, &mut menu_settings, is_dark);
+                #[cfg(target_os = "windows")]
+                set_windows_titlebar_theme(&wind_settings, is_dark);
 
                 // Update Dark Mode menu checkbox
                 let idx = menu_update.find_index("View/Toggle Dark Mode");
@@ -1342,6 +1401,8 @@ fn main() {
             let mut state = dark_mode_state.borrow_mut();
             *state = !*state;
             apply_theme(&mut editor_clone_dm, &mut wind_clone_dm, &mut menu_clone_dm, *state);
+            #[cfg(target_os = "windows")]
+            set_windows_titlebar_theme(&wind_clone_dm, *state);
         },
     );
 
@@ -1507,6 +1568,10 @@ fn main() {
 
     wind.end();
     wind.show();
+
+    // Apply Windows title bar theme AFTER window is shown
+    #[cfg(target_os = "windows")]
+    set_windows_titlebar_theme(&wind, initial_dark_mode);
 
     // Background update check on startup
     let update_banner_data = Arc::new(Mutex::new(None));

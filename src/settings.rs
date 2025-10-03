@@ -61,11 +61,11 @@ fn default_theme_mode() -> ThemeMode {
 }
 
 fn default_font() -> FontChoice {
-    FontChoice::ScreenBold
+    FontChoice::Courier
 }
 
 fn default_font_size() -> u32 {
-    16
+    16  // Medium size
 }
 
 fn default_auto_check_updates() -> bool {
@@ -159,7 +159,7 @@ mod tests {
         assert!(settings.line_numbers_enabled);
         assert!(settings.word_wrap_enabled);
         assert_eq!(settings.theme_mode, ThemeMode::SystemDefault);
-        assert_eq!(settings.font, FontChoice::ScreenBold);
+        assert_eq!(settings.font, FontChoice::Courier);
         assert!(settings.auto_check_updates);
         assert_eq!(settings.update_channel, UpdateChannel::Stable);
         assert_eq!(settings.last_update_check, 0);

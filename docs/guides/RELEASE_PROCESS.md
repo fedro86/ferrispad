@@ -106,15 +106,30 @@ Once the tag is pushed, GitHub Actions will automatically:
 3. Monitor each job (Linux, Windows, macOS)
 4. Build typically takes 5-10 minutes total
 
-### 5. Add Release Notes and Description
+### 5. Release Notes (Fully Automated! ✨)
 
-Once the build completes, enhance the release with proper documentation:
+**GitHub Actions automatically extracts release notes from CHANGELOG.md!**
+
+The workflow:
+1. Reads the version section from CHANGELOG.md
+2. Populates the GitHub release body automatically
+3. No manual editing needed!
+
+**How it works:**
+- Workflow extracts the `[X.Y.Z]` section from CHANGELOG.md
+- Preserves all markdown formatting
+- Falls back to generic message if version not found in CHANGELOG
+
+**Result:** Your release notes are ready immediately after the build completes!
+
+#### Manual Override (Optional)
+
+If you want to add additional notes or customize:
 
 1. Go to the **Releases** page
 2. Find your release and click **Edit**
-3. You'll see a basic automated description - replace or enhance it with comprehensive notes
-
-**Note:** The workflow automatically creates a basic release body with download instructions. You should edit this to add detailed what's new, bug fixes, and changes.
+3. The notes from CHANGELOG.md are already there
+4. Add any additional information (testing notes, screenshots, etc.)
 
 #### Release Notes Template
 
@@ -259,13 +274,15 @@ git push --delete origin v0.1.1
 
 Before creating a new release, update:
 
-- [ ] `Cargo.toml` - version = "X.Y.Z"
-- [ ] `docs/js/main.js` - update all three download URLs
-- [ ] `docs/index.html` - update version display
-- [ ] `README.md` - update download URLs
-- [ ] `scripts/build-releases.sh` - VERSION variable (if used locally)
+- [ ] `CHANGELOG.md` - Add new version section with changes (do this FIRST!)
+- [ ] `Cargo.toml` - version = "X.Y.Z" (use `./scripts/bump-version.sh X.Y.Z`)
+- [ ] `docs/js/main.js` - update all three download URLs (automated by bump-version.sh)
+- [ ] `docs/index.html` - update version display (automated by bump-version.sh)
+- [ ] `README.md` - update download URLs (automated by bump-version.sh)
+- [ ] `scripts/build-releases.sh` - VERSION variable (automated by bump-version.sh)
 - [ ] Commit all changes
 - [ ] Create and push tag
+- [ ] Auto-populate release notes from CHANGELOG.md (use `gh` one-liner)
 
 ## Benefits of GitHub Actions
 
@@ -312,17 +329,31 @@ For cross-platform testing, use the GitHub Actions workflow instead of local cro
 
 **Note:** Tags do NOT include the "v" prefix (e.g., `0.1.2` not `v0.1.2`)
 
-### Quick Release Workflow
+### Quick Release Workflow (Fully Automated)
 
 ```bash
-# 1. Bump version and update all files
-./scripts/bump-version.sh 0.1.4
+# 1. Update CHANGELOG.md manually
+# Edit CHANGELOG.md to add new [0.1.6] section with all changes
 
-# 2. Review, commit, and push changes
-git diff && git add -A && git commit -m "chore: bump version to 0.1.4" && git push
+# 2. Bump version and update all files
+./scripts/bump-version.sh 0.1.6
 
-# 3. Create and push tag (triggers GitHub Actions build)
-VERSION="0.1.4" && git tag -a "${VERSION}" -m "Release ${VERSION}" && git push origin "${VERSION}"
+# 3. Commit, tag, and push (automated script)
+./scripts/release.sh
+```
+
+That's it! GitHub Actions will automatically:
+- Build binaries for all platforms (5-10 minutes)
+- Create GitHub release
+- Auto-populate release notes from CHANGELOG.md
+
+**Manual alternative (steps 3 only):**
+```bash
+# Review and commit changes
+git diff && git add -A && git commit -m "chore: bump version to 0.1.6" && git push
+
+# Create and push tag
+VERSION="0.1.6" && git tag -a "${VERSION}" -m "Release ${VERSION}" && git push origin "${VERSION}"
 ```
 
 ### One-Line Commands (After version bump)
