@@ -5,7 +5,7 @@ mod updater;
 
 use fltk::{
     app,
-    button::{Button, RadioRoundButton, CheckButton},
+    button::{Button, CheckButton, RadioRoundButton},
     dialog, // for alert_default
     enums::{Color, Font},
     frame::Frame,
@@ -17,16 +17,16 @@ use fltk::{
     text::{TextBuffer, TextEditor, WrapMode},
     window::Window,
 };
+use std::cell::RefCell;
+use std::path::Path;
 #[cfg(target_os = "linux")]
 use std::process::Command;
-use std::cell::RefCell;
-use std::fs;
 use std::rc::Rc;
-use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::{env, fs};
 
 use fltk::dialog::{FileDialogType, NativeFileChooser};
-use settings::{AppSettings, ThemeMode, FontChoice};
+use settings::{AppSettings, FontChoice, ThemeMode};
 
 // AppSettings is now in settings.rs module
 
@@ -932,6 +932,19 @@ fn show_update_available_dialog(release: updater::ReleaseInfo, settings: &Rc<Ref
     }
 }
 
+fn open_file(path: String, buf_open: &mut TextBuffer, wind_open: &mut Window, changes_open: &Rc<RefCell<bool>>, path_open: &Rc<RefCell<Option<String>>>) {
+    match fs::read_to_string(&path) {
+        Ok(content) => {
+            buf_open.set_text(&content);
+            let filename = extract_filename(&path);
+            wind_open.set_label(&format!("{} - 🦀 FerrisPad", filename));
+            *changes_open.borrow_mut() = false; // Reset unsaved changes flag
+            *path_open.borrow_mut() = Some(path); // Store current file path
+        }
+        Err(e) => dialog::alert_default(&format!("Error opening file: {}", e)),
+    }
+}
+
 fn main() {
     let app = app::App::default().with_scheme(app::AppScheme::Gtk);
 
@@ -985,6 +998,17 @@ fn main() {
     let word_wrap = Rc::new(RefCell::new(settings.word_wrap_enabled));
     let has_unsaved_changes = Rc::new(RefCell::new(false));
     let current_file_path = Rc::new(RefCell::new(Option::<String>::None));
+
+    // Check if a file should be opened
+    let mut args = env::args_os();
+    let _app = args.next();
+    if let Some(path) = args.next() {
+        let mut buf_open = text_buf.clone();
+        let mut wind_open = wind.clone();
+        let changes_open = has_unsaved_changes.clone();
+        let path_open = current_file_path.clone();
+        open_file(path.into_string().unwrap(), &mut buf_open, &mut wind_open, &changes_open, &path_open)
+    }
 
     // Apply settings to editor
     if settings.line_numbers_enabled {
@@ -1064,16 +1088,7 @@ fn main() {
         move |_| {
             // Use empty description since we're providing multi-line filter with descriptions
             if let Some(path) = native_open_dialog("", &get_text_files_filter_multiline()) {
-                match fs::read_to_string(&path) {
-                    Ok(content) => {
-                        buf_open.set_text(&content);
-                        let filename = extract_filename(&path);
-                        wind_open.set_label(&format!("{} - 🦀 FerrisPad", filename));
-                        *changes_open.borrow_mut() = false; // Reset unsaved changes flag
-                        *path_open.borrow_mut() = Some(path); // Store current file path
-                    }
-                    Err(e) => dialog::alert_default(&format!("Error opening file: {}", e)),
-                }
+                open_file(path, &mut buf_open, &mut wind_open, &changes_open, &path_open)
             }
         },
     );
