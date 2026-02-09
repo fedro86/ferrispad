@@ -1007,7 +1007,7 @@ fn main() {
         let mut wind_open = wind.clone();
         let changes_open = has_unsaved_changes.clone();
         let path_open = current_file_path.clone();
-        open_file(path.into_string().unwrap(), &mut buf_open, &mut wind_open, &changes_open, &path_open)
+        open_file(path.to_string_lossy().to_string(), &mut buf_open, &mut wind_open, &changes_open, &path_open)
     }
 
     // Apply settings to editor
