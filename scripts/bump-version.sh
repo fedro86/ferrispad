@@ -60,44 +60,50 @@ echo ""
 echo "Updating files..."
 echo ""
 
-# Detect OS for sed compatibility
-if sed --version &>/dev/null 2>&1; then
-    SED_INPLACE="sed -i"
-else
-    SED_INPLACE="sed -i ''"
-fi
+# Function to run sed in-place compatibly across macOS and Linux
+run_sed() {
+    local pattern="$1"
+    local file="$2"
+    if sed --version &>/dev/null 2>&1; then
+        # GNU sed (Linux)
+        sed -i "$pattern" "$file"
+    else
+        # BSD sed (macOS)
+        sed -i '' "$pattern" "$file"
+    fi
+}
 
 # 1. Update Cargo.toml
 echo -e "${YELLOW}→${NC} Updating Cargo.toml..."
-$SED_INPLACE "s/^version = \".*\"/version = \"$NEW_VERSION\"/" Cargo.toml
+run_sed "s/^version = \".*\"/version = \"$NEW_VERSION\"/" Cargo.toml
 
 # 2. Update docs/js/main.js (download URLs)
 echo -e "${YELLOW}→${NC} Updating docs/js/main.js..."
 # Match version in tag (path segment) and in filename separately to preserve platform names
 # Pattern matches X.Y.Z or X.Y.Z-suffix.N (e.g., 0.1.5 or 0.1.5-rc.1)
-$SED_INPLACE "s|releases/download/[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?|releases/download/$NEW_VERSION|g" docs/js/main.js
-$SED_INPLACE "s|FerrisPad-v[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?-|FerrisPad-v$NEW_VERSION-|g" docs/js/main.js
+run_sed "s|releases/download/[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?|releases/download/$NEW_VERSION|g" docs/js/main.js
+run_sed "s|FerrisPad-v[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?-|FerrisPad-v$NEW_VERSION-|g" docs/js/main.js
 
 # 3. Update docs/index.html (version display and download URLs)
 echo -e "${YELLOW}→${NC} Updating docs/index.html..."
-$SED_INPLACE "s/Latest version: v[0-9.a-z-]*/Latest version: v$NEW_VERSION/" docs/index.html
+run_sed "s/Latest version: v[0-9.a-z-]*/Latest version: v$NEW_VERSION/" docs/index.html
 # Match version in tag (path segment) and in filename separately to preserve platform names
 # This prevents the regex from eating "ubuntu", "windows", "macos" parts of filenames
 # Pattern matches X.Y.Z or X.Y.Z-suffix.N (e.g., 0.1.5 or 0.1.5-rc.1)
-$SED_INPLACE "s|releases/download/[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?|releases/download/$NEW_VERSION|g" docs/index.html
-$SED_INPLACE "s|FerrisPad-v[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?-|FerrisPad-v$NEW_VERSION-|g" docs/index.html
+run_sed "s|releases/download/[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?|releases/download/$NEW_VERSION|g" docs/index.html
+run_sed "s|FerrisPad-v[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?-|FerrisPad-v$NEW_VERSION-|g" docs/index.html
 
 # 4. Update README.md (download URLs and version)
 echo -e "${YELLOW}→${NC} Updating README.md..."
 # Match version in tag (path segment) and in filename separately to preserve platform names
 # Pattern matches X.Y.Z or X.Y.Z-suffix.N (e.g., 0.1.5 or 0.1.5-rc.1)
-$SED_INPLACE "s|releases/download/[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?|releases/download/$NEW_VERSION|g" README.md
-$SED_INPLACE "s|FerrisPad-v[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?-|FerrisPad-v$NEW_VERSION-|g" README.md
-$SED_INPLACE "s/FerrisPad-v[0-9.a-z-]*-ubuntu-amd64.deb/FerrisPad-v$NEW_VERSION-ubuntu-amd64.deb/g" README.md
+run_sed "s|releases/download/[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?|releases/download/$NEW_VERSION|g" README.md
+run_sed "s|FerrisPad-v[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?-|FerrisPad-v$NEW_VERSION-|g" README.md
+run_sed "s/FerrisPad-v[0-9.a-z-]*-ubuntu-amd64.deb/FerrisPad-v$NEW_VERSION-ubuntu-amd64.deb/g" README.md
 
 # 5. Update scripts/build-releases.sh VERSION variable
 echo -e "${YELLOW}→${NC} Updating scripts/build-releases.sh..."
-$SED_INPLACE "s/^VERSION=\".*\"/VERSION=\"$NEW_VERSION\"/" scripts/build-releases.sh
+run_sed "s/^VERSION=\".*\"/VERSION=\"$NEW_VERSION\"/" scripts/build-releases.sh
 
 echo ""
 echo -e "${GREEN}✓ Version updated successfully!${NC}"
