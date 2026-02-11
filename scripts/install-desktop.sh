@@ -38,7 +38,7 @@ for size in 16x16 24x24 32x32 48x48 64x64 128x128 256x256 512x512; do
 done
 
 # Copy desktop entry with correct paths
-sed "s|Icon=.*|Icon=ferrispad|g; s|Exec=.*|Exec=${PROJECT_ROOT}/target/release/FerrisPad|g" \
+sed "s|Icon=.*|Icon=ferrispad|g; s|Exec=.*|Exec=${PROJECT_ROOT}/target/release/FerrisPad %f|g" \
     "${PROJECT_ROOT}/ferrispad.desktop" > ~/.local/share/applications/ferrispad.desktop
 
 # Make desktop entry executable
