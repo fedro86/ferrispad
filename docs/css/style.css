@@ -86,16 +86,32 @@ body {
 /* ===================================
    Typography
    =================================== */
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
     font-weight: 700;
     line-height: 1.2;
     margin-bottom: var(--spacing-sm);
 }
 
-h1 { font-size: 3rem; }
-h2 { font-size: 2.5rem; }
-h3 { font-size: 1.75rem; }
-h4 { font-size: 1.25rem; }
+h1 {
+    font-size: 3rem;
+}
+
+h2 {
+    font-size: 2.5rem;
+}
+
+h3 {
+    font-size: 1.75rem;
+}
+
+h4 {
+    font-size: 1.25rem;
+}
 
 p {
     margin-bottom: var(--spacing-sm);
@@ -189,8 +205,15 @@ code {
 }
 
 @keyframes float {
-    0%, 100% { transform: translateY(0px); }
-    50% { transform: translateY(-10px); }
+
+    0%,
+    100% {
+        transform: translateY(0px);
+    }
+
+    50% {
+        transform: translateY(-10px);
+    }
 }
 
 .hero-title {
@@ -278,7 +301,7 @@ code {
 .btn-unstable {
     background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
     color: white;
-    border: none;
+    border: 2px solid var(--rust-orange);
     box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
 }
 

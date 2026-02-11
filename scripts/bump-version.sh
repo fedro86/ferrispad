@@ -90,10 +90,10 @@ fi
 
 # 3. Update docs/index.html
 echo -e "${YELLOW}→${NC} Updating docs/index.html..."
-run_sed "s/Latest version: v[0-9.a-z-]*/Latest version: v$NEW_VERSION/" docs/index.html
-
-# Only update SEO softwareVersion if it's a STABLE release (better for search engines)
+# Only update the visible "Latest version" text if it's a STABLE release
 if [[ ! "$NEW_VERSION" == *"-rc"* ]] && [[ ! "$NEW_VERSION" == *"-beta"* ]] && [[ ! "$NEW_VERSION" == *"-alpha"* ]]; then
+    run_sed "s/Latest version: v[0-9.a-z-]*/Latest version: v$NEW_VERSION/" docs/index.html
+    # Also update SEO metadata for stable releases
     run_sed "s/\"softwareVersion\": \"[0-9.a-z-]*\"/\"softwareVersion\": \"$NEW_VERSION\"/" docs/index.html
 fi
 
