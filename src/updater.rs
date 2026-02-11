@@ -186,17 +186,30 @@ where
     let mut buffer = [0; 8192];
 
     let mut last_progress: f32 = -1.0;
-    while let Ok(n) = std::io::Read::read(&mut response, &mut buffer) {
+    loop {
+        let n = std::io::Read::read(&mut response, &mut buffer)
+            .map_err(|e| format!("Failed to read from download stream: {}", e))?;
+
         if n == 0 { break; }
+
         std::io::Write::write_all(&mut file, &buffer[..n])
             .map_err(|e| format!("Failed to write to temporary file: {}", e))?;
         downloaded += n as u64;
-        
+
         let current_progress = (downloaded as f32 / total_size as f32 * 100.0).floor() / 100.0;
         if current_progress > last_progress {
             progress_cb(current_progress);
             last_progress = current_progress;
         }
+    }
+
+    // Ensure all data is written to disk
+    std::io::Write::flush(&mut file)
+        .map_err(|e| format!("Failed to flush file to disk: {}", e))?;
+
+    // Report 100% completion
+    if last_progress < 1.0 {
+        progress_cb(1.0);
     }
 
     Ok(())
