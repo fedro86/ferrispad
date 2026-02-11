@@ -32,15 +32,15 @@ function updateDownloadButton() {
     const osConfig = {
         'windows': {
             name: 'Windows',
-            url: 'https://github.com/fedro86/ferrispad/releases/download/0.1.6/FerrisPad-v0.1.6-windows-x64.zip'
+            url: 'https://github.com/fedro86/ferrispad/releases/download/0.1.8-rc.3/FerrisPad-v0.1.8-rc.3-windows-x64.zip'
         },
         'macos': {
             name: 'macOS',
-            url: 'https://github.com/fedro86/ferrispad/releases/download/0.1.6/FerrisPad-v0.1.6-macos.dmg'
+            url: 'https://github.com/fedro86/ferrispad/releases/download/0.1.8-rc.3/FerrisPad-v0.1.8-rc.3-macos.dmg'
         },
         'linux': {
             name: 'Ubuntu/Linux',
-            url: 'https://github.com/fedro86/ferrispad/releases/download/0.1.6/FerrisPad-v0.1.6-ubuntu-amd64.deb'
+            url: 'https://github.com/fedro86/ferrispad/releases/download/0.1.8-rc.3/FerrisPad-v0.1.8-rc.3-ubuntu-amd64.deb'
         }
     };
 

@@ -80,26 +80,24 @@ run_sed "s/^version = \".*\"/version = \"$NEW_VERSION\"/" Cargo.toml
 # 2. Update docs/js/main.js (download URLs)
 echo -e "${YELLOW}→${NC} Updating docs/js/main.js..."
 # Match version in tag (path segment) and in filename separately to preserve platform names
-# Pattern matches X.Y.Z or X.Y.Z-suffix.N (e.g., 0.1.5 or 0.1.5-rc.1)
-run_sed "s|releases/download/[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?|releases/download/$NEW_VERSION|g" docs/js/main.js
-run_sed "s|FerrisPad-v[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?-|FerrisPad-v$NEW_VERSION-|g" docs/js/main.js
+# More robust regex matching version-like strings including pre-release markers
+run_sed "s|releases/download/[0-9.a-z-]*|releases/download/$NEW_VERSION|g" docs/js/main.js
+run_sed "s|FerrisPad-v[0-9.a-z-]*|FerrisPad-v$NEW_VERSION|g" docs/js/main.js
 
 # 3. Update docs/index.html (version display and download URLs)
 echo -e "${YELLOW}→${NC} Updating docs/index.html..."
 run_sed "s/Latest version: v[0-9.a-z-]*/Latest version: v$NEW_VERSION/" docs/index.html
+# Update SEO metadata
+run_sed "s/\"softwareVersion\": \"[0-9.a-z-]*\"/\"softwareVersion\": \"$NEW_VERSION\"/" docs/index.html
 # Match version in tag (path segment) and in filename separately to preserve platform names
-# This prevents the regex from eating "ubuntu", "windows", "macos" parts of filenames
-# Pattern matches X.Y.Z or X.Y.Z-suffix.N (e.g., 0.1.5 or 0.1.5-rc.1)
-run_sed "s|releases/download/[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?|releases/download/$NEW_VERSION|g" docs/index.html
-run_sed "s|FerrisPad-v[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?-|FerrisPad-v$NEW_VERSION-|g" docs/index.html
+run_sed "s|releases/download/[0-9.a-z-]*|releases/download/$NEW_VERSION|g" docs/index.html
+run_sed "s|FerrisPad-v[0-9.a-z-]*|FerrisPad-v$NEW_VERSION|g" docs/index.html
 
 # 4. Update README.md (download URLs and version)
 echo -e "${YELLOW}→${NC} Updating README.md..."
 # Match version in tag (path segment) and in filename separately to preserve platform names
-# Pattern matches X.Y.Z or X.Y.Z-suffix.N (e.g., 0.1.5 or 0.1.5-rc.1)
-run_sed "s|releases/download/[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?|releases/download/$NEW_VERSION|g" README.md
-run_sed "s|FerrisPad-v[0-9][0-9.]*\(-[a-z]*\.[0-9]*\)\?-|FerrisPad-v$NEW_VERSION-|g" README.md
-run_sed "s/FerrisPad-v[0-9.a-z-]*-ubuntu-amd64.deb/FerrisPad-v$NEW_VERSION-ubuntu-amd64.deb/g" README.md
+run_sed "s|releases/download/[0-9.a-z-]*|releases/download/$NEW_VERSION|g" README.md
+run_sed "s|FerrisPad-v[0-9.a-z-]*|FerrisPad-v$NEW_VERSION|g" README.md
 
 # 5. Update scripts/build-releases.sh VERSION variable
 echo -e "${YELLOW}→${NC} Updating scripts/build-releases.sh..."
