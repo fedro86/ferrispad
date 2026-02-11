@@ -5,6 +5,11 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8-rc.4] - 2026-02-11
+
+### Added
+- **Script Verification**: This release candidate verifies the hardened version bumping script.
+
 ## [0.1.8-rc.3] - 2026-02-11
 
 ### Added
