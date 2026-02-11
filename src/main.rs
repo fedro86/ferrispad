@@ -957,6 +957,7 @@ fn main() {
     let icon_data = include_bytes!("../assets/crab-notepad-emoji-8bit.png");
     if let Ok(mut icon) = PngImage::from_data(icon_data) {
         icon.scale(32, 32, true, true);
+        #[cfg(target_os = "linux")]
         wind.set_icon(Some(icon));
     }
 
