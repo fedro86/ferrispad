@@ -18,6 +18,7 @@ use fltk::{
     text::{TextBuffer, TextEditor, WrapMode},
     window::Window,
 };
+use crate::updater::UpdateChannel;
 use std::cell::RefCell;
 use std::path::Path;
 #[cfg(target_os = "linux")]
@@ -508,7 +509,7 @@ fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
 /// Show settings dialog and return updated settings if user clicked Save
 fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSettings> {
     let mut dialog = Window::default()
-        .with_size(350, 580)
+        .with_size(350, 610)
         .with_label("Settings")
         .center_screen();
     dialog.make_modal(true);
@@ -573,8 +574,11 @@ fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSettings> {
     let mut check_auto_update = CheckButton::default().with_pos(30, 480).with_size(280, 25).with_label("Automatically check for updates");
     check_auto_update.set_value(current_settings.auto_check_updates);
 
+    let mut check_prerelease = CheckButton::default().with_pos(30, 505).with_size(280, 25).with_label("Include pre-releases (beta/rc)");
+    check_prerelease.set_value(current_settings.update_channel == UpdateChannel::Beta);
+
     // Info text
-    let mut info_frame = Frame::default().with_pos(30, 505).with_size(290, 35);
+    let mut info_frame = Frame::default().with_pos(30, 535).with_size(290, 35);
     info_frame.set_label("FerrisPad checks GitHub once per day.\nNo personal data is sent.");
     info_frame.set_label_size(11);
     info_frame.set_label_color(Color::from_rgb(100, 100, 100));
@@ -583,8 +587,8 @@ fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSettings> {
     vpack.end();
 
     // Buttons at bottom
-    let mut save_btn = Button::default().with_pos(150, 540).with_size(90, 30).with_label("Save");
-    let mut cancel_btn = Button::default().with_pos(250, 540).with_size(90, 30).with_label("Cancel");
+    let mut save_btn = Button::default().with_pos(150, 570).with_size(90, 30).with_label("Save");
+    let mut cancel_btn = Button::default().with_pos(250, 570).with_size(90, 30).with_label("Cancel");
 
     dialog.end();
     dialog.show();
@@ -622,7 +626,11 @@ fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSettings> {
             word_wrap_enabled: check_word_wrap.value(),
             // Update settings from UI
             auto_check_updates: check_auto_update.value(),
-            update_channel: current.update_channel,
+            update_channel: if check_prerelease.value() {
+                UpdateChannel::Beta
+            } else {
+                UpdateChannel::Stable
+            },
             last_update_check: current.last_update_check,
             skipped_versions: current.skipped_versions.clone(),
         };
