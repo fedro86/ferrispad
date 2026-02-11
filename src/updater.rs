@@ -144,6 +144,98 @@ pub fn check_for_updates(
     }
 }
 
+/// Get the expected asset name for the current platform
+pub fn get_platform_asset_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macos-universal"
+    } else if cfg!(target_os = "windows") {
+        "windows-x64.exe"
+    } else {
+        "linux-amd64"
+    }
+}
+
+/// Download a binary from a URL to a specified path with progress
+pub fn download_file<F>(url: &str, dest_path: &std::path::Path, mut progress_cb: F) -> Result<(), String>
+where
+    F: FnMut(f32),
+{
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("FerrisPad")
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+
+    let mut response = client
+        .get(url)
+        .send()
+        .map_err(|e| format!("Failed to download update: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Download failed with status: {}", response.status()));
+    }
+
+    let total_size = response
+        .content_length()
+        .ok_or_else(|| "Failed to get content length".to_string())?;
+
+    let mut file = std::fs::File::create(dest_path)
+        .map_err(|e| format!("Failed to create temporary file: {}", e))?;
+
+    let mut downloaded: u64 = 0;
+    let mut buffer = [0; 8192];
+
+    while let Ok(n) = std::io::Read::read(&mut response, &mut buffer) {
+        if n == 0 { break; }
+        std::io::Write::write_all(&mut file, &buffer[..n])
+            .map_err(|e| format!("Failed to write to temporary file: {}", e))?;
+        downloaded += n as u64;
+        progress_cb(downloaded as f32 / total_size as f32);
+    }
+
+    Ok(())
+}
+
+/// Replace the current executable with a new one
+pub fn install_update(new_binary_path: &std::path::Path) -> Result<(), String> {
+    let current_exe = std::env::current_exe()
+        .map_err(|e| format!("Failed to get current executable path: {}", e))?;
+
+    // On Windows, we can't overwrite a running exe, but we can rename it.
+    // On macOS/Linux, it's also safer to rename the old one first.
+    let old_exe = current_exe.with_extension("old");
+
+    // Clean up any previous .old file
+    if old_exe.exists() {
+        let _ = std::fs::remove_file(&old_exe);
+    }
+
+    // Rename current exe to .old
+    std::fs::rename(&current_exe, &old_exe)
+        .map_err(|e| format!("Failed to backup current executable: {}", e))?;
+
+    // Move new exe to current location
+    if let Err(e) = std::fs::rename(new_binary_path, &current_exe) {
+        // Rollback on failure
+        let _ = std::fs::rename(&old_exe, &current_exe);
+        return Err(format!("Failed to install new executable: {}", e));
+    }
+
+    // On Unix systems, ensure the new binary is executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&current_exe)
+            .map_err(|e| format!("Failed to get metadata: {}", e))?
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&current_exe, perms)
+            .map_err(|e| format!("Failed to set executable permissions: {}", e))?;
+    }
+
+    Ok(())
+}
+
 /// Get current Unix timestamp
 pub fn current_timestamp() -> i64 {
     SystemTime::now()

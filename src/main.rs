@@ -13,6 +13,7 @@ use fltk::{
     image::PngImage,
     input::Input,
     menu::MenuBar,
+    misc::Progress,
     prelude::*,
     text::{TextBuffer, TextEditor, WrapMode},
     window::Window,
@@ -848,11 +849,13 @@ fn check_for_updates_background(
 /// Show update available dialog with options
 fn show_update_available_dialog(release: updater::ReleaseInfo, settings: &Rc<RefCell<AppSettings>>) {
     let current_version = env!("CARGO_PKG_VERSION");
+    let asset_name = updater::get_platform_asset_name();
+    let direct_asset = release.assets.iter().find(|a| a.name.contains(asset_name));
 
-    let mut dialog = Window::new(100, 100, 500, 400, "Update Available");
+    let mut dialog = Window::new(100, 100, 500, 480, "Update Available");
     dialog.make_modal(true);
 
-    let mut flex = Flex::new(10, 10, 480, 380, None);
+    let mut flex = Flex::new(10, 10, 480, 460, None);
     flex.set_type(fltk::group::FlexType::Column);
     flex.set_spacing(10);
 
@@ -882,14 +885,32 @@ fn show_update_available_dialog(release: updater::ReleaseInfo, settings: &Rc<Ref
     notes_editor.buffer().unwrap().set_text(&release.body);
     notes_editor.wrap_mode(WrapMode::AtBounds, 0);
 
+    // Progress bar (initially hidden)
+    let mut progress = Progress::default().with_size(0, 25);
+    progress.set_minimum(0.0);
+    progress.set_maximum(1.0);
+    progress.hide();
+    flex.fixed(&progress, 25);
+
+    let mut status_frame = Frame::default().with_size(0, 20);
+    status_frame.set_label_size(11);
+    status_frame.hide();
+    flex.fixed(&status_frame, 20);
+
     // Buttons row
     let mut button_row = Flex::default();
     button_row.set_type(fltk::group::FlexType::Row);
     button_row.set_spacing(10);
 
-    let mut download_btn = Button::default().with_label("Download");
+    let mut install_btn = Button::default().with_label("Install Now");
+    let mut download_btn = Button::default().with_label("View on GitHub");
     let mut skip_btn = Button::default().with_label("Skip This Version");
     let mut later_btn = Button::default().with_label("Remind Later");
+
+    if direct_asset.is_none() {
+        install_btn.deactivate();
+        install_btn.set_label("Manual Update Only");
+    }
 
     button_row.end();
     flex.fixed(&button_row, 35);
@@ -897,13 +918,78 @@ fn show_update_available_dialog(release: updater::ReleaseInfo, settings: &Rc<Ref
     flex.end();
     dialog.end();
 
-    // Download button - open browser
+    // Install Now button
+    if let Some(asset) = direct_asset.cloned() {
+        let mut progress_bar = progress.clone();
+        let mut status = status_frame.clone();
+        let mut btn_row = button_row.clone();
+        install_btn.set_callback(move |_| {
+            progress_bar.show();
+            status.show();
+            status.set_label("Starting download...");
+            btn_row.deactivate();
+
+            let download_url = asset.browser_download_url.clone();
+            let p_bar = progress_bar.clone();
+            let mut s_frame = status.clone();
+            let btn_row_thread = btn_row.clone();
+
+            std::thread::spawn(move || {
+                let temp_dir = std::env::temp_dir();
+                let temp_file = temp_dir.join("ferrispad_update");
+
+                let result = updater::download_file(&download_url, &temp_file, |p| {
+                    let mut p_val = p_bar.clone();
+                    let mut s_val = s_frame.clone();
+                    app::add_timeout3(0.0, move |_| {
+                        p_val.set_value(p as f64);
+                        s_val.set_label(&format!("Downloading: {:.0}%", p * 100.0));
+                    });
+                });
+
+                match result {
+                    Ok(_) => {
+                        app::add_timeout3(0.0, move |_| {
+                            s_frame.set_label("Installing update...");
+                        });
+
+                        match updater::install_update(&temp_file) {
+                            Ok(_) => {
+                                app::add_timeout3(0.0, move |_| {
+                                    dialog::message_default("Update installed successfully!\n\nFerrisPad will now restart.");
+                                    // Restart the app
+                                    if let Ok(current_exe) = std::env::current_exe() {
+                                        let _ = std::process::Command::new(current_exe).spawn();
+                                    }
+                                    app::quit();
+                                });
+                            }
+                            Err(e) => {
+                                let mut br = btn_row_thread.clone();
+                                app::add_timeout3(0.0, move |_| {
+                                    dialog::alert_default(&format!("Failed to install update: {}", e));
+                                    br.activate();
+                                });
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let mut br = btn_row_thread.clone();
+                        app::add_timeout3(0.0, move |_| {
+                            dialog::alert_default(&format!("Failed to download update: {}", e));
+                            br.activate();
+                        });
+                    }
+                }
+            });
+        });
+    }
+
+    // View on GitHub button - open browser
     let release_url = release.html_url.clone();
     download_btn.set_callback(move |_| {
         if let Err(e) = open::that(&release_url) {
             dialog::alert_default(&format!("Failed to open browser: {}", e));
-        } else {
-            app::quit();
         }
     });
 
