@@ -1417,6 +1417,58 @@ fn main() {
     );
 
     // Edit menu
+    let mut buf_edit = text_buf.clone();
+
+    menu.add(
+        "Edit/Undo",
+        fltk::enums::Shortcut::Ctrl | 'z',
+        fltk::menu::MenuFlag::Normal,
+        move |_| {
+            let _ = buf_edit.undo();
+        },
+    );
+
+    let mut buf_redo = text_buf.clone();
+    menu.add(
+        "Edit/Redo",
+        fltk::enums::Shortcut::Ctrl | fltk::enums::Shortcut::Shift | 'z',
+        fltk::menu::MenuFlag::Normal,
+        move |_| {
+            let _ = buf_redo.redo();
+        },
+    );
+
+    let editor_cut = text_editor.clone();
+    menu.add(
+        "Edit/Cut",
+        fltk::enums::Shortcut::Ctrl | 'x',
+        fltk::menu::MenuFlag::Normal,
+        move |_| {
+            editor_cut.cut();
+        },
+    );
+
+    let editor_copy = text_editor.clone();
+    menu.add(
+        "Edit/Copy",
+        fltk::enums::Shortcut::Ctrl | 'c',
+        fltk::menu::MenuFlag::Normal,
+        move |_| {
+            editor_copy.copy();
+        },
+    );
+
+    let editor_paste = text_editor.clone();
+    menu.add(
+        "Edit/Paste",
+        fltk::enums::Shortcut::Ctrl | 'v',
+        fltk::menu::MenuFlag::Normal,
+        move |_| {
+            editor_paste.paste();
+        },
+    );
+
+
     let buf_find = text_buf.clone();
     let mut editor_find = text_editor.clone();
     menu.add(
