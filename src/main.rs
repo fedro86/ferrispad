@@ -1087,14 +1087,14 @@ fn main() {
     let current_file_path = Rc::new(RefCell::new(Option::<String>::None));
 
     // Check if a file should be opened
-    let mut args = env::args_os();
-    let _app = args.next();
-    if let Some(path) = args.next() {
+    let args: Vec<String> = env::args().collect();
+    // Skip the first argument (app path) and find the first argument that doesn't start with -
+    if let Some(path) = args.iter().skip(1).find(|arg| !arg.starts_with("-psn")) {
         let mut buf_open = text_buf.clone();
         let mut wind_open = wind.clone();
         let changes_open = has_unsaved_changes.clone();
         let path_open = current_file_path.clone();
-        open_file(path.to_string_lossy().to_string(), &mut buf_open, &mut wind_open, &changes_open, &path_open)
+        open_file(path.clone(), &mut buf_open, &mut wind_open, &changes_open, &path_open)
     }
 
     // Apply settings to editor
