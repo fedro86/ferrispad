@@ -1049,6 +1049,7 @@ fn open_file(path: String, buf_open: &mut TextBuffer, wind_open: &mut Window, ch
 }
 
 fn main() {
+    let _ = app::lock();
     let app = app::App::default().with_scheme(app::AppScheme::Gtk);
 
     let mut wind = Window::new(100, 100, 640, 480, "Untitled - 🦀 FerrisPad");

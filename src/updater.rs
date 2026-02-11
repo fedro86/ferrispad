@@ -185,12 +185,18 @@ where
     let mut downloaded: u64 = 0;
     let mut buffer = [0; 8192];
 
+    let mut last_progress: f32 = -1.0;
     while let Ok(n) = std::io::Read::read(&mut response, &mut buffer) {
         if n == 0 { break; }
         std::io::Write::write_all(&mut file, &buffer[..n])
             .map_err(|e| format!("Failed to write to temporary file: {}", e))?;
         downloaded += n as u64;
-        progress_cb(downloaded as f32 / total_size as f32);
+        
+        let current_progress = (downloaded as f32 / total_size as f32 * 100.0).floor() / 100.0;
+        if current_progress > last_progress {
+            progress_cb(current_progress);
+            last_progress = current_progress;
+        }
     }
 
     Ok(())
