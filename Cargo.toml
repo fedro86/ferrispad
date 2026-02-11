@@ -1,6 +1,6 @@
 [package]
 name = "FerrisPad"
-version = "0.1.8-rc.5"
+version = "0.1.8-rc.6"
 edition = "2024"
 description = "A blazingly fast, minimalist notepad written in Rust"
 license = "MIT"

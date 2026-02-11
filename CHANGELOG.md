@@ -5,6 +5,13 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8-rc.6] - 2026-02-11
+
+### Added
+- **Website Enhancements**: Introduced a "Feeling brave?" download button for unstable releases.
+- **Dual Track Versioning**: Optimized the website to show the latest stable version by default while offering easy access to release candidates.
+- **Smart Build Script**: Improved the version bumping process to handle stable and unstable tracks independently.
+
 ## [0.1.8-rc.5] - 2026-02-11
 
 ### Fixed
