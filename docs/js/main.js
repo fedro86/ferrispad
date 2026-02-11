@@ -1,6 +1,8 @@
 // ===================================
-// OS Detection and Dynamic Content
+// Versions
 // ===================================
+const STABLE_VERSION = "0.1.7";
+const UNSTABLE_VERSION = "0.1.8-rc.5";
 
 function detectOS() {
     const userAgent = window.navigator.userAgent;
@@ -24,32 +26,46 @@ function detectOS() {
     return 'unknown';
 }
 
-function updateDownloadButton() {
+function updateDownloadButtons() {
     const os = detectOS();
     const primaryDownload = document.getElementById('primary-download');
+    const unstableDownload = document.getElementById('unstable-download');
     const detectedOSSpan = document.getElementById('detected-os');
+    const unstableContainer = document.getElementById('unstable-download-container');
+
+    // Hide unstable button if it's the same as stable
+    if (STABLE_VERSION === UNSTABLE_VERSION && unstableContainer) {
+        unstableContainer.style.display = 'none';
+    }
+
+    const getUrl = (version, os, ext) => `https://github.com/fedro86/ferrispad/releases/download/${version}/FerrisPad-v${version}-${os}${ext}`;
 
     const osConfig = {
         'windows': {
             name: 'Windows',
-            url: 'https://github.com/fedro86/ferrispad/releases/download/0.1.8-rc.5/FerrisPad-v0.1.8-rc.5-windows-x64.zip'
+            stable: getUrl(STABLE_VERSION, 'windows-x64', '.zip'),
+            unstable: getUrl(UNSTABLE_VERSION, 'windows-x64', '.zip')
         },
         'macos': {
             name: 'macOS',
-            url: 'https://github.com/fedro86/ferrispad/releases/download/0.1.8-rc.5/FerrisPad-v0.1.8-rc.5-macos.dmg'
+            stable: getUrl(STABLE_VERSION, 'macos', '.dmg'),
+            unstable: getUrl(UNSTABLE_VERSION, 'macos', '.dmg')
         },
         'linux': {
             name: 'Ubuntu/Linux',
-            url: 'https://github.com/fedro86/ferrispad/releases/download/0.1.8-rc.5/FerrisPad-v0.1.8-rc.5-ubuntu-amd64.deb'
+            stable: getUrl(STABLE_VERSION, 'ubuntu-amd64', '.deb'),
+            unstable: getUrl(UNSTABLE_VERSION, 'ubuntu-amd64', '.deb')
         }
     };
 
     if (osConfig[os]) {
         detectedOSSpan.textContent = osConfig[os].name;
-        primaryDownload.href = osConfig[os].url;
+        if (primaryDownload) primaryDownload.href = osConfig[os].stable;
+        if (unstableDownload) unstableDownload.href = osConfig[os].unstable;
     } else {
         detectedOSSpan.textContent = 'Your Platform';
-        primaryDownload.href = '#download';
+        if (primaryDownload) primaryDownload.href = '#download';
+        if (unstableDownload) unstableDownload.href = 'https://github.com/fedro86/ferrispad/releases';
     }
 }
 
@@ -61,7 +77,7 @@ function initCodeTabs() {
     const tabs = document.querySelectorAll('.code-tab');
 
     tabs.forEach(tab => {
-        tab.addEventListener('click', function() {
+        tab.addEventListener('click', function () {
             const targetOS = this.getAttribute('data-os');
             const parent = this.closest('.step-content');
 
@@ -89,7 +105,7 @@ function initCopyButtons() {
     const copyButtons = document.querySelectorAll('.copy-btn');
 
     copyButtons.forEach(button => {
-        button.addEventListener('click', async function() {
+        button.addEventListener('click', async function () {
             const textToCopy = this.getAttribute('data-clipboard');
 
             try {
@@ -223,7 +239,7 @@ function initDownloadValidation() {
     const downloadLinks = document.querySelectorAll('a[href^="assets/binaries"]');
 
     downloadLinks.forEach(link => {
-        link.addEventListener('click', function(e) {
+        link.addEventListener('click', function (e) {
             const href = this.getAttribute('href');
 
             // Check if binary exists (this would require server-side validation in production)
@@ -314,7 +330,7 @@ function trackDownload(platform) {
 // ===================================
 
 document.addEventListener('DOMContentLoaded', () => {
-    updateDownloadButton();
+    updateDownloadButtons();
     initCodeTabs();
     initCopyButtons();
     initSmoothScroll();

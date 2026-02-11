@@ -1,16 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="FerrisPad - A blazingly fast Rust notepad and minimalist text editor. Lightning-fast startup, cross-platform support for Windows, macOS, and Linux. Download the best Rust text editor today.">
-    <meta name="keywords" content="rust notepad, rust text editor, text editor, notepad, rust, fltk, ferrispad, download, minimalist notepad, fast text editor, lightweight editor">
+    <meta name="description"
+        content="FerrisPad - A blazingly fast Rust notepad and minimalist text editor. Lightning-fast startup, cross-platform support for Windows, macOS, and Linux. Download the best Rust text editor today.">
+    <meta name="keywords"
+        content="rust notepad, rust text editor, text editor, notepad, rust, fltk, ferrispad, download, minimalist notepad, fast text editor, lightweight editor">
     <meta name="author" content="FerrisPad Contributors">
 
     <!-- Open Graph / Social Media -->
     <meta property="og:type" content="website">
     <meta property="og:title" content="FerrisPad - Rust Notepad | Blazingly Fast Text Editor">
-    <meta property="og:description" content="A minimalist, ultra-fast text editor built with Rust. The best Rust notepad for quick editing.">
+    <meta property="og:description"
+        content="A minimalist, ultra-fast text editor built with Rust. The best Rust notepad for quick editing.">
     <meta property="og:image" content="assets/logo.png">
     <meta property="og:url" content="https://www.ferrispad.com">
 
@@ -30,7 +34,7 @@
         "priceCurrency": "USD"
       },
       "description": "A blazingly fast, minimalist notepad written in Rust. Lightning-fast startup, clean interface, cross-platform text editor.",
-      "softwareVersion": "0.1.8-rc.5",
+      "softwareVersion": "0.1.7",
       "programmingLanguage": "Rust",
       "author": {
         "@type": "Organization",
@@ -49,6 +53,7 @@
     <link rel="icon" type="image/png" href="assets/favicon.png">
     <link rel="stylesheet" href="css/style.css">
 </head>
+
 <body>
     <!-- Navigation -->
     <nav class="navbar">
@@ -76,14 +81,24 @@
                 Lightning-fast startup. Clean interface. Zero bloat. Just a notepad that works.
             </p>
             <div class="hero-buttons">
-                <a href="#download" class="btn btn-primary" id="primary-download">
-                    <svg class="btn-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <a href="https://github.com/fedro86/ferrispad/releases/download/0.1.7/FerrisPad-v0.1.7-macos.dmg"
+                    class="btn btn-primary" id="primary-download">
+                    <svg class="btn-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                         <polyline points="7 10 12 15 17 10"></polyline>
                         <line x1="12" y1="15" x2="12" y2="3"></line>
                     </svg>
                     Download for <span id="detected-os">Your OS</span>
                 </a>
+                <div id="unstable-download-container" style="display: inline-block;">
+                    <a href="https://github.com/fedro86/ferrispad/releases/download/0.1.8-rc.5/FerrisPad-v0.1.8-rc.5-macos.dmg"
+                        class="btn btn-unstable" id="unstable-download"
+                        onmouseenter="this.innerText='Download Unstable version'"
+                        onmouseleave="this.innerText='Feeling brave?'">
+                        Feeling brave?
+                    </a>
+                </div>
                 <a href="#compile" class="btn btn-secondary">Compile from Source</a>
             </div>
             <p class="version-info">Latest version: v0.1.8-rc.5</p>
@@ -146,12 +161,16 @@
             <div class="screenshots-grid">
                 <div class="screenshot-card">
                     <h3>Light Mode</h3>
-                    <img src="assets/screenshots/screenshot-light.png" alt="FerrisPad Rust Notepad Light Mode - Clean interface with line numbers and monospace font" class="screenshot-img">
+                    <img src="assets/screenshots/screenshot-light.png"
+                        alt="FerrisPad Rust Notepad Light Mode - Clean interface with line numbers and monospace font"
+                        class="screenshot-img">
                     <p>Clean, bright interface with line numbers and monospace font</p>
                 </div>
                 <div class="screenshot-card">
                     <h3>Dark Mode</h3>
-                    <img src="assets/screenshots/screenshot-dark.png" alt="FerrisPad Rust Notepad Dark Mode - Syntax-friendly dark theme for comfortable coding" class="screenshot-img">
+                    <img src="assets/screenshots/screenshot-dark.png"
+                        alt="FerrisPad Rust Notepad Dark Mode - Syntax-friendly dark theme for comfortable coding"
+                        class="screenshot-img">
                     <p>Easy on the eyes dark theme with syntax-friendly colors</p>
                 </div>
             </div>
@@ -169,12 +188,14 @@
                 <div class="download-card">
                     <div class="download-icon">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/>
+                            <path
+                                d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801" />
                         </svg>
                     </div>
                     <h3>Windows</h3>
                     <p>Windows 10/11 (64-bit)</p>
-                    <a href="https://github.com/fedro86/ferrispad/releases/download/0.1.8-rc.5/FerrisPad-v0.1.8-rc.5-windows-x64.zip" class="btn btn-download">
+                    <a href="https://github.com/fedro86/ferrispad/releases/download/0.1.7/FerrisPad-v0.1.7-windows-x64.zip"
+                        class="btn btn-download">
                         Download .zip
                     </a>
                     <details class="install-details">
@@ -188,32 +209,40 @@
                     <details class="install-details" style="margin-top: 10px; border-left: 3px solid #ff6b35;">
                         <summary><strong>⚠️ Windows Security Warning</strong></summary>
                         <p style="margin: 10px 0; line-height: 1.6;">
-                            When running FerrisPad for the first time, Windows may show a "Windows protected your PC" warning or Windows Defender may quarantine the executable.
-                            This is <strong>normal</strong> for open source software not signed with a commercial certificate (costs $100-400/year).
+                            When running FerrisPad for the first time, Windows may show a "Windows protected your PC"
+                            warning or Windows Defender may quarantine the executable.
+                            This is <strong>normal</strong> for open source software not signed with a commercial
+                            certificate (costs $100-400/year).
                         </p>
-                        <p style="margin: 10px 0;"><strong>FerrisPad is safe to run.</strong> The source code is open and auditable on GitHub.</p>
+                        <p style="margin: 10px 0;"><strong>FerrisPad is safe to run.</strong> The source code is open
+                            and auditable on GitHub.</p>
 
-                        <p style="margin: 15px 0 5px 0;"><strong>If you see "Windows protected your PC" warning:</strong></p>
+                        <p style="margin: 15px 0 5px 0;"><strong>If you see "Windows protected your PC"
+                                warning:</strong></p>
                         <ol style="margin: 10px 0;">
                             <li>Click "More info" on the warning dialog</li>
                             <li>Click "Run anyway"</li>
                         </ol>
 
-                        <p style="margin: 15px 0 5px 0;"><strong>If Windows Defender deletes the executable:</strong></p>
+                        <p style="margin: 15px 0 5px 0;"><strong>If Windows Defender deletes the executable:</strong>
+                        </p>
                         <ol style="margin: 10px 0;">
                             <li>Open <strong>Windows Security</strong> (search in Start menu)</li>
                             <li>Go to <strong>Virus & threat protection</strong> → <strong>Manage settings</strong></li>
-                            <li>Scroll down to <strong>Exclusions</strong> → Click <strong>Add or remove exclusions</strong></li>
+                            <li>Scroll down to <strong>Exclusions</strong> → Click <strong>Add or remove
+                                    exclusions</strong></li>
                             <li>Click <strong>Add an exclusion</strong> → Choose <strong>Folder</strong></li>
                             <li>Select the folder where you extracted FerrisPad</li>
                             <li>Re-extract the .zip file to restore the executable</li>
                         </ol>
 
                         <p style="margin: 15px 0 5px 0;"><strong>Alternative (before extraction):</strong></p>
-                        <p style="margin: 5px 0 5px 20px;">Right-click the .zip file → Properties → Check "Unblock" → OK → Extract and run.</p>
+                        <p style="margin: 5px 0 5px 20px;">Right-click the .zip file → Properties → Check "Unblock" → OK
+                            → Extract and run.</p>
 
                         <p style="margin: 10px 0; font-size: 0.9em; color: #666;">
-                            This warning appears for many open source projects like GIMP, Audacity, and other community software.
+                            This warning appears for many open source projects like GIMP, Audacity, and other community
+                            software.
                         </p>
                     </details>
                 </div>
@@ -222,12 +251,14 @@
                 <div class="download-card">
                     <div class="download-icon">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+                            <path
+                                d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
                         </svg>
                     </div>
                     <h3>macOS</h3>
                     <p>macOS 11+ (Intel & Apple Silicon)</p>
-                    <a href="https://github.com/fedro86/ferrispad/releases/download/0.1.8-rc.5/FerrisPad-v0.1.8-rc.5-macos.dmg" class="btn btn-download">
+                    <a href="https://github.com/fedro86/ferrispad/releases/download/0.1.7/FerrisPad-v0.1.7-macos.dmg"
+                        class="btn btn-download">
                         Download .dmg
                     </a>
                     <details class="install-details">
@@ -241,12 +272,17 @@
                     <details class="install-details" style="margin-top: 10px; border-left: 3px solid #ff6b35;">
                         <summary><strong>⚠️ macOS Security Warning</strong></summary>
                         <p style="margin: 10px 0; line-height: 1.6;">
-                            When opening FerrisPad for the first time, macOS may show a warning that the app "cannot be opened because it is from an unidentified developer" or "cannot be opened because Apple cannot check it for malicious software."
-                            This is <strong>normal</strong> for open source software not signed with an Apple Developer certificate (costs $99/year).
+                            When opening FerrisPad for the first time, macOS may show a warning that the app "cannot be
+                            opened because it is from an unidentified developer" or "cannot be opened because Apple
+                            cannot check it for malicious software."
+                            This is <strong>normal</strong> for open source software not signed with an Apple Developer
+                            certificate (costs $99/year).
                         </p>
-                        <p style="margin: 10px 0;"><strong>FerrisPad is safe to run.</strong> The source code is open and auditable on GitHub.</p>
+                        <p style="margin: 10px 0;"><strong>FerrisPad is safe to run.</strong> The source code is open
+                            and auditable on GitHub.</p>
                         <p style="margin: 10px 0;"><strong>To open FerrisPad:</strong></p>
-                        <p style="margin: 10px 0; padding-left: 20px;"><strong>Method 1 (Terminal - Most Reliable):</strong></p>
+                        <p style="margin: 10px 0; padding-left: 20px;"><strong>Method 1 (Terminal - Most
+                                Reliable):</strong></p>
                         <ol style="margin: 10px 0;">
                             <li>Open Terminal</li>
                             <li>Run: <code>xattr -cr /Applications/FerrisPad.app</code></li>
@@ -261,7 +297,8 @@
                             <li>Click "Open Anyway" next to the FerrisPad message</li>
                             <li>Click "Open" to confirm</li>
                         </ol>
-                        <p style="margin: 10px 0; padding-left: 20px;"><strong>Method 3 (Right-click - May Not Work):</strong></p>
+                        <p style="margin: 10px 0; padding-left: 20px;"><strong>Method 3 (Right-click - May Not
+                                Work):</strong></p>
                         <ol style="margin: 10px 0;">
                             <li>Right-click (or Control-click) FerrisPad.app in Applications</li>
                             <li>Select "Open" from the menu</li>
@@ -269,7 +306,8 @@
                             <li>Note: This doesn't work reliably on newer macOS versions</li>
                         </ol>
                         <p style="margin: 10px 0; font-size: 0.9em; color: #666;">
-                            This warning appears for many open source projects like GIMP, Audacity, Blender, and other community software that aren't code-signed by Apple.
+                            This warning appears for many open source projects like GIMP, Audacity, Blender, and other
+                            community software that aren't code-signed by Apple.
                         </p>
                     </details>
                 </div>
@@ -278,19 +316,21 @@
                 <div class="download-card">
                     <div class="download-icon">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M22 12.05c0-5.5-4.5-9.95-10-9.95S2 6.55 2 12.05s4.5 9.95 10 9.95 10-4.45 10-9.95zM5.55 13.2c-.88 0-1.6-.72-1.6-1.6s.72-1.6 1.6-1.6 1.6.72 1.6 1.6-.72 1.6-1.6 1.6zm2.92 5.15c-.44-.76-.18-1.74.58-2.18.76-.44 1.74-.18 2.18.58.44.76.18 1.74-.58 2.18-.76.44-1.74.18-2.18-.58zm0-10.7c.44-.76 1.42-1.02 2.18-.58.76.44 1.02 1.42.58 2.18-.44.76-1.42 1.02-2.18.58-.76-.44-1.02-1.42-.58-2.18zm2.35 7.74l2.97-5.15 2.97 5.15z"/>
+                            <path
+                                d="M22 12.05c0-5.5-4.5-9.95-10-9.95S2 6.55 2 12.05s4.5 9.95 10 9.95 10-4.45 10-9.95zM5.55 13.2c-.88 0-1.6-.72-1.6-1.6s.72-1.6 1.6-1.6 1.6.72 1.6 1.6-.72 1.6-1.6 1.6zm2.92 5.15c-.44-.76-.18-1.74.58-2.18.76-.44 1.74-.18 2.18.58.44.76.18 1.74-.58 2.18-.76.44-1.74.18-2.18-.58zm0-10.7c.44-.76 1.42-1.02 2.18-.58.76.44 1.02 1.42.58 2.18-.44.76-1.42 1.02-2.18.58-.76-.44-1.02-1.42-.58-2.18zm2.35 7.74l2.97-5.15 2.97 5.15z" />
                         </svg>
                     </div>
                     <h3>Linux</h3>
                     <p>Ubuntu/Debian-based distros</p>
-                    <a href="https://github.com/fedro86/ferrispad/releases/download/0.1.8-rc.5/FerrisPad-v0.1.8-rc.5-ubuntu-amd64.deb" class="btn btn-download">
+                    <a href="https://github.com/fedro86/ferrispad/releases/download/0.1.7/FerrisPad-v0.1.7-ubuntu-amd64.deb"
+                        class="btn btn-download">
                         Download .deb
                     </a>
                     <details class="install-details">
                         <summary>Installation Instructions</summary>
                         <ol>
                             <li>Download the .deb file</li>
-                            <li>Install with: <code>sudo dpkg -i FerrisPad-v0.1.8-rc.5-ubuntu-amd64.deb</code></li>
+                            <li>Install with: <code>sudo dpkg -i FerrisPad-v0.1.7-ubuntu-amd64.deb</code></li>
                             <li>Or double-click the file to install via Software Center</li>
                             <li>Launch from Applications menu or run <code>FerrisPad</code></li>
                         </ol>
@@ -299,7 +339,9 @@
             </div>
 
             <div class="download-note">
-                <p>Looking for other formats or older versions? Visit the <a href="https://github.com/fedro86/ferrispad/releases" target="_blank" rel="noopener">releases page</a>.</p>
+                <p>Looking for other formats or older versions? Visit the <a
+                        href="https://github.com/fedro86/ferrispad/releases" target="_blank" rel="noopener">releases
+                        page</a>.</p>
             </div>
         </div>
     </section>
@@ -314,15 +356,18 @@
                 <div class="privacy-feature">
                     <div class="privacy-icon">🔔</div>
                     <h3>Auto-Update Check</h3>
-                    <p>FerrisPad can automatically check for new versions once per 24 hours by querying GitHub's public API. You'll see a subtle notification banner when updates are available.</p>
+                    <p>FerrisPad can automatically check for new versions once per 24 hours by querying GitHub's public
+                        API. You'll see a subtle notification banner when updates are available.</p>
                 </div>
 
                 <div class="privacy-feature">
                     <div class="privacy-icon">🔒</div>
                     <h3>Privacy-First Design</h3>
                     <ul class="privacy-list">
-                        <li><strong>No telemetry</strong> - We don't collect usage data, analytics, or personal information</li>
-                        <li><strong>No tracking</strong> - No cookies, no user identification, no behavioral monitoring</li>
+                        <li><strong>No telemetry</strong> - We don't collect usage data, analytics, or personal
+                            information</li>
+                        <li><strong>No tracking</strong> - No cookies, no user identification, no behavioral monitoring
+                        </li>
                         <li><strong>GitHub API only</strong> - Only checks public release information</li>
                         <li><strong>Fully optional</strong> - Can be completely disabled in Settings</li>
                         <li><strong>Transparent</strong> - All code is open source and auditable</li>
@@ -332,12 +377,15 @@
                 <div class="privacy-feature">
                     <div class="privacy-icon">✋</div>
                     <h3>You're in Control</h3>
-                    <p>Go to <strong>File → Settings</strong> to disable auto-update checks entirely. You can always manually check for updates via <strong>Help → Check for Updates</strong>. FerrisPad will never download or install anything without your explicit permission.</p>
+                    <p>Go to <strong>File → Settings</strong> to disable auto-update checks entirely. You can always
+                        manually check for updates via <strong>Help → Check for Updates</strong>. FerrisPad will never
+                        download or install anything without your explicit permission.</p>
                 </div>
             </div>
 
             <div class="privacy-note">
-                <p><em>Following best practices from VS Code, Firefox, and Notepad++, FerrisPad respects your privacy while keeping you informed.</em></p>
+                <p><em>Following best practices from VS Code, Firefox, and Notepad++, FerrisPad respects your privacy
+                        while keeping you informed.</em></p>
             </div>
         </div>
     </section>
@@ -366,7 +414,8 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 sudo apt-get install libfltk1.3-dev libfontconfig1-dev libxext-dev \
   libxft-dev libxinerama-dev libxcursor-dev libxrender-dev \
   libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev</code></pre>
-                            <button class="copy-btn" data-clipboard="curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh&#10;sudo apt-get install libfltk1.3-dev libfontconfig1-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev">Copy</button>
+                            <button class="copy-btn"
+                                data-clipboard="curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh&#10;sudo apt-get install libfltk1.3-dev libfontconfig1-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev">Copy</button>
                         </div>
                         <div class="code-block" data-os="macos">
                             <pre><code># Install Rust
@@ -374,14 +423,16 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Install Xcode Command Line Tools
 xcode-select --install</code></pre>
-                            <button class="copy-btn" data-clipboard="curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh&#10;xcode-select --install">Copy</button>
+                            <button class="copy-btn"
+                                data-clipboard="curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh&#10;xcode-select --install">Copy</button>
                         </div>
                         <div class="code-block" data-os="windows">
                             <pre><code># Install Rust from https://rustup.rs/
 # Download and run rustup-init.exe
 
 # FLTK should work out of the box on Windows</code></pre>
-                            <button class="copy-btn" data-clipboard="# Install Rust from https://rustup.rs/">Copy</button>
+                            <button class="copy-btn"
+                                data-clipboard="# Install Rust from https://rustup.rs/">Copy</button>
                         </div>
                     </div>
                 </div>
@@ -399,7 +450,8 @@ cd ferrispad
 cargo build --release
 
 # The binary will be at: ./target/release/FerrisPad</code></pre>
-                            <button class="copy-btn" data-clipboard="git clone https://github.com/fedro86/ferrispad&#10;cd ferrispad&#10;cargo build --release">Copy</button>
+                            <button class="copy-btn"
+                                data-clipboard="git clone https://github.com/fedro86/ferrispad&#10;cd ferrispad&#10;cargo build --release">Copy</button>
                         </div>
                     </div>
                 </div>
@@ -425,7 +477,9 @@ cargo run --release
 
             <div class="compile-help">
                 <h3>Need Help?</h3>
-                <p>Check out the <a href="https://github.com/fedro86/ferrispad#readme" target="_blank" rel="noopener">full documentation</a> or <a href="https://github.com/fedro86/ferrispad/issues" target="_blank" rel="noopener">open an issue</a> on GitHub.</p>
+                <p>Check out the <a href="https://github.com/fedro86/ferrispad#readme" target="_blank"
+                        rel="noopener">full documentation</a> or <a href="https://github.com/fedro86/ferrispad/issues"
+                        target="_blank" rel="noopener">open an issue</a> on GitHub.</p>
             </div>
         </div>
     </section>
@@ -434,12 +488,14 @@ cargo run --release
     <section class="feedback">
         <div class="container">
             <h2 class="section-title">Have a Suggestion?</h2>
-            <p class="section-subtitle">Help us improve FerrisPad! Share your ideas, report bugs, or request features.</p>
+            <p class="section-subtitle">Help us improve FerrisPad! Share your ideas, report bugs, or request features.
+            </p>
 
             <div class="feedback-grid">
                 <div class="feedback-card">
                     <div class="feedback-icon">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                             <polyline points="14 2 14 8 20 8"></polyline>
                             <line x1="16" y1="13" x2="8" y2="13"></line>
@@ -449,12 +505,14 @@ cargo run --release
                     </div>
                     <h3>Feature Request</h3>
                     <p>Have an idea for a new feature? Let us know what would make FerrisPad better for you.</p>
-                    <a href="https://github.com/fedro86/ferrispad/issues/new?labels=enhancement&template=feature_request.md" target="_blank" rel="noopener" class="btn btn-feedback">Request Feature</a>
+                    <a href="https://github.com/fedro86/ferrispad/issues/new?labels=enhancement&template=feature_request.md"
+                        target="_blank" rel="noopener" class="btn btn-feedback">Request Feature</a>
                 </div>
 
                 <div class="feedback-card">
                     <div class="feedback-icon">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
                             <circle cx="12" cy="12" r="10"></circle>
                             <line x1="12" y1="8" x2="12" y2="12"></line>
                             <line x1="12" y1="16" x2="12.01" y2="16"></line>
@@ -462,23 +520,28 @@ cargo run --release
                     </div>
                     <h3>Report Bug</h3>
                     <p>Found something that's not working right? Help us squash bugs and improve stability.</p>
-                    <a href="https://github.com/fedro86/ferrispad/issues/new?labels=bug&template=bug_report.md" target="_blank" rel="noopener" class="btn btn-feedback">Report Bug</a>
+                    <a href="https://github.com/fedro86/ferrispad/issues/new?labels=bug&template=bug_report.md"
+                        target="_blank" rel="noopener" class="btn btn-feedback">Report Bug</a>
                 </div>
 
                 <div class="feedback-card">
                     <div class="feedback-icon">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
                             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
                         </svg>
                     </div>
                     <h3>General Discussion</h3>
                     <p>Share your thoughts, ask questions, or chat with the community about FerrisPad.</p>
-                    <a href="https://github.com/fedro86/ferrispad/discussions" target="_blank" rel="noopener" class="btn btn-feedback">Join Discussion</a>
+                    <a href="https://github.com/fedro86/ferrispad/discussions" target="_blank" rel="noopener"
+                        class="btn btn-feedback">Join Discussion</a>
                 </div>
             </div>
 
             <div class="feedback-note">
-                <p>All feedback is public and visible on GitHub. Please check <a href="https://github.com/fedro86/ferrispad/issues" target="_blank" rel="noopener">existing issues</a> first to avoid duplicates.</p>
+                <p>All feedback is public and visible on GitHub. Please check <a
+                        href="https://github.com/fedro86/ferrispad/issues" target="_blank" rel="noopener">existing
+                        issues</a> first to avoid duplicates.</p>
             </div>
         </div>
     </section>
@@ -495,16 +558,21 @@ cargo run --release
                     <div class="footer-column">
                         <h4>Project</h4>
                         <ul>
-                            <li><a href="https://github.com/fedro86/ferrispad" target="_blank" rel="noopener">GitHub</a></li>
-                            <li><a href="https://github.com/fedro86/ferrispad/issues" target="_blank" rel="noopener">Report Issue</a></li>
-                            <li><a href="https://github.com/fedro86/ferrispad/blob/master/LICENSE" target="_blank" rel="noopener">MIT License</a></li>
+                            <li><a href="https://github.com/fedro86/ferrispad" target="_blank" rel="noopener">GitHub</a>
+                            </li>
+                            <li><a href="https://github.com/fedro86/ferrispad/issues" target="_blank"
+                                    rel="noopener">Report Issue</a></li>
+                            <li><a href="https://github.com/fedro86/ferrispad/blob/master/LICENSE" target="_blank"
+                                    rel="noopener">MIT License</a></li>
                         </ul>
                     </div>
                     <div class="footer-column">
                         <h4>Resources</h4>
                         <ul>
-                            <li><a href="https://github.com/fedro86/ferrispad#readme" target="_blank" rel="noopener">Documentation</a></li>
-                            <li><a href="https://www.rust-lang.org/" target="_blank" rel="noopener">Rust Language</a></li>
+                            <li><a href="https://github.com/fedro86/ferrispad#readme" target="_blank"
+                                    rel="noopener">Documentation</a></li>
+                            <li><a href="https://www.rust-lang.org/" target="_blank" rel="noopener">Rust Language</a>
+                            </li>
                             <li><a href="https://www.fltk.org/" target="_blank" rel="noopener">FLTK Toolkit</a></li>
                         </ul>
                     </div>
@@ -517,5 +585,13 @@ cargo run --release
     </footer>
 
     <script src="js/main.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            if (typeof updateDownloadButtons === 'function') {
+                updateDownloadButtons();
+            }
+        });
+    </script>
 </body>
+
 </html>

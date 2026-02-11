@@ -77,25 +77,29 @@ run_sed() {
 echo -e "${YELLOW}→${NC} Updating Cargo.toml..."
 run_sed "s/^version = \".*\"/version = \"$NEW_VERSION\"/" Cargo.toml
 
-# 2. Update docs/js/main.js (download URLs)
+# 2. Update docs/js/main.js
 echo -e "${YELLOW}→${NC} Updating docs/js/main.js..."
-# Match version in tag (path segment) and in filename separately to preserve platform names
-# Pattern matches versions like 0.1.8 or 0.1.8-rc.1 and stops before the next / or -
-run_sed "s|releases/download/[0-9][^/]*|releases/download/$NEW_VERSION|g" docs/js/main.js
-run_sed "s|FerrisPad-v[0-9][^-]*(-[a-z0-9.]*)?|FerrisPad-v$NEW_VERSION|g" docs/js/main.js
+# If NEW_VERSION contains a pre-release tag (rc, beta, alpha), update UNSTABLE_VERSION
+if [[ "$NEW_VERSION" == *"-rc"* ]] || [[ "$NEW_VERSION" == *"-beta"* ]] || [[ "$NEW_VERSION" == *"-alpha"* ]]; then
+    run_sed "s/const UNSTABLE_VERSION = \".*\"/const UNSTABLE_VERSION = \"$NEW_VERSION\"/" docs/js/main.js
+else
+    # It's a stable release, update BOTH
+    run_sed "s/const STABLE_VERSION = \".*\"/const STABLE_VERSION = \"$NEW_VERSION\"/" docs/js/main.js
+    run_sed "s/const UNSTABLE_VERSION = \".*\"/const UNSTABLE_VERSION = \"$NEW_VERSION\"/" docs/js/main.js
+fi
 
-# 3. Update docs/index.html (version display and download URLs)
+# 3. Update docs/index.html
 echo -e "${YELLOW}→${NC} Updating docs/index.html..."
 run_sed "s/Latest version: v[0-9.a-z-]*/Latest version: v$NEW_VERSION/" docs/index.html
-# Update SEO metadata
-run_sed "s/\"softwareVersion\": \"[0-9.a-z-]*\"/\"softwareVersion\": \"$NEW_VERSION\"/" docs/index.html
-# Match version in tag (path segment) and in filename separately to preserve platform names
-run_sed "s|releases/download/[0-9][^/]*|releases/download/$NEW_VERSION|g" docs/index.html
-run_sed "s|FerrisPad-v[0-9][^-]*(-[a-z0-9.]*)?|FerrisPad-v$NEW_VERSION|g" docs/index.html
 
-# 4. Update README.md (download URLs and version)
+# Only update SEO softwareVersion if it's a STABLE release (better for search engines)
+if [[ ! "$NEW_VERSION" == *"-rc"* ]] && [[ ! "$NEW_VERSION" == *"-beta"* ]] && [[ ! "$NEW_VERSION" == *"-alpha"* ]]; then
+    run_sed "s/\"softwareVersion\": \"[0-9.a-z-]*\"/\"softwareVersion\": \"$NEW_VERSION\"/" docs/index.html
+fi
+
+# 4. Update README.md (point to website for now or stable version if deep linked)
 echo -e "${YELLOW}→${NC} Updating README.md..."
-# Match version in tag (path segment) and in filename separately to preserve platform names
+# For README, we stick to the new version as it often describes current development
 run_sed "s|releases/download/[0-9][^/]*|releases/download/$NEW_VERSION|g" README.md
 run_sed "s|FerrisPad-v[0-9][^-]*(-[a-z0-9.]*)?|FerrisPad-v$NEW_VERSION|g" README.md
 
