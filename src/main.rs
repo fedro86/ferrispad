@@ -960,7 +960,8 @@ fn show_update_available_dialog(release: updater::ReleaseInfo, settings: &Rc<Ref
                 let result = updater::download_file(&download_url, &temp_file, |p| {
                     let mut p_val = p_bar.clone();
                     let mut s_val = s_frame_download.clone();
-                    app::add_timeout3(0.0, move |_| {
+                    // Use awake_callback for thread-safe UI updates
+                    app::awake_callback(move || {
                         p_val.set_value(p as f64);
                         s_val.set_label(&format!("Downloading: {:.0}%", p * 100.0));
                     });
@@ -969,13 +970,13 @@ fn show_update_available_dialog(release: updater::ReleaseInfo, settings: &Rc<Ref
                 match result {
                     Ok(_) => {
                         let mut s_install = s_frame_install.clone();
-                        app::add_timeout3(0.0, move |_| {
+                        app::awake_callback(move || {
                             s_install.set_label("Installing update...");
                         });
 
                         match updater::install_update(&temp_file) {
                             Ok(_) => {
-                                app::add_timeout3(0.0, move |_| {
+                                app::awake_callback(move || {
                                     dialog::message_default("Update installed successfully!\n\nFerrisPad will now restart.");
                                     // Restart the app
                                     if let Ok(current_exe) = std::env::current_exe() {
@@ -987,7 +988,7 @@ fn show_update_available_dialog(release: updater::ReleaseInfo, settings: &Rc<Ref
                             Err(e) => {
                                 let mut br = btn_row_install_err.clone();
                                 let mut s_err = s_frame_install.clone();
-                                app::add_timeout3(0.0, move |_| {
+                                app::awake_callback(move || {
                                     s_err.set_label("Installation failed");
                                     dialog::alert_default(&format!("Failed to install update: {}", e));
                                     br.activate();
@@ -998,7 +999,7 @@ fn show_update_available_dialog(release: updater::ReleaseInfo, settings: &Rc<Ref
                     Err(e) => {
                         let mut br = btn_row_download_err.clone();
                         let mut s_err = s_frame_download.clone();
-                        app::add_timeout3(0.0, move |_| {
+                        app::awake_callback(move || {
                             s_err.set_label("Download failed");
                             dialog::alert_default(&format!("Failed to download update: {}", e));
                             br.activate();
