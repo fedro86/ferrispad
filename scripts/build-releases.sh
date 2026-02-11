@@ -8,7 +8,7 @@ set -e
 # Change to project root directory
 cd "$(dirname "$0")/.."
 
-VERSION="0.1.8-rc.6"
+VERSION="0.1.8-rc.7"
 PROJECT_NAME="FerrisPad"
 BINARY_DIR="docs/assets/binaries"
 
