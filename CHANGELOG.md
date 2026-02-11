@@ -5,6 +5,24 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8-rc.1] - 2026-02-11
+
+### Added
+- **Direct In-App Updates**: FerrisPad can now download and install updates directly without visiting GitHub.
+- **Universal Update Support**: Automated CI now uploads raw binaries for all platforms (Linux, Windows, macOS).
+- **Edit Menu Enhancements**: Added Undo, Redo, Cut, Copy, and Paste with standard keyboard shortcuts.
+- **macOS File Association**: Associated FerrisPad with text files (.txt, .md, .rs, etc.) in Finder.
+
+### Fixed
+- **Update Banner Visibility**: Improved readability of the update notification in Dark Mode.
+- **Dual Icon Bug**: Resolved issue where two icons appeared in the title bar on macOS and Windows.
+- **Edit Menu Layout**: Removed extra vertical space and cleaned up item alignment.
+
+### Technical
+- Implemented robust self-replacement update strategy with automatic backup and restart.
+- Enhanced `Info.plist` generation in the macOS build process for better system integration.
+- Improved CLI argument parser to reliably handle "Open With" file paths.
+
 ## [0.1.7] - 2026-02-09
 
 ### Added
