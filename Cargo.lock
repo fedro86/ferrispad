@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "FerrisPad"
-version = "0.1.7"
+version = "0.1.8-rc.2"
 dependencies = [
  "dirs",
  "fltk",

@@ -5,6 +5,11 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8-rc.3] - 2026-02-11
+
+### Added
+- **Unstable Channel Toggle**: Added a setting to opt-in to pre-release updates (beta/rc) directly from the app.
+
 ## [0.1.8-rc.2] - 2026-02-11
 
 ### Added
