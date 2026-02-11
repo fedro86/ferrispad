@@ -117,6 +117,7 @@ fn apply_theme(
     editor: &mut TextEditor,
     window: &mut Window,
     menu: &mut MenuBar,
+    banner: Option<&mut Frame>,
     is_dark: bool,
 ) {
     if is_dark {
@@ -132,6 +133,10 @@ fn apply_theme(
         menu.set_color(Color::from_rgb(35, 35, 35));
         menu.set_text_color(Color::from_rgb(220, 220, 220));
         menu.set_selection_color(Color::from_rgb(60, 60, 60)); // Hover color
+        if let Some(b) = banner {
+            b.set_color(Color::from_rgb(139, 128, 0)); // Darker yellow/olive
+            b.set_label_color(Color::White);
+        }
     } else {
         // Light mode colors
         editor.set_color(Color::White);
@@ -145,6 +150,10 @@ fn apply_theme(
         menu.set_color(Color::from_rgb(240, 240, 240));
         menu.set_text_color(Color::Black);
         menu.set_selection_color(Color::from_rgb(200, 200, 200)); // Hover color
+        if let Some(b) = banner {
+            b.set_color(Color::from_rgb(255, 250, 205)); // Lemon chiffon
+            b.set_label_color(Color::Black);
+        }
     }
 
     editor.redraw();
@@ -1055,6 +1064,7 @@ fn main() {
 
     // Update notification banner (initially hidden)
     let mut update_banner_frame = Frame::default().with_size(0, 0);
+    update_banner_frame.set_frame(fltk::enums::FrameType::FlatBox);
     update_banner_frame.set_color(Color::from_rgb(255, 250, 205)); // Light yellow
     update_banner_frame.set_label_color(Color::Black);
     update_banner_frame.set_label_size(13);
@@ -1122,7 +1132,7 @@ fn main() {
     text_editor.set_text_size(settings.font_size as i32);
 
     // Apply initial theme
-    apply_theme(&mut text_editor, &mut wind, &mut menu, initial_dark_mode);
+    apply_theme(&mut text_editor, &mut wind, &mut menu, Some(&mut update_banner_frame), initial_dark_mode);
 
     // Set up cursor blinking
     let cursor_visible = Rc::new(RefCell::new(true));
@@ -1251,6 +1261,7 @@ fn main() {
     let dark_mode_settings = dark_mode.clone();
     let linenumbers_settings = show_linenumbers.clone();
     let wordwrap_settings = word_wrap.clone();
+    let mut banner_settings = update_banner_frame.clone();
 
     menu.add(
         "File/Settings...",
@@ -1275,7 +1286,7 @@ fn main() {
                     ThemeMode::SystemDefault => detect_system_dark_mode(),
                 };
                 *dark_mode_settings.borrow_mut() = is_dark;
-                apply_theme(&mut editor_settings, &mut wind_settings, &mut menu_settings, is_dark);
+                apply_theme(&mut editor_settings, &mut wind_settings, &mut menu_settings, Some(&mut banner_settings), is_dark);
                 #[cfg(target_os = "windows")]
                 set_windows_titlebar_theme(&wind_settings, is_dark);
 
@@ -1542,6 +1553,7 @@ fn main() {
     let mut editor_clone_dm = text_editor.clone();
     let mut wind_clone_dm = wind.clone();
     let mut menu_clone_dm = menu.clone();
+    let mut banner_clone_dm = update_banner_frame.clone();
     let dark_mode_state = dark_mode.clone();
     let _menu_item_dm = menu.add(
         "View/Toggle Dark Mode",
@@ -1554,7 +1566,7 @@ fn main() {
         move |_| {
             let mut state = dark_mode_state.borrow_mut();
             *state = !*state;
-            apply_theme(&mut editor_clone_dm, &mut wind_clone_dm, &mut menu_clone_dm, *state);
+            apply_theme(&mut editor_clone_dm, &mut wind_clone_dm, &mut menu_clone_dm, Some(&mut banner_clone_dm), *state);
             #[cfg(target_os = "windows")]
             set_windows_titlebar_theme(&wind_clone_dm, *state);
         },
