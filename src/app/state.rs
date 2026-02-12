@@ -13,14 +13,14 @@ use fltk::{
 };
 use std::fs;
 
-use crate::app::platform::detect_system_dark_mode;
-use crate::app::text_ops::extract_filename;
-use crate::app::file_filters::{get_all_files_filter, get_text_files_filter_multiline};
-use crate::app::settings::{AppSettings, FontChoice, ThemeMode};
+use super::platform::detect_system_dark_mode;
+use super::text_ops::extract_filename;
+use super::file_filters::{get_all_files_filter, get_text_files_filter_multiline};
+use super::settings::{AppSettings, FontChoice, ThemeMode};
+use super::updater::ReleaseInfo;
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::file_dialogs::{native_open_dialog, native_save_dialog};
 use crate::ui::theme::apply_theme;
-use crate::app::updater::ReleaseInfo;
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
 

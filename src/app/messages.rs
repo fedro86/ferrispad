@@ -1,6 +1,6 @@
 use fltk::enums::Font;
 
-use crate::app::updater::ReleaseInfo;
+use super::updater::ReleaseInfo;
 
 /// All messages that can be sent through the FLTK channel.
 /// Each menu callback sends one of these; the dispatch loop in main handles them.
