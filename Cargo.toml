@@ -15,7 +15,7 @@ name = "FerrisPad"
 path = "src/main.rs"
 
 [dependencies]
-fltk = "1.4"
+fltk = { version = "1.4", features = ["use-wayland"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 dirs = "5.0"
