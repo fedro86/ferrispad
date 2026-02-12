@@ -20,8 +20,10 @@ pub enum Message {
     EditCut,
     EditCopy,
     EditPaste,
+    SelectAll,
     ShowFind,
     ShowReplace,
+    ShowGoToLine,
 
     // View
     ToggleLineNumbers,

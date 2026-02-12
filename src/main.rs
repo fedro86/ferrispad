@@ -14,6 +14,7 @@ use crate::app::state::AppState;
 use crate::app::settings::{AppSettings, ThemeMode};
 use crate::ui::dialogs::about::show_about_dialog;
 use crate::ui::dialogs::find::{show_find_dialog, show_replace_dialog};
+use crate::ui::dialogs::goto_line::show_goto_line_dialog;
 use crate::ui::dialogs::update::{check_for_updates_ui, show_update_available_dialog};
 use crate::ui::main_window::build_main_window;
 use crate::ui::menu::build_menu;
@@ -164,8 +165,10 @@ fn main() {
                 Message::EditCut => { state.editor.cut(); }
                 Message::EditCopy => { state.editor.copy(); }
                 Message::EditPaste => { state.editor.paste(); }
+                Message::SelectAll => { state.buffer.select(0, state.buffer.length()); }
                 Message::ShowFind => show_find_dialog(&state.buffer, &mut state.editor),
                 Message::ShowReplace => show_replace_dialog(&state.buffer, &mut state.editor),
+                Message::ShowGoToLine => show_goto_line_dialog(&state.buffer, &mut state.editor),
 
                 // View
                 Message::ToggleLineNumbers => state.toggle_line_numbers(),

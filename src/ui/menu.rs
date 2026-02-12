@@ -30,8 +30,10 @@ pub fn build_menu(
     menu.add("Edit/Cut", Shortcut::Ctrl | 'x', MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::EditCut) });
     menu.add("Edit/Copy", Shortcut::Ctrl | 'c', MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::EditCopy) });
     menu.add("Edit/Paste", Shortcut::Ctrl | 'v', MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::EditPaste) });
+    menu.add("Edit/Select All", Shortcut::Ctrl | 'a', MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::SelectAll) });
     menu.add("Edit/Find...", Shortcut::Ctrl | 'f', MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::ShowFind) });
     menu.add("Edit/Replace...", Shortcut::Ctrl | 'h', MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::ShowReplace) });
+    menu.add("Edit/Go To Line...", Shortcut::Ctrl | 'g', MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::ShowGoToLine) });
 
     // View
     let ln_flag = if settings.line_numbers_enabled { MenuFlag::Toggle | MenuFlag::Value } else { MenuFlag::Toggle };

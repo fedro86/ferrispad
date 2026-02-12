@@ -36,6 +36,48 @@ pub fn find_in_text(text: &str, search: &str, start_pos: usize, case_sensitive: 
     haystack.find(&needle).map(|pos| start_pos + pos)
 }
 
+/// Find previous occurrence of search string in text (backward search)
+///
+/// Returns the byte position of the match, or None if not found.
+/// Searches backwards from start_pos (exclusive).
+pub fn find_in_text_backward(text: &str, search: &str, start_pos: usize, case_sensitive: bool) -> Option<usize> {
+    if search.is_empty() || start_pos == 0 {
+        return None;
+    }
+
+    let end = start_pos.min(text.len());
+    let haystack = &text[..end];
+
+    if case_sensitive {
+        haystack.rfind(search)
+    } else {
+        haystack.to_lowercase().rfind(&search.to_lowercase())
+    }
+}
+
+/// Convert a 1-based line number to a byte position in the text
+///
+/// Returns None if the line number is 0 or beyond the end of the text.
+pub fn line_number_to_byte_position(text: &str, line: usize) -> Option<usize> {
+    if line == 0 {
+        return None;
+    }
+    if line == 1 {
+        return Some(0);
+    }
+
+    let mut current_line = 1;
+    for (i, ch) in text.char_indices() {
+        if ch == '\n' {
+            current_line += 1;
+            if current_line == line {
+                return Some(i + 1);
+            }
+        }
+    }
+    None
+}
+
 /// Replace all occurrences of search string with replacement
 ///
 /// Returns (new_text, count_of_replacements)
@@ -158,5 +200,71 @@ mod tests {
         let result = replace_all_in_text(text, "hello", "", false);
         assert_eq!(result.0, " world ");
         assert_eq!(result.1, 2);
+    }
+
+    // Find backward tests
+
+    #[test]
+    fn test_find_backward_simple() {
+        let text = "cat dog cat mouse cat";
+        let result = find_in_text_backward(text, "cat", text.len(), false);
+        assert_eq!(result, Some(18));
+    }
+
+    #[test]
+    fn test_find_backward_from_middle() {
+        let text = "cat dog cat mouse cat";
+        // Search backward from position 18 (last "cat"), should find middle "cat"
+        let result = find_in_text_backward(text, "cat", 18, false);
+        assert_eq!(result, Some(8));
+    }
+
+    #[test]
+    fn test_find_backward_no_match() {
+        let text = "hello world";
+        let result = find_in_text_backward(text, "rust", text.len(), false);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_find_backward_case_insensitive() {
+        let text = "Hello world HELLO";
+        let result = find_in_text_backward(text, "hello", text.len(), false);
+        assert_eq!(result, Some(12));
+    }
+
+    #[test]
+    fn test_find_backward_start_zero() {
+        let text = "cat dog cat";
+        let result = find_in_text_backward(text, "cat", 0, false);
+        assert_eq!(result, None);
+    }
+
+    // Line number tests
+
+    #[test]
+    fn test_line_to_pos_first_line() {
+        let text = "first line\nsecond line\nthird line";
+        assert_eq!(line_number_to_byte_position(text, 1), Some(0));
+    }
+
+    #[test]
+    fn test_line_to_pos_middle() {
+        let text = "first\nsecond\nthird";
+        assert_eq!(line_number_to_byte_position(text, 2), Some(6));
+        assert_eq!(line_number_to_byte_position(text, 3), Some(13));
+    }
+
+    #[test]
+    fn test_line_to_pos_out_of_range() {
+        let text = "first\nsecond\nthird";
+        assert_eq!(line_number_to_byte_position(text, 4), None);
+        assert_eq!(line_number_to_byte_position(text, 100), None);
+    }
+
+    #[test]
+    fn test_line_to_pos_zero() {
+        let text = "hello";
+        assert_eq!(line_number_to_byte_position(text, 0), None);
     }
 }
