@@ -42,8 +42,23 @@ pub fn detect_system_dark_mode() -> bool {
         }
     }
 
-    // macOS: Could add detection here in the future
-    // For now, macOS defaults to light mode
+    // macOS: Check AppleInterfaceStyle
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+
+        if let Ok(output) = Command::new("defaults")
+            .args(&["read", "-g", "AppleInterfaceStyle"])
+            .output()
+        {
+            if output.status.success() {
+                let style = String::from_utf8_lossy(&output.stdout).to_lowercase();
+                if style.contains("dark") {
+                    return true;
+                }
+            }
+        }
+    }
 
     // Default to light mode if detection fails
     false
