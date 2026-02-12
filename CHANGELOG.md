@@ -5,55 +5,28 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.8-rc.7] - 2026-02-12
-
-### Fixed
-- **Updater Thread Safety**: Resolved a crash caused by calling FLTK UI functions from background threads by switching to `app::awake_callback()`.
-- **Download Reliability**: Improved error handling in the download loop to prevent silent failures and freezes.
-- **Progress Tracking**: Enhanced UI responsiveness during downloads with reliable progress updates.
-
-## [0.1.8-rc.6] - 2026-02-11
+## [0.1.8] - 2026-02-12
 
 ### Added
-- **Website Enhancements**: Introduced a "Feeling brave?" download button for unstable releases.
-- **Dual Track Versioning**: Optimized the website to show the latest stable version by default while offering easy access to release candidates.
-- **Smart Build Script**: Improved the version bumping process to handle stable and unstable tracks independently.
-
-## [0.1.8-rc.5] - 2026-02-11
-
-### Fixed
-- **Updater Freeze**: Resolved an issue where the application would freeze during updates by enabling FLTK thread support and throttling progress updates.
-
-## [0.1.8-rc.4] - 2026-02-11
-
-### Added
-- **Script Verification**: This release candidate verifies the hardened version bumping script.
-
-## [0.1.8-rc.3] - 2026-02-11
-
-### Added
-- **Unstable Channel Toggle**: Added a setting to opt-in to pre-release updates (beta/rc) directly from the app.
-
-## [0.1.8-rc.2] - 2026-02-11
-
-### Added
-- **Update System Testing**: This release candidate is specifically published to verify the new direct in-app update mechanism.
-
-## [0.1.8-rc.1] - 2026-02-11
-
-### Added
-- **Direct In-App Updates**: FerrisPad can now download and install updates directly without visiting GitHub.
-- **Universal Update Support**: Automated CI now uploads raw binaries for all platforms (Linux, Windows, macOS).
+- **Direct In-App Updates**: Download and install updates directly without visiting GitHub, with automatic backup and restart.
 - **Edit Menu Enhancements**: Added Undo, Redo, Cut, Copy, and Paste with standard keyboard shortcuts.
+- **Pre-release Channel Toggle**: Opt-in to beta/RC updates directly from the Settings dialog.
+- **Native Wayland Support**: Enabled FLTK's Wayland backend for correct keyboard layout handling on Linux Wayland sessions.
+- **Linux "Open With" Support**: Added `%f` to desktop entry so FerrisPad appears in the file manager's "Open With" dialog.
 - **macOS File Association**: Associated FerrisPad with text files (.txt, .md, .rs, etc.) in Finder.
+- **Website Enhancements**: "Feeling brave?" button for unstable releases with dual-track versioning.
 
 ### Fixed
+- **Keyboard Layout on Wayland**: Resolved incorrect shortcut mapping when OS keyboard layout differed from hardware keyboard (e.g. AZERTY hardware with QWERTY configured).
+- **Update Download Freeze**: Fixed silent error handling and thread-safety issues that caused the updater to freeze.
 - **Update Banner Visibility**: Improved readability of the update notification in Dark Mode.
 - **Dual Icon Bug**: Resolved issue where two icons appeared in the title bar on macOS and Windows.
 - **Edit Menu Layout**: Removed extra vertical space and cleaned up item alignment.
+- **Version Bump Script**: Hardened script to handle stable and unstable tracks independently.
 
 ### Technical
 - Implemented robust self-replacement update strategy with automatic backup and restart.
+- Switched to `app::awake_callback()` for thread-safe FLTK UI updates from background threads.
 - Enhanced `Info.plist` generation in the macOS build process for better system integration.
 - Improved CLI argument parser to reliably handle "Open With" file paths.
 
@@ -257,6 +230,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FLTK-based GUI
 - Rust implementation for speed and safety
 
+[0.1.8]: https://github.com/fedro86/ferrispad/compare/0.1.7...0.1.8
 [0.1.7]: https://github.com/fedro86/ferrispad/compare/0.1.6...0.1.7
 [0.1.6]: https://github.com/fedro86/ferrispad/compare/0.1.5...0.1.6
 [0.1.5]: https://github.com/fedro86/ferrispad/compare/0.1.4...0.1.5
