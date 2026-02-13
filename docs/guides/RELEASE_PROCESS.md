@@ -333,27 +333,46 @@ For cross-platform testing, use the GitHub Actions workflow instead of local cro
 
 ```bash
 # 1. Update CHANGELOG.md manually
-# Edit CHANGELOG.md to add new [0.1.6] section with all changes
+# Edit CHANGELOG.md to add new [X.Y.Z] section with all changes
 
 # 2. Bump version and update all files
-./scripts/bump-version.sh 0.1.6
+./scripts/bump-version.sh X.Y.Z
 
-# 3. Commit, tag, and push (automated script)
+# 3. Commit, tag, push, and sync website (automated script)
 ./scripts/release.sh
 ```
 
-That's it! GitHub Actions will automatically:
+That's it! `release.sh` handles:
+- Committing uncommitted changes with the version bump message
+- Creating and pushing the annotated tag
+- **Syncing website files to master** (if releasing from a feature branch — see below)
+
+Then GitHub Actions will automatically:
 - Build binaries for all platforms (5-10 minutes)
-- Create GitHub release
+- Create GitHub release (marked as pre-release for `-rc`, `-beta`, `-alpha` tags)
 - Auto-populate release notes from CHANGELOG.md
 
-**Manual alternative (steps 3 only):**
+### Releasing from a Feature Branch
+
+The website is served from `docs/` on the `master` branch. When you release from a different branch (e.g., `enhancement/some-feature`), the website won't reflect the new version automatically.
+
+`release.sh` detects this and offers to sync `docs/js/main.js` to `master`, so the "Feeling brave?" unstable download button appears on the live website immediately.
+
+The sync process:
+1. Switches to `master` and pulls latest
+2. Copies `docs/js/main.js` from the release branch
+3. Commits and pushes to `master`
+4. Switches back to the release branch
+
+You can skip this step if you plan to merge the branch into master soon.
+
+**Manual alternative (steps 2-3 only):**
 ```bash
 # Review and commit changes
-git diff && git add -A && git commit -m "chore: bump version to 0.1.6" && git push
+git diff && git add -A && git commit -m "chore: bump version to X.Y.Z" && git push
 
 # Create and push tag
-VERSION="0.1.6" && git tag -a "${VERSION}" -m "Release ${VERSION}" && git push origin "${VERSION}"
+VERSION="X.Y.Z" && git tag -a "${VERSION}" -m "Release ${VERSION}" && git push origin "${VERSION}"
 ```
 
 ### One-Line Commands (After version bump)

@@ -78,6 +78,50 @@ git push origin "${VERSION}"
 
 echo ""
 echo -e "${GREEN}✓ Tag ${VERSION} created and pushed!${NC}"
+
+# ===================================
+# Sync website files to master
+# ===================================
+# When releasing from a feature branch, the website (served from docs/ on master)
+# won't reflect the new version. This step cherry-picks the docs changes to master
+# so the download buttons (especially "Feeling brave?" for pre-releases) update.
+
+CURRENT_BRANCH=$(git branch --show-current)
+MAIN_BRANCH="master"
+
+if [ "$CURRENT_BRANCH" != "$MAIN_BRANCH" ]; then
+    echo ""
+    echo -e "${YELLOW}You are releasing from branch '${CURRENT_BRANCH}', not '${MAIN_BRANCH}'.${NC}"
+    echo "The website is served from docs/ on ${MAIN_BRANCH}."
+    echo ""
+    read -p "Sync website files (docs/js/main.js) to ${MAIN_BRANCH}? (y/n): " -n 1 -r
+    echo ""
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo ""
+        echo "Switching to ${MAIN_BRANCH}..."
+        git checkout "${MAIN_BRANCH}"
+        git pull --ff-only origin "${MAIN_BRANCH}"
+
+        echo "Cherry-picking website version update..."
+        # Checkout only the website files from the release branch
+        git checkout "${CURRENT_BRANCH}" -- docs/js/main.js
+
+        if git diff --quiet --cached docs/js/main.js 2>/dev/null && git diff --quiet docs/js/main.js 2>/dev/null; then
+            echo -e "${GREEN}✓ Website files already up to date on ${MAIN_BRANCH}${NC}"
+        else
+            git add docs/js/main.js
+            git commit -m "chore(website): update unstable version to ${VERSION}"
+            git push origin "${MAIN_BRANCH}"
+            echo -e "${GREEN}✓ Website updated on ${MAIN_BRANCH}${NC}"
+        fi
+
+        echo "Switching back to ${CURRENT_BRANCH}..."
+        git checkout "${CURRENT_BRANCH}"
+    else
+        echo -e "${YELLOW}⚠ Skipped. Website won't show the new version until ${MAIN_BRANCH} is updated.${NC}"
+    fi
+fi
+
 echo ""
 echo "GitHub Actions will now:"
 echo "  1. Build binaries for all platforms"
