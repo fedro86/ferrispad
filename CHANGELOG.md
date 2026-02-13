@@ -5,6 +5,39 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0-rc.1] - 2026-02-13
+
+### Added
+- **Select All** (Ctrl+A): Select all text in the editor.
+- **Find Previous** (Ctrl+Shift+G): Search backwards through the document.
+- **Go To Line** (Ctrl+G): Jump to a specific line number with a dedicated dialog.
+- **macOS Dark Mode Detection**: Automatic system theme detection on macOS via `AppleInterfaceStyle` defaults key.
+
+### Changed
+- **Major Architecture Refactoring**: Decomposed monolithic `main.rs` (~2000 lines) into a clean, modular structure separating application logic from UI concerns:
+  - `src/app/` — Application logic layer:
+    - `state.rs` — Centralized application state management
+    - `messages.rs` — Message-passing enum for decoupled communication
+    - `text_ops.rs` — Text editing operations (find, replace, go-to-line)
+    - `file_filters.rs` — File type filter definitions
+    - `platform.rs` — Platform-specific detection (dark mode across OS)
+    - `settings.rs` — User preferences (moved from `src/`)
+    - `updater.rs` — Update checker (moved from `src/`)
+  - `src/ui/` — Presentation layer:
+    - `main_window.rs` — Main window construction
+    - `menu.rs` — Menu bar builder
+    - `theme.rs` — Theme and color management
+    - `file_dialogs.rs` — Native file dialog wrappers
+    - `dialogs/` — All dialog windows (About, Find, Go To Line, Settings, Update)
+  - `src/main.rs` — Reduced to ~210 lines of top-level orchestration
+- **Module imports**: Use `super::` for sibling module imports within `app/` for cleaner internal references.
+
+### Technical
+- Net change: +2,084 lines / -1,916 lines across 20 files.
+- Clear separation of concerns enables independent testing and easier maintenance.
+- Logical grouping paves the way for future plugin/extension architecture.
+- All existing functionality preserved — no behavioral changes.
+
 ## [0.1.8] - 2026-02-12
 
 ### Added
@@ -230,6 +263,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FLTK-based GUI
 - Rust implementation for speed and safety
 
+[0.9.0-rc.1]: https://github.com/fedro86/ferrispad/compare/0.1.8...0.9.0-rc.1
 [0.1.8]: https://github.com/fedro86/ferrispad/compare/0.1.7...0.1.8
 [0.1.7]: https://github.com/fedro86/ferrispad/compare/0.1.6...0.1.7
 [0.1.6]: https://github.com/fedro86/ferrispad/compare/0.1.5...0.1.6
