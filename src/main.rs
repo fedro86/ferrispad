@@ -4,7 +4,7 @@ mod app;
 mod ui;
 
 use fltk::{app as fltk_app, prelude::*};
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::env;
 
@@ -27,37 +27,41 @@ fn main() {
     let app = fltk_app::App::default().with_scheme(fltk_app::AppScheme::Gtk);
     let (sender, receiver) = fltk_app::channel::<Message>();
 
-    // Build UI widgets
-    let mut w = build_main_window();
-
     // Load settings
     let settings = AppSettings::load();
+    let tabs_enabled = settings.tabs_enabled;
     let initial_dark_mode = match settings.theme_mode {
         ThemeMode::Light => false,
         ThemeMode::Dark => true,
         ThemeMode::SystemDefault => detect_system_dark_mode(),
     };
 
+    // Build UI widgets (tab bar included only when tabs enabled)
+    let mut w = build_main_window(tabs_enabled, &sender);
+
     // Build menu (all items are one-liner message sends)
-    build_menu(&mut w.menu, &sender, &settings, initial_dark_mode);
+    build_menu(&mut w.menu, &sender, &settings, initial_dark_mode, tabs_enabled);
 
     // Initialize state
     let app_settings = Rc::new(RefCell::new(settings.clone()));
-    let has_unsaved_changes = Rc::new(Cell::new(false));
 
     let mut state = AppState::new(
-        w.text_buf.clone(),
         w.text_editor.clone(),
         w.wind.clone(),
         w.menu.clone(),
         w.flex.clone(),
         w.update_banner_frame.clone(),
-        has_unsaved_changes.clone(),
+        sender.clone(),
         app_settings.clone(),
         initial_dark_mode,
         settings.line_numbers_enabled,
         settings.word_wrap_enabled,
+        tabs_enabled,
+        w.tab_bar,
     );
+
+    // Bind the initial document's buffer to the editor
+    state.bind_active_buffer();
 
     // Apply initial settings (theme, font, line numbers, word wrap)
     state.apply_settings(settings.clone());
@@ -67,24 +71,6 @@ fn main() {
     if let Some(path) = args.iter().skip(1).find(|arg| !arg.starts_with("-psn")) {
         state.open_file(path.clone());
     }
-
-    // Cursor blink timer
-    let cursor_visible = Rc::new(Cell::new(true));
-    let mut editor_blink = w.text_editor.clone();
-    let cursor_state = cursor_visible.clone();
-    fltk_app::add_timeout3(0.5, move |handle| {
-        let visible = !cursor_state.get();
-        cursor_state.set(visible);
-        editor_blink.show_cursor(visible);
-        editor_blink.redraw();
-        fltk_app::repeat_timeout3(0.5, handle);
-    });
-
-    // Text change detection
-    let changes_state = has_unsaved_changes.clone();
-    w.text_buf.add_modify_callback(move |_, _, _, _, _| {
-        changes_state.set(true);
-    });
 
     // Window close button -> send message
     w.wind.set_callback({
@@ -117,6 +103,11 @@ fn main() {
 
     #[cfg(target_os = "windows")]
     set_windows_titlebar_theme(&w.wind, initial_dark_mode);
+
+    // Build initial tab bar after window is shown (so Flex layout is resolved)
+    if tabs_enabled {
+        state.rebuild_tab_bar();
+    }
 
     // Background update check via channel
     {
@@ -159,16 +150,39 @@ fn main() {
                     }
                 }
 
+                // Tabs
+                Message::TabSwitch(id) => {
+                    state.switch_to_document(id);
+                    state.rebuild_tab_bar();
+                }
+                Message::TabClose(id) => {
+                    if state.close_tab(id) {
+                        fltk_app::quit();
+                    }
+                }
+                Message::TabCloseActive => {
+                    if let Some(id) = state.tab_manager.active_id() {
+                        if state.close_tab(id) {
+                            fltk_app::quit();
+                        }
+                    }
+                }
+                Message::TabNext => state.switch_to_next_tab(),
+                Message::TabPrevious => state.switch_to_previous_tab(),
+
                 // Edit
-                Message::EditUndo => { let _ = state.buffer.undo(); }
-                Message::EditRedo => { let _ = state.buffer.redo(); }
+                Message::EditUndo => { let _ = state.active_buffer().undo(); }
+                Message::EditRedo => { let _ = state.active_buffer().redo(); }
                 Message::EditCut => { state.editor.cut(); }
                 Message::EditCopy => { state.editor.copy(); }
                 Message::EditPaste => { state.editor.paste(); }
-                Message::SelectAll => { state.buffer.select(0, state.buffer.length()); }
-                Message::ShowFind => show_find_dialog(&state.buffer, &mut state.editor),
-                Message::ShowReplace => show_replace_dialog(&state.buffer, &mut state.editor),
-                Message::ShowGoToLine => show_goto_line_dialog(&state.buffer, &mut state.editor),
+                Message::SelectAll => {
+                    let mut buf = state.active_buffer();
+                    buf.select(0, buf.length());
+                }
+                Message::ShowFind => show_find_dialog(&state.active_buffer(), &mut state.editor),
+                Message::ShowReplace => show_replace_dialog(&state.active_buffer(), &mut state.editor),
+                Message::ShowGoToLine => show_goto_line_dialog(&state.active_buffer(), &mut state.editor),
 
                 // View
                 Message::ToggleLineNumbers => state.toggle_line_numbers(),

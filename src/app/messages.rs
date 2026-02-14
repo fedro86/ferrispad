@@ -1,5 +1,6 @@
 use fltk::enums::Font;
 
+use super::document::DocumentId;
 use super::updater::ReleaseInfo;
 
 /// All messages that can be sent through the FLTK channel.
@@ -13,6 +14,13 @@ pub enum Message {
     FileSaveAs,
     FileQuit,
     WindowClose,
+
+    // Tabs
+    TabSwitch(DocumentId),
+    TabClose(DocumentId),
+    TabCloseActive,
+    TabNext,
+    TabPrevious,
 
     // Edit
     EditUndo,

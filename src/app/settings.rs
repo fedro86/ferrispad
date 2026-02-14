@@ -46,6 +46,9 @@ pub struct AppSettings {
 
     #[serde(default)]
     pub skipped_versions: Vec<String>,
+
+    #[serde(default)]
+    pub tabs_enabled: bool,
 }
 
 fn default_line_numbers() -> bool {
@@ -88,6 +91,7 @@ impl Default for AppSettings {
             update_channel: default_update_channel(),
             last_update_check: 0,
             skipped_versions: Vec::new(),
+            tabs_enabled: false,
         }
     }
 }

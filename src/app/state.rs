@@ -1,7 +1,8 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use fltk::{
+    app::Sender,
     dialog,
     enums::Font,
     frame::Frame,
@@ -13,26 +14,30 @@ use fltk::{
 };
 use std::fs;
 
+use super::document::DocumentId;
+use super::tab_manager::TabManager;
 use super::platform::detect_system_dark_mode;
-use super::text_ops::extract_filename;
 use super::file_filters::{get_all_files_filter, get_text_files_filter_multiline};
+use super::messages::Message;
 use super::settings::{AppSettings, FontChoice, ThemeMode};
 use super::updater::ReleaseInfo;
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::file_dialogs::{native_open_dialog, native_save_dialog};
+use crate::ui::tab_bar::TabBar;
 use crate::ui::theme::apply_theme;
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
 
 pub struct AppState {
-    pub buffer: TextBuffer,
+    pub tab_manager: TabManager,
+    pub tabs_enabled: bool,
+    pub tab_bar: Option<TabBar>,
     pub editor: TextEditor,
     pub window: Window,
     pub menu: MenuBar,
     pub flex: Flex,
     pub update_banner_frame: Frame,
-    pub current_file_path: Option<String>,
-    pub has_unsaved_changes: Rc<Cell<bool>>,
+    pub sender: Sender<Message>,
     pub settings: Rc<RefCell<AppSettings>>,
     pub dark_mode: bool,
     pub show_linenumbers: bool,
@@ -42,27 +47,32 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(
-        buffer: TextBuffer,
         editor: TextEditor,
         window: Window,
         menu: MenuBar,
         flex: Flex,
         update_banner_frame: Frame,
-        has_unsaved_changes: Rc<Cell<bool>>,
+        sender: Sender<Message>,
         settings: Rc<RefCell<AppSettings>>,
         dark_mode: bool,
         show_linenumbers: bool,
         word_wrap: bool,
+        tabs_enabled: bool,
+        tab_bar: Option<TabBar>,
     ) -> Self {
+        let mut tab_manager = TabManager::new();
+        tab_manager.add_untitled();
+
         Self {
-            buffer,
+            tab_manager,
+            tabs_enabled,
+            tab_bar,
             editor,
             window,
             menu,
             flex,
             update_banner_frame,
-            current_file_path: None,
-            has_unsaved_changes,
+            sender,
             settings,
             dark_mode,
             show_linenumbers,
@@ -71,28 +81,168 @@ impl AppState {
         }
     }
 
+    /// Get the active document's buffer
+    pub fn active_buffer(&self) -> TextBuffer {
+        self.tab_manager
+            .active_buffer()
+            .expect("No active document")
+    }
+
+    /// Bind the active document's buffer to the editor
+    pub fn bind_active_buffer(&mut self) {
+        if let Some(doc) = self.tab_manager.active_doc() {
+            self.editor.set_buffer(doc.buffer.clone());
+        }
+    }
+
+    /// Update the window title based on active document
+    pub fn update_window_title(&mut self) {
+        if let Some(doc) = self.tab_manager.active_doc() {
+            let prefix = if doc.is_dirty() { "*" } else { "" };
+            self.window.set_label(&format!(
+                "{}{} - \u{1f980} FerrisPad",
+                prefix, doc.display_name
+            ));
+        } else {
+            self.window
+                .set_label("Untitled - \u{1f980} FerrisPad");
+        }
+    }
+
+    /// Switch the editor to display a different document
+    pub fn switch_to_document(&mut self, id: DocumentId) {
+        // Save current doc's cursor/scroll state
+        if let Some(current) = self.tab_manager.active_doc_mut() {
+            current.cursor_position = self.editor.insert_position();
+        }
+
+        // Set new active
+        self.tab_manager.set_active(id);
+
+        // Bind new buffer and restore state
+        if let Some(doc) = self.tab_manager.active_doc() {
+            let buffer = doc.buffer.clone();
+            let cursor = doc.cursor_position;
+            self.editor.set_buffer(buffer);
+            self.editor.set_insert_position(cursor);
+            self.editor.show_insert_position();
+        }
+
+        self.update_window_title();
+    }
+
+    /// Rebuild the tab bar UI from current documents
+    pub fn rebuild_tab_bar(&mut self) {
+        if let Some(ref mut tab_bar) = self.tab_bar {
+            let active_id = self.tab_manager.active_id();
+            tab_bar.rebuild(
+                self.tab_manager.documents(),
+                active_id,
+                &self.sender,
+                self.dark_mode,
+            );
+        }
+    }
+
+    /// Close a tab by id. Returns true if the app should exit (no tabs remaining).
+    pub fn close_tab(&mut self, id: DocumentId) -> bool {
+        // Check if document is dirty
+        if let Some(doc) = self.tab_manager.doc_by_id(id) {
+            if doc.is_dirty() {
+                let name = doc.display_name.clone();
+                let choice = dialog::choice2_default(
+                    &format!("\"{}\" has unsaved changes.", name),
+                    "Save",
+                    "Discard",
+                    "Cancel",
+                );
+
+                match choice {
+                    Some(0) => {
+                        // Save first — need to temporarily switch if not active
+                        let was_active = self.tab_manager.active_id();
+                        if was_active != Some(id) {
+                            self.switch_to_document(id);
+                        }
+                        self.file_save();
+                        // If still dirty (save was cancelled), abort close
+                        if let Some(doc) = self.tab_manager.doc_by_id(id) {
+                            if doc.is_dirty() {
+                                // Restore previous active if we switched
+                                if let Some(prev) = was_active {
+                                    if prev != id {
+                                        self.switch_to_document(prev);
+                                    }
+                                }
+                                return false;
+                            }
+                        }
+                    }
+                    Some(1) => {} // Discard — proceed with close
+                    _ => return false, // Cancel
+                }
+            }
+        }
+
+        self.tab_manager.remove(id);
+
+        if self.tab_manager.count() == 0 {
+            return true; // No tabs remain, app should exit
+        }
+
+        // Switch to the newly active document
+        if let Some(active_id) = self.tab_manager.active_id() {
+            self.switch_to_document(active_id);
+        }
+        self.rebuild_tab_bar();
+        false
+    }
+
     // --- File operations ---
 
     pub fn open_file(&mut self, path: String) {
         match fs::read_to_string(&path) {
             Ok(content) => {
-                self.buffer.set_text(&content);
-                let filename = extract_filename(&path);
-                self.window
-                    .set_label(&format!("{} - \u{1f980} FerrisPad", filename));
-                self.has_unsaved_changes.set(false);
-                self.current_file_path = Some(path);
+                if self.tabs_enabled {
+                    // Check if file is already open in a tab
+                    if let Some(existing_id) = self.tab_manager.find_by_path(&path) {
+                        self.switch_to_document(existing_id);
+                        self.rebuild_tab_bar();
+                        return;
+                    }
+                    let id = self.tab_manager.add_from_file(path, &content);
+                    self.switch_to_document(id);
+                    self.rebuild_tab_bar();
+                } else {
+                    // Classic single-doc mode: replace current buffer
+                    if let Some(doc) = self.tab_manager.active_doc_mut() {
+                        doc.buffer.set_text(&content);
+                        doc.has_unsaved_changes.set(false);
+                        doc.file_path = Some(path.clone());
+                        doc.update_display_name();
+                    }
+                    self.update_window_title();
+                }
             }
             Err(e) => dialog::alert_default(&format!("Error opening file: {}", e)),
         }
     }
 
     pub fn file_new(&mut self) {
-        self.buffer.set_text("");
-        self.window
-            .set_label("Untitled - \u{1f980} FerrisPad");
-        self.has_unsaved_changes.set(false);
-        self.current_file_path = None;
+        if self.tabs_enabled {
+            let id = self.tab_manager.add_untitled();
+            self.switch_to_document(id);
+            self.rebuild_tab_bar();
+        } else {
+            // Classic single-doc mode: clear current buffer
+            if let Some(doc) = self.tab_manager.active_doc_mut() {
+                doc.buffer.set_text("");
+                doc.has_unsaved_changes.set(false);
+                doc.file_path = None;
+                doc.display_name = "Untitled".to_string();
+            }
+            self.update_window_title();
+        }
     }
 
     pub fn file_open(&mut self) {
@@ -102,9 +252,23 @@ impl AppState {
     }
 
     pub fn file_save(&mut self) {
-        if let Some(ref path) = self.current_file_path {
-            match fs::write(path, self.buffer.text()) {
-                Ok(_) => self.has_unsaved_changes.set(false),
+        let (file_path, text) = {
+            if let Some(doc) = self.tab_manager.active_doc() {
+                (doc.file_path.clone(), doc.buffer.text())
+            } else {
+                return;
+            }
+        };
+
+        if let Some(ref path) = file_path {
+            match fs::write(path, &text) {
+                Ok(_) => {
+                    if let Some(doc) = self.tab_manager.active_doc_mut() {
+                        doc.mark_clean();
+                    }
+                    self.update_window_title();
+                    self.rebuild_tab_bar();
+                }
                 Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
             }
         } else {
@@ -113,14 +277,24 @@ impl AppState {
     }
 
     pub fn file_save_as(&mut self) {
+        let text = {
+            if let Some(doc) = self.tab_manager.active_doc() {
+                doc.buffer.text()
+            } else {
+                return;
+            }
+        };
+
         if let Some(path) = native_save_dialog("All Files", &get_all_files_filter()) {
-            match fs::write(&path, self.buffer.text()) {
+            match fs::write(&path, &text) {
                 Ok(_) => {
-                    let filename = extract_filename(&path);
-                    self.window
-                        .set_label(&format!("{} - \u{1f980} FerrisPad", filename));
-                    self.has_unsaved_changes.set(false);
-                    self.current_file_path = Some(path);
+                    if let Some(doc) = self.tab_manager.active_doc_mut() {
+                        doc.file_path = Some(path);
+                        doc.update_display_name();
+                        doc.mark_clean();
+                    }
+                    self.update_window_title();
+                    self.rebuild_tab_bar();
                 }
                 Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
             }
@@ -129,24 +303,90 @@ impl AppState {
 
     /// Handle quit request. Returns `true` if the app should exit.
     pub fn file_quit(&mut self) -> bool {
-        if self.has_unsaved_changes.get() {
+        if self.tabs_enabled {
+            // Check all documents for unsaved changes
+            let dirty_docs: Vec<DocumentId> = self
+                .tab_manager
+                .documents()
+                .iter()
+                .filter(|d| d.is_dirty())
+                .map(|d| d.id)
+                .collect();
+
+            if dirty_docs.is_empty() {
+                return true;
+            }
+
             let choice = dialog::choice2_default(
-                "You have unsaved changes.",
-                "Save",
+                "You have unsaved changes in one or more tabs.",
+                "Save All",
                 "Quit Without Saving",
                 "Cancel",
             );
 
             match choice {
                 Some(0) => {
-                    self.file_save();
-                    !self.has_unsaved_changes.get()
+                    // Save all dirty docs
+                    for id in dirty_docs {
+                        self.switch_to_document(id);
+                        self.file_save();
+                        // If save was cancelled (still dirty), abort quit
+                        if let Some(doc) = self.tab_manager.doc_by_id(id) {
+                            if doc.is_dirty() {
+                                return false;
+                            }
+                        }
+                    }
+                    true
                 }
                 Some(1) => true,
                 _ => false,
             }
         } else {
-            true
+            // Classic single-doc mode
+            let is_dirty = self
+                .tab_manager
+                .active_doc()
+                .map_or(false, |d| d.is_dirty());
+
+            if is_dirty {
+                let choice = dialog::choice2_default(
+                    "You have unsaved changes.",
+                    "Save",
+                    "Quit Without Saving",
+                    "Cancel",
+                );
+
+                match choice {
+                    Some(0) => {
+                        self.file_save();
+                        !self
+                            .tab_manager
+                            .active_doc()
+                            .map_or(false, |d| d.is_dirty())
+                    }
+                    Some(1) => true,
+                    _ => false,
+                }
+            } else {
+                true
+            }
+        }
+    }
+
+    /// Switch to next tab
+    pub fn switch_to_next_tab(&mut self) {
+        if let Some(next_id) = self.tab_manager.next_doc_id() {
+            self.switch_to_document(next_id);
+            self.rebuild_tab_bar();
+        }
+    }
+
+    /// Switch to previous tab
+    pub fn switch_to_previous_tab(&mut self) {
+        if let Some(prev_id) = self.tab_manager.prev_doc_id() {
+            self.switch_to_document(prev_id);
+            self.rebuild_tab_bar();
         }
     }
 
@@ -181,6 +421,9 @@ impl AppState {
             Some(&mut self.update_banner_frame),
             self.dark_mode,
         );
+        if let Some(ref mut tab_bar) = self.tab_bar {
+            tab_bar.apply_theme(self.dark_mode);
+        }
         #[cfg(target_os = "windows")]
         set_windows_titlebar_theme(&self.window, self.dark_mode);
     }
@@ -225,6 +468,9 @@ impl AppState {
             Some(&mut self.update_banner_frame),
             is_dark,
         );
+        if let Some(ref mut tab_bar) = self.tab_bar {
+            tab_bar.apply_theme(is_dark);
+        }
         #[cfg(target_os = "windows")]
         set_windows_titlebar_theme(&self.window, is_dark);
         self.update_menu_checkbox("View/Toggle Dark Mode", is_dark);

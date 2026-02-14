@@ -1,4 +1,5 @@
 use fltk::{
+    app::Sender,
     enums::Color,
     frame::Frame,
     group::Flex,
@@ -9,16 +10,20 @@ use fltk::{
     window::Window,
 };
 
+use crate::app::messages::Message;
+use super::tab_bar::{TabBar, TAB_BAR_HEIGHT};
+
 pub struct MainWidgets {
     pub wind: Window,
     pub flex: Flex,
     pub menu: MenuBar,
+    pub tab_bar: Option<TabBar>,
     pub update_banner_frame: Frame,
     pub text_buf: TextBuffer,
     pub text_editor: TextEditor,
 }
 
-pub fn build_main_window() -> MainWidgets {
+pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWidgets {
     let mut wind = Window::new(100, 100, 640, 480, "Untitled - \u{1f980} FerrisPad");
     wind.set_xclass("FerrisPad");
 
@@ -35,6 +40,15 @@ pub fn build_main_window() -> MainWidgets {
 
     let menu = MenuBar::new(0, 0, 0, 30, "");
     flex.fixed(&menu, 30);
+
+    // Tab bar (only when tabs enabled)
+    let tab_bar = if tabs_enabled {
+        let tb = TabBar::new(0, 30, 640, sender.clone());
+        flex.fixed(&tb.widget, TAB_BAR_HEIGHT);
+        Some(tb)
+    } else {
+        None
+    };
 
     // Update notification banner (initially hidden)
     let mut update_banner_frame = Frame::default().with_size(0, 0);
@@ -60,6 +74,7 @@ pub fn build_main_window() -> MainWidgets {
         wind,
         flex,
         menu,
+        tab_bar,
         update_banner_frame,
         text_buf,
         text_editor,

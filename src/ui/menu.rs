@@ -1,6 +1,6 @@
 use fltk::{
     app::Sender,
-    enums::{Font, Shortcut},
+    enums::{Font, Key, Shortcut},
     menu::{MenuBar, MenuFlag},
     prelude::*,
 };
@@ -13,14 +13,21 @@ pub fn build_menu(
     sender: &Sender<Message>,
     settings: &AppSettings,
     initial_dark_mode: bool,
+    tabs_enabled: bool,
 ) {
     let s = sender;
 
     // File
-    menu.add("File/New", Shortcut::Ctrl | 'n', MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::FileNew) });
+    let new_shortcut = if tabs_enabled { Shortcut::Ctrl | 't' } else { Shortcut::Ctrl | 'n' };
+    menu.add("File/New", new_shortcut, MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::FileNew) });
     menu.add("File/Open...", Shortcut::Ctrl | 'o', MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::FileOpen) });
     menu.add("File/Save", Shortcut::Ctrl | 's', MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::FileSave) });
     menu.add("File/Save As...", Shortcut::Ctrl | Shortcut::Shift | 's', MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::FileSaveAs) });
+    if tabs_enabled {
+        menu.add("File/Close Tab", Shortcut::Ctrl | 'w', MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::TabCloseActive) });
+        menu.add("File/Next Tab", Shortcut::Ctrl | Key::PageDown, MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::TabNext) });
+        menu.add("File/Previous Tab", Shortcut::Ctrl | Key::PageUp, MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::TabPrevious) });
+    }
     menu.add("File/Settings...", Shortcut::None, MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::OpenSettings) });
     menu.add("File/Quit", Shortcut::Ctrl | 'q', MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::FileQuit) });
 
