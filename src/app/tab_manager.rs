@@ -100,10 +100,6 @@ impl TabManager {
         self.active_id
     }
 
-    pub fn has_any_unsaved(&self) -> bool {
-        self.documents.iter().any(|d| d.is_dirty())
-    }
-
     /// Find a document by file path
     pub fn find_by_path(&self, path: &str) -> Option<DocumentId> {
         self.documents
@@ -116,9 +112,6 @@ impl TabManager {
         self.documents.iter().find(|d| d.id == id)
     }
 
-    pub fn doc_by_id_mut(&mut self, id: DocumentId) -> Option<&mut Document> {
-        self.documents.iter_mut().find(|d| d.id == id)
-    }
 
     /// Get the next document id (for tab cycling)
     pub fn next_doc_id(&self) -> Option<DocumentId> {

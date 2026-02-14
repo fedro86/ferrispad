@@ -99,13 +99,6 @@ impl TabBar {
         self.widget.redraw();
     }
 
-    pub fn show(&mut self) {
-        self.widget.show();
-    }
-
-    pub fn hide(&mut self) {
-        self.widget.hide();
-    }
 }
 
 // --- Colors ---

@@ -19,7 +19,6 @@ pub struct MainWidgets {
     pub menu: MenuBar,
     pub tab_bar: Option<TabBar>,
     pub update_banner_frame: Frame,
-    pub text_buf: TextBuffer,
     pub text_editor: TextEditor,
 }
 
@@ -59,9 +58,8 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWi
     update_banner_frame.hide();
     flex.fixed(&update_banner_frame, 0);
 
-    let text_buf = TextBuffer::default();
     let mut text_editor = TextEditor::new(0, 0, 0, 0, "");
-    text_editor.set_buffer(text_buf.clone());
+    text_editor.set_buffer(TextBuffer::default());
 
     // Line number styling (set once)
     text_editor.set_linenumber_bgcolor(Color::from_rgb(240, 240, 240));
@@ -76,7 +74,6 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWi
         menu,
         tab_bar,
         update_banner_frame,
-        text_buf,
         text_editor,
     }
 }

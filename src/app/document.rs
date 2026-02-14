@@ -15,7 +15,6 @@ pub struct Document {
     pub has_unsaved_changes: Rc<Cell<bool>>,
     pub display_name: String,
     pub cursor_position: i32,
-    pub scroll_top_line: i32,
 }
 
 impl Document {
@@ -42,7 +41,6 @@ impl Document {
             has_unsaved_changes,
             display_name,
             cursor_position: 0,
-            scroll_top_line: 1,
         }
     }
 
@@ -69,7 +67,6 @@ impl Document {
             has_unsaved_changes,
             display_name,
             cursor_position: 0,
-            scroll_top_line: 1,
         }
     }
 
@@ -79,10 +76,6 @@ impl Document {
 
     pub fn mark_clean(&self) {
         self.has_unsaved_changes.set(false);
-    }
-
-    pub fn mark_dirty(&self) {
-        self.has_unsaved_changes.set(true);
     }
 
     pub fn update_display_name(&mut self) {
