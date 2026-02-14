@@ -63,10 +63,14 @@ impl TabManager {
     }
 
     /// Remove a document by id. Activates the nearest neighbor.
-    /// Returns the removed document, or None if not found.
-    pub fn remove(&mut self, id: DocumentId) -> Option<Document> {
-        let idx = self.documents.iter().position(|d| d.id == id)?;
-        let doc = self.documents.remove(idx);
+    /// Cleans up the buffer to free memory immediately.
+    pub fn remove(&mut self, id: DocumentId) {
+        let idx = match self.documents.iter().position(|d| d.id == id) {
+            Some(i) => i,
+            None => return,
+        };
+        let mut doc = self.documents.remove(idx);
+        doc.cleanup();
 
         // Activate nearest neighbor
         if self.active_id == Some(id) {
@@ -82,7 +86,6 @@ impl TabManager {
             }
         }
 
-        Some(doc)
     }
 
     pub fn documents(&self) -> &[Document] {

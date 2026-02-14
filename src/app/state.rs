@@ -22,7 +22,7 @@ use super::messages::Message;
 use super::settings::{AppSettings, FontChoice, ThemeMode};
 use super::updater::ReleaseInfo;
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
-use crate::ui::file_dialogs::{native_open_dialog, native_save_dialog};
+use crate::ui::file_dialogs::{native_open_dialog, native_open_multi_dialog, native_save_dialog};
 use crate::ui::tab_bar::TabBar;
 use crate::ui::theme::apply_theme;
 #[cfg(target_os = "windows")]
@@ -246,7 +246,12 @@ impl AppState {
     }
 
     pub fn file_open(&mut self) {
-        if let Some(path) = native_open_dialog("", &get_text_files_filter_multiline()) {
+        if self.tabs_enabled {
+            let paths = native_open_multi_dialog("", &get_text_files_filter_multiline());
+            for path in paths {
+                self.open_file(path);
+            }
+        } else if let Some(path) = native_open_dialog("", &get_text_files_filter_multiline()) {
             self.open_file(path);
         }
     }

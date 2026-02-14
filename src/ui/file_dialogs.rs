@@ -12,6 +12,18 @@ pub fn native_open_dialog(description: &str, pattern: &str) -> Option<String> {
     if s.is_empty() { None } else { Some(s.to_string()) }
 }
 
+pub fn native_open_multi_dialog(description: &str, pattern: &str) -> Vec<String> {
+    let mut nfc = NativeFileChooser::new(FileDialogType::BrowseMultiFile);
+    let filter = get_platform_filter(description, pattern);
+    nfc.set_filter(&filter);
+    nfc.show();
+    nfc.filenames()
+        .into_iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 pub fn native_save_dialog(description: &str, pattern: &str) -> Option<String> {
     let mut nfc = NativeFileChooser::new(FileDialogType::BrowseSaveFile);
     let filter = get_platform_filter(description, pattern);

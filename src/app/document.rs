@@ -90,4 +90,10 @@ impl Document {
             self.display_name = extract_filename(path);
         }
     }
+
+    /// Release buffer memory before drop — clears text
+    /// so the underlying FLTK buffer frees its allocation immediately.
+    pub fn cleanup(&mut self) {
+        self.buffer.set_text("");
+    }
 }
