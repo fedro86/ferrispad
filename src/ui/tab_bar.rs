@@ -20,6 +20,7 @@ const CLOSE_BTN_SIZE: i32 = 14;
 const CLOSE_BTN_MARGIN: i32 = 6;
 const TAB_H_PADDING: i32 = 10;
 const CORNER_RADIUS: i32 = 6;
+const TAB_GAP: i32 = 1;
 
 struct TabInfo {
     id: DocumentId,
@@ -146,12 +147,13 @@ fn compute_tab_width(widget_w: i32, tab_count: usize) -> i32 {
     if tab_count == 0 {
         return MAX_TAB_WIDTH;
     }
-    let w = widget_w / tab_count as i32;
+    let total_gaps = TAB_GAP * (tab_count as i32 - 1);
+    let w = (widget_w - total_gaps) / tab_count as i32;
     w.clamp(MIN_TAB_WIDTH, MAX_TAB_WIDTH)
 }
 
 fn tab_x_offset(widget_x: i32, index: usize, tab_width: i32) -> i32 {
-    widget_x + (index as i32) * tab_width
+    widget_x + (index as i32) * (tab_width + TAB_GAP)
 }
 
 /// Hit-test: returns (tab_index, is_close_btn)
@@ -176,8 +178,15 @@ fn hit_test(
         return None;
     }
 
-    let idx = (relative_x / tab_width) as usize;
+    let stride = tab_width + TAB_GAP;
+    let idx = (relative_x / stride) as usize;
     if idx >= tab_count {
+        return None;
+    }
+
+    // Click landed in the gap between tabs
+    let pos_in_cell = relative_x % stride;
+    if pos_in_cell >= tab_width {
         return None;
     }
 
@@ -309,7 +318,7 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
             colors.inactive_text
         };
         draw::set_draw_color(close_color);
-        draw::set_font(Font::Helvetica, 13);
+        draw::set_font(Font::HelveticaBold, 20);
         draw::draw_text2(
             "\u{00d7}",
             close_x,
