@@ -5,6 +5,13 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0-rc.2] - 2026-02-15
+
+### Added
+- **Tabbed Editing**: Custom-drawn Edge-like tab bar with rounded top corners, shrink-to-fit sizing with ellipsis truncation, per-tab close buttons, hover highlighting, and dark/light theme support. Keyboard shortcuts: Ctrl+T (new tab), Ctrl+W (close tab), Ctrl+PageUp/Down (switch tabs). Multi-file open dialog when tabs are enabled. Configurable in Settings.
+- **Session Restore**: Persist open documents across app restarts with three modes configurable in Settings: Off (default), Saved Files Only, and Full (including unsaved content). Supports multi-instance session merging so closing one window doesn't erase another's tabs.
+- **Dynamic Line Number Gutter**: Line number column auto-sizes based on document line count, properly supporting files with 100,000+ lines.
+
 ## [0.9.0-rc.1] - 2026-02-13
 
 ### Added
