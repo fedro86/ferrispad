@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashSet;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
@@ -43,10 +44,19 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore) -> Result<()
         return Ok(());
     }
 
+    let docs = tab_manager.documents();
+
+    // Don't overwrite an existing session if this instance has nothing meaningful
+    // (e.g. a single empty untitled doc from a second app instance)
+    let is_trivial = docs.len() == 1
+        && docs[0].file_path.is_none()
+        && docs[0].buffer.text().is_empty();
+    if is_trivial {
+        return Ok(());
+    }
+
     let dir = session_dir();
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create session dir: {}", e))?;
-
-    let docs = tab_manager.documents();
     let active_id = tab_manager.active_id();
     let active_index = active_id
         .and_then(|id| docs.iter().position(|d| d.id == id))
@@ -60,7 +70,7 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore) -> Result<()
 
         match mode {
             SessionRestore::SavedFiles => {
-                if has_path && !is_dirty {
+                if has_path {
                     doc_sessions.push(DocumentSession {
                         file_path: doc.file_path.clone(),
                         display_name: doc.display_name.clone(),
@@ -101,6 +111,33 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore) -> Result<()
         }
     }
 
+    // Merge with existing session: keep docs from other instances that
+    // aren't open in this one, so closing one instance doesn't erase another's tabs.
+    let session_file = dir.join("session.json");
+    if let Ok(existing_json) = fs::read_to_string(&session_file) {
+        if let Ok(existing) = serde_json::from_str::<SessionData>(&existing_json) {
+            // Collect file paths this instance knows about (owned to avoid borrow conflict)
+            let our_paths: HashSet<String> = doc_sessions
+                .iter()
+                .filter_map(|d| d.file_path.clone())
+                .collect();
+
+            for doc in existing.documents {
+                match &doc.file_path {
+                    Some(path) if !our_paths.contains(path) => {
+                        // Saved file from another instance — keep it
+                        doc_sessions.push(doc);
+                    }
+                    None if mode == SessionRestore::Full && doc.temp_file.is_some() => {
+                        // Untitled doc with content from another instance — keep it
+                        doc_sessions.push(doc);
+                    }
+                    _ => {} // duplicate or empty — skip
+                }
+            }
+        }
+    }
+
     let session_data = SessionData {
         active_index,
         documents: doc_sessions,
@@ -109,7 +146,6 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore) -> Result<()
     let json = serde_json::to_string_pretty(&session_data)
         .map_err(|e| format!("Failed to serialize session: {}", e))?;
 
-    let session_file = dir.join("session.json");
     fs::write(&session_file, json)
         .map_err(|e| format!("Failed to write session file: {}", e))?;
 

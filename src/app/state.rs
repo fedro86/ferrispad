@@ -94,6 +94,7 @@ impl AppState {
         if let Some(doc) = self.tab_manager.active_doc() {
             self.editor.set_buffer(doc.buffer.clone());
         }
+        self.update_linenumber_width();
     }
 
     /// Update the window title based on active document
@@ -129,6 +130,7 @@ impl AppState {
             self.editor.show_insert_position();
         }
 
+        self.update_linenumber_width();
         self.update_window_title();
     }
 
@@ -503,13 +505,22 @@ impl AppState {
 
     // --- View toggles ---
 
+    /// Calculate the appropriate line number gutter width based on line count.
+    pub fn update_linenumber_width(&mut self) {
+        if !self.show_linenumbers {
+            self.editor.set_linenumber_width(0);
+            return;
+        }
+        let line_count = self.active_buffer().count_lines(0, self.active_buffer().length());
+        // Each digit needs ~8px, plus padding. Minimum 40px for small files.
+        let digits = ((line_count + 1) as f64).log10().floor() as i32 + 1;
+        let width = (digits * 8 + 16).max(40);
+        self.editor.set_linenumber_width(width);
+    }
+
     pub fn toggle_line_numbers(&mut self) {
         self.show_linenumbers = !self.show_linenumbers;
-        if self.show_linenumbers {
-            self.editor.set_linenumber_width(40);
-        } else {
-            self.editor.set_linenumber_width(0);
-        }
+        self.update_linenumber_width();
         self.editor.redraw();
     }
 
@@ -597,11 +608,7 @@ impl AppState {
 
         // Apply line numbers
         self.show_linenumbers = new_settings.line_numbers_enabled;
-        if self.show_linenumbers {
-            self.editor.set_linenumber_width(40);
-        } else {
-            self.editor.set_linenumber_width(0);
-        }
+        self.update_linenumber_width();
         self.update_menu_checkbox("View/Toggle Line Numbers", self.show_linenumbers);
 
         // Apply word wrap
