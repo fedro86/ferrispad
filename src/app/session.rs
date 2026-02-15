@@ -71,8 +71,14 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore) -> Result<()
                 }
             }
             SessionRestore::Full => {
+                let content = doc.buffer.text();
+
+                // Skip empty untitled docs entirely
+                if !has_path && content.is_empty() {
+                    continue;
+                }
+
                 let temp_file = if is_dirty || !has_path {
-                    let content = doc.buffer.text();
                     let hash = make_hash(&doc.display_name, doc.id.0);
                     let filename = format!("{:016x}.tmp", hash);
                     let temp_path = dir.join(&filename);
