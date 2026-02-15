@@ -66,6 +66,9 @@ fn main() {
     // Apply initial settings (theme, font, line numbers, word wrap)
     state.apply_settings(settings.clone());
 
+    // Restore session if enabled (before CLI args so args can override)
+    state.restore_session();
+
     // Open file from CLI args if provided
     let args: Vec<String> = env::args().collect();
     if let Some(path) = args.iter().skip(1).find(|arg| !arg.starts_with("-psn")) {

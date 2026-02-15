@@ -10,19 +10,20 @@ use fltk::{
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::app::session::SessionRestore;
 use crate::app::settings::{AppSettings, FontChoice, ThemeMode};
 use crate::app::updater::UpdateChannel;
 
 /// Show settings dialog and return updated settings if user clicked Save
 pub fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSettings> {
     let mut dialog = Window::default()
-        .with_size(350, 650)
+        .with_size(350, 770)
         .with_label("Settings")
         .center_screen();
     dialog.make_modal(true);
 
     let vpack = Group::default()
-        .with_size(320, 500)
+        .with_size(320, 700)
         .with_pos(15, 15);
 
     // Theme section
@@ -79,16 +80,30 @@ pub fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSetting
     check_line_numbers.set_value(current_settings.line_numbers_enabled);
     check_word_wrap.set_value(current_settings.word_wrap_enabled);
 
+    // Session restore section
+    Frame::default().with_pos(15, 475).with_size(320, 25).with_label("Session Restore:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    let session_group = Group::default().with_pos(30, 505).with_size(280, 75);
+    let mut session_off = RadioRoundButton::default().with_pos(30, 505).with_size(280, 25).with_label("Off");
+    let mut session_saved = RadioRoundButton::default().with_pos(30, 530).with_size(280, 25).with_label("Saved Files Only");
+    let mut session_full = RadioRoundButton::default().with_pos(30, 555).with_size(280, 25).with_label("Full (including unsaved)");
+    session_group.end();
+
+    match current_settings.session_restore {
+        SessionRestore::Off => session_off.set_value(true),
+        SessionRestore::SavedFiles => session_saved.set_value(true),
+        SessionRestore::Full => session_full.set_value(true),
+    }
+
     // Updates section
-    Frame::default().with_pos(15, 475).with_size(320, 25).with_label("Updates:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
-    let mut check_auto_update = CheckButton::default().with_pos(30, 505).with_size(280, 25).with_label("Automatically check for updates");
+    Frame::default().with_pos(15, 590).with_size(320, 25).with_label("Updates:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    let mut check_auto_update = CheckButton::default().with_pos(30, 620).with_size(280, 25).with_label("Automatically check for updates");
     check_auto_update.set_value(current_settings.auto_check_updates);
 
-    let mut check_prerelease = CheckButton::default().with_pos(30, 530).with_size(280, 25).with_label("Include pre-releases (beta/rc)");
+    let mut check_prerelease = CheckButton::default().with_pos(30, 645).with_size(280, 25).with_label("Include pre-releases (beta/rc)");
     check_prerelease.set_value(current_settings.update_channel == UpdateChannel::Beta);
 
     // Info text
-    let mut info_frame = Frame::default().with_pos(30, 560).with_size(290, 35);
+    let mut info_frame = Frame::default().with_pos(30, 675).with_size(290, 35);
     info_frame.set_label("FerrisPad checks GitHub once per day.\nNo personal data is sent.");
     info_frame.set_label_size(11);
     info_frame.set_label_color(Color::from_rgb(100, 100, 100));
@@ -97,8 +112,8 @@ pub fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSetting
     vpack.end();
 
     // Buttons at bottom
-    let mut save_btn = Button::default().with_pos(150, 610).with_size(90, 30).with_label("Save");
-    let mut cancel_btn = Button::default().with_pos(250, 610).with_size(90, 30).with_label("Cancel");
+    let mut save_btn = Button::default().with_pos(150, 725).with_size(90, 30).with_label("Save");
+    let mut cancel_btn = Button::default().with_pos(250, 725).with_size(90, 30).with_label("Cancel");
 
     dialog.end();
     dialog.show();
@@ -143,6 +158,13 @@ pub fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSetting
             last_update_check: current.last_update_check,
             skipped_versions: current.skipped_versions.clone(),
             tabs_enabled: check_tabs_enabled.value(),
+            session_restore: if session_saved.value() {
+                SessionRestore::SavedFiles
+            } else if session_full.value() {
+                SessionRestore::Full
+            } else {
+                SessionRestore::Off
+            },
         };
 
         *result_save.borrow_mut() = Some(new_settings);

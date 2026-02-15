@@ -15,6 +15,7 @@ use fltk::{
 use std::fs;
 
 use super::document::DocumentId;
+use super::session::{self, SessionRestore};
 use super::tab_manager::TabManager;
 use super::platform::detect_system_dark_mode;
 use super::file_filters::{get_all_files_filter, get_text_files_filter_multiline};
@@ -306,9 +307,106 @@ impl AppState {
         }
     }
 
+    /// Restore session from disk. Call after bind_active_buffer and apply_settings.
+    pub fn restore_session(&mut self) {
+        let mode = self.settings.borrow().session_restore;
+        if mode == SessionRestore::Off || !self.tabs_enabled {
+            return;
+        }
+
+        let session_data = match session::load_session(mode) {
+            Some(data) => data,
+            None => return,
+        };
+
+        // Remove the default untitled document
+        if let Some(id) = self.tab_manager.active_id() {
+            self.tab_manager.remove(id);
+        }
+
+        let mut first_id = None;
+        let target_index = session_data.active_index;
+
+        for (i, doc_session) in session_data.documents.iter().enumerate() {
+            if let Some(ref path) = doc_session.file_path {
+                // Try to open the file from disk
+                if let Ok(content) = fs::read_to_string(path) {
+                    let id = self.tab_manager.add_from_file(path.clone(), &content);
+                    if first_id.is_none() {
+                        first_id = Some(id);
+                    }
+
+                    // If Full mode and was dirty, load temp content over the file content
+                    if mode == SessionRestore::Full {
+                        if let Some(ref temp_file) = doc_session.temp_file {
+                            if let Some(temp_content) = session::read_temp_file(temp_file) {
+                                if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+                                    doc.buffer.set_text(&temp_content);
+                                    // Mark as dirty since it has unsaved changes
+                                }
+                            }
+                        }
+                    }
+
+                    // Restore cursor position
+                    if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+                        doc.cursor_position = doc_session.cursor_position;
+                    }
+
+                    // Set active if this is the target index
+                    if i == target_index {
+                        self.tab_manager.set_active(id);
+                    }
+                }
+            } else if mode == SessionRestore::Full {
+                // Untitled document — restore from temp file
+                if let Some(ref temp_file) = doc_session.temp_file {
+                    if let Some(temp_content) = session::read_temp_file(temp_file) {
+                        let id = self.tab_manager.add_untitled();
+                        if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+                            doc.buffer.set_text(&temp_content);
+                            doc.cursor_position = doc_session.cursor_position;
+                        }
+                        if first_id.is_none() {
+                            first_id = Some(id);
+                        }
+                        if i == target_index {
+                            self.tab_manager.set_active(id);
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no documents were restored, add a default untitled
+        if self.tab_manager.count() == 0 {
+            self.tab_manager.add_untitled();
+        }
+
+        // Bind the active document's buffer
+        self.bind_active_buffer();
+        if let Some(doc) = self.tab_manager.active_doc() {
+            let cursor = doc.cursor_position;
+            self.editor.set_insert_position(cursor);
+            self.editor.show_insert_position();
+        }
+        self.update_window_title();
+        self.rebuild_tab_bar();
+
+        // Clean up temp files now that session is restored
+        session::clear_session();
+    }
+
     /// Handle quit request. Returns `true` if the app should exit.
     pub fn file_quit(&mut self) -> bool {
-        if self.tabs_enabled {
+        let session_mode = self.settings.borrow().session_restore;
+
+        // Save cursor position of active doc before saving session
+        if let Some(current) = self.tab_manager.active_doc_mut() {
+            current.cursor_position = self.editor.insert_position();
+        }
+
+        let should_quit = if self.tabs_enabled {
             // Check all documents for unsaved changes
             let dirty_docs: Vec<DocumentId> = self
                 .tab_manager
@@ -319,33 +417,33 @@ impl AppState {
                 .collect();
 
             if dirty_docs.is_empty() {
-                return true;
-            }
+                true
+            } else {
+                let choice = dialog::choice2_default(
+                    "You have unsaved changes in one or more tabs.",
+                    "Save All",
+                    "Quit Without Saving",
+                    "Cancel",
+                );
 
-            let choice = dialog::choice2_default(
-                "You have unsaved changes in one or more tabs.",
-                "Save All",
-                "Quit Without Saving",
-                "Cancel",
-            );
-
-            match choice {
-                Some(0) => {
-                    // Save all dirty docs
-                    for id in dirty_docs {
-                        self.switch_to_document(id);
-                        self.file_save();
-                        // If save was cancelled (still dirty), abort quit
-                        if let Some(doc) = self.tab_manager.doc_by_id(id) {
-                            if doc.is_dirty() {
-                                return false;
+                match choice {
+                    Some(0) => {
+                        // Save all dirty docs
+                        for id in dirty_docs {
+                            self.switch_to_document(id);
+                            self.file_save();
+                            // If save was cancelled (still dirty), abort quit
+                            if let Some(doc) = self.tab_manager.doc_by_id(id) {
+                                if doc.is_dirty() {
+                                    return false;
+                                }
                             }
                         }
+                        true
                     }
-                    true
+                    Some(1) => true,
+                    _ => false,
                 }
-                Some(1) => true,
-                _ => false,
             }
         } else {
             // Classic single-doc mode
@@ -376,7 +474,15 @@ impl AppState {
             } else {
                 true
             }
+        };
+
+        if should_quit {
+            if let Err(e) = session::save_session(&self.tab_manager, session_mode) {
+                eprintln!("Failed to save session: {}", e);
+            }
         }
+
+        should_quit
     }
 
     /// Switch to next tab

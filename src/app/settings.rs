@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+use super::session::SessionRestore;
 use super::updater::UpdateChannel;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -49,6 +50,9 @@ pub struct AppSettings {
 
     #[serde(default)]
     pub tabs_enabled: bool,
+
+    #[serde(default)]
+    pub session_restore: SessionRestore,
 }
 
 fn default_line_numbers() -> bool {
@@ -92,6 +96,7 @@ impl Default for AppSettings {
             last_update_check: 0,
             skipped_versions: Vec::new(),
             tabs_enabled: false,
+            session_restore: SessionRestore::Off,
         }
     }
 }
