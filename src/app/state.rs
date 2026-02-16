@@ -16,6 +16,7 @@ use std::fs;
 
 use super::document::DocumentId;
 use super::session::{self, SessionRestore};
+use super::syntax::SyntaxHighlighter;
 use super::tab_manager::TabManager;
 use super::platform::detect_system_dark_mode;
 use super::file_filters::{get_all_files_filter, get_text_files_filter_multiline};
@@ -44,6 +45,12 @@ pub struct AppState {
     pub show_linenumbers: bool,
     pub word_wrap: bool,
     pub pending_update: Option<ReleaseInfo>,
+    pub highlighter: SyntaxHighlighter,
+    /// Pending rehighlight: (doc_id, earliest_edit_position)
+    pub pending_rehighlight: Option<(DocumentId, i32)>,
+    pub rehighlight_timer_active: bool,
+    /// Queue of documents awaiting deferred chunked highlighting (session restore).
+    pub highlight_queue: Vec<DocumentId>,
 }
 
 impl AppState {
@@ -61,8 +68,19 @@ impl AppState {
         tabs_enabled: bool,
         tab_bar: Option<TabBar>,
     ) -> Self {
-        let mut tab_manager = TabManager::new();
+        let mut tab_manager = TabManager::new(sender.clone());
         tab_manager.add_untitled();
+
+        let font = {
+            let s = settings.borrow();
+            match s.font {
+                FontChoice::ScreenBold => Font::ScreenBold,
+                FontChoice::Courier => Font::Courier,
+                FontChoice::HelveticaMono => Font::Screen,
+            }
+        };
+        let font_size = settings.borrow().font_size as i32;
+        let highlighter = SyntaxHighlighter::new(dark_mode, font, font_size);
 
         Self {
             tab_manager,
@@ -79,6 +97,10 @@ impl AppState {
             show_linenumbers,
             word_wrap,
             pending_update: None,
+            highlighter,
+            pending_rehighlight: None,
+            rehighlight_timer_active: false,
+            highlight_queue: Vec::new(),
         }
     }
 
@@ -93,6 +115,9 @@ impl AppState {
     pub fn bind_active_buffer(&mut self) {
         if let Some(doc) = self.tab_manager.active_doc() {
             self.editor.set_buffer(doc.buffer.clone());
+            let style_buf = doc.style_buffer.clone();
+            let table = self.highlighter.style_table();
+            self.editor.set_highlight_data(style_buf, table);
         }
         self.update_linenumber_width();
     }
@@ -125,7 +150,10 @@ impl AppState {
         if let Some(doc) = self.tab_manager.active_doc() {
             let buffer = doc.buffer.clone();
             let cursor = doc.cursor_position;
+            let style_buf = doc.style_buffer.clone();
             self.editor.set_buffer(buffer);
+            let table = self.highlighter.style_table();
+            self.editor.set_highlight_data(style_buf, table);
             self.editor.set_insert_position(cursor);
             self.editor.show_insert_position();
         }
@@ -162,16 +190,13 @@ impl AppState {
 
                 match choice {
                     Some(0) => {
-                        // Save first — need to temporarily switch if not active
                         let was_active = self.tab_manager.active_id();
                         if was_active != Some(id) {
                             self.switch_to_document(id);
                         }
                         self.file_save();
-                        // If still dirty (save was cancelled), abort close
                         if let Some(doc) = self.tab_manager.doc_by_id(id) {
                             if doc.is_dirty() {
-                                // Restore previous active if we switched
                                 if let Some(prev) = was_active {
                                     if prev != id {
                                         self.switch_to_document(prev);
@@ -181,8 +206,8 @@ impl AppState {
                             }
                         }
                     }
-                    Some(1) => {} // Discard — proceed with close
-                    _ => return false, // Cancel
+                    Some(1) => {}
+                    _ => return false,
                 }
             }
         }
@@ -190,10 +215,9 @@ impl AppState {
         self.tab_manager.remove(id);
 
         if self.tab_manager.count() == 0 {
-            return true; // No tabs remain, app should exit
+            return true;
         }
 
-        // Switch to the newly active document
         if let Some(active_id) = self.tab_manager.active_id() {
             self.switch_to_document(active_id);
         }
@@ -207,22 +231,24 @@ impl AppState {
         match fs::read_to_string(&path) {
             Ok(content) => {
                 if self.tabs_enabled {
-                    // Check if file is already open in a tab
                     if let Some(existing_id) = self.tab_manager.find_by_path(&path) {
                         self.switch_to_document(existing_id);
                         self.rebuild_tab_bar();
                         return;
                     }
-                    let id = self.tab_manager.add_from_file(path, &content);
+                    let id = self.tab_manager.add_from_file(path.clone(), &content);
+                    self.detect_and_highlight(id, &path, false);
                     self.switch_to_document(id);
                     self.rebuild_tab_bar();
                 } else {
-                    // Classic single-doc mode: replace current buffer
                     if let Some(doc) = self.tab_manager.active_doc_mut() {
                         doc.buffer.set_text(&content);
                         doc.has_unsaved_changes.set(false);
                         doc.file_path = Some(path.clone());
                         doc.update_display_name();
+                    }
+                    if let Some(id) = self.tab_manager.active_id() {
+                        self.detect_and_highlight(id, &path, false);
                     }
                     self.update_window_title();
                 }
@@ -237,12 +263,15 @@ impl AppState {
             self.switch_to_document(id);
             self.rebuild_tab_bar();
         } else {
-            // Classic single-doc mode: clear current buffer
             if let Some(doc) = self.tab_manager.active_doc_mut() {
                 doc.buffer.set_text("");
                 doc.has_unsaved_changes.set(false);
                 doc.file_path = None;
                 doc.display_name = "Untitled".to_string();
+                doc.syntax_name = None;
+                doc.line_parse_states.clear();
+                doc.line_highlight_states.clear();
+                doc.style_buffer.set_text("");
             }
             self.update_window_title();
         }
@@ -296,10 +325,23 @@ impl AppState {
         if let Some(path) = native_save_dialog("All Files", &get_all_files_filter()) {
             match fs::write(&path, &text) {
                 Ok(_) => {
-                    if let Some(doc) = self.tab_manager.active_doc_mut() {
-                        doc.file_path = Some(path);
-                        doc.update_display_name();
-                        doc.mark_clean();
+                    let id = {
+                        if let Some(doc) = self.tab_manager.active_doc_mut() {
+                            doc.file_path = Some(path.clone());
+                            doc.update_display_name();
+                            doc.mark_clean();
+                            Some(doc.id)
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(id) = id {
+                        self.detect_and_highlight(id, &path, false);
+                        if let Some(doc) = self.tab_manager.doc_by_id(id) {
+                            let style_buf = doc.style_buffer.clone();
+                            let table = self.highlighter.style_table();
+                            self.editor.set_highlight_data(style_buf, table);
+                        }
                     }
                     self.update_window_title();
                     self.rebuild_tab_bar();
@@ -321,7 +363,6 @@ impl AppState {
             None => return,
         };
 
-        // Remove the default untitled document
         if let Some(id) = self.tab_manager.active_id() {
             self.tab_manager.remove(id);
         }
@@ -331,37 +372,33 @@ impl AppState {
 
         for (i, doc_session) in session_data.documents.iter().enumerate() {
             if let Some(ref path) = doc_session.file_path {
-                // Try to open the file from disk
                 if let Ok(content) = fs::read_to_string(path) {
                     let id = self.tab_manager.add_from_file(path.clone(), &content);
                     if first_id.is_none() {
                         first_id = Some(id);
                     }
 
-                    // If Full mode and was dirty, load temp content over the file content
+                    self.detect_and_highlight(id, path, true);
+
                     if mode == SessionRestore::Full {
                         if let Some(ref temp_file) = doc_session.temp_file {
                             if let Some(temp_content) = session::read_temp_file(temp_file) {
                                 if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
                                     doc.buffer.set_text(&temp_content);
-                                    // Mark as dirty since it has unsaved changes
                                 }
                             }
                         }
                     }
 
-                    // Restore cursor position
                     if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
                         doc.cursor_position = doc_session.cursor_position;
                     }
 
-                    // Set active if this is the target index
                     if i == target_index {
                         self.tab_manager.set_active(id);
                     }
                 }
             } else if mode == SessionRestore::Full {
-                // Untitled document — restore from temp file
                 if let Some(ref temp_file) = doc_session.temp_file {
                     if let Some(temp_content) = session::read_temp_file(temp_file) {
                         let id = self.tab_manager.add_untitled();
@@ -380,12 +417,10 @@ impl AppState {
             }
         }
 
-        // If no documents were restored, add a default untitled
         if self.tab_manager.count() == 0 {
             self.tab_manager.add_untitled();
         }
 
-        // Bind the active document's buffer
         self.bind_active_buffer();
         if let Some(doc) = self.tab_manager.active_doc() {
             let cursor = doc.cursor_position;
@@ -395,7 +430,6 @@ impl AppState {
         self.update_window_title();
         self.rebuild_tab_bar();
 
-        // Clean up temp files now that session is restored
         session::clear_session();
     }
 
@@ -403,13 +437,11 @@ impl AppState {
     pub fn file_quit(&mut self) -> bool {
         let session_mode = self.settings.borrow().session_restore;
 
-        // Save cursor position of active doc before saving session
         if let Some(current) = self.tab_manager.active_doc_mut() {
             current.cursor_position = self.editor.insert_position();
         }
 
         let should_quit = if self.tabs_enabled {
-            // Check all documents for unsaved changes
             let dirty_docs: Vec<DocumentId> = self
                 .tab_manager
                 .documents()
@@ -430,11 +462,9 @@ impl AppState {
 
                 match choice {
                     Some(0) => {
-                        // Save all dirty docs
                         for id in dirty_docs {
                             self.switch_to_document(id);
                             self.file_save();
-                            // If save was cancelled (still dirty), abort quit
                             if let Some(doc) = self.tab_manager.doc_by_id(id) {
                                 if doc.is_dirty() {
                                     return false;
@@ -448,7 +478,6 @@ impl AppState {
                 }
             }
         } else {
-            // Classic single-doc mode
             let is_dirty = self
                 .tab_manager
                 .active_doc()
@@ -487,7 +516,6 @@ impl AppState {
         should_quit
     }
 
-    /// Switch to next tab
     pub fn switch_to_next_tab(&mut self) {
         if let Some(next_id) = self.tab_manager.next_doc_id() {
             self.switch_to_document(next_id);
@@ -495,7 +523,6 @@ impl AppState {
         }
     }
 
-    /// Switch to previous tab
     pub fn switch_to_previous_tab(&mut self) {
         if let Some(prev_id) = self.tab_manager.prev_doc_id() {
             self.switch_to_document(prev_id);
@@ -505,14 +532,12 @@ impl AppState {
 
     // --- View toggles ---
 
-    /// Calculate the appropriate line number gutter width based on line count.
     pub fn update_linenumber_width(&mut self) {
         if !self.show_linenumbers {
             self.editor.set_linenumber_width(0);
             return;
         }
         let line_count = self.active_buffer().count_lines(0, self.active_buffer().length());
-        // Each digit needs ~8px, plus padding. Minimum 40px for small files.
         let digits = ((line_count + 1) as f64).log10().floor() as i32 + 1;
         let width = (digits * 8 + 16).max(40);
         self.editor.set_linenumber_width(width);
@@ -548,6 +573,10 @@ impl AppState {
         }
         #[cfg(target_os = "windows")]
         set_windows_titlebar_theme(&self.window, self.dark_mode);
+
+        self.highlighter.set_dark_mode(self.dark_mode);
+        self.rehighlight_all_documents();
+        self.bind_active_buffer();
     }
 
     // --- Format ---
@@ -576,7 +605,6 @@ impl AppState {
     }
 
     pub fn apply_settings(&mut self, new_settings: AppSettings) {
-        // Apply theme
         let is_dark = match new_settings.theme_mode {
             ThemeMode::Light => false,
             ThemeMode::Dark => true,
@@ -597,7 +625,6 @@ impl AppState {
         set_windows_titlebar_theme(&self.window, is_dark);
         self.update_menu_checkbox("View/Toggle Dark Mode", is_dark);
 
-        // Apply font
         let font = match new_settings.font {
             FontChoice::ScreenBold => Font::ScreenBold,
             FontChoice::Courier => Font::Courier,
@@ -606,12 +633,13 @@ impl AppState {
         self.editor.set_text_font(font);
         self.editor.set_text_size(new_settings.font_size as i32);
 
-        // Apply line numbers
+        self.highlighter.set_dark_mode(is_dark);
+        self.highlighter.set_font(font, new_settings.font_size as i32);
+
         self.show_linenumbers = new_settings.line_numbers_enabled;
         self.update_linenumber_width();
         self.update_menu_checkbox("View/Toggle Line Numbers", self.show_linenumbers);
 
-        // Apply word wrap
         self.word_wrap = new_settings.word_wrap_enabled;
         if self.word_wrap {
             self.editor.wrap_mode(WrapMode::AtBounds, 0);
@@ -622,8 +650,10 @@ impl AppState {
 
         self.editor.redraw();
 
-        // Store updated settings
         *self.settings.borrow_mut() = new_settings;
+
+        self.rehighlight_all_documents();
+        self.bind_active_buffer();
     }
 
     fn update_menu_checkbox(&self, path: &str, checked: bool) {
@@ -635,6 +665,336 @@ impl AppState {
                 } else {
                     item.clear();
                 }
+            }
+        }
+    }
+
+    // --- Syntax highlighting ---
+
+    /// Schedule a debounced rehighlight for a document.
+    pub fn schedule_rehighlight(&mut self, id: DocumentId, pos: i32) {
+        // Cancel any active chunked highlight for this document
+        if let Some(chunked_id) = self.highlighter.chunked_doc_id() {
+            if chunked_id == id {
+                if let Some((ps, hs)) = self.highlighter.cancel_chunked() {
+                    // Save partial states so incremental can use them
+                    if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+                        doc.line_parse_states = ps;
+                        doc.line_highlight_states = hs;
+                    }
+                }
+                self.hide_highlight_banner();
+            }
+        }
+
+        // Track the earliest edit position across buffered edits
+        match self.pending_rehighlight {
+            Some((existing_id, existing_pos)) if existing_id == id => {
+                self.pending_rehighlight = Some((id, pos.min(existing_pos)));
+            }
+            _ => {
+                self.pending_rehighlight = Some((id, pos));
+            }
+        }
+
+        if !self.rehighlight_timer_active {
+            self.rehighlight_timer_active = true;
+            let s = self.sender.clone();
+            fltk::app::add_timeout3(0.05, move |_| {
+                s.send(Message::DoRehighlight);
+            });
+        }
+    }
+
+    /// Execute the pending rehighlight (called when debounce timer fires).
+    pub fn do_pending_rehighlight(&mut self) {
+        self.rehighlight_timer_active = false;
+        if let Some((id, pos)) = self.pending_rehighlight.take() {
+            self.rehighlight_document(id, pos);
+        }
+    }
+
+    /// Detect syntax for a document by path and run highlight.
+    /// When `deferred` is true, only sets the syntax name and queues the doc
+    /// for later chunked highlighting (used during session restore).
+    /// When false, files <= 5000 lines highlight synchronously; larger files
+    /// start chunked highlighting that yields to the event loop.
+    fn detect_and_highlight(&mut self, id: DocumentId, path: &str, deferred: bool) {
+        const LARGE_FILE_THRESHOLD: usize = 5000;
+
+        let syntax_name = self.highlighter.detect_syntax(path);
+        if let Some(ref name) = syntax_name {
+            // Set syntax name on doc before highlighting
+            if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+                doc.syntax_name = syntax_name.clone();
+            }
+
+            if deferred {
+                self.highlight_queue.push(id);
+                return;
+            }
+
+            let (text, line_count) = {
+                if let Some(doc) = self.tab_manager.doc_by_id(id) {
+                    let text = doc.buffer.text();
+                    let line_count = text.lines().count();
+                    (text, line_count)
+                } else {
+                    return;
+                }
+            };
+
+            if line_count <= LARGE_FILE_THRESHOLD {
+                let result = self.highlighter.highlight_full(&text, name);
+                if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+                    doc.style_buffer.set_text(&result.style_string);
+                    doc.line_parse_states = result.parse_states;
+                    doc.line_highlight_states = result.highlight_states;
+                }
+            } else {
+                self.start_chunked_highlight(id, &text, name);
+            }
+        } else {
+            if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+                doc.syntax_name = None;
+                doc.line_parse_states.clear();
+                doc.line_highlight_states.clear();
+            }
+        }
+    }
+
+    /// Begin chunked highlighting for a large file.
+    fn start_chunked_highlight(&mut self, id: DocumentId, text: &str, syntax_name: &str) {
+        // Show banner
+        self.update_banner_frame.set_label("  Highlighting large file...");
+        self.update_banner_frame.show();
+        self.flex.fixed(&self.update_banner_frame, 30);
+        self.window.redraw();
+
+        self.highlighter.start_chunked(id, text, syntax_name);
+
+        // Schedule first chunk via event loop yield
+        let s = self.sender.clone();
+        fltk::app::add_timeout3(0.0, move |_| {
+            s.send(Message::ContinueHighlight);
+        });
+    }
+
+    /// Process the next chunk of the active chunked highlight,
+    /// or start the next queued document if no chunk is active.
+    pub fn continue_chunked_highlight(&mut self) {
+        // If no chunked op is active, try to start the next queued doc
+        if self.highlighter.chunked_doc_id().is_none() {
+            self.start_next_queued_highlight();
+            return;
+        }
+
+        let doc_id = self.highlighter.chunked_doc_id().unwrap();
+
+        let text = {
+            if let Some(doc) = self.tab_manager.doc_by_id(doc_id) {
+                doc.buffer.text()
+            } else {
+                self.highlighter.cancel_chunked();
+                self.start_next_queued_highlight();
+                return;
+            }
+        };
+
+        if let Some(output) = self.highlighter.process_chunk(&text) {
+            let is_active = self.tab_manager.active_id() == Some(doc_id);
+
+            // Apply the chunk's style chars to the document's style buffer
+            if let Some(doc) = self.tab_manager.doc_by_id_mut(doc_id) {
+                let start = output.byte_start as i32;
+                let end = start + output.style_chars.len() as i32;
+                doc.style_buffer.replace(start, end, &output.style_chars);
+            }
+
+            // Refresh the editor's highlight data so new style table entries
+            // are picked up and the visible portion redraws with colors.
+            if is_active {
+                if let Some(doc) = self.tab_manager.doc_by_id(doc_id) {
+                    let style_buf = doc.style_buffer.clone();
+                    let table = self.highlighter.style_table();
+                    self.editor.set_highlight_data(style_buf, table);
+                }
+                self.editor.redraw();
+            }
+
+            if output.done {
+                // Save final states
+                if let Some(doc) = self.tab_manager.doc_by_id_mut(doc_id) {
+                    if let Some(ps) = output.final_parse_states {
+                        doc.line_parse_states = ps;
+                    }
+                    if let Some(hs) = output.final_highlight_states {
+                        doc.line_highlight_states = hs;
+                    }
+                }
+                // Start next queued doc (or hide banner if queue is empty)
+                self.start_next_queued_highlight();
+            } else {
+                // Schedule next chunk
+                let s = self.sender.clone();
+                fltk::app::add_timeout3(0.0, move |_| {
+                    s.send(Message::ContinueHighlight);
+                });
+            }
+        }
+    }
+
+    /// Pop the next document from the highlight queue and start highlighting it.
+    /// Small files are highlighted synchronously; large files start chunked.
+    /// Hides the banner when the queue is empty.
+    fn start_next_queued_highlight(&mut self) {
+        const LARGE_FILE_THRESHOLD: usize = 5000;
+
+        while let Some(id) = self.highlight_queue.first().copied() {
+            self.highlight_queue.remove(0);
+
+            let (syntax_name, text, line_count) = {
+                if let Some(doc) = self.tab_manager.doc_by_id(id) {
+                    match doc.syntax_name {
+                        Some(ref name) => {
+                            let text = doc.buffer.text();
+                            let line_count = text.lines().count();
+                            (name.clone(), text, line_count)
+                        }
+                        None => continue,
+                    }
+                } else {
+                    continue;
+                }
+            };
+
+            if line_count <= LARGE_FILE_THRESHOLD {
+                // Small file: highlight synchronously and continue to next
+                let result = self.highlighter.highlight_full(&text, &syntax_name);
+                if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+                    doc.style_buffer.set_text(&result.style_string);
+                    doc.line_parse_states = result.parse_states;
+                    doc.line_highlight_states = result.highlight_states;
+                }
+                // Refresh editor if this is the active doc
+                if self.tab_manager.active_id() == Some(id) {
+                    if let Some(doc) = self.tab_manager.doc_by_id(id) {
+                        let style_buf = doc.style_buffer.clone();
+                        let table = self.highlighter.style_table();
+                        self.editor.set_highlight_data(style_buf, table);
+                    }
+                    self.editor.redraw();
+                }
+                continue;
+            }
+
+            // Large file: start chunked, show banner, schedule message
+            self.start_chunked_highlight(id, &text, &syntax_name);
+            return;
+        }
+
+        // Queue is empty, no more work
+        self.hide_highlight_banner();
+    }
+
+    /// Kick off deferred highlighting for queued documents.
+    /// Call after the window is shown so chunked yields are visible.
+    pub fn start_queued_highlights(&mut self) {
+        if self.highlight_queue.is_empty() {
+            return;
+        }
+        self.update_banner_frame.set_label("  Highlighting large file...");
+        self.update_banner_frame.show();
+        self.flex.fixed(&self.update_banner_frame, 30);
+        self.window.redraw();
+
+        let s = self.sender.clone();
+        fltk::app::add_timeout3(0.0, move |_| {
+            s.send(Message::ContinueHighlight);
+        });
+    }
+
+    fn hide_highlight_banner(&mut self) {
+        // Only hide if it's showing the highlight message (not an update banner)
+        let label = self.update_banner_frame.label();
+        if label.contains("Highlighting") {
+            self.update_banner_frame.hide();
+            self.flex.fixed(&self.update_banner_frame, 0);
+            self.window.redraw();
+        }
+    }
+
+    /// Incremental re-highlight a single document from an edit position.
+    fn rehighlight_document(&mut self, id: DocumentId, pos: i32) {
+        let (syntax_name, text, edit_line, old_parse, old_highlight) = {
+            if let Some(doc) = self.tab_manager.doc_by_id(id) {
+                match doc.syntax_name {
+                    Some(ref name) => {
+                        let text = doc.buffer.text();
+                        let line = doc.buffer.count_lines(0, pos) as usize;
+                        (
+                            name.clone(),
+                            text,
+                            line,
+                            doc.line_parse_states.clone(),
+                            doc.line_highlight_states.clone(),
+                        )
+                    }
+                    None => return,
+                }
+            } else {
+                return;
+            }
+        };
+
+        let result = self.highlighter.highlight_incremental(
+            &text,
+            edit_line,
+            &old_parse,
+            &old_highlight,
+            &syntax_name,
+        );
+
+        if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+            // Only replace the changed portion of the style buffer
+            let start = result.byte_start as i32;
+            let end = start + result.style_chars.len() as i32;
+            doc.style_buffer.replace(start, end, &result.style_chars);
+            doc.line_parse_states = result.parse_states;
+            doc.line_highlight_states = result.highlight_states;
+        }
+
+        // Refresh the editor's style table — new colors may have been added
+        // to the style map (e.g. first highlight after session restore).
+        if self.tab_manager.active_id() == Some(id) {
+            if let Some(doc) = self.tab_manager.doc_by_id(id) {
+                let style_buf = doc.style_buffer.clone();
+                let table = self.highlighter.style_table();
+                self.editor.set_highlight_data(style_buf, table);
+            }
+            self.editor.redraw();
+        }
+    }
+
+    /// Re-highlight all open documents (called on theme/font change).
+    pub fn rehighlight_all_documents(&mut self) {
+        let doc_ids: Vec<DocumentId> = self.tab_manager.documents().iter().map(|d| d.id).collect();
+        for id in doc_ids {
+            let (syntax_name, text) = {
+                if let Some(doc) = self.tab_manager.doc_by_id(id) {
+                    match doc.syntax_name {
+                        Some(ref name) => (name.clone(), doc.buffer.text()),
+                        None => continue,
+                    }
+                } else {
+                    continue;
+                }
+            };
+            let result = self.highlighter.highlight_full(&text, &syntax_name);
+            if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+                doc.style_buffer.set_text(&result.style_string);
+                doc.line_parse_states = result.parse_states;
+                doc.line_highlight_states = result.highlight_states;
             }
         }
     }

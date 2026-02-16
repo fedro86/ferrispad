@@ -112,6 +112,9 @@ fn main() {
         state.rebuild_tab_bar();
     }
 
+    // Start deferred highlighting for session-restored documents
+    state.start_queued_highlights();
+
     // Background update check via channel
     {
         let settings_lock = app_settings.borrow();
@@ -200,6 +203,17 @@ fn main() {
                 Message::OpenSettings => state.open_settings(),
                 Message::CheckForUpdates => check_for_updates_ui(&state.settings),
                 Message::ShowAbout => show_about_dialog(),
+
+                // Syntax highlighting (debounced)
+                Message::BufferModified(id, pos) => {
+                    state.schedule_rehighlight(id, pos);
+                }
+                Message::DoRehighlight => {
+                    state.do_pending_rehighlight();
+                }
+                Message::ContinueHighlight => {
+                    state.continue_chunked_highlight();
+                }
 
                 // Background updates
                 Message::BackgroundUpdateResult(Some(release)) => {

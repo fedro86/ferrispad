@@ -8,3 +8,4 @@ pub mod state;
 pub mod session;
 pub mod settings;
 pub mod updater;
+pub mod syntax;

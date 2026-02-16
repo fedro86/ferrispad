@@ -1,21 +1,25 @@
+use fltk::app::Sender;
 use fltk::text::TextBuffer;
 
 use super::document::{Document, DocumentId};
+use super::messages::Message;
 
 pub struct TabManager {
     documents: Vec<Document>,
     active_id: Option<DocumentId>,
     next_id: u64,
     untitled_counter: u32,
+    sender: Sender<Message>,
 }
 
 impl TabManager {
-    pub fn new() -> Self {
+    pub fn new(sender: Sender<Message>) -> Self {
         Self {
             documents: Vec::new(),
             active_id: None,
             next_id: 1,
             untitled_counter: 0,
+            sender,
         }
     }
 
@@ -28,7 +32,7 @@ impl TabManager {
     pub fn add_untitled(&mut self) -> DocumentId {
         self.untitled_counter += 1;
         let id = self.next_document_id();
-        let doc = Document::new_untitled(id, self.untitled_counter);
+        let doc = Document::new_untitled(id, self.untitled_counter, self.sender.clone());
         self.documents.push(doc);
         self.active_id = Some(id);
         id
@@ -36,7 +40,7 @@ impl TabManager {
 
     pub fn add_from_file(&mut self, path: String, content: &str) -> DocumentId {
         let id = self.next_document_id();
-        let doc = Document::new_from_file(id, path, content);
+        let doc = Document::new_from_file(id, path, content, self.sender.clone());
         self.documents.push(doc);
         self.active_id = Some(id);
         id

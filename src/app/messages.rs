@@ -47,6 +47,11 @@ pub enum Message {
     CheckForUpdates,
     ShowAbout,
 
+    // Syntax highlighting
+    BufferModified(DocumentId, i32),
+    DoRehighlight,
+    ContinueHighlight,
+
     // Background updates
     BackgroundUpdateResult(Option<ReleaseInfo>),
     ShowBannerUpdate,
