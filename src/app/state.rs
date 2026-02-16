@@ -237,7 +237,7 @@ impl AppState {
                         return;
                     }
                     let id = self.tab_manager.add_from_file(path.clone(), &content);
-                    self.detect_and_highlight(id, &path, false);
+                    self.detect_and_highlight(id, &path);
                     self.switch_to_document(id);
                     self.rebuild_tab_bar();
                 } else {
@@ -248,7 +248,7 @@ impl AppState {
                         doc.update_display_name();
                     }
                     if let Some(id) = self.tab_manager.active_id() {
-                        self.detect_and_highlight(id, &path, false);
+                        self.detect_and_highlight(id, &path);
                     }
                     self.update_window_title();
                 }
@@ -336,7 +336,7 @@ impl AppState {
                         }
                     };
                     if let Some(id) = id {
-                        self.detect_and_highlight(id, &path, false);
+                        self.detect_and_highlight(id, &path);
                         if let Some(doc) = self.tab_manager.doc_by_id(id) {
                             let style_buf = doc.style_buffer.clone();
                             let table = self.highlighter.style_table();
@@ -378,7 +378,7 @@ impl AppState {
                         first_id = Some(id);
                     }
 
-                    self.detect_and_highlight(id, path, true);
+                    self.detect_and_highlight(id, path);
 
                     if mode == SessionRestore::Full {
                         if let Some(ref temp_file) = doc_session.temp_file {
@@ -673,6 +673,13 @@ impl AppState {
 
     /// Schedule a debounced rehighlight for a document.
     pub fn schedule_rehighlight(&mut self, id: DocumentId, pos: i32) {
+        // If this doc is waiting in the highlight queue, the queue will
+        // handle it — skip the debounced rehighlight to avoid a redundant
+        // synchronous full-highlight on a large file.
+        if self.highlight_queue.contains(&id) {
+            return;
+        }
+
         // Cancel any active chunked highlight for this document
         if let Some(chunked_id) = self.highlighter.chunked_doc_id() {
             if chunked_id == id {
@@ -714,12 +721,10 @@ impl AppState {
         }
     }
 
-    /// Detect syntax for a document by path and run highlight.
-    /// When `deferred` is true, only sets the syntax name and queues the doc
-    /// for later chunked highlighting (used during session restore).
-    /// When false, files <= 5000 lines highlight synchronously; larger files
-    /// start chunked highlighting that yields to the event loop.
-    fn detect_and_highlight(&mut self, id: DocumentId, path: &str, deferred: bool) {
+    /// Detect syntax for a document by path and highlight it.
+    /// Small files (<= 5000 lines) are highlighted synchronously.
+    /// Large files are always queued for chunked highlighting.
+    fn detect_and_highlight(&mut self, id: DocumentId, path: &str) {
         const LARGE_FILE_THRESHOLD: usize = 5000;
 
         let syntax_name = self.highlighter.detect_syntax(path);
@@ -727,11 +732,6 @@ impl AppState {
             // Set syntax name on doc before highlighting
             if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
                 doc.syntax_name = syntax_name.clone();
-            }
-
-            if deferred {
-                self.highlight_queue.push(id);
-                return;
             }
 
             let (text, line_count) = {
@@ -752,7 +752,15 @@ impl AppState {
                     doc.line_highlight_states = result.highlight_states;
                 }
             } else {
-                self.start_chunked_highlight(id, &text, name);
+                let was_empty = self.highlight_queue.is_empty()
+                    && self.highlighter.chunked_doc_id().is_none();
+                self.highlight_queue.push(id);
+                if was_empty {
+                    let s = self.sender.clone();
+                    fltk::app::add_timeout3(0.0, move |_| {
+                        s.send(Message::ContinueHighlight);
+                    });
+                }
             }
         } else {
             if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
