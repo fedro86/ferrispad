@@ -1,6 +1,28 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+/// Read text from an FLTK TextBuffer without leaking the C-allocated copy.
+/// fltk-rs's `TextBuffer::text()` leaks the C `char*` returned by
+/// `Fl_Text_Buffer_text`. This helper calls the FFI directly and frees it.
+fn buffer_text_no_leak(buf: &fltk::text::TextBuffer) -> String {
+    unsafe extern "C" {
+        fn Fl_Text_Buffer_text(buf: *mut std::ffi::c_void) -> *mut std::ffi::c_char;
+        fn free(ptr: *mut std::ffi::c_void);
+    }
+
+    unsafe {
+        let inner = buf.as_ptr() as *mut std::ffi::c_void;
+        let ptr = Fl_Text_Buffer_text(inner);
+        if ptr.is_null() {
+            return String::new();
+        }
+        let cstr = std::ffi::CStr::from_ptr(ptr);
+        let result = cstr.to_string_lossy().into_owned();
+        free(ptr as *mut std::ffi::c_void);
+        result
+    }
+}
+
 use fltk::{
     app::Sender,
     dialog,
@@ -51,6 +73,8 @@ pub struct AppState {
     pub rehighlight_timer_active: bool,
     /// Queue of documents awaiting deferred chunked highlighting (session restore).
     pub highlight_queue: Vec<DocumentId>,
+    /// Whether syntax highlighting is active (toggle via View menu).
+    pub highlighting_enabled: bool,
 }
 
 impl AppState {
@@ -80,6 +104,7 @@ impl AppState {
             }
         };
         let font_size = settings.borrow().font_size as i32;
+        let highlighting_enabled = settings.borrow().highlighting_enabled;
         let highlighter = SyntaxHighlighter::new(dark_mode, font, font_size);
 
         Self {
@@ -101,6 +126,7 @@ impl AppState {
             pending_rehighlight: None,
             rehighlight_timer_active: false,
             highlight_queue: Vec::new(),
+            highlighting_enabled,
         }
     }
 
@@ -269,8 +295,7 @@ impl AppState {
                 doc.file_path = None;
                 doc.display_name = "Untitled".to_string();
                 doc.syntax_name = None;
-                doc.line_parse_states.clear();
-                doc.line_highlight_states.clear();
+                doc.checkpoints.clear();
                 doc.style_buffer.set_text("");
             }
             self.update_window_title();
@@ -291,7 +316,7 @@ impl AppState {
     pub fn file_save(&mut self) {
         let (file_path, text) = {
             if let Some(doc) = self.tab_manager.active_doc() {
-                (doc.file_path.clone(), doc.buffer.text())
+                (doc.file_path.clone(), buffer_text_no_leak(&doc.buffer))
             } else {
                 return;
             }
@@ -316,7 +341,7 @@ impl AppState {
     pub fn file_save_as(&mut self) {
         let text = {
             if let Some(doc) = self.tab_manager.active_doc() {
-                doc.buffer.text()
+                buffer_text_no_leak(&doc.buffer)
             } else {
                 return;
             }
@@ -579,6 +604,38 @@ impl AppState {
         self.bind_active_buffer();
     }
 
+    pub fn toggle_highlighting(&mut self) {
+        self.highlighting_enabled = !self.highlighting_enabled;
+        {
+            let mut s = self.settings.borrow_mut();
+            s.highlighting_enabled = self.highlighting_enabled;
+            let _ = s.save();
+        }
+        if self.highlighting_enabled {
+            self.rehighlight_all_documents();
+            self.bind_active_buffer();
+        } else {
+            // Cancel any in-progress chunked highlight
+            self.highlighter.cancel_chunked();
+            self.highlight_queue.clear();
+            self.hide_highlight_banner();
+            self.pending_rehighlight = None;
+
+            // Clear all checkpoints and reset style buffers to plain
+            let doc_ids: Vec<DocumentId> = self.tab_manager.documents().iter().map(|d| d.id).collect();
+            for id in doc_ids {
+                if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+                    doc.checkpoints.clear();
+                    let len = doc.buffer.length() as usize;
+                    let plain: String = std::iter::repeat('A').take(len).collect();
+                    doc.style_buffer.set_text(&plain);
+                }
+            }
+            self.bind_active_buffer();
+            self.editor.redraw();
+        }
+    }
+
     // --- Format ---
 
     pub fn set_font(&mut self, font: Font) {
@@ -648,12 +705,34 @@ impl AppState {
         }
         self.update_menu_checkbox("View/Toggle Word Wrap", self.word_wrap);
 
+        let highlighting_changed = self.highlighting_enabled != new_settings.highlighting_enabled;
+        self.highlighting_enabled = new_settings.highlighting_enabled;
+        self.update_menu_checkbox("View/Toggle Syntax Highlighting", self.highlighting_enabled);
+
         self.editor.redraw();
 
         *self.settings.borrow_mut() = new_settings;
 
-        self.rehighlight_all_documents();
-        self.bind_active_buffer();
+        if highlighting_changed && !self.highlighting_enabled {
+            // Switched off via settings — clear everything
+            self.highlighter.cancel_chunked();
+            self.highlight_queue.clear();
+            self.hide_highlight_banner();
+            self.pending_rehighlight = None;
+            let doc_ids: Vec<DocumentId> = self.tab_manager.documents().iter().map(|d| d.id).collect();
+            for id in doc_ids {
+                if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+                    doc.checkpoints.clear();
+                    let len = doc.buffer.length() as usize;
+                    let plain: String = std::iter::repeat('A').take(len).collect();
+                    doc.style_buffer.set_text(&plain);
+                }
+            }
+            self.bind_active_buffer();
+        } else if self.highlighting_enabled {
+            self.rehighlight_all_documents();
+            self.bind_active_buffer();
+        }
     }
 
     fn update_menu_checkbox(&self, path: &str, checked: bool) {
@@ -673,6 +752,9 @@ impl AppState {
 
     /// Schedule a debounced rehighlight for a document.
     pub fn schedule_rehighlight(&mut self, id: DocumentId, pos: i32) {
+        if !self.highlighting_enabled {
+            return;
+        }
         // If this doc is waiting in the highlight queue, the queue will
         // handle it — skip the debounced rehighlight to avoid a redundant
         // synchronous full-highlight on a large file.
@@ -683,11 +765,10 @@ impl AppState {
         // Cancel any active chunked highlight for this document
         if let Some(chunked_id) = self.highlighter.chunked_doc_id() {
             if chunked_id == id {
-                if let Some((ps, hs)) = self.highlighter.cancel_chunked() {
-                    // Save partial states so incremental can use them
+                if let Some(cp) = self.highlighter.cancel_chunked() {
+                    // Save partial checkpoints so incremental can use them
                     if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
-                        doc.line_parse_states = ps;
-                        doc.line_highlight_states = hs;
+                        doc.checkpoints = cp;
                     }
                 }
                 self.hide_highlight_banner();
@@ -727,6 +808,15 @@ impl AppState {
     fn detect_and_highlight(&mut self, id: DocumentId, path: &str) {
         const LARGE_FILE_THRESHOLD: usize = 5000;
 
+        if !self.highlighting_enabled {
+            // Still detect syntax name so re-enabling works later
+            let syntax_name = self.highlighter.detect_syntax(path);
+            if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+                doc.syntax_name = syntax_name;
+            }
+            return;
+        }
+
         let syntax_name = self.highlighter.detect_syntax(path);
         if let Some(ref name) = syntax_name {
             // Set syntax name on doc before highlighting
@@ -736,7 +826,7 @@ impl AppState {
 
             let (text, line_count) = {
                 if let Some(doc) = self.tab_manager.doc_by_id(id) {
-                    let text = doc.buffer.text();
+                    let text = buffer_text_no_leak(&doc.buffer);
                     let line_count = text.lines().count();
                     (text, line_count)
                 } else {
@@ -748,8 +838,7 @@ impl AppState {
                 let result = self.highlighter.highlight_full(&text, name);
                 if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
                     doc.style_buffer.set_text(&result.style_string);
-                    doc.line_parse_states = result.parse_states;
-                    doc.line_highlight_states = result.highlight_states;
+                    doc.checkpoints = result.checkpoints;
                 }
             } else {
                 let was_empty = self.highlight_queue.is_empty()
@@ -765,14 +854,13 @@ impl AppState {
         } else {
             if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
                 doc.syntax_name = None;
-                doc.line_parse_states.clear();
-                doc.line_highlight_states.clear();
+                doc.checkpoints.clear();
             }
         }
     }
 
     /// Begin chunked highlighting for a large file.
-    fn start_chunked_highlight(&mut self, id: DocumentId, text: &str, syntax_name: &str) {
+    fn start_chunked_highlight(&mut self, id: DocumentId, text: String, syntax_name: &str) {
         // Show banner
         self.update_banner_frame.set_label("  Highlighting large file...");
         self.update_banner_frame.show();
@@ -799,17 +887,14 @@ impl AppState {
 
         let doc_id = self.highlighter.chunked_doc_id().unwrap();
 
-        let text = {
-            if let Some(doc) = self.tab_manager.doc_by_id(doc_id) {
-                doc.buffer.text()
-            } else {
-                self.highlighter.cancel_chunked();
-                self.start_next_queued_highlight();
-                return;
-            }
-        };
+        // Check the document still exists
+        if self.tab_manager.doc_by_id(doc_id).is_none() {
+            self.highlighter.cancel_chunked();
+            self.start_next_queued_highlight();
+            return;
+        }
 
-        if let Some(output) = self.highlighter.process_chunk(&text) {
+        if let Some(output) = self.highlighter.process_chunk() {
             let is_active = self.tab_manager.active_id() == Some(doc_id);
 
             // Apply the chunk's style chars to the document's style buffer
@@ -831,13 +916,10 @@ impl AppState {
             }
 
             if output.done {
-                // Save final states
+                // Save final checkpoints
                 if let Some(doc) = self.tab_manager.doc_by_id_mut(doc_id) {
-                    if let Some(ps) = output.final_parse_states {
-                        doc.line_parse_states = ps;
-                    }
-                    if let Some(hs) = output.final_highlight_states {
-                        doc.line_highlight_states = hs;
+                    if let Some(cp) = output.final_checkpoints {
+                        doc.checkpoints = cp;
                     }
                 }
                 // Start next queued doc (or hide banner if queue is empty)
@@ -865,7 +947,7 @@ impl AppState {
                 if let Some(doc) = self.tab_manager.doc_by_id(id) {
                     match doc.syntax_name {
                         Some(ref name) => {
-                            let text = doc.buffer.text();
+                            let text = buffer_text_no_leak(&doc.buffer);
                             let line_count = text.lines().count();
                             (name.clone(), text, line_count)
                         }
@@ -881,8 +963,7 @@ impl AppState {
                 let result = self.highlighter.highlight_full(&text, &syntax_name);
                 if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
                     doc.style_buffer.set_text(&result.style_string);
-                    doc.line_parse_states = result.parse_states;
-                    doc.line_highlight_states = result.highlight_states;
+                    doc.checkpoints = result.checkpoints;
                 }
                 // Refresh editor if this is the active doc
                 if self.tab_manager.active_id() == Some(id) {
@@ -897,12 +978,13 @@ impl AppState {
             }
 
             // Large file: start chunked, show banner, schedule message
-            self.start_chunked_highlight(id, &text, &syntax_name);
+            self.start_chunked_highlight(id, text, &syntax_name);
             return;
         }
 
         // Queue is empty, no more work
         self.hide_highlight_banner();
+
     }
 
     /// Kick off deferred highlighting for queued documents.
@@ -934,19 +1016,13 @@ impl AppState {
 
     /// Incremental re-highlight a single document from an edit position.
     fn rehighlight_document(&mut self, id: DocumentId, pos: i32) {
-        let (syntax_name, text, edit_line, old_parse, old_highlight) = {
+        let (syntax_name, text, edit_line, checkpoints_empty) = {
             if let Some(doc) = self.tab_manager.doc_by_id(id) {
                 match doc.syntax_name {
                     Some(ref name) => {
-                        let text = doc.buffer.text();
+                        let text = buffer_text_no_leak(&doc.buffer);
                         let line = doc.buffer.count_lines(0, pos) as usize;
-                        (
-                            name.clone(),
-                            text,
-                            line,
-                            doc.line_parse_states.clone(),
-                            doc.line_highlight_states.clone(),
-                        )
+                        (name.clone(), text, line, doc.checkpoints.len() == 0)
                     }
                     None => return,
                 }
@@ -955,11 +1031,41 @@ impl AppState {
             }
         };
 
+        // If no checkpoints exist yet (chunked highlight hasn't finished or
+        // hasn't started), incremental would parse the entire file from scratch.
+        // Instead, queue it for chunked highlighting which spreads the work.
+        if checkpoints_empty {
+            let line_count = text.lines().count();
+            if line_count > 5000 {
+                if !self.highlight_queue.contains(&id) {
+                    let was_empty = self.highlight_queue.is_empty()
+                        && self.highlighter.chunked_doc_id().is_none();
+                    self.highlight_queue.push(id);
+                    if was_empty {
+                        let s = self.sender.clone();
+                        fltk::app::add_timeout3(0.0, move |_| {
+                            s.send(Message::ContinueHighlight);
+                        });
+                    }
+                }
+                return;
+            }
+        }
+
+        // Take checkpoints out of the document to satisfy the borrow checker
+        // (we need &mut self.highlighter and &mut doc.checkpoints simultaneously)
+        let mut checkpoints = {
+            if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+                std::mem::take(&mut doc.checkpoints)
+            } else {
+                return;
+            }
+        };
+
         let result = self.highlighter.highlight_incremental(
             &text,
             edit_line,
-            &old_parse,
-            &old_highlight,
+            &mut checkpoints,
             &syntax_name,
         );
 
@@ -968,17 +1074,21 @@ impl AppState {
             let start = result.byte_start as i32;
             let end = start + result.style_chars.len() as i32;
             doc.style_buffer.replace(start, end, &result.style_chars);
-            doc.line_parse_states = result.parse_states;
-            doc.line_highlight_states = result.highlight_states;
+            // Put checkpoints back (modified in place by highlight_incremental)
+            doc.checkpoints = checkpoints;
         }
 
-        // Refresh the editor's style table — new colors may have been added
-        // to the style map (e.g. first highlight after session restore).
+        // Only rebind highlight data if the style table grew (new colors discovered).
+        // Otherwise the editor already has a pointer to doc.style_buffer and sees
+        // changes from replace() automatically — just redraw.
         if self.tab_manager.active_id() == Some(id) {
-            if let Some(doc) = self.tab_manager.doc_by_id(id) {
-                let style_buf = doc.style_buffer.clone();
-                let table = self.highlighter.style_table();
-                self.editor.set_highlight_data(style_buf, table);
+            if self.highlighter.style_table_changed() {
+                if let Some(doc) = self.tab_manager.doc_by_id(id) {
+                    let style_buf = doc.style_buffer.clone();
+                    let table = self.highlighter.style_table();
+                    self.editor.set_highlight_data(style_buf, table);
+                }
+                self.highlighter.reset_style_table_changed();
             }
             self.editor.redraw();
         }
@@ -991,7 +1101,7 @@ impl AppState {
             let (syntax_name, text) = {
                 if let Some(doc) = self.tab_manager.doc_by_id(id) {
                     match doc.syntax_name {
-                        Some(ref name) => (name.clone(), doc.buffer.text()),
+                        Some(ref name) => (name.clone(), buffer_text_no_leak(&doc.buffer)),
                         None => continue,
                     }
                 } else {
@@ -1001,10 +1111,10 @@ impl AppState {
             let result = self.highlighter.highlight_full(&text, &syntax_name);
             if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
                 doc.style_buffer.set_text(&result.style_string);
-                doc.line_parse_states = result.parse_states;
-                doc.line_highlight_states = result.highlight_states;
+                doc.checkpoints = result.checkpoints;
             }
         }
+
     }
 
     // --- Update banner ---

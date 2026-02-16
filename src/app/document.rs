@@ -3,10 +3,9 @@ use std::rc::Rc;
 
 use fltk::app::Sender;
 use fltk::text::TextBuffer;
-use syntect::highlighting::HighlightState;
-use syntect::parsing::ParseState;
 
 use super::messages::Message;
+use super::syntax::checkpoint::SparseCheckpoints;
 use super::text_ops::extract_filename;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -20,8 +19,7 @@ pub struct Document {
     pub has_unsaved_changes: Rc<Cell<bool>>,
     pub display_name: String,
     pub cursor_position: i32,
-    pub line_parse_states: Vec<ParseState>,
-    pub line_highlight_states: Vec<HighlightState>,
+    pub checkpoints: SparseCheckpoints,
     pub syntax_name: Option<String>,
 }
 
@@ -60,8 +58,7 @@ impl Document {
             has_unsaved_changes,
             display_name,
             cursor_position: 0,
-            line_parse_states: Vec::new(),
-            line_highlight_states: Vec::new(),
+            checkpoints: SparseCheckpoints::new(),
             syntax_name: None,
         }
     }
@@ -101,8 +98,7 @@ impl Document {
             has_unsaved_changes,
             display_name,
             cursor_position: 0,
-            line_parse_states: Vec::new(),
-            line_highlight_states: Vec::new(),
+            checkpoints: SparseCheckpoints::new(),
             syntax_name: None,
         }
     }

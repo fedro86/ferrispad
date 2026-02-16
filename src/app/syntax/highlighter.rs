@@ -1,12 +1,12 @@
 use syntect::highlighting::{HighlightState, Highlighter, HighlightIterator, Style, ThemeSet};
 use syntect::parsing::{ParseState, ScopeStack, SyntaxReference, SyntaxSet};
 
+use super::checkpoint::{SparseCheckpoints, CHECKPOINT_INTERVAL};
 use super::style_map::StyleMap;
 
 pub struct FullResult {
     pub style_string: String,
-    pub parse_states: Vec<ParseState>,
-    pub highlight_states: Vec<HighlightState>,
+    pub checkpoints: SparseCheckpoints,
 }
 
 pub struct IncrementalResult {
@@ -14,10 +14,6 @@ pub struct IncrementalResult {
     pub byte_start: usize,
     /// New style characters for [byte_start .. byte_start + style_chars.len()).
     pub style_chars: String,
-    /// Full updated parse states for all lines.
-    pub parse_states: Vec<ParseState>,
-    /// Full updated highlight states for all lines.
-    pub highlight_states: Vec<HighlightState>,
 }
 
 /// Full highlight of the document text.
@@ -33,35 +29,36 @@ pub fn highlight_full(
     let highlighter = Highlighter::new(theme);
     let mut parse_state = ParseState::new(syntax);
     let mut highlight_state = HighlightState::new(&highlighter, ScopeStack::new());
-    let mut parse_states = Vec::new();
-    let mut highlight_states = Vec::new();
+
+    let line_count = LinesWithEndings::new(text).count();
+    let mut checkpoints = SparseCheckpoints::with_capacity(line_count);
+    checkpoints.line_count = line_count;
     let mut style_string = String::with_capacity(text.len());
 
-    for line in LinesWithEndings::new(text) {
-        parse_states.push(parse_state.clone());
-        highlight_states.push(highlight_state.clone());
+    for (line_idx, line) in LinesWithEndings::new(text).enumerate() {
+        if line_idx % CHECKPOINT_INTERVAL == 0 {
+            checkpoints.push(parse_state.clone(), highlight_state.clone());
+        }
         let ops = parse_state.parse_line(line, syntax_set).unwrap_or_default();
         let iter = HighlightIterator::new(&mut highlight_state, &ops, line, &highlighter);
         for (style, piece) in iter {
             let ch = style_to_char(style, style_map);
-            // One style char per byte (not per char) for UTF-8 correctness
             for _ in 0..piece.len() {
                 style_string.push(ch);
             }
         }
     }
 
-    FullResult { style_string, parse_states, highlight_states }
+    FullResult { style_string, checkpoints }
 }
 
 /// Incremental re-highlight starting from `edit_line` (0-indexed).
-/// Resumes from cached states, parses forward until convergence.
-/// Only returns style chars for the changed region.
+/// Modifies `checkpoints` in place and returns only the changed style chars region.
+/// Uses an iterator over lines (no Vec collection) to minimize allocations.
 pub fn highlight_incremental(
     text: &str,
     edit_line: usize,
-    old_parse_states: &[ParseState],
-    old_highlight_states: &[HighlightState],
+    checkpoints: &mut SparseCheckpoints,
     syntax: &SyntaxReference,
     syntax_set: &SyntaxSet,
     theme_set: &ThemeSet,
@@ -70,32 +67,62 @@ pub fn highlight_incremental(
 ) -> IncrementalResult {
     let theme = &theme_set.themes[theme_name];
     let highlighter = Highlighter::new(theme);
-    let lines: Vec<&str> = LinesWithEndings::new(text).collect();
 
-    let start_line = edit_line.min(lines.len().saturating_sub(1))
-        .min(old_parse_states.len().saturating_sub(1));
+    // Count total lines efficiently
+    let total_lines = LinesWithEndings::new(text).count();
 
-    // Byte offset where the changed region starts
-    let byte_start: usize = lines[..start_line].iter().map(|l| l.len()).sum();
+    // Find the nearest checkpoint at or before the edit line
+    let start_cp_idx = SparseCheckpoints::checkpoint_index(
+        edit_line.min(total_lines.saturating_sub(1)),
+    );
+    let start_line = SparseCheckpoints::checkpoint_line(start_cp_idx);
 
-    // Resume from cached states at start_line
-    let (mut parse_state, mut highlight_state) = if start_line < old_parse_states.len() {
-        (old_parse_states[start_line].clone(), old_highlight_states[start_line].clone())
+    // Resume from cached states at the checkpoint
+    let (mut parse_state, mut highlight_state) = if start_cp_idx < checkpoints.len() {
+        (
+            checkpoints.parse_states[start_cp_idx].clone(),
+            checkpoints.highlight_states[start_cp_idx].clone(),
+        )
     } else {
         (ParseState::new(syntax), HighlightState::new(&highlighter, ScopeStack::new()))
     };
 
-    // Reuse states for lines before the edit
-    let mut new_parse_states: Vec<ParseState> = old_parse_states[..start_line].to_vec();
-    let mut new_highlight_states: Vec<HighlightState> = old_highlight_states[..start_line].to_vec();
-
+    // Compute byte_start and iterate lines without collecting into Vec
+    let mut byte_start = 0;
     let mut style_chars = String::new();
-    let mut converged_at: Option<usize> = None;
+    let mut _converged_at_cp: Option<usize> = None;
+    let mut line_idx = 0;
 
-    for (i, &line) in lines[start_line..].iter().enumerate() {
-        let line_idx = start_line + i;
-        new_parse_states.push(parse_state.clone());
-        new_highlight_states.push(highlight_state.clone());
+    for line in LinesWithEndings::new(text) {
+        if line_idx < start_line {
+            byte_start += line.len();
+            line_idx += 1;
+            continue;
+        }
+
+        // Save/check checkpoint at boundary
+        if line_idx % CHECKPOINT_INTERVAL == 0 {
+            let cp_idx = line_idx / CHECKPOINT_INTERVAL;
+
+            // Check convergence at checkpoint boundaries (skip the starting checkpoint)
+            if cp_idx > start_cp_idx && cp_idx < checkpoints.len() {
+                if parse_state == checkpoints.parse_states[cp_idx]
+                    && highlight_state == checkpoints.highlight_states[cp_idx]
+                {
+                    // Converged — no more changes needed
+                    _converged_at_cp = Some(cp_idx);
+                    break;
+                }
+            }
+
+            // Update checkpoint in place (or push if we're past the old length)
+            if cp_idx < checkpoints.len() {
+                checkpoints.parse_states[cp_idx] = parse_state.clone();
+                checkpoints.highlight_states[cp_idx] = highlight_state.clone();
+            } else {
+                checkpoints.push(parse_state.clone(), highlight_state.clone());
+            }
+        }
 
         let ops = parse_state.parse_line(line, syntax_set).unwrap_or_default();
         let iter = HighlightIterator::new(&mut highlight_state, &ops, line, &highlighter);
@@ -106,31 +133,21 @@ pub fn highlight_incremental(
             }
         }
 
-        // Check convergence: if the next line's states match the old cache, stop
-        let next_idx = line_idx + 1;
-        if next_idx < old_parse_states.len() && next_idx < lines.len() {
-            if parse_state == old_parse_states[next_idx]
-                && highlight_state == old_highlight_states[next_idx]
-            {
-                converged_at = Some(next_idx);
-                break;
-            }
-        }
+        line_idx += 1;
     }
 
-    // If converged, copy remaining old states
-    if let Some(conv) = converged_at {
-        if conv < old_parse_states.len() {
-            new_parse_states.extend_from_slice(&old_parse_states[conv..]);
-            new_highlight_states.extend_from_slice(&old_highlight_states[conv..]);
-        }
-    }
+    // Update total line count and trim excess checkpoints if file got shorter
+    checkpoints.line_count = total_lines;
+    let expected_cp_count = total_lines / CHECKPOINT_INTERVAL + 1;
+    checkpoints.parse_states.truncate(expected_cp_count);
+    checkpoints.highlight_states.truncate(expected_cp_count);
+
+    // If we didn't converge and went past the old checkpoint count,
+    // the new checkpoints were already pushed in the loop above.
 
     IncrementalResult {
         byte_start,
         style_chars,
-        parse_states: new_parse_states,
-        highlight_states: new_highlight_states,
     }
 }
 

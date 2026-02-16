@@ -11,6 +11,8 @@ pub struct StyleMap {
     entries: Vec<StyleTableEntry>,
     font: Font,
     font_size: i32,
+    /// Number of entries at last `reset_changed()` call.
+    last_entry_count: usize,
 }
 
 impl StyleMap {
@@ -20,6 +22,7 @@ impl StyleMap {
             entries: Vec::new(),
             font,
             font_size,
+            last_entry_count: 0,
         };
         // Pre-insert 'A' as the default/fallback style (plain text color)
         map.entries.push(StyleTableEntry {
@@ -69,6 +72,16 @@ impl StyleMap {
             size: self.font_size,
         });
         self.color_to_char.insert((0, 0, 0), 'A');
+    }
+
+    /// Returns true if new style entries were added since the last `reset_changed()`.
+    pub fn has_new_entries(&self) -> bool {
+        self.entries.len() > self.last_entry_count
+    }
+
+    /// Mark current entry count as the baseline for `has_new_entries()`.
+    pub fn reset_changed(&mut self) {
+        self.last_entry_count = self.entries.len();
     }
 
     /// Update font info for all entries.

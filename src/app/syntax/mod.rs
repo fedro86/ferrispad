@@ -1,3 +1,4 @@
+pub mod checkpoint;
 mod highlighter;
 mod style_map;
 
@@ -8,6 +9,7 @@ use fltk::text::StyleTableEntry;
 use syntect::highlighting::{HighlightState, Highlighter, HighlightIterator, ThemeSet};
 use syntect::parsing::{ParseState, ScopeStack, SyntaxSet};
 
+use checkpoint::{SparseCheckpoints, CHECKPOINT_INTERVAL};
 use highlighter::LinesWithEndings;
 use style_map::StyleMap;
 
@@ -24,9 +26,10 @@ struct ChunkedState {
     byte_offset: usize,
     parse_state: ParseState,
     highlight_state: HighlightState,
-    parse_states: Vec<ParseState>,
-    highlight_states: Vec<HighlightState>,
+    checkpoints: SparseCheckpoints,
     syntax_name: String,
+    /// Cached copy of the document text, taken once at start_chunked.
+    text: String,
 }
 
 /// Output from processing one chunk of lines.
@@ -34,8 +37,7 @@ pub struct ChunkOutput {
     pub byte_start: usize,
     pub style_chars: String,
     pub done: bool,
-    pub final_parse_states: Option<Vec<ParseState>>,
-    pub final_highlight_states: Option<Vec<HighlightState>>,
+    pub final_checkpoints: Option<SparseCheckpoints>,
 }
 
 pub struct SyntaxHighlighter {
@@ -49,16 +51,13 @@ pub struct SyntaxHighlighter {
 /// Result of a full highlight operation.
 pub struct FullHighlightResult {
     pub style_string: String,
-    pub parse_states: Vec<ParseState>,
-    pub highlight_states: Vec<HighlightState>,
+    pub checkpoints: SparseCheckpoints,
 }
 
 /// Result of an incremental highlight operation.
 pub struct IncrementalHighlightResult {
     pub byte_start: usize,
     pub style_chars: String,
-    pub parse_states: Vec<ParseState>,
-    pub highlight_states: Vec<HighlightState>,
 }
 
 impl SyntaxHighlighter {
@@ -88,7 +87,7 @@ impl SyntaxHighlighter {
         Some(syntax.name.clone())
     }
 
-    /// Perform a full highlight. Returns style string + cached states.
+    /// Perform a full highlight. Returns style string + sparse checkpoints.
     pub fn highlight_full(
         &mut self,
         text: &str,
@@ -98,8 +97,7 @@ impl SyntaxHighlighter {
             Some(s) => s.clone(),
             None => return FullHighlightResult {
                 style_string: make_default_style(text),
-                parse_states: Vec::new(),
-                highlight_states: Vec::new(),
+                checkpoints: SparseCheckpoints::new(),
             },
         };
         let result = highlighter::highlight_full(
@@ -112,19 +110,17 @@ impl SyntaxHighlighter {
         );
         FullHighlightResult {
             style_string: result.style_string,
-            parse_states: result.parse_states,
-            highlight_states: result.highlight_states,
+            checkpoints: result.checkpoints,
         }
     }
 
     /// Incremental re-highlight from a given edit line.
-    /// Returns only the changed style chars and their byte offset.
+    /// Modifies checkpoints in place and returns only the changed style chars.
     pub fn highlight_incremental(
         &mut self,
         text: &str,
         edit_line: usize,
-        old_parse_states: &[ParseState],
-        old_highlight_states: &[HighlightState],
+        checkpoints: &mut SparseCheckpoints,
         syntax_name: &str,
     ) -> IncrementalHighlightResult {
         let syntax = match self.syntax_set.find_syntax_by_name(syntax_name) {
@@ -132,15 +128,12 @@ impl SyntaxHighlighter {
             None => return IncrementalHighlightResult {
                 byte_start: 0,
                 style_chars: make_default_style(text),
-                parse_states: Vec::new(),
-                highlight_states: Vec::new(),
             },
         };
         let result = highlighter::highlight_incremental(
             text,
             edit_line,
-            old_parse_states,
-            old_highlight_states,
+            checkpoints,
             &syntax,
             &self.syntax_set,
             &self.theme_set,
@@ -150,8 +143,6 @@ impl SyntaxHighlighter {
         IncrementalHighlightResult {
             byte_start: result.byte_start,
             style_chars: result.style_chars,
-            parse_states: result.parse_states,
-            highlight_states: result.highlight_states,
         }
     }
 
@@ -171,8 +162,19 @@ impl SyntaxHighlighter {
         self.style_map.entries().to_vec()
     }
 
+    /// Returns true if new style entries were added since the last reset.
+    pub fn style_table_changed(&self) -> bool {
+        self.style_map.has_new_entries()
+    }
+
+    /// Mark the style table as up-to-date (call after set_highlight_data).
+    pub fn reset_style_table_changed(&mut self) {
+        self.style_map.reset_changed();
+    }
+
     /// Begin chunked highlighting for a large file.
-    pub fn start_chunked(&mut self, doc_id: DocumentId, text: &str, syntax_name: &str) {
+    /// Takes ownership of the text to avoid re-copying it on every chunk.
+    pub fn start_chunked(&mut self, doc_id: DocumentId, text: String, syntax_name: &str) {
         let syntax = match self.syntax_set.find_syntax_by_name(syntax_name) {
             Some(s) => s.clone(),
             None => return,
@@ -182,27 +184,26 @@ impl SyntaxHighlighter {
         let parse_state = ParseState::new(&syntax);
         let highlight_state = HighlightState::new(&highlighter, ScopeStack::new());
 
+        let line_count = LinesWithEndings::new(&text).count();
+
         self.chunked = Some(ChunkedState {
             doc_id,
             next_line: 0,
             byte_offset: 0,
             parse_state,
             highlight_state,
-            parse_states: Vec::new(),
-            highlight_states: Vec::new(),
+            checkpoints: SparseCheckpoints::with_capacity(line_count),
             syntax_name: syntax_name.to_string(),
+            text,
         });
 
-        // Count lines to pre-allocate
-        let line_count = LinesWithEndings::new(text).count();
         if let Some(ref mut cs) = self.chunked {
-            cs.parse_states.reserve(line_count);
-            cs.highlight_states.reserve(line_count);
+            cs.checkpoints.line_count = line_count;
         }
     }
 
     /// Process the next chunk of lines. Returns None if no chunked operation is active.
-    pub fn process_chunk(&mut self, text: &str) -> Option<ChunkOutput> {
+    pub fn process_chunk(&mut self) -> Option<ChunkOutput> {
         let mut cs = self.chunked.take()?;
 
         if self.syntax_set.find_syntax_by_name(&cs.syntax_name).is_none() {
@@ -215,23 +216,16 @@ impl SyntaxHighlighter {
         let mut style_chars = String::new();
         let mut lines_processed = 0;
 
-        // Skip to the line we need to start from
-        let mut lines_iter = LinesWithEndings::new(text);
-        let mut skip_count = 0;
-        while skip_count < cs.next_line {
-            if lines_iter.next().is_none() {
-                break;
-            }
-            skip_count += 1;
-        }
-
-        for line in lines_iter {
+        // Start directly from byte_offset — no need to skip lines from the beginning
+        for line in LinesWithEndings::new(&cs.text[cs.byte_offset..]) {
             if lines_processed >= CHUNK_SIZE {
                 break;
             }
 
-            cs.parse_states.push(cs.parse_state.clone());
-            cs.highlight_states.push(cs.highlight_state.clone());
+            // Only save checkpoint at interval boundaries
+            if cs.next_line % CHECKPOINT_INTERVAL == 0 {
+                cs.checkpoints.push(cs.parse_state.clone(), cs.highlight_state.clone());
+            }
 
             let ops = cs.parse_state.parse_line(line, &self.syntax_set).unwrap_or_default();
             let iter = HighlightIterator::new(&mut cs.highlight_state, &ops, line, &highlighter);
@@ -255,8 +249,7 @@ impl SyntaxHighlighter {
                 byte_start,
                 style_chars,
                 done: true,
-                final_parse_states: Some(cs.parse_states),
-                final_highlight_states: Some(cs.highlight_states),
+                final_checkpoints: Some(cs.checkpoints),
             })
         } else {
             self.chunked = Some(cs);
@@ -264,15 +257,14 @@ impl SyntaxHighlighter {
                 byte_start,
                 style_chars,
                 done: false,
-                final_parse_states: None,
-                final_highlight_states: None,
+                final_checkpoints: None,
             })
         }
     }
 
-    /// Cancel an in-progress chunked highlight. Returns partial states if active.
-    pub fn cancel_chunked(&mut self) -> Option<(Vec<ParseState>, Vec<HighlightState>)> {
-        self.chunked.take().map(|cs| (cs.parse_states, cs.highlight_states))
+    /// Cancel an in-progress chunked highlight. Returns partial checkpoints if active.
+    pub fn cancel_chunked(&mut self) -> Option<SparseCheckpoints> {
+        self.chunked.take().map(|cs| cs.checkpoints)
     }
 
     /// Get the document ID of the active chunked operation, if any.

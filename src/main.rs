@@ -1,5 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(not(target_os = "windows"))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 mod app;
 mod ui;
 
@@ -194,6 +198,7 @@ fn main() {
                 Message::ToggleLineNumbers => state.toggle_line_numbers(),
                 Message::ToggleWordWrap => state.toggle_word_wrap(),
                 Message::ToggleDarkMode => state.toggle_dark_mode(),
+                Message::ToggleHighlighting => state.toggle_highlighting(),
 
                 // Format
                 Message::SetFont(font) => state.set_font(font),

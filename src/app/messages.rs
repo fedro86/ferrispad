@@ -37,6 +37,7 @@ pub enum Message {
     ToggleLineNumbers,
     ToggleWordWrap,
     ToggleDarkMode,
+    ToggleHighlighting,
 
     // Format
     SetFont(Font),
