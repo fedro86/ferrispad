@@ -19,7 +19,8 @@ use crate::app::settings::{AppSettings, ThemeMode};
 use crate::ui::dialogs::about::show_about_dialog;
 use crate::ui::dialogs::find::{show_find_dialog, show_replace_dialog};
 use crate::ui::dialogs::goto_line::show_goto_line_dialog;
-use crate::ui::dialogs::update::{check_for_updates_ui, show_update_available_dialog};
+use crate::app::update_controller::BannerWidgets;
+use crate::ui::dialogs::update::check_for_updates_ui;
 use crate::ui::main_window::build_main_window;
 use crate::ui::menu::build_menu;
 use crate::app::updater::{check_for_updates, current_timestamp, should_check_now, UpdateCheckResult};
@@ -244,8 +245,11 @@ fn main() {
 
                 // Background updates
                 Message::BackgroundUpdateResult(Some(release)) => {
-                    state.show_update_banner(&release.version());
-                    state.pending_update = Some(release);
+                    state.update.receive_update(release, &mut BannerWidgets {
+                        banner_frame: &mut state.update_banner_frame,
+                        flex: &mut state.flex,
+                        window: &mut state.window,
+                    });
                     let mut s = state.settings.borrow_mut();
                     s.last_update_check = current_timestamp();
                     let _ = s.save();
@@ -256,13 +260,18 @@ fn main() {
                     let _ = s.save();
                 }
                 Message::ShowBannerUpdate => {
-                    if let Some(release) = state.pending_update.take() {
-                        show_update_available_dialog(release, &state.settings);
-                        state.hide_update_banner();
-                    }
+                    state.update.show_update_dialog(&state.settings, &mut BannerWidgets {
+                        banner_frame: &mut state.update_banner_frame,
+                        flex: &mut state.flex,
+                        window: &mut state.window,
+                    });
                 }
                 Message::DismissBanner => {
-                    state.hide_update_banner();
+                    state.update.dismiss_banner(&mut BannerWidgets {
+                        banner_frame: &mut state.update_banner_frame,
+                        flex: &mut state.flex,
+                        window: &mut state.window,
+                    });
                 }
             }
         }

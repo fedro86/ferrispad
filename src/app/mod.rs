@@ -9,3 +9,4 @@ pub mod settings;
 pub mod updater;
 pub mod syntax;
 pub mod highlight_controller;
+pub mod update_controller;

@@ -43,7 +43,7 @@ use super::tab_manager::TabManager;
 use super::platform::detect_system_dark_mode;
 use super::messages::Message;
 use super::settings::{AppSettings, FontChoice, ThemeMode};
-use super::updater::ReleaseInfo;
+use super::update_controller::UpdateController;
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::file_dialogs::{native_open_dialog, native_open_multi_dialog, native_save_dialog};
 use crate::ui::tab_bar::TabBar;
@@ -65,7 +65,7 @@ pub struct AppState {
     pub dark_mode: bool,
     pub show_linenumbers: bool,
     pub word_wrap: bool,
-    pub pending_update: Option<ReleaseInfo>,
+    pub update: UpdateController,
     pub highlight: HighlightController,
     /// Last directory used in a file open/save dialog.
     pub last_open_directory: Option<String>,
@@ -115,7 +115,7 @@ impl AppState {
             dark_mode,
             show_linenumbers,
             word_wrap,
-            pending_update: None,
+            update: UpdateController::new(),
             highlight,
             last_open_directory: None,
         }
@@ -799,21 +799,4 @@ impl AppState {
         );
     }
 
-    // --- Update banner ---
-
-    pub fn show_update_banner(&mut self, version: &str) {
-        self.update_banner_frame.set_label(&format!(
-            "  \u{1f980} FerrisPad {} is available - Click to view details or press ESC to dismiss",
-            version
-        ));
-        self.update_banner_frame.show();
-        self.flex.fixed(&self.update_banner_frame, 30);
-        self.window.redraw();
-    }
-
-    pub fn hide_update_banner(&mut self) {
-        self.update_banner_frame.hide();
-        self.flex.fixed(&self.update_banner_frame, 0);
-        self.window.redraw();
-    }
 }
