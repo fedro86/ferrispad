@@ -2,7 +2,7 @@
 // Versions
 // ===================================
 const STABLE_VERSION = "0.1.8";
-const UNSTABLE_VERSION = "0.9.0-rc.3";
+const UNSTABLE_VERSION = "0.9.0-rc.4";
 
 function detectOS() {
     const userAgent = window.navigator.userAgent;
