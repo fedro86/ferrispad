@@ -5,6 +5,7 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
+use super::state::buffer_text_no_leak;
 use super::tab_manager::TabManager;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -50,7 +51,7 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore) -> Result<()
     // (e.g. a single empty untitled doc from a second app instance)
     let is_trivial = docs.len() == 1
         && docs[0].file_path.is_none()
-        && docs[0].buffer.text().is_empty();
+        && buffer_text_no_leak(&docs[0].buffer).is_empty();
     if is_trivial {
         return Ok(());
     }
@@ -81,7 +82,7 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore) -> Result<()
                 }
             }
             SessionRestore::Full => {
-                let content = doc.buffer.text();
+                let content = buffer_text_no_leak(&doc.buffer);
 
                 // Skip empty untitled docs entirely
                 if !has_path && content.is_empty() {

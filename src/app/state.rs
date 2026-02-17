@@ -4,7 +4,7 @@ use std::rc::Rc;
 /// Read text from an FLTK TextBuffer without leaking the C-allocated copy.
 /// fltk-rs's `TextBuffer::text()` leaks the C `char*` returned by
 /// `Fl_Text_Buffer_text`. This helper calls the FFI directly and frees it.
-fn buffer_text_no_leak(buf: &fltk::text::TextBuffer) -> String {
+pub fn buffer_text_no_leak(buf: &fltk::text::TextBuffer) -> String {
     unsafe extern "C" {
         fn Fl_Text_Buffer_text(buf: *mut std::ffi::c_void) -> *mut std::ffi::c_char;
         fn free(ptr: *mut std::ffi::c_void);

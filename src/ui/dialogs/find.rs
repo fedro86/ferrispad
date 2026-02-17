@@ -11,6 +11,7 @@ use fltk::{
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::app::state::buffer_text_no_leak;
 use crate::app::text_ops::{find_in_text, find_in_text_backward, replace_all_in_text};
 
 /// Show Find & Replace dialog
@@ -64,7 +65,7 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
             return;
         }
 
-        let text = tb1.text();
+        let text = buffer_text_no_leak(&tb1);
         let case_sensitive = case_check1.is_checked();
 
         // If search text changed, start from current cursor position
@@ -105,7 +106,7 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
             return;
         }
 
-        let text = tb_prev.text();
+        let text = buffer_text_no_leak(&tb_prev);
         let case_sensitive = case_check_prev.is_checked();
 
         let start_pos = if *st_prev.borrow() != query {
@@ -186,7 +187,7 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
             return;
         }
 
-        let text = tb3.text();
+        let text = buffer_text_no_leak(&tb3);
         let case_sensitive = case_check3.is_checked();
 
         let (new_text, count) = replace_all_in_text(&text, &query, &replacement, case_sensitive);
@@ -257,7 +258,7 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
             return;
         }
 
-        let text = tb1.text();
+        let text = buffer_text_no_leak(&tb1);
         let case_sensitive = case_check1.is_checked();
 
         let start_pos = if *st.borrow() != query {
@@ -296,7 +297,7 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
             return;
         }
 
-        let text = tb2.text();
+        let text = buffer_text_no_leak(&tb2);
         let case_sensitive = case_check2.is_checked();
 
         let start_pos = if *st2.borrow() != query {

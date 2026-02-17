@@ -10,6 +10,7 @@ use fltk::{
     window::Window,
 };
 
+use crate::app::state::buffer_text_no_leak;
 use crate::app::text_ops::line_number_to_byte_position;
 
 /// Show Go To Line dialog
@@ -45,7 +46,7 @@ pub fn show_goto_line_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
             }
         };
 
-        let text = tb.text();
+        let text = buffer_text_no_leak(&tb);
         let total_lines = text.chars().filter(|c| *c == '\n').count() + 1;
 
         if let Some(pos) = line_number_to_byte_position(&text, line_num) {
