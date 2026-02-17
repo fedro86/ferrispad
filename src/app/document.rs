@@ -39,15 +39,17 @@ impl Document {
         let mut style_buf = style_buffer.clone();
         let doc_id = id;
         buffer.add_modify_callback(move |pos, inserted, deleted, _restyled, _deleted_text| {
-            changes.set(true);
-            if inserted > 0 {
-                let filler: String = std::iter::repeat('A').take(inserted as usize).collect();
-                style_buf.insert(pos, &filler);
+            if inserted > 0 || deleted > 0 {
+                changes.set(true);
+                if inserted > 0 {
+                    let filler: String = std::iter::repeat('A').take(inserted as usize).collect();
+                    style_buf.insert(pos, &filler);
+                }
+                if deleted > 0 {
+                    style_buf.remove(pos, pos + deleted);
+                }
+                sender.send(Message::BufferModified(doc_id, pos));
             }
-            if deleted > 0 {
-                style_buf.remove(pos, pos + deleted);
-            }
-            sender.send(Message::BufferModified(doc_id, pos));
         });
 
         Self {
@@ -74,15 +76,17 @@ impl Document {
         let mut style_buf = style_buffer.clone();
         let doc_id = id;
         buffer.add_modify_callback(move |pos, inserted, deleted, _restyled, _deleted_text| {
-            changes.set(true);
-            if inserted > 0 {
-                let filler: String = std::iter::repeat('A').take(inserted as usize).collect();
-                style_buf.insert(pos, &filler);
+            if inserted > 0 || deleted > 0 {
+                changes.set(true);
+                if inserted > 0 {
+                    let filler: String = std::iter::repeat('A').take(inserted as usize).collect();
+                    style_buf.insert(pos, &filler);
+                }
+                if deleted > 0 {
+                    style_buf.remove(pos, pos + deleted);
+                }
+                sender.send(Message::BufferModified(doc_id, pos));
             }
-            if deleted > 0 {
-                style_buf.remove(pos, pos + deleted);
-            }
-            sender.send(Message::BufferModified(doc_id, pos));
         });
 
         buffer.set_text(content);
