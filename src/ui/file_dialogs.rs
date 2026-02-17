@@ -1,35 +1,41 @@
-use fltk::dialog::{FileDialogType, NativeFileChooser};
+use fltk::dialog::{NativeFileChooser, NativeFileChooserType};
 
-use crate::app::file_filters::get_platform_filter;
-
-pub fn native_open_dialog(description: &str, pattern: &str) -> Option<String> {
-    let mut nfc = NativeFileChooser::new(FileDialogType::BrowseFile);
-    let filter = get_platform_filter(description, pattern);
-    nfc.set_filter(&filter);
-    nfc.show();
-    let filename = nfc.filename();
-    let s = filename.to_string_lossy();
-    if s.is_empty() { None } else { Some(s.to_string()) }
+fn show_chooser(title: &str, chooser_type: NativeFileChooserType, directory: Option<&str>) -> NativeFileChooser {
+    let mut chooser = NativeFileChooser::new(chooser_type);
+    chooser.set_title(title);
+    if let Some(dir) = directory {
+        chooser.set_directory(&dir.to_string()).ok();
+    }
+    chooser.show();
+    chooser
 }
 
-pub fn native_open_multi_dialog(description: &str, pattern: &str) -> Vec<String> {
-    let mut nfc = NativeFileChooser::new(FileDialogType::BrowseMultiFile);
-    let filter = get_platform_filter(description, pattern);
-    nfc.set_filter(&filter);
-    nfc.show();
-    nfc.filenames()
+pub fn native_open_dialog(directory: Option<&str>) -> Option<String> {
+    let chooser = show_chooser("Open File", NativeFileChooserType::BrowseFile, directory);
+    let path = chooser.filename();
+    if path.as_os_str().is_empty() {
+        None
+    } else {
+        Some(path.to_string_lossy().to_string())
+    }
+}
+
+pub fn native_open_multi_dialog(directory: Option<&str>) -> Vec<String> {
+    let chooser = show_chooser("Open Files", NativeFileChooserType::BrowseMultiFile, directory);
+    chooser
+        .filenames()
         .into_iter()
+        .filter(|p| !p.as_os_str().is_empty())
         .map(|p| p.to_string_lossy().to_string())
-        .filter(|s| !s.is_empty())
         .collect()
 }
 
-pub fn native_save_dialog(description: &str, pattern: &str) -> Option<String> {
-    let mut nfc = NativeFileChooser::new(FileDialogType::BrowseSaveFile);
-    let filter = get_platform_filter(description, pattern);
-    nfc.set_filter(&filter);
-    nfc.show();
-    let filename = nfc.filename();
-    let s = filename.to_string_lossy();
-    if s.is_empty() { None } else { Some(s.to_string()) }
+pub fn native_save_dialog(directory: Option<&str>) -> Option<String> {
+    let chooser = show_chooser("Save As", NativeFileChooserType::BrowseSaveFile, directory);
+    let path = chooser.filename();
+    if path.as_os_str().is_empty() {
+        None
+    } else {
+        Some(path.to_string_lossy().to_string())
+    }
 }

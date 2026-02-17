@@ -19,6 +19,7 @@ pub enum Message {
     TabSwitch(DocumentId),
     TabClose(DocumentId),
     TabCloseActive,
+    TabMove(usize, usize),
     TabNext,
     TabPrevious,
 
@@ -37,6 +38,7 @@ pub enum Message {
     ToggleLineNumbers,
     ToggleWordWrap,
     ToggleDarkMode,
+    ToggleHighlighting,
 
     // Format
     SetFont(Font),
@@ -46,6 +48,11 @@ pub enum Message {
     OpenSettings,
     CheckForUpdates,
     ShowAbout,
+
+    // Syntax highlighting
+    BufferModified(DocumentId, i32),
+    DoRehighlight,
+    ContinueHighlight,
 
     // Background updates
     BackgroundUpdateResult(Option<ReleaseInfo>),

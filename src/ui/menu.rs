@@ -49,6 +49,8 @@ pub fn build_menu(
     menu.add("View/Toggle Word Wrap", Shortcut::None, ww_flag, { let s = s.clone(); move |_| s.send(Message::ToggleWordWrap) });
     let dm_flag = if initial_dark_mode { MenuFlag::Toggle | MenuFlag::Value } else { MenuFlag::Toggle };
     menu.add("View/Toggle Dark Mode", Shortcut::None, dm_flag, { let s = s.clone(); move |_| s.send(Message::ToggleDarkMode) });
+    let hl_flag = if settings.highlighting_enabled { MenuFlag::Toggle | MenuFlag::Value } else { MenuFlag::Toggle };
+    menu.add("View/Toggle Syntax Highlighting", Shortcut::None, hl_flag, { let s = s.clone(); move |_| s.send(Message::ToggleHighlighting) });
 
     // Format
     menu.add("Format/Font/Screen (Bold)", Shortcut::None, MenuFlag::Normal, { let s = s.clone(); move |_| s.send(Message::SetFont(Font::ScreenBold)) });

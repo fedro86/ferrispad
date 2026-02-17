@@ -224,7 +224,5 @@ pub fn show_update_available_dialog(release: updater::ReleaseInfo, settings: &Rc
     });
 
     dialog.show();
-    while dialog.shown() {
-        app::wait();
-    }
+    super::run_dialog(&dialog);
 }

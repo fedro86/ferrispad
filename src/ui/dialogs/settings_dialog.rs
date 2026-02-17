@@ -1,5 +1,4 @@
 use fltk::{
-    app,
     button::{Button, CheckButton, RadioRoundButton},
     enums::Color,
     frame::Frame,
@@ -17,7 +16,7 @@ use crate::app::updater::UpdateChannel;
 /// Show settings dialog and return updated settings if user clicked Save
 pub fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSettings> {
     let mut dialog = Window::default()
-        .with_size(350, 770)
+        .with_size(350, 795)
         .with_label("Settings")
         .center_screen();
     dialog.make_modal(true);
@@ -74,18 +73,21 @@ pub fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSetting
     let mut check_line_numbers = CheckButton::default().with_pos(30, 390).with_size(280, 25).with_label("Show Line Numbers");
     let mut check_word_wrap = CheckButton::default().with_pos(30, 415).with_size(280, 25).with_label("Word Wrap");
 
-    let mut check_tabs_enabled = CheckButton::default().with_pos(30, 440).with_size(280, 25).with_label("Enable tabbed editing (requires restart)");
+    let mut check_highlighting = CheckButton::default().with_pos(30, 440).with_size(280, 25).with_label("Syntax Highlighting");
+    check_highlighting.set_value(current_settings.highlighting_enabled);
+
+    let mut check_tabs_enabled = CheckButton::default().with_pos(30, 465).with_size(280, 25).with_label("Enable tabbed editing (requires restart)");
     check_tabs_enabled.set_value(current_settings.tabs_enabled);
 
     check_line_numbers.set_value(current_settings.line_numbers_enabled);
     check_word_wrap.set_value(current_settings.word_wrap_enabled);
 
     // Session restore section
-    Frame::default().with_pos(15, 475).with_size(320, 25).with_label("Session Restore:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
-    let session_group = Group::default().with_pos(30, 505).with_size(280, 75);
-    let mut session_off = RadioRoundButton::default().with_pos(30, 505).with_size(280, 25).with_label("Off");
-    let mut session_saved = RadioRoundButton::default().with_pos(30, 530).with_size(280, 25).with_label("Saved Files Only");
-    let mut session_full = RadioRoundButton::default().with_pos(30, 555).with_size(280, 25).with_label("Full (including unsaved)");
+    Frame::default().with_pos(15, 500).with_size(320, 25).with_label("Session Restore:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    let session_group = Group::default().with_pos(30, 530).with_size(280, 75);
+    let mut session_off = RadioRoundButton::default().with_pos(30, 530).with_size(280, 25).with_label("Off");
+    let mut session_saved = RadioRoundButton::default().with_pos(30, 555).with_size(280, 25).with_label("Saved Files Only");
+    let mut session_full = RadioRoundButton::default().with_pos(30, 580).with_size(280, 25).with_label("Full (including unsaved)");
     session_group.end();
 
     match current_settings.session_restore {
@@ -95,15 +97,15 @@ pub fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSetting
     }
 
     // Updates section
-    Frame::default().with_pos(15, 590).with_size(320, 25).with_label("Updates:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
-    let mut check_auto_update = CheckButton::default().with_pos(30, 620).with_size(280, 25).with_label("Automatically check for updates");
+    Frame::default().with_pos(15, 615).with_size(320, 25).with_label("Updates:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    let mut check_auto_update = CheckButton::default().with_pos(30, 645).with_size(280, 25).with_label("Automatically check for updates");
     check_auto_update.set_value(current_settings.auto_check_updates);
 
-    let mut check_prerelease = CheckButton::default().with_pos(30, 645).with_size(280, 25).with_label("Include pre-releases (beta/rc)");
+    let mut check_prerelease = CheckButton::default().with_pos(30, 670).with_size(280, 25).with_label("Include pre-releases (beta/rc)");
     check_prerelease.set_value(current_settings.update_channel == UpdateChannel::Beta);
 
     // Info text
-    let mut info_frame = Frame::default().with_pos(30, 675).with_size(290, 35);
+    let mut info_frame = Frame::default().with_pos(30, 700).with_size(290, 35);
     info_frame.set_label("FerrisPad checks GitHub once per day.\nNo personal data is sent.");
     info_frame.set_label_size(11);
     info_frame.set_label_color(Color::from_rgb(100, 100, 100));
@@ -112,8 +114,8 @@ pub fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSetting
     vpack.end();
 
     // Buttons at bottom
-    let mut save_btn = Button::default().with_pos(150, 725).with_size(90, 30).with_label("Save");
-    let mut cancel_btn = Button::default().with_pos(250, 725).with_size(90, 30).with_label("Cancel");
+    let mut save_btn = Button::default().with_pos(150, 750).with_size(90, 30).with_label("Save");
+    let mut cancel_btn = Button::default().with_pos(250, 750).with_size(90, 30).with_label("Cancel");
 
     dialog.end();
     dialog.show();
@@ -149,6 +151,7 @@ pub fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSetting
             },
             line_numbers_enabled: check_line_numbers.value(),
             word_wrap_enabled: check_word_wrap.value(),
+            highlighting_enabled: check_highlighting.value(),
             auto_check_updates: check_auto_update.value(),
             update_channel: if check_prerelease.value() {
                 UpdateChannel::Beta
@@ -183,9 +186,7 @@ pub fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSetting
         w.hide();
     });
 
-    while dialog.shown() {
-        app::wait();
-    }
+    super::run_dialog(&dialog);
 
     result.borrow().clone()
 }

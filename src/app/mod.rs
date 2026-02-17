@@ -1,5 +1,6 @@
+pub mod buffer_utils;
+pub mod error;
 pub mod text_ops;
-pub mod file_filters;
 pub mod platform;
 pub mod messages;
 pub mod document;
@@ -8,3 +9,6 @@ pub mod state;
 pub mod session;
 pub mod settings;
 pub mod updater;
+pub mod syntax;
+pub mod highlight_controller;
+pub mod update_controller;

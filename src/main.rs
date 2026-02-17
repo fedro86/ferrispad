@@ -1,5 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[cfg(not(target_os = "windows"))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 mod app;
 mod ui;
 
@@ -15,7 +19,8 @@ use crate::app::settings::{AppSettings, ThemeMode};
 use crate::ui::dialogs::about::show_about_dialog;
 use crate::ui::dialogs::find::{show_find_dialog, show_replace_dialog};
 use crate::ui::dialogs::goto_line::show_goto_line_dialog;
-use crate::ui::dialogs::update::{check_for_updates_ui, show_update_available_dialog};
+use crate::app::update_controller::BannerWidgets;
+use crate::ui::dialogs::update::check_for_updates_ui;
 use crate::ui::main_window::build_main_window;
 use crate::ui::menu::build_menu;
 use crate::app::updater::{check_for_updates, current_timestamp, should_check_now, UpdateCheckResult};
@@ -23,6 +28,21 @@ use crate::app::updater::{check_for_updates, current_timestamp, should_check_now
 use crate::ui::theme::set_windows_titlebar_theme;
 
 fn main() {
+    // Strip snap library paths from LD_LIBRARY_PATH before GTK loads.
+    // Snap's broken libpthread causes crashes when GTK is initialized.
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(val) = env::var("LD_LIBRARY_PATH") {
+            let cleaned: String = val
+                .split(':')
+                .filter(|p| !p.contains("/snap/"))
+                .collect::<Vec<_>>()
+                .join(":");
+            // SAFETY: must happen before any threads or GTK init
+            unsafe { env::set_var("LD_LIBRARY_PATH", &cleaned) };
+        }
+    }
+
     let _ = fltk_app::lock();
     let app = fltk_app::App::default().with_scheme(fltk_app::AppScheme::Gtk);
     let (sender, receiver) = fltk_app::channel::<Message>();
@@ -75,10 +95,14 @@ fn main() {
         state.open_file(path.clone());
     }
 
-    // Window close button -> send message
+    // Window close button -> signal quit so nested dialog loops break out,
+    // then send the message for the main event loop to handle.
     w.wind.set_callback({
         let s = sender.clone();
-        move |_| s.send(Message::WindowClose)
+        move |_| {
+            fltk::app::program_should_quit(true);
+            s.send(Message::WindowClose);
+        }
     });
 
     // Banner click/dismiss handlers
@@ -111,6 +135,9 @@ fn main() {
     if tabs_enabled {
         state.rebuild_tab_bar();
     }
+
+    // Start deferred highlighting for session-restored documents
+    state.start_queued_highlights();
 
     // Background update check via channel
     {
@@ -150,6 +177,9 @@ fn main() {
                 Message::FileQuit | Message::WindowClose => {
                     if state.file_quit() {
                         fltk_app::quit();
+                    } else {
+                        // User cancelled the quit — reset the flag
+                        fltk::app::program_should_quit(false);
                     }
                 }
 
@@ -169,6 +199,10 @@ fn main() {
                             fltk_app::quit();
                         }
                     }
+                }
+                Message::TabMove(from, to) => {
+                    state.tab_manager.move_tab(from, to);
+                    state.rebuild_tab_bar();
                 }
                 Message::TabNext => state.switch_to_next_tab(),
                 Message::TabPrevious => state.switch_to_previous_tab(),
@@ -191,6 +225,7 @@ fn main() {
                 Message::ToggleLineNumbers => state.toggle_line_numbers(),
                 Message::ToggleWordWrap => state.toggle_word_wrap(),
                 Message::ToggleDarkMode => state.toggle_dark_mode(),
+                Message::ToggleHighlighting => state.toggle_highlighting(),
 
                 // Format
                 Message::SetFont(font) => state.set_font(font),
@@ -201,10 +236,24 @@ fn main() {
                 Message::CheckForUpdates => check_for_updates_ui(&state.settings),
                 Message::ShowAbout => show_about_dialog(),
 
+                // Syntax highlighting (debounced)
+                Message::BufferModified(id, pos) => {
+                    state.schedule_rehighlight(id, pos);
+                }
+                Message::DoRehighlight => {
+                    state.do_pending_rehighlight();
+                }
+                Message::ContinueHighlight => {
+                    state.continue_chunked_highlight();
+                }
+
                 // Background updates
                 Message::BackgroundUpdateResult(Some(release)) => {
-                    state.show_update_banner(&release.version());
-                    state.pending_update = Some(release);
+                    state.update.receive_update(release, &mut BannerWidgets {
+                        banner_frame: &mut state.update_banner_frame,
+                        flex: &mut state.flex,
+                        window: &mut state.window,
+                    });
                     let mut s = state.settings.borrow_mut();
                     s.last_update_check = current_timestamp();
                     let _ = s.save();
@@ -215,13 +264,18 @@ fn main() {
                     let _ = s.save();
                 }
                 Message::ShowBannerUpdate => {
-                    if let Some(release) = state.pending_update.take() {
-                        show_update_available_dialog(release, &state.settings);
-                        state.hide_update_banner();
-                    }
+                    state.update.show_update_dialog(&state.settings, &mut BannerWidgets {
+                        banner_frame: &mut state.update_banner_frame,
+                        flex: &mut state.flex,
+                        window: &mut state.window,
+                    });
                 }
                 Message::DismissBanner => {
-                    state.hide_update_banner();
+                    state.update.dismiss_banner(&mut BannerWidgets {
+                        banner_frame: &mut state.update_banner_frame,
+                        flex: &mut state.flex,
+                        window: &mut state.window,
+                    });
                 }
             }
         }

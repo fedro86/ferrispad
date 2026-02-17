@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::error::AppError;
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum UpdateChannel {
     Stable,
@@ -66,13 +68,12 @@ pub fn fetch_latest_release(
     owner: &str,
     repo: &str,
     channel: UpdateChannel,
-) -> Result<ReleaseInfo, String> {
+) -> Result<ReleaseInfo, AppError> {
     let url = match channel {
         UpdateChannel::Stable => {
             format!("https://api.github.com/repos/{}/{}/releases/latest", owner, repo)
         }
         UpdateChannel::Beta => {
-            // For beta channel, we fetch all releases and get the most recent one
             format!("https://api.github.com/repos/{}/{}/releases", owner, repo)
         }
     };
@@ -81,37 +82,35 @@ pub fn fetch_latest_release(
         .user_agent("FerrisPad")
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+        .map_err(|e| AppError::Update(format!("Failed to create HTTP client: {}", e)))?;
 
     let response = client
         .get(&url)
         .send()
-        .map_err(|e| format!("Failed to connect to update server: {}", e))?;
+        .map_err(|e| AppError::Update(format!("Failed to connect to update server: {}", e)))?;
 
     if !response.status().is_success() {
-        return Err(format!(
+        return Err(AppError::Update(format!(
             "Update server returned error: {}",
             response.status()
-        ));
+        )));
     }
 
     match channel {
         UpdateChannel::Stable => {
-            // For stable, the API returns a single release
             let release: ReleaseInfo = response
                 .json()
-                .map_err(|e| format!("Failed to parse update information: {}", e))?;
+                .map_err(|e| AppError::Update(format!("Failed to parse update information: {}", e)))?;
             Ok(release)
         }
         UpdateChannel::Beta => {
-            // For beta, get the first release from the list (most recent)
             let releases: Vec<ReleaseInfo> = response
                 .json()
-                .map_err(|e| format!("Failed to parse update information: {}", e))?;
+                .map_err(|e| AppError::Update(format!("Failed to parse update information: {}", e)))?;
 
             releases.into_iter()
                 .next()
-                .ok_or_else(|| "No releases found".to_string())
+                .ok_or_else(|| AppError::Update("No releases found".to_string()))
         }
     }
 }
@@ -125,7 +124,7 @@ pub fn check_for_updates(
     // Fetch latest release from GitHub
     let release = match fetch_latest_release("fedro86", "ferrispad", channel) {
         Ok(r) => r,
-        Err(e) => return UpdateCheckResult::Error(e),
+        Err(e) => return UpdateCheckResult::Error(e.to_string()),
     };
 
     // Extract version from tag_name (remove 'v' prefix if present)
@@ -156,7 +155,7 @@ pub fn get_platform_asset_name() -> &'static str {
 }
 
 /// Download a binary from a URL to a specified path with progress
-pub fn download_file<F>(url: &str, dest_path: &std::path::Path, mut progress_cb: F) -> Result<(), String>
+pub fn download_file<F>(url: &str, dest_path: &std::path::Path, mut progress_cb: F) -> Result<(), AppError>
 where
     F: FnMut(f32),
 {
@@ -164,36 +163,33 @@ where
         .user_agent("FerrisPad")
         .timeout(std::time::Duration::from_secs(60))
         .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+        .map_err(|e| AppError::Update(format!("Failed to create HTTP client: {}", e)))?;
 
     let mut response = client
         .get(url)
         .send()
-        .map_err(|e| format!("Failed to download update: {}", e))?;
+        .map_err(|e| AppError::Update(format!("Failed to download update: {}", e)))?;
 
     if !response.status().is_success() {
-        return Err(format!("Download failed with status: {}", response.status()));
+        return Err(AppError::Update(format!("Download failed with status: {}", response.status())));
     }
 
     let total_size = response
         .content_length()
-        .ok_or_else(|| "Failed to get content length".to_string())?;
+        .ok_or_else(|| AppError::Update("Failed to get content length".to_string()))?;
 
-    let mut file = std::fs::File::create(dest_path)
-        .map_err(|e| format!("Failed to create temporary file: {}", e))?;
+    let mut file = std::fs::File::create(dest_path)?;
 
     let mut downloaded: u64 = 0;
     let mut buffer = [0; 8192];
 
     let mut last_progress: f32 = -1.0;
     loop {
-        let n = std::io::Read::read(&mut response, &mut buffer)
-            .map_err(|e| format!("Failed to read from download stream: {}", e))?;
+        let n = std::io::Read::read(&mut response, &mut buffer)?;
 
         if n == 0 { break; }
 
-        std::io::Write::write_all(&mut file, &buffer[..n])
-            .map_err(|e| format!("Failed to write to temporary file: {}", e))?;
+        std::io::Write::write_all(&mut file, &buffer[..n])?;
         downloaded += n as u64;
 
         let current_progress = (downloaded as f32 / total_size as f32 * 100.0).floor() / 100.0;
@@ -203,11 +199,8 @@ where
         }
     }
 
-    // Ensure all data is written to disk
-    std::io::Write::flush(&mut file)
-        .map_err(|e| format!("Failed to flush file to disk: {}", e))?;
+    std::io::Write::flush(&mut file)?;
 
-    // Report 100% completion
     if last_progress < 1.0 {
         progress_cb(1.0);
     }
@@ -216,9 +209,8 @@ where
 }
 
 /// Replace the current executable with a new one
-pub fn install_update(new_binary_path: &std::path::Path) -> Result<(), String> {
-    let current_exe = std::env::current_exe()
-        .map_err(|e| format!("Failed to get current executable path: {}", e))?;
+pub fn install_update(new_binary_path: &std::path::Path) -> Result<(), AppError> {
+    let current_exe = std::env::current_exe()?;
 
     // On Windows, we can't overwrite a running exe, but we can rename it.
     // On macOS/Linux, it's also safer to rename the old one first.
@@ -230,26 +222,22 @@ pub fn install_update(new_binary_path: &std::path::Path) -> Result<(), String> {
     }
 
     // Rename current exe to .old
-    std::fs::rename(&current_exe, &old_exe)
-        .map_err(|e| format!("Failed to backup current executable: {}", e))?;
+    std::fs::rename(&current_exe, &old_exe)?;
 
     // Move new exe to current location
     if let Err(e) = std::fs::rename(new_binary_path, &current_exe) {
         // Rollback on failure
         let _ = std::fs::rename(&old_exe, &current_exe);
-        return Err(format!("Failed to install new executable: {}", e));
+        return Err(AppError::Io(e));
     }
 
     // On Unix systems, ensure the new binary is executable
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = std::fs::metadata(&current_exe)
-            .map_err(|e| format!("Failed to get metadata: {}", e))?
-            .permissions();
+        let mut perms = std::fs::metadata(&current_exe)?.permissions();
         perms.set_mode(0o755);
-        std::fs::set_permissions(&current_exe, perms)
-            .map_err(|e| format!("Failed to set executable permissions: {}", e))?;
+        std::fs::set_permissions(&current_exe, perms)?;
     }
 
     Ok(())

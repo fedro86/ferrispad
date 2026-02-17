@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+use super::error::AppError;
 use super::session::SessionRestore;
 use super::updater::UpdateChannel;
 
@@ -26,6 +27,9 @@ pub struct AppSettings {
 
     #[serde(default = "default_word_wrap")]
     pub word_wrap_enabled: bool,
+
+    #[serde(default = "default_highlighting")]
+    pub highlighting_enabled: bool,
 
     #[serde(default = "default_theme_mode")]
     pub theme_mode: ThemeMode,
@@ -63,6 +67,10 @@ fn default_word_wrap() -> bool {
     true
 }
 
+fn default_highlighting() -> bool {
+    true
+}
+
 fn default_theme_mode() -> ThemeMode {
     ThemeMode::SystemDefault
 }
@@ -88,6 +96,7 @@ impl Default for AppSettings {
         Self {
             line_numbers_enabled: default_line_numbers(),
             word_wrap_enabled: default_word_wrap(),
+            highlighting_enabled: default_highlighting(),
             theme_mode: default_theme_mode(),
             font: default_font(),
             font_size: default_font_size(),
@@ -127,22 +136,16 @@ impl AppSettings {
     }
 
     /// Save settings to disk
-    pub fn save(&self) -> Result<(), String> {
+    pub fn save(&self) -> Result<(), AppError> {
         let config_path = Self::get_config_path();
 
         // Ensure parent directory exists
         if let Some(parent) = config_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create config directory: {}", e))?;
+            fs::create_dir_all(parent)?;
         }
 
-        // Serialize to pretty JSON
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Failed to serialize settings: {}", e))?;
-
-        // Write to file
-        fs::write(&config_path, json)
-            .map_err(|e| format!("Failed to write settings: {}", e))?;
+        let json = serde_json::to_string_pretty(self)?;
+        fs::write(&config_path, json)?;
 
         Ok(())
     }
