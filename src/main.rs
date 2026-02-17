@@ -27,6 +27,21 @@ use crate::app::updater::{check_for_updates, current_timestamp, should_check_now
 use crate::ui::theme::set_windows_titlebar_theme;
 
 fn main() {
+    // Strip snap library paths from LD_LIBRARY_PATH before GTK loads.
+    // Snap's broken libpthread causes crashes when GTK is initialized.
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(val) = env::var("LD_LIBRARY_PATH") {
+            let cleaned: String = val
+                .split(':')
+                .filter(|p| !p.contains("/snap/"))
+                .collect::<Vec<_>>()
+                .join(":");
+            // SAFETY: must happen before any threads or GTK init
+            unsafe { env::set_var("LD_LIBRARY_PATH", &cleaned) };
+        }
+    }
+
     let _ = fltk_app::lock();
     let app = fltk_app::App::default().with_scheme(fltk_app::AppScheme::Gtk);
     let (sender, receiver) = fltk_app::channel::<Message>();

@@ -1,22 +1,38 @@
-use fltk::dialog;
+use fltk::dialog::{NativeFileChooser, NativeFileChooserType};
 
-use crate::app::file_filters::get_platform_filter;
-
-pub fn native_open_dialog(description: &str, pattern: &str) -> Option<String> {
-    let filter = get_platform_filter(description, pattern);
-    dialog::file_chooser("Open File", &filter, ".", false)
+fn show_chooser(title: &str, chooser_type: NativeFileChooserType) -> NativeFileChooser {
+    let mut chooser = NativeFileChooser::new(chooser_type);
+    chooser.set_title(title);
+    chooser.show();
+    chooser
 }
 
-pub fn native_open_multi_dialog(description: &str, pattern: &str) -> Vec<String> {
-    // FLTK's built-in file_chooser doesn't support multi-select directly.
-    // Open one file at a time — the user can Ctrl+O again for more.
-    match native_open_dialog(description, pattern) {
-        Some(path) => vec![path],
-        None => vec![],
+pub fn native_open_dialog() -> Option<String> {
+    let chooser = show_chooser("Open File", NativeFileChooserType::BrowseFile);
+    let path = chooser.filename();
+    if path.as_os_str().is_empty() {
+        None
+    } else {
+        Some(path.to_string_lossy().to_string())
     }
 }
 
-pub fn native_save_dialog(description: &str, pattern: &str) -> Option<String> {
-    let filter = get_platform_filter(description, pattern);
-    dialog::file_chooser("Save As", &filter, ".", false)
+pub fn native_open_multi_dialog() -> Vec<String> {
+    let chooser = show_chooser("Open Files", NativeFileChooserType::BrowseMultiFile);
+    chooser
+        .filenames()
+        .into_iter()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(|p| p.to_string_lossy().to_string())
+        .collect()
+}
+
+pub fn native_save_dialog() -> Option<String> {
+    let chooser = show_chooser("Save As", NativeFileChooserType::BrowseSaveFile);
+    let path = chooser.filename();
+    if path.as_os_str().is_empty() {
+        None
+    } else {
+        Some(path.to_string_lossy().to_string())
+    }
 }

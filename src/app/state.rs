@@ -41,7 +41,6 @@ use super::session::{self, SessionRestore};
 use super::syntax::SyntaxHighlighter;
 use super::tab_manager::TabManager;
 use super::platform::detect_system_dark_mode;
-use super::file_filters::{get_all_files_filter, get_text_files_filter_multiline};
 use super::messages::Message;
 use super::settings::{AppSettings, FontChoice, ThemeMode};
 use super::updater::ReleaseInfo;
@@ -304,11 +303,11 @@ impl AppState {
 
     pub fn file_open(&mut self) {
         if self.tabs_enabled {
-            let paths = native_open_multi_dialog("", &get_text_files_filter_multiline());
+            let paths = native_open_multi_dialog();
             for path in paths {
                 self.open_file(path);
             }
-        } else if let Some(path) = native_open_dialog("", &get_text_files_filter_multiline()) {
+        } else if let Some(path) = native_open_dialog() {
             self.open_file(path);
         }
     }
@@ -347,7 +346,7 @@ impl AppState {
             }
         };
 
-        if let Some(path) = native_save_dialog("All Files", &get_all_files_filter()) {
+        if let Some(path) = native_save_dialog() {
             match fs::write(&path, &text) {
                 Ok(_) => {
                     let id = {
@@ -1096,6 +1095,8 @@ impl AppState {
 
     /// Re-highlight all open documents (called on theme/font change).
     pub fn rehighlight_all_documents(&mut self) {
+        const LARGE_FILE_THRESHOLD: usize = 5000;
+
         let doc_ids: Vec<DocumentId> = self.tab_manager.documents().iter().map(|d| d.id).collect();
         for id in doc_ids {
             let (syntax_name, text) = {
@@ -1108,13 +1109,26 @@ impl AppState {
                     continue;
                 }
             };
-            let result = self.highlighter.highlight_full(&text, &syntax_name);
-            if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
-                doc.style_buffer.set_text(&result.style_string);
-                doc.checkpoints = result.checkpoints;
+
+            let line_count = text.lines().count();
+            if line_count <= LARGE_FILE_THRESHOLD {
+                let result = self.highlighter.highlight_full(&text, &syntax_name);
+                if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+                    doc.style_buffer.set_text(&result.style_string);
+                    doc.checkpoints = result.checkpoints;
+                }
+            } else {
+                let was_empty = self.highlight_queue.is_empty()
+                    && self.highlighter.chunked_doc_id().is_none();
+                self.highlight_queue.push(id);
+                if was_empty {
+                    let s = self.sender.clone();
+                    fltk::app::add_timeout3(0.0, move |_| {
+                        s.send(Message::ContinueHighlight);
+                    });
+                }
             }
         }
-
     }
 
     // --- Update banner ---
