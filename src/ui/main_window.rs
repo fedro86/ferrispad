@@ -6,11 +6,11 @@ use fltk::{
     image::PngImage,
     menu::MenuBar,
     prelude::*,
-    text::{TextBuffer, TextEditor},
     window::Window,
 };
 
 use crate::app::messages::Message;
+use super::editor_container::EditorContainer;
 use super::tab_bar::{TabBar, TAB_BAR_HEIGHT};
 
 pub struct MainWidgets {
@@ -19,7 +19,7 @@ pub struct MainWidgets {
     pub menu: MenuBar,
     pub tab_bar: Option<TabBar>,
     pub update_banner_frame: Frame,
-    pub text_editor: TextEditor,
+    pub editor_container: EditorContainer,
 }
 
 pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWidgets {
@@ -58,12 +58,8 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWi
     update_banner_frame.hide();
     flex.fixed(&update_banner_frame, 0);
 
-    let mut text_editor = TextEditor::new(0, 0, 0, 0, "");
-    text_editor.set_buffer(TextBuffer::default());
-
-    // Line number styling (set once)
-    text_editor.set_linenumber_bgcolor(Color::from_rgb(240, 240, 240));
-    text_editor.set_linenumber_fgcolor(Color::from_rgb(100, 100, 100));
+    // Editor container — the TextEditor is added directly to flex (no wrapper)
+    let editor_container = EditorContainer::new(&flex);
 
     flex.end();
     wind.resizable(&flex);
@@ -74,6 +70,6 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWi
         menu,
         tab_bar,
         update_banner_frame,
-        text_editor,
+        editor_container,
     }
 }

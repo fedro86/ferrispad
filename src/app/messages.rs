@@ -39,6 +39,7 @@ pub enum Message {
     ToggleWordWrap,
     ToggleDarkMode,
     ToggleHighlighting,
+    TogglePreview,
 
     // Format
     SetFont(Font),
@@ -53,6 +54,7 @@ pub enum Message {
     BufferModified(DocumentId, i32),
     DoRehighlight,
     ContinueHighlight,
+    ContinueImageResize,
 
     // Background updates
     BackgroundUpdateResult(Option<ReleaseInfo>),

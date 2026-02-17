@@ -24,6 +24,8 @@ semver = "1.0"
 open = "5.0"
 syntect = { version = "5", default-features = false, features = ["default-onig"] }
 thiserror = "2"
+pulldown-cmark = "0.12"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif"] }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 tikv-jemallocator = "0.6"

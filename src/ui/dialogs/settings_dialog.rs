@@ -168,6 +168,7 @@ pub fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSetting
             } else {
                 SessionRestore::Off
             },
+            preview_enabled: current.preview_enabled,
         };
 
         *result_save.borrow_mut() = Some(new_settings);

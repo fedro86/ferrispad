@@ -5,6 +5,7 @@ pub mod platform;
 pub mod messages;
 pub mod document;
 pub mod tab_manager;
+pub mod preview_controller;
 pub mod state;
 pub mod session;
 pub mod settings;

@@ -24,6 +24,7 @@ use crate::ui::dialogs::update::check_for_updates_ui;
 use crate::ui::main_window::build_main_window;
 use crate::ui::menu::build_menu;
 use crate::app::updater::{check_for_updates, current_timestamp, should_check_now, UpdateCheckResult};
+use crate::app::preview_controller;
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
 
@@ -43,8 +44,17 @@ fn main() {
         }
     }
 
+    // Clean up stale temp images from previous runs (crash recovery)
+    preview_controller::cleanup_temp_images();
+
     let _ = fltk_app::lock();
     let app = fltk_app::App::default().with_scheme(fltk_app::AppScheme::Gtk);
+
+    // Register PNG/JPEG/GIF handlers so HelpView can display images
+    {
+        unsafe extern "C" { fn Fl_register_images(); }
+        unsafe { Fl_register_images(); }
+    }
     let (sender, receiver) = fltk_app::channel::<Message>();
 
     // Load settings
@@ -66,7 +76,7 @@ fn main() {
     let app_settings = Rc::new(RefCell::new(settings.clone()));
 
     let mut state = AppState::new(
-        w.text_editor.clone(),
+        w.editor_container,
         w.wind.clone(),
         w.menu.clone(),
         w.flex.clone(),
@@ -226,6 +236,7 @@ fn main() {
                 Message::ToggleWordWrap => state.toggle_word_wrap(),
                 Message::ToggleDarkMode => state.toggle_dark_mode(),
                 Message::ToggleHighlighting => state.toggle_highlighting(),
+                Message::TogglePreview => state.toggle_preview(),
 
                 // Format
                 Message::SetFont(font) => state.set_font(font),
@@ -245,6 +256,9 @@ fn main() {
                 }
                 Message::ContinueHighlight => {
                     state.continue_chunked_highlight();
+                }
+                Message::ContinueImageResize => {
+                    state.continue_image_resize();
                 }
 
                 // Background updates

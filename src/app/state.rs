@@ -18,6 +18,7 @@ use std::fs;
 
 use super::document::DocumentId;
 use super::highlight_controller::{HighlightController, HighlightWidgets};
+use super::preview_controller::{self, PreviewController, wrap_html_for_helpview, extract_resize_tasks, ImageResizeProgress};
 use super::session::{self, SessionRestore};
 use super::tab_manager::TabManager;
 use super::platform::detect_system_dark_mode;
@@ -25,6 +26,7 @@ use super::messages::Message;
 use super::settings::{AppSettings, FontChoice, ThemeMode};
 use super::update_controller::UpdateController;
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
+use crate::ui::editor_container::EditorContainer;
 use crate::ui::file_dialogs::{native_open_dialog, native_open_multi_dialog, native_save_dialog};
 use crate::ui::tab_bar::TabBar;
 use crate::ui::theme::apply_theme;
@@ -35,6 +37,7 @@ pub struct AppState {
     pub tab_manager: TabManager,
     pub tabs_enabled: bool,
     pub tab_bar: Option<TabBar>,
+    pub editor_container: EditorContainer,
     pub editor: TextEditor,
     pub window: Window,
     pub menu: MenuBar,
@@ -47,13 +50,14 @@ pub struct AppState {
     pub word_wrap: bool,
     pub update: UpdateController,
     pub highlight: HighlightController,
+    pub preview: PreviewController,
     /// Last directory used in a file open/save dialog.
     pub last_open_directory: Option<String>,
 }
 
 impl AppState {
     pub fn new(
-        editor: TextEditor,
+        editor_container: EditorContainer,
         window: Window,
         menu: MenuBar,
         flex: Flex,
@@ -81,10 +85,16 @@ impl AppState {
         let highlighting_enabled = settings.borrow().highlighting_enabled;
         let highlight = HighlightController::new(dark_mode, font, font_size, highlighting_enabled);
 
+        let preview_enabled = settings.borrow().preview_enabled;
+        let preview = PreviewController::new(preview_enabled);
+
+        let editor = editor_container.editor().clone();
+
         Self {
             tab_manager,
             tabs_enabled,
             tab_bar,
+            editor_container,
             editor,
             window,
             menu,
@@ -97,6 +107,7 @@ impl AppState {
             word_wrap,
             update: UpdateController::new(),
             highlight,
+            preview,
             last_open_directory: None,
         }
     }
@@ -157,6 +168,7 @@ impl AppState {
 
         self.update_linenumber_width();
         self.update_window_title();
+        self.update_preview();
     }
 
     /// Rebuild the tab bar UI from current documents
@@ -237,7 +249,25 @@ impl AppState {
                         self.rebuild_tab_bar();
                         return;
                     }
+                    // Close empty Untitled tab if it's the only one
+                    let empty_untitled = if self.tab_manager.count() == 1 {
+                        self.tab_manager.active_doc().and_then(|doc| {
+                            if doc.file_path.is_none()
+                                && !doc.is_dirty()
+                                && doc.buffer.length() == 0
+                            {
+                                Some(doc.id)
+                            } else {
+                                None
+                            }
+                        })
+                    } else {
+                        None
+                    };
                     let id = self.tab_manager.add_from_file(path.clone(), &content);
+                    if let Some(untitled_id) = empty_untitled {
+                        self.tab_manager.remove(untitled_id);
+                    }
                     self.detect_and_highlight(id, &path);
                     self.switch_to_document(id);
                     self.rebuild_tab_bar();
@@ -252,6 +282,7 @@ impl AppState {
                         self.detect_and_highlight(id, &path);
                     }
                     self.update_window_title();
+                    self.update_preview();
                 }
             }
             Err(e) => dialog::alert_default(&format!("Error opening file: {}", e)),
@@ -274,6 +305,7 @@ impl AppState {
                 doc.style_buffer.set_text("");
             }
             self.update_window_title();
+            self.update_preview();
         }
     }
 
@@ -306,6 +338,7 @@ impl AppState {
                     }
                     self.update_window_title();
                     self.rebuild_tab_bar();
+                    self.update_preview();
                 }
                 Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
             }
@@ -349,6 +382,7 @@ impl AppState {
                     }
                     self.update_window_title();
                     self.rebuild_tab_bar();
+                    self.update_preview();
                 }
                 Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
             }
@@ -514,6 +548,8 @@ impl AppState {
         };
 
         if should_quit {
+            self.cleanup_preview_file();
+            preview_controller::cleanup_temp_images();
             if let Err(e) = session::save_session(&self.tab_manager, session_mode, self.last_open_directory.as_deref()) {
                 eprintln!("Failed to save session: {}", e);
             }
@@ -605,6 +641,150 @@ impl AppState {
         }
     }
 
+    // --- Preview ---
+
+    pub fn toggle_preview(&mut self) {
+        let enabled = self.preview.toggle();
+
+        // Persist the setting
+        {
+            let mut s = self.settings.borrow_mut();
+            s.preview_enabled = enabled;
+            let _ = s.save();
+        }
+        self.update_menu_checkbox("View/Toggle Markdown Preview", enabled);
+
+        if enabled {
+            self.update_preview();
+        } else {
+            self.preview.chunked_resize = None;
+            self.cleanup_preview_file();
+            self.editor_container.hide_preview();
+        }
+    }
+
+    pub fn update_preview(&mut self) {
+        // Cancel any in-progress image resize
+        self.preview.chunked_resize = None;
+
+        if !self.preview.enabled {
+            if self.editor_container.is_split() {
+                self.editor_container.hide_preview();
+            }
+            return;
+        }
+
+        let is_md = self.tab_manager.active_doc()
+            .and_then(|doc| doc.file_path.as_deref())
+            .map(|p| PreviewController::is_markdown_file(Some(p)))
+            .unwrap_or(false);
+
+        if !is_md {
+            if self.editor_container.is_split() {
+                self.editor_container.hide_preview();
+            }
+            return;
+        }
+
+        // Get the text and file path
+        let (text, file_path) = {
+            if let Some(doc) = self.tab_manager.active_doc() {
+                (buffer_text_no_leak(&doc.buffer), doc.file_path.clone())
+            } else {
+                return;
+            }
+        };
+
+        let raw_html = PreviewController::render_markdown(&text);
+
+        // Phase 1: extract resize tasks and show preview immediately (images at native size)
+        if let Some(ref md_path) = file_path {
+            let md_dir = std::path::Path::new(md_path)
+                .parent()
+                .unwrap_or(std::path::Path::new("."))
+                .to_path_buf();
+
+            let (phase1_html, tasks) = extract_resize_tasks(&raw_html, &md_dir);
+
+            // Show phase-1 HTML immediately
+            let wrapped = wrap_html_for_helpview(&phase1_html);
+            if let Some(temp_path) = PreviewController::write_preview_file(&wrapped, md_path) {
+                self.editor_container.show_preview();
+                self.editor_container.load_preview_file(&temp_path);
+            }
+
+            // Start async image resize if there are tasks
+            if self.preview.start_image_resize(phase1_html, tasks, md_dir) {
+                // Show banner
+                self.update_banner_frame.set_label("  Resizing images... (0/?)");
+                self.update_banner_frame.show();
+                self.flex.fixed(&self.update_banner_frame, 30);
+                self.window.redraw();
+
+                // Schedule first chunk
+                let s = self.sender;
+                fltk::app::add_timeout3(0.0, move |_| {
+                    s.send(Message::ContinueImageResize);
+                });
+            }
+        } else {
+            // Fallback: no file path, just show raw HTML
+            let wrapped = wrap_html_for_helpview(&raw_html);
+            self.editor_container.show_preview();
+            self.editor_container.load_preview_fallback(&wrapped);
+        }
+    }
+
+    pub fn continue_image_resize(&mut self) {
+        let file_path = self.tab_manager.active_doc()
+            .and_then(|doc| doc.file_path.clone());
+
+        let md_path = match file_path {
+            Some(ref p) => p.clone(),
+            None => {
+                self.preview.chunked_resize = None;
+                return;
+            }
+        };
+
+        match self.preview.process_next_image() {
+            Some(ImageResizeProgress::InProgress(done, total)) => {
+                self.update_banner_frame.set_label(
+                    &format!("  Resizing images... ({}/{})", done, total)
+                );
+                self.window.redraw();
+
+                let s = self.sender;
+                fltk::app::add_timeout3(0.0, move |_| {
+                    s.send(Message::ContinueImageResize);
+                });
+            }
+            Some(ImageResizeProgress::Done(final_html)) => {
+                let wrapped = wrap_html_for_helpview(&final_html);
+                if let Some(temp_path) = PreviewController::write_preview_file(&wrapped, &md_path) {
+                    self.editor_container.load_preview_file(&temp_path);
+                }
+
+                // Hide banner
+                self.update_banner_frame.hide();
+                self.flex.fixed(&self.update_banner_frame, 0);
+                self.window.redraw();
+            }
+            None => {
+                // No resize in progress — orphan message, ignore
+            }
+        }
+    }
+
+    /// Remove the temp .ferrispad-preview.html file if the active doc has a path.
+    fn cleanup_preview_file(&self) {
+        if let Some(doc) = self.tab_manager.active_doc() {
+            if let Some(ref path) = doc.file_path {
+                PreviewController::cleanup_preview_file(path);
+            }
+        }
+    }
+
     // --- Format ---
 
     pub fn set_font(&mut self, font: Font) {
@@ -678,6 +858,11 @@ impl AppState {
         self.highlight.highlighting_enabled = new_settings.highlighting_enabled;
         self.update_menu_checkbox("View/Toggle Syntax Highlighting", self.highlight.highlighting_enabled);
 
+        // Preview setting
+        let preview_changed = self.preview.enabled != new_settings.preview_enabled;
+        self.preview.enabled = new_settings.preview_enabled;
+        self.update_menu_checkbox("View/Toggle Markdown Preview", self.preview.enabled);
+
         self.editor.redraw();
 
         *self.settings.borrow_mut() = new_settings;
@@ -696,6 +881,10 @@ impl AppState {
         } else if self.highlight.highlighting_enabled {
             self.highlight.rehighlight_all_documents(&mut self.tab_manager, &self.sender);
             self.bind_active_buffer();
+        }
+
+        if preview_changed {
+            self.update_preview();
         }
     }
 
