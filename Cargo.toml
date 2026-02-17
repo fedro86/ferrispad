@@ -29,6 +29,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 tikv-jemallocator = "0.6"
+tikv-jemalloc-ctl = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

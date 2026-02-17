@@ -44,6 +44,17 @@ fn main() {
         }
     }
 
+    // Configure jemalloc to immediately return freed pages to the OS.
+    // Without this, jemalloc keeps dirty/muzzy pages mapped, inflating RSS.
+    #[cfg(not(target_os = "windows"))]
+    {
+        let decay: isize = 0;
+        unsafe {
+            let _ = tikv_jemalloc_ctl::raw::write(b"arenas.dirty_decay_ms\0", decay);
+            let _ = tikv_jemalloc_ctl::raw::write(b"arenas.muzzy_decay_ms\0", decay);
+        }
+    }
+
     // Clean up stale temp images from previous runs (crash recovery)
     preview_controller::cleanup_temp_images();
 

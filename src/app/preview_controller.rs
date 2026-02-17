@@ -1,4 +1,5 @@
 use std::collections::hash_map::DefaultHasher;
+use std::ffi::CString;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -41,6 +42,9 @@ pub enum ImageResizeProgress {
 pub struct PreviewController {
     pub enabled: bool,
     pub chunked_resize: Option<ChunkedImageResize>,
+    /// All image paths currently loaded in HelpView (and thus in Fl_Shared_Image cache).
+    /// Populated when HTML is loaded into HelpView, cleared after release.
+    loaded_image_paths: Vec<String>,
 }
 
 impl PreviewController {
@@ -48,6 +52,33 @@ impl PreviewController {
         Self {
             enabled,
             chunked_resize: None,
+            loaded_image_paths: Vec::new(),
+        }
+    }
+
+    /// Record the image paths present in the HTML that will be loaded into HelpView.
+    pub fn track_images_in_html(&mut self, html: &str) {
+        self.loaded_image_paths.clear();
+        let mut rest = html;
+        while let Some(img_start) = rest.find("<img ") {
+            let tag_content = &rest[img_start..];
+            let tag_end = tag_content.find('>').unwrap_or(tag_content.len() - 1) + 1;
+            let tag = &tag_content[..tag_end];
+            if let Some(src) = extract_attr(tag, "src") {
+                self.loaded_image_paths.push(src);
+            }
+            rest = &rest[img_start + tag_end..];
+        }
+    }
+
+    /// Release all tracked images from FLTK's Fl_Shared_Image global cache.
+    /// MUST be called AFTER HelpView content has been cleared with set_value(""),
+    /// so HelpView has already decremented its references. At that point the cache
+    /// holds exactly refcount=1 for each image. Our get() bumps to 2, then two
+    /// release calls bring it to 0 → FLTK frees the decoded pixel data.
+    pub fn release_cached_images(&mut self) {
+        for path in self.loaded_image_paths.drain(..) {
+            release_shared_image(&path);
         }
     }
 
@@ -159,6 +190,35 @@ pub fn temp_image_dir() -> PathBuf {
 pub fn cleanup_temp_images() {
     let dir = std::env::temp_dir().join("ferrispad-images");
     let _ = fs::remove_dir_all(dir);
+}
+
+/// Release a single image from FLTK's Fl_Shared_Image global cache.
+///
+/// After HelpView clears its content (set_value("")), the cache holds refcount=1.
+/// We call get() to find the entry (refcount → 2), then delete twice (→ 0, freed).
+/// If the image isn't in the cache, get() returns null and we skip.
+fn release_shared_image(path: &str) {
+    let c_path = match CString::new(path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    unsafe extern "C" {
+        fn Fl_Shared_Image_get(
+            name: *const std::ffi::c_char,
+            w: std::ffi::c_int,
+            h: std::ffi::c_int,
+        ) -> *mut std::ffi::c_void;
+        fn Fl_Shared_Image_delete(img: *mut std::ffi::c_void);
+    }
+
+    unsafe {
+        let img = Fl_Shared_Image_get(c_path.as_ptr(), 0, 0);
+        if !img.is_null() {
+            Fl_Shared_Image_delete(img); // refcount 2 → 1
+            Fl_Shared_Image_delete(img); // refcount 1 → 0, freed
+        }
+    }
 }
 
 /// Parse `<img>` tags from HTML. Returns:

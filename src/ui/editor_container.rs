@@ -90,11 +90,17 @@ impl EditorContainer {
             hv.hide();
         }
 
-        // Remove the Tile from the parent flex
-        if let Some(ref tile) = self.tile {
-            self.parent_flex.remove(tile);
+        // Properly destroy the Tile C++ widget.
+        // CRITICAL: Remove children FIRST — Fl_Group::~Fl_Group() calls clear()
+        // which deletes all children.  We must not let it delete our editor/help_view.
+        if let Some(mut tile) = self.tile.take() {
+            tile.remove(&self.editor);
+            if let Some(ref hv) = self.help_view {
+                tile.remove(hv);
+            }
+            self.parent_flex.remove(&tile);
+            fltk::app::delete_widget(tile);
         }
-        self.tile = None;
 
         // Re-add the bare editor to the parent flex
         self.parent_flex.add(&self.editor);
@@ -126,5 +132,11 @@ impl EditorContainer {
 
     pub fn is_split(&self) -> bool {
         self.is_split
+    }
+
+    /// Number of direct children in the parent Flex (for debug leak detection).
+    #[cfg(debug_assertions)]
+    pub fn parent_flex_children(&self) -> i32 {
+        self.parent_flex.children()
     }
 }

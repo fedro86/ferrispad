@@ -231,6 +231,16 @@ impl AppState {
             self.switch_to_document(active_id);
         }
         self.rebuild_tab_bar();
+        // Ask glibc to return freed C++ (FLTK) pages to the OS.
+        // jemalloc handles Rust allocations; glibc handles C++ allocations
+        // and won't return pages without an explicit trim.
+        #[cfg(target_os = "linux")]
+        unsafe {
+            unsafe extern "C" { fn malloc_trim(pad: std::ffi::c_int) -> std::ffi::c_int; }
+            malloc_trim(0);
+        }
+        #[cfg(debug_assertions)]
+        eprintln!("[debug] parent_flex children after close_tab: {}", self.editor_container.parent_flex_children());
         false
     }
 
@@ -658,7 +668,15 @@ impl AppState {
         } else {
             self.preview.chunked_resize = None;
             PreviewController::cleanup_preview_file();
+            // hide_preview() calls set_value("") which releases HelpView refs,
+            // then we release the Fl_Shared_Image cache entries.
             self.editor_container.hide_preview();
+            self.preview.release_cached_images();
+            #[cfg(target_os = "linux")]
+            unsafe {
+                unsafe extern "C" { fn malloc_trim(pad: std::ffi::c_int) -> std::ffi::c_int; }
+                malloc_trim(0);
+            }
         }
     }
 
@@ -668,7 +686,10 @@ impl AppState {
 
         if !self.preview.enabled {
             if self.editor_container.is_split() {
+                // hide_preview() calls set_value("") which releases HelpView refs,
+                // then we release the Fl_Shared_Image cache entries.
                 self.editor_container.hide_preview();
+                self.preview.release_cached_images();
             }
             return;
         }
@@ -681,6 +702,7 @@ impl AppState {
         if !is_md {
             if self.editor_container.is_split() {
                 self.editor_container.hide_preview();
+                self.preview.release_cached_images();
             }
             return;
         }
@@ -708,6 +730,10 @@ impl AppState {
             // Show phase-1 HTML immediately
             let wrapped = wrap_html_for_helpview(&phase1_html);
             if let Some(temp_path) = PreviewController::write_preview_file(&wrapped) {
+                // Release old cached images before loading new content.
+                // HelpView's load() replaces content, releasing old refs first.
+                self.preview.release_cached_images();
+                self.preview.track_images_in_html(&phase1_html);
                 self.editor_container.show_preview();
                 self.editor_container.load_preview_file(&temp_path);
             }
@@ -751,6 +777,10 @@ impl AppState {
             Some(ImageResizeProgress::Done(final_html)) => {
                 let wrapped = wrap_html_for_helpview(&final_html);
                 if let Some(temp_path) = PreviewController::write_preview_file(&wrapped) {
+                    // Release phase-1 cached images, track phase-3 images.
+                    // load_preview_file replaces content, releasing old HelpView refs.
+                    self.preview.release_cached_images();
+                    self.preview.track_images_in_html(&final_html);
                     self.editor_container.load_preview_file(&temp_path);
                 }
 
