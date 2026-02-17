@@ -2,6 +2,7 @@ use fltk::{
     app,
     button::{Button, CheckButton},
     dialog,
+    enums::CallbackTrigger,
     frame::Frame,
     input::Input,
     prelude::*,
@@ -201,6 +202,14 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
         }
     });
 
+    // Enter key on find input triggers Find Next
+    let mut find_btn_enter = find_btn.clone();
+    let mut find_input_enter = find_input.clone();
+    find_input_enter.set_trigger(CallbackTrigger::EnterKeyAlways);
+    find_input_enter.set_callback(move |_| {
+        find_btn_enter.do_callback();
+    });
+
     let dialog_close = dialog_win.clone();
     close_btn.set_callback(move |_| {
         dialog_close.clone().hide();
@@ -320,6 +329,14 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
         } else {
             dialog::message_default(&format!("Cannot find '{}'", query));
         }
+    });
+
+    // Enter key on find input triggers Find Next
+    let mut find_btn_enter2 = find_btn.clone();
+    let mut find_input_enter2 = find_input.clone();
+    find_input_enter2.set_trigger(CallbackTrigger::EnterKeyAlways);
+    find_input_enter2.set_callback(move |_| {
+        find_btn_enter2.do_callback();
     });
 
     let dialog_close = dialog_win.clone();

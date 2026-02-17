@@ -20,6 +20,8 @@ pub enum SessionRestore {
 pub struct SessionData {
     pub active_index: usize,
     pub documents: Vec<DocumentSession>,
+    #[serde(default)]
+    pub last_open_directory: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -40,7 +42,7 @@ pub fn session_dir() -> PathBuf {
 }
 
 /// Save the current session to disk.
-pub fn save_session(tab_manager: &TabManager, mode: SessionRestore) -> Result<(), String> {
+pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_directory: Option<&str>) -> Result<(), String> {
     if mode == SessionRestore::Off {
         return Ok(());
     }
@@ -142,6 +144,7 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore) -> Result<()
     let session_data = SessionData {
         active_index,
         documents: doc_sessions,
+        last_open_directory: last_open_directory.map(|s| s.to_string()),
     };
 
     let json = serde_json::to_string_pretty(&session_data)

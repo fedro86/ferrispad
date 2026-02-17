@@ -74,6 +74,8 @@ pub struct AppState {
     pub highlight_queue: Vec<DocumentId>,
     /// Whether syntax highlighting is active (toggle via View menu).
     pub highlighting_enabled: bool,
+    /// Last directory used in a file open/save dialog.
+    pub last_open_directory: Option<String>,
 }
 
 impl AppState {
@@ -126,6 +128,7 @@ impl AppState {
             rehighlight_timer_active: false,
             highlight_queue: Vec::new(),
             highlighting_enabled,
+            last_open_directory: None,
         }
     }
 
@@ -253,6 +256,10 @@ impl AppState {
     // --- File operations ---
 
     pub fn open_file(&mut self, path: String) {
+        // Remember the parent directory for future open/save dialogs
+        if let Some(parent) = std::path::Path::new(&path).parent() {
+            self.last_open_directory = Some(parent.to_string_lossy().to_string());
+        }
         match fs::read_to_string(&path) {
             Ok(content) => {
                 if self.tabs_enabled {
@@ -302,12 +309,13 @@ impl AppState {
     }
 
     pub fn file_open(&mut self) {
+        let dir = self.last_open_directory.as_deref();
         if self.tabs_enabled {
-            let paths = native_open_multi_dialog();
+            let paths = native_open_multi_dialog(dir);
             for path in paths {
                 self.open_file(path);
             }
-        } else if let Some(path) = native_open_dialog() {
+        } else if let Some(path) = native_open_dialog(dir) {
             self.open_file(path);
         }
     }
@@ -346,7 +354,10 @@ impl AppState {
             }
         };
 
-        if let Some(path) = native_save_dialog() {
+        if let Some(path) = native_save_dialog(self.last_open_directory.as_deref()) {
+            if let Some(parent) = std::path::Path::new(&path).parent() {
+                self.last_open_directory = Some(parent.to_string_lossy().to_string());
+            }
             match fs::write(&path, &text) {
                 Ok(_) => {
                     let id = {
@@ -386,6 +397,8 @@ impl AppState {
             Some(data) => data,
             None => return,
         };
+
+        self.last_open_directory = session_data.last_open_directory.clone();
 
         if let Some(id) = self.tab_manager.active_id() {
             self.tab_manager.remove(id);
@@ -532,7 +545,7 @@ impl AppState {
         };
 
         if should_quit {
-            if let Err(e) = session::save_session(&self.tab_manager, session_mode) {
+            if let Err(e) = session::save_session(&self.tab_manager, session_mode, self.last_open_directory.as_deref()) {
                 eprintln!("Failed to save session: {}", e);
             }
         }
