@@ -548,7 +548,6 @@ impl AppState {
         };
 
         if should_quit {
-            self.cleanup_preview_file();
             preview_controller::cleanup_temp_images();
             if let Err(e) = session::save_session(&self.tab_manager, session_mode, self.last_open_directory.as_deref()) {
                 eprintln!("Failed to save session: {}", e);
@@ -658,7 +657,7 @@ impl AppState {
             self.update_preview();
         } else {
             self.preview.chunked_resize = None;
-            self.cleanup_preview_file();
+            PreviewController::cleanup_preview_file();
             self.editor_container.hide_preview();
         }
     }
@@ -708,13 +707,14 @@ impl AppState {
 
             // Show phase-1 HTML immediately
             let wrapped = wrap_html_for_helpview(&phase1_html);
-            if let Some(temp_path) = PreviewController::write_preview_file(&wrapped, md_path) {
+            if let Some(temp_path) = PreviewController::write_preview_file(&wrapped) {
                 self.editor_container.show_preview();
                 self.editor_container.load_preview_file(&temp_path);
             }
 
-            // Start async image resize if there are tasks
-            if self.preview.start_image_resize(phase1_html, tasks, md_dir) {
+            // Start async image resize if there are tasks.
+            // Pass the original raw HTML so rewrite_img_sources can match src attrs.
+            if self.preview.start_image_resize(raw_html, tasks, md_dir) {
                 // Show banner
                 self.update_banner_frame.set_label("  Resizing images... (0/?)");
                 self.update_banner_frame.show();
@@ -736,17 +736,6 @@ impl AppState {
     }
 
     pub fn continue_image_resize(&mut self) {
-        let file_path = self.tab_manager.active_doc()
-            .and_then(|doc| doc.file_path.clone());
-
-        let md_path = match file_path {
-            Some(ref p) => p.clone(),
-            None => {
-                self.preview.chunked_resize = None;
-                return;
-            }
-        };
-
         match self.preview.process_next_image() {
             Some(ImageResizeProgress::InProgress(done, total)) => {
                 self.update_banner_frame.set_label(
@@ -761,7 +750,7 @@ impl AppState {
             }
             Some(ImageResizeProgress::Done(final_html)) => {
                 let wrapped = wrap_html_for_helpview(&final_html);
-                if let Some(temp_path) = PreviewController::write_preview_file(&wrapped, &md_path) {
+                if let Some(temp_path) = PreviewController::write_preview_file(&wrapped) {
                     self.editor_container.load_preview_file(&temp_path);
                 }
 
@@ -772,15 +761,6 @@ impl AppState {
             }
             None => {
                 // No resize in progress — orphan message, ignore
-            }
-        }
-    }
-
-    /// Remove the temp .ferrispad-preview.html file if the active doc has a path.
-    fn cleanup_preview_file(&self) {
-        if let Some(doc) = self.tab_manager.active_doc() {
-            if let Some(ref path) = doc.file_path {
-                PreviewController::cleanup_preview_file(path);
             }
         }
     }

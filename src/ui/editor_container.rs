@@ -9,6 +9,7 @@ use fltk::{
 pub struct EditorContainer {
     parent_flex: Flex,
     editor: TextEditor,
+    /// Created once on first show_preview(), then reused across hide/show cycles.
     help_view: Option<HelpView>,
     tile: Option<Tile>,
     is_split: bool,
@@ -32,7 +33,8 @@ impl EditorContainer {
         }
     }
 
-    /// Show the preview split. Replaces the editor in the parent Flex with a Tile.
+    /// Show the preview split. Creates a Tile wrapper each time (FLTK requires
+    /// fresh parent-child relationships), but reuses the HelpView widget.
     pub fn show_preview(&mut self) {
         if self.is_split {
             return;
@@ -47,47 +49,57 @@ impl EditorContainer {
         // Remove the bare editor from the parent flex
         self.parent_flex.remove(&self.editor);
 
-        // Create a Tile with editor (left) + HelpView (right)
+        // Create a fresh Tile (FLTK widgets can only have one parent,
+        // so we can't reuse a detached Tile after reparenting the editor)
         let mut tile = Tile::new(fx, fy, fw, fh, None);
 
         self.editor.resize(fx, fy, half_w, fh);
         tile.add(&self.editor);
 
-        let mut hv = HelpView::new(fx + half_w, fy, fw - half_w, fh, None);
-        hv.set_text_size(14);
-        tile.add(&hv);
+        // Reuse existing HelpView or create one on first call
+        if let Some(ref mut hv) = self.help_view {
+            hv.resize(fx + half_w, fy, fw - half_w, fh);
+            hv.show();
+            tile.add(hv);
+        } else {
+            let mut hv = HelpView::new(fx + half_w, fy, fw - half_w, fh, None);
+            hv.set_text_size(14);
+            tile.add(&hv);
+            self.help_view = Some(hv);
+        }
 
         tile.end();
-
-        // Add the Tile to the parent flex (takes the fill slot)
         self.parent_flex.add(&tile);
-
-        self.help_view = Some(hv);
         self.tile = Some(tile);
-        self.is_split = true;
 
+        self.is_split = true;
         self.parent_flex.layout();
         self.parent_flex.redraw();
     }
 
     /// Hide the preview, restoring the editor as a direct child of the parent Flex.
+    /// The HelpView is kept alive for reuse (avoids re-allocating the heavy widget).
     pub fn hide_preview(&mut self) {
         if !self.is_split {
             return;
+        }
+
+        // Clear HelpView content so FLTK releases Fl_Shared_Image references
+        if let Some(ref mut hv) = self.help_view {
+            hv.set_value("");
+            hv.hide();
         }
 
         // Remove the Tile from the parent flex
         if let Some(ref tile) = self.tile {
             self.parent_flex.remove(tile);
         }
+        self.tile = None;
 
         // Re-add the bare editor to the parent flex
         self.parent_flex.add(&self.editor);
 
-        self.help_view = None;
-        self.tile = None;
         self.is_split = false;
-
         self.parent_flex.layout();
         self.parent_flex.redraw();
     }

@@ -24,8 +24,8 @@ pub struct ImageResizeTask {
 pub struct ChunkedImageResize {
     pub tasks: Vec<ImageResizeTask>,
     pub progress: usize,
-    /// The raw HTML from phase 1 (with src attrs to be rewritten).
-    pub phase1_html: String,
+    /// The original raw HTML (with all src attrs intact) used by rewrite_img_sources.
+    pub raw_html: String,
     /// Directory containing the markdown file.
     pub md_dir: PathBuf,
 }
@@ -78,22 +78,19 @@ impl PreviewController {
         }
     }
 
-    /// Write rendered HTML to a temp file next to the markdown file.
+    /// Write rendered HTML to a temp file in the temp image directory.
     /// Returns the temp file path, or None if writing failed.
-    pub fn write_preview_file(html: &str, md_path: &str) -> Option<String> {
-        let md = Path::new(md_path);
-        let dir = md.parent()?;
-        let temp_path = dir.join(".ferrispad-preview.html");
+    pub fn write_preview_file(html: &str) -> Option<String> {
+        let dir = temp_image_dir();
+        let temp_path = dir.join("preview.html");
         fs::write(&temp_path, html).ok()?;
         Some(temp_path.to_string_lossy().to_string())
     }
 
-    /// Remove the temp preview file if it exists.
-    pub fn cleanup_preview_file(md_path: &str) {
-        if let Some(dir) = Path::new(md_path).parent() {
-            let temp_path = dir.join(".ferrispad-preview.html");
-            let _ = fs::remove_file(temp_path);
-        }
+    /// Remove the temp preview HTML file if it exists.
+    pub fn cleanup_preview_file() {
+        let temp_path = temp_image_dir().join("preview.html");
+        let _ = fs::remove_file(temp_path);
     }
 
     /// Toggle preview state. Returns new enabled state.
@@ -105,7 +102,7 @@ impl PreviewController {
     /// Start chunked image resizing. Returns true if there are tasks to process.
     pub fn start_image_resize(
         &mut self,
-        phase1_html: String,
+        raw_html: String,
         tasks: Vec<ImageResizeTask>,
         md_dir: PathBuf,
     ) -> bool {
@@ -116,7 +113,7 @@ impl PreviewController {
         self.chunked_resize = Some(ChunkedImageResize {
             tasks,
             progress: 0,
-            phase1_html,
+            raw_html,
             md_dir,
         });
         true
@@ -138,8 +135,9 @@ impl PreviewController {
             }
         }
 
-        // All done — rewrite sources and return final HTML
-        let final_html = rewrite_img_sources(&state.phase1_html, &state.tasks, &state.md_dir);
+        // All done — rewrite sources in final HTML
+        let state = self.chunked_resize.as_ref().unwrap();
+        let final_html = rewrite_img_sources(&state.raw_html, &state.tasks, &state.md_dir);
         self.chunked_resize = None;
         Some(ImageResizeProgress::Done(final_html))
     }
@@ -186,47 +184,97 @@ pub fn extract_resize_tasks(html: &str, md_dir: &Path) -> (String, Vec<ImageResi
         let width = extract_attr(tag, "width");
         let height = extract_attr(tag, "height");
 
-        // Build phase-1 tag (stripped of width/height/style)
-        phase1_html.push_str("<img");
-        if let Some(s) = &src {
-            phase1_html.push_str(&format!(" src=\"{}\"", s));
-        }
-        if let Some(a) = &alt {
-            phase1_html.push_str(&format!(" alt=\"{}\"", a));
-        }
-        if self_closing {
-            phase1_html.push_str("/>");
-        } else {
-            phase1_html.push('>');
+        // Determine how to handle this image in phase-1
+        enum Phase1Action {
+            /// No resize needed — emit src as-is (strip width/height only)
+            PassThrough,
+            /// Cached resized copy exists — use it directly
+            UseCached(PathBuf),
+            /// Needs async resize — omit src to avoid loading full-size original
+            Placeholder,
         }
 
-        // Create resize task if we have src + at least one dimension + local file
-        if let Some(ref src_val) = src {
-            let is_remote = src_val.starts_with("http://") || src_val.starts_with("https://");
-            let has_dimensions = width.is_some() || height.is_some();
+        let action = match &src {
+            Some(src_val) => {
+                let is_remote = src_val.starts_with("http://") || src_val.starts_with("https://");
+                let has_dimensions = width.is_some() || height.is_some();
 
-            if !is_remote && has_dimensions {
-                let abs_path = if Path::new(src_val).is_absolute() {
-                    PathBuf::from(src_val)
+                if is_remote || !has_dimensions {
+                    Phase1Action::PassThrough
                 } else {
-                    md_dir.join(src_val)
-                };
+                    let abs_path = if Path::new(src_val.as_str()).is_absolute() {
+                        PathBuf::from(src_val.as_str())
+                    } else {
+                        md_dir.join(src_val.as_str())
+                    };
 
-                if abs_path.exists() {
-                    let w: Option<u32> = width.and_then(|v| v.parse().ok());
-                    let h: Option<u32> = height.and_then(|v| v.parse().ok());
+                    if !abs_path.exists() {
+                        Phase1Action::PassThrough
+                    } else {
+                        let w: Option<u32> = width.and_then(|v| v.parse().ok());
+                        let h: Option<u32> = height.and_then(|v| v.parse().ok());
 
-                    if let Some((tw, th)) = resolve_dimensions(&abs_path, w, h) {
-                        let temp_path = compute_temp_path(&abs_path, tw, th);
-                        tasks.push(ImageResizeTask {
-                            original_src: src_val.to_string(),
-                            absolute_path: abs_path,
-                            target_width: tw,
-                            target_height: th,
-                            temp_path,
-                        });
+                        match resolve_dimensions(&abs_path, w, h) {
+                            Some((tw, th)) => {
+                                let temp_path = compute_temp_path(&abs_path, tw, th);
+                                if is_cached_at(&temp_path, &abs_path) {
+                                    Phase1Action::UseCached(temp_path)
+                                } else {
+                                    tasks.push(ImageResizeTask {
+                                        original_src: src_val.to_string(),
+                                        absolute_path: abs_path,
+                                        target_width: tw,
+                                        target_height: th,
+                                        temp_path,
+                                    });
+                                    Phase1Action::Placeholder
+                                }
+                            }
+                            None => Phase1Action::PassThrough,
+                        }
                     }
                 }
+            }
+            None => Phase1Action::PassThrough,
+        };
+
+        match action {
+            Phase1Action::PassThrough => {
+                phase1_html.push_str("<img");
+                if let Some(s) = &src {
+                    // Resolve relative paths to absolute so they work from the temp folder
+                    let abs_src = if Path::new(s.as_str()).is_absolute() {
+                        s.clone()
+                    } else {
+                        md_dir.join(s.as_str()).to_string_lossy().to_string()
+                    };
+                    phase1_html.push_str(&format!(" src=\"{}\"", abs_src));
+                }
+                if let Some(a) = &alt {
+                    phase1_html.push_str(&format!(" alt=\"{}\"", a));
+                }
+                if self_closing { phase1_html.push_str("/>"); }
+                else { phase1_html.push('>'); }
+            }
+            Phase1Action::UseCached(temp_path) => {
+                phase1_html.push_str(&format!(
+                    "<img src=\"{}\"", temp_path.to_string_lossy()
+                ));
+                if let Some(a) = &alt {
+                    phase1_html.push_str(&format!(" alt=\"{}\"", a));
+                }
+                if self_closing { phase1_html.push_str("/>"); }
+                else { phase1_html.push('>'); }
+            }
+            Phase1Action::Placeholder => {
+                // Omit src so HelpView doesn't load the full-size original into
+                // Fl_Shared_Image cache. Show bracketed alt text as placeholder.
+                phase1_html.push_str("<img");
+                if let Some(a) = &alt {
+                    phase1_html.push_str(&format!(" alt=\"[{}]\"", a));
+                }
+                if self_closing { phase1_html.push_str("/>"); }
+                else { phase1_html.push('>'); }
             }
         }
 
@@ -287,12 +335,12 @@ pub fn compute_temp_path(absolute_src: &Path, width: u32, height: u32) -> PathBu
 }
 
 /// Check if a cached temp file exists and is newer than the source.
-fn is_cached(task: &ImageResizeTask) -> bool {
-    let temp_meta = match fs::metadata(&task.temp_path) {
+fn is_cached_at(temp_path: &Path, source_path: &Path) -> bool {
+    let temp_meta = match fs::metadata(temp_path) {
         Ok(m) => m,
         Err(_) => return false,
     };
-    let src_meta = match fs::metadata(&task.absolute_path) {
+    let src_meta = match fs::metadata(source_path) {
         Ok(m) => m,
         Err(_) => return false,
     };
@@ -307,7 +355,7 @@ fn is_cached(task: &ImageResizeTask) -> bool {
 /// Silently skips on any failure (image shows at native size).
 fn resize_image(task: &ImageResizeTask) {
     // Skip if already cached
-    if is_cached(task) {
+    if is_cached_at(&task.temp_path, &task.absolute_path) {
         return;
     }
 
@@ -403,16 +451,17 @@ mod tests {
 
     #[test]
     fn test_extract_resize_tasks_strips_attrs() {
+        // Source file doesn't exist, so falls through to PassThrough with absolute path
         let input = r#"<img src="logo.png" alt="Logo" width="200" style="border: 1px;"/>"#;
         let (phase1, _tasks) = extract_resize_tasks(input, Path::new("/nonexistent"));
-        assert_eq!(phase1, r#"<img src="logo.png" alt="Logo"/>"#);
+        assert_eq!(phase1, r#"<img src="/nonexistent/logo.png" alt="Logo"/>"#);
     }
 
     #[test]
     fn test_extract_resize_tasks_preserves_other_html() {
         let input = r#"<h1>Title</h1><img src="a.png" width="100"><p>text</p>"#;
         let (phase1, _tasks) = extract_resize_tasks(input, Path::new("/nonexistent"));
-        assert_eq!(phase1, r#"<h1>Title</h1><img src="a.png"><p>text</p>"#);
+        assert_eq!(phase1, r#"<h1>Title</h1><img src="/nonexistent/a.png"><p>text</p>"#);
     }
 
     #[test]

@@ -17,9 +17,5 @@ docs/assets/binaries/*
 FerrisPad.app/
 FerrisPad.iconset/
 
-# Preview temp files
-.ferrispad-preview.html
-.ferrispad-test.html
-
 # Sh excluded files
 scripts/trigger_build_gh_worflow.sh
