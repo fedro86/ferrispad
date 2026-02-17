@@ -6,6 +6,7 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 use super::buffer_utils::buffer_text_no_leak;
+use super::error::AppError;
 use super::tab_manager::TabManager;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -16,8 +17,16 @@ pub enum SessionRestore {
     Full,
 }
 
+const CURRENT_SESSION_VERSION: u32 = 1;
+
+fn default_version() -> u32 {
+    CURRENT_SESSION_VERSION
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct SessionData {
+    #[serde(default = "default_version")]
+    pub version: u32,
     pub active_index: usize,
     pub documents: Vec<DocumentSession>,
     #[serde(default)]
@@ -42,7 +51,7 @@ pub fn session_dir() -> PathBuf {
 }
 
 /// Save the current session to disk.
-pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_directory: Option<&str>) -> Result<(), String> {
+pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_directory: Option<&str>) -> Result<(), AppError> {
     if mode == SessionRestore::Off {
         return Ok(());
     }
@@ -59,7 +68,7 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
     }
 
     let dir = session_dir();
-    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create session dir: {}", e))?;
+    fs::create_dir_all(&dir)?;
     let active_id = tab_manager.active_id();
     let active_index = active_id
         .and_then(|id| docs.iter().position(|d| d.id == id))
@@ -95,8 +104,7 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
                     let hash = make_hash(&doc.display_name, doc.id.0);
                     let filename = format!("{:016x}.tmp", hash);
                     let temp_path = dir.join(&filename);
-                    fs::write(&temp_path, &content)
-                        .map_err(|e| format!("Failed to write temp file: {}", e))?;
+                    fs::write(&temp_path, &content)?;
                     Some(filename)
                 } else {
                     None
@@ -142,16 +150,15 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
     }
 
     let session_data = SessionData {
+        version: CURRENT_SESSION_VERSION,
         active_index,
         documents: doc_sessions,
         last_open_directory: last_open_directory.map(|s| s.to_string()),
     };
 
-    let json = serde_json::to_string_pretty(&session_data)
-        .map_err(|e| format!("Failed to serialize session: {}", e))?;
+    let json = serde_json::to_string_pretty(&session_data)?;
 
-    fs::write(&session_file, json)
-        .map_err(|e| format!("Failed to write session file: {}", e))?;
+    fs::write(&session_file, json)?;
 
     Ok(())
 }
@@ -165,6 +172,13 @@ pub fn load_session(mode: SessionRestore) -> Option<SessionData> {
     let session_file = session_dir().join("session.json");
     let contents = fs::read_to_string(&session_file).ok()?;
     let session_data: SessionData = serde_json::from_str(&contents).ok()?;
+
+    if session_data.version > CURRENT_SESSION_VERSION {
+        eprintln!(
+            "Warning: session file version {} is newer than supported version {}",
+            session_data.version, CURRENT_SESSION_VERSION
+        );
+    }
 
     if session_data.documents.is_empty() {
         return None;

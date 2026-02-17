@@ -14,6 +14,8 @@ use super::buffer_utils::buffer_text_no_leak;
 use super::syntax::SyntaxHighlighter;
 use super::tab_manager::TabManager;
 
+const LARGE_FILE_THRESHOLD: usize = 5000;
+
 /// Borrowed UI widgets needed by highlight operations.
 pub struct HighlightWidgets<'a> {
     pub editor: &'a mut TextEditor,
@@ -117,8 +119,6 @@ impl HighlightController {
         tab_manager: &mut TabManager,
         sender: &Sender<Message>,
     ) {
-        const LARGE_FILE_THRESHOLD: usize = 5000;
-
         if !self.highlighting_enabled {
             let syntax_name = self.highlighter.detect_syntax(path);
             if let Some(doc) = tab_manager.doc_by_id_mut(id) {
@@ -184,7 +184,7 @@ impl HighlightController {
 
         if checkpoints_empty {
             let line_count = text.lines().count();
-            if line_count > 5000 {
+            if line_count > LARGE_FILE_THRESHOLD {
                 if !self.highlight_queue.contains(&id) {
                     let was_empty = self.highlight_queue.is_empty()
                         && self.highlighter.chunked_doc_id().is_none();
@@ -344,8 +344,6 @@ impl HighlightController {
         sender: &Sender<Message>,
         widgets: &mut HighlightWidgets,
     ) {
-        const LARGE_FILE_THRESHOLD: usize = 5000;
-
         while let Some(id) = self.highlight_queue.first().copied() {
             self.highlight_queue.remove(0);
 
@@ -393,8 +391,6 @@ impl HighlightController {
         tab_manager: &mut TabManager,
         sender: &Sender<Message>,
     ) {
-        const LARGE_FILE_THRESHOLD: usize = 5000;
-
         let doc_ids: Vec<DocumentId> =
             tab_manager.documents().iter().map(|d| d.id).collect();
         for id in doc_ids {

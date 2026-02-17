@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+use super::error::AppError;
 use super::session::SessionRestore;
 use super::updater::UpdateChannel;
 
@@ -135,22 +136,16 @@ impl AppSettings {
     }
 
     /// Save settings to disk
-    pub fn save(&self) -> Result<(), String> {
+    pub fn save(&self) -> Result<(), AppError> {
         let config_path = Self::get_config_path();
 
         // Ensure parent directory exists
         if let Some(parent) = config_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create config directory: {}", e))?;
+            fs::create_dir_all(parent)?;
         }
 
-        // Serialize to pretty JSON
-        let json = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Failed to serialize settings: {}", e))?;
-
-        // Write to file
-        fs::write(&config_path, json)
-            .map_err(|e| format!("Failed to write settings: {}", e))?;
+        let json = serde_json::to_string_pretty(self)?;
+        fs::write(&config_path, json)?;
 
         Ok(())
     }
