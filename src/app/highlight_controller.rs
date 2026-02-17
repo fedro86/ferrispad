@@ -10,7 +10,7 @@ use fltk::{
 
 use super::document::DocumentId;
 use super::messages::Message;
-use super::state::buffer_text_no_leak;
+use super::buffer_utils::buffer_text_no_leak;
 use super::syntax::SyntaxHighlighter;
 use super::tab_manager::TabManager;
 

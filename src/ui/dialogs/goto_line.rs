@@ -9,7 +9,7 @@ use fltk::{
     window::Window,
 };
 
-use crate::app::state::buffer_text_no_leak;
+use crate::app::buffer_utils::buffer_text_no_leak;
 use crate::app::text_ops::line_number_to_byte_position;
 
 /// Show Go To Line dialog

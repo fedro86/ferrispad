@@ -11,7 +11,7 @@ use fltk::{
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::app::state::buffer_text_no_leak;
+use crate::app::buffer_utils::buffer_text_no_leak;
 use crate::app::text_ops::{find_in_text, find_in_text_backward, replace_all_in_text};
 
 /// Show Find & Replace dialog

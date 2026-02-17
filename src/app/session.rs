@@ -5,7 +5,7 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
-use super::state::buffer_text_no_leak;
+use super::buffer_utils::buffer_text_no_leak;
 use super::tab_manager::TabManager;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

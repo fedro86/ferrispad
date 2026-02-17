@@ -1,3 +1,4 @@
+pub mod buffer_utils;
 pub mod text_ops;
 pub mod platform;
 pub mod messages;
