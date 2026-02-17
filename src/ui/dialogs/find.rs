@@ -14,6 +14,84 @@ use std::rc::Rc;
 use crate::app::buffer_utils::buffer_text_no_leak;
 use crate::app::text_ops::{find_in_text, find_in_text_backward, replace_all_in_text};
 
+struct FindState {
+    search_text: Rc<RefCell<String>>,
+    search_pos: Rc<RefCell<usize>>,
+}
+
+impl FindState {
+    fn new() -> Self {
+        Self {
+            search_text: Rc::new(RefCell::new(String::new())),
+            search_pos: Rc::new(RefCell::new(0usize)),
+        }
+    }
+
+    fn find_next(
+        st: Rc<RefCell<String>>,
+        sp: Rc<RefCell<usize>>,
+        query: &str,
+        buf: &mut TextBuffer,
+        ed: &mut TextEditor,
+        case_sensitive: bool,
+    ) {
+        let text = buffer_text_no_leak(buf);
+
+        let start_pos = if *st.borrow() != query {
+            *st.borrow_mut() = query.to_string();
+            let cursor = ed.insert_position() as usize;
+            *sp.borrow_mut() = cursor;
+            cursor
+        } else {
+            *sp.borrow()
+        };
+
+        let found = find_in_text(&text, query, start_pos, case_sensitive)
+            .or_else(|| if start_pos > 0 { find_in_text(&text, query, 0, case_sensitive) } else { None });
+
+        if let Some(pos) = found {
+            buf.select(pos as i32, (pos + query.len()) as i32);
+            ed.set_insert_position((pos + query.len()) as i32);
+            ed.show_insert_position();
+            *sp.borrow_mut() = pos + query.len();
+        } else {
+            dialog::message_default(&format!("Cannot find '{}'", query));
+        }
+    }
+
+    fn find_prev(
+        st: Rc<RefCell<String>>,
+        sp: Rc<RefCell<usize>>,
+        query: &str,
+        buf: &mut TextBuffer,
+        ed: &mut TextEditor,
+        case_sensitive: bool,
+    ) {
+        let text = buffer_text_no_leak(buf);
+
+        let start_pos = if *st.borrow() != query {
+            *st.borrow_mut() = query.to_string();
+            let cursor = ed.insert_position() as usize;
+            *sp.borrow_mut() = cursor;
+            cursor
+        } else {
+            *sp.borrow()
+        };
+
+        let found = find_in_text_backward(&text, query, start_pos, case_sensitive)
+            .or_else(|| if start_pos < text.len() { find_in_text_backward(&text, query, text.len(), case_sensitive) } else { None });
+
+        if let Some(pos) = found {
+            buf.select(pos as i32, (pos + query.len()) as i32);
+            ed.set_insert_position(pos as i32);
+            ed.show_insert_position();
+            *sp.borrow_mut() = pos;
+        } else {
+            dialog::message_default(&format!("Cannot find '{}'", query));
+        }
+    }
+}
+
 /// Show Find & Replace dialog
 pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
     let mut dialog_win = Window::default()
@@ -45,14 +123,13 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
     dialog_win.make_resizable(false);
     dialog_win.show();
 
-    let search_text = Rc::new(RefCell::new(String::new()));
-    let search_pos = Rc::new(RefCell::new(0usize));
+    let state = FindState::new();
     let text_buf = buffer.clone();
     let text_ed = editor.clone();
 
     // Find Next button
-    let st = search_text.clone();
-    let sp = search_pos.clone();
+    let st = state.search_text.clone();
+    let sp = state.search_pos.clone();
     let mut tb1 = text_buf.clone();
     let mut te1 = text_ed.clone();
     let find_input1 = find_input.clone();
@@ -64,36 +141,12 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
             dialog::message_default("Please enter text to find");
             return;
         }
-
-        let text = buffer_text_no_leak(&tb1);
-        let case_sensitive = case_check1.is_checked();
-
-        // If search text changed, start from current cursor position
-        let start_pos = if *st.borrow() != query {
-            *st.borrow_mut() = query.clone();
-            let cursor = te1.insert_position() as usize;
-            *sp.borrow_mut() = cursor;
-            cursor
-        } else {
-            *sp.borrow()
-        };
-
-        let found = find_in_text(&text, &query, start_pos, case_sensitive)
-            .or_else(|| if start_pos > 0 { find_in_text(&text, &query, 0, case_sensitive) } else { None });
-
-        if let Some(pos) = found {
-            tb1.select(pos as i32, (pos + query.len()) as i32);
-            te1.set_insert_position((pos + query.len()) as i32);
-            te1.show_insert_position();
-            *sp.borrow_mut() = pos + query.len();
-        } else {
-            dialog::message_default(&format!("Cannot find '{}'", query));
-        }
+        FindState::find_next(st.clone(), sp.clone(), &query, &mut tb1, &mut te1, case_check1.is_checked());
     });
 
     // Find Previous button
-    let st_prev = search_text.clone();
-    let sp_prev = search_pos.clone();
+    let st_prev = state.search_text.clone();
+    let sp_prev = state.search_pos.clone();
     let mut tb_prev = text_buf.clone();
     let mut te_prev = text_ed.clone();
     let find_input_prev = find_input.clone();
@@ -105,34 +158,11 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
             dialog::message_default("Please enter text to find");
             return;
         }
-
-        let text = buffer_text_no_leak(&tb_prev);
-        let case_sensitive = case_check_prev.is_checked();
-
-        let start_pos = if *st_prev.borrow() != query {
-            *st_prev.borrow_mut() = query.clone();
-            let cursor = te_prev.insert_position() as usize;
-            *sp_prev.borrow_mut() = cursor;
-            cursor
-        } else {
-            *sp_prev.borrow()
-        };
-
-        let found = find_in_text_backward(&text, &query, start_pos, case_sensitive)
-            .or_else(|| if start_pos < text.len() { find_in_text_backward(&text, &query, text.len(), case_sensitive) } else { None });
-
-        if let Some(pos) = found {
-            tb_prev.select(pos as i32, (pos + query.len()) as i32);
-            te_prev.set_insert_position(pos as i32);
-            te_prev.show_insert_position();
-            *sp_prev.borrow_mut() = pos;
-        } else {
-            dialog::message_default(&format!("Cannot find '{}'", query));
-        }
+        FindState::find_prev(st_prev.clone(), sp_prev.clone(), &query, &mut tb_prev, &mut te_prev, case_check_prev.is_checked());
     });
 
     // Replace button
-    let sp2 = search_pos.clone();
+    let sp2 = state.search_pos.clone();
     let mut tb2 = text_buf.clone();
     let mut te2 = text_ed.clone();
     let find_input2 = find_input.clone();
@@ -246,12 +276,11 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
     dialog_win.make_resizable(false);
     dialog_win.show();
 
-    let search_text = Rc::new(RefCell::new(String::new()));
-    let search_pos = Rc::new(RefCell::new(0usize));
+    let state = FindState::new();
 
     // Find Next button (simple dialog)
-    let st = search_text.clone();
-    let sp = search_pos.clone();
+    let st = state.search_text.clone();
+    let sp = state.search_pos.clone();
     let mut tb1 = buffer.clone();
     let mut te1 = editor.clone();
     let find_input1 = find_input.clone();
@@ -263,34 +292,12 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
             dialog::message_default("Please enter text to find");
             return;
         }
-
-        let text = buffer_text_no_leak(&tb1);
-        let case_sensitive = case_check1.is_checked();
-
-        let start_pos = if *st.borrow() != query {
-            *st.borrow_mut() = query.clone();
-            *sp.borrow_mut() = 0;
-            0
-        } else {
-            *sp.borrow()
-        };
-
-        let found = find_in_text(&text, &query, start_pos, case_sensitive)
-            .or_else(|| if start_pos > 0 { find_in_text(&text, &query, 0, case_sensitive) } else { None });
-
-        if let Some(pos) = found {
-            tb1.select(pos as i32, (pos + query.len()) as i32);
-            te1.set_insert_position((pos + query.len()) as i32);
-            te1.show_insert_position();
-            *sp.borrow_mut() = pos + query.len();
-        } else {
-            dialog::message_default(&format!("Cannot find '{}'", query));
-        }
+        FindState::find_next(st.clone(), sp.clone(), &query, &mut tb1, &mut te1, case_check1.is_checked());
     });
 
     // Find Previous button (simple dialog)
-    let st2 = search_text.clone();
-    let sp2 = search_pos.clone();
+    let st2 = state.search_text.clone();
+    let sp2 = state.search_pos.clone();
     let mut tb2 = buffer.clone();
     let mut te2 = editor.clone();
     let find_input2 = find_input.clone();
@@ -302,30 +309,7 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
             dialog::message_default("Please enter text to find");
             return;
         }
-
-        let text = buffer_text_no_leak(&tb2);
-        let case_sensitive = case_check2.is_checked();
-
-        let start_pos = if *st2.borrow() != query {
-            *st2.borrow_mut() = query.clone();
-            let cursor = te2.insert_position() as usize;
-            *sp2.borrow_mut() = cursor;
-            cursor
-        } else {
-            *sp2.borrow()
-        };
-
-        let found = find_in_text_backward(&text, &query, start_pos, case_sensitive)
-            .or_else(|| if start_pos < text.len() { find_in_text_backward(&text, &query, text.len(), case_sensitive) } else { None });
-
-        if let Some(pos) = found {
-            tb2.select(pos as i32, (pos + query.len()) as i32);
-            te2.set_insert_position(pos as i32);
-            te2.show_insert_position();
-            *sp2.borrow_mut() = pos;
-        } else {
-            dialog::message_default(&format!("Cannot find '{}'", query));
-        }
+        FindState::find_prev(st2.clone(), sp2.clone(), &query, &mut tb2, &mut te2, case_check2.is_checked());
     });
 
     // Enter key on find input triggers Find Next
