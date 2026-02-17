@@ -92,6 +92,15 @@ impl TabManager {
 
     }
 
+    /// Move a tab from one index to another.
+    pub fn move_tab(&mut self, from: usize, to: usize) {
+        if from == to || from >= self.documents.len() || to >= self.documents.len() {
+            return;
+        }
+        let doc = self.documents.remove(from);
+        self.documents.insert(to, doc);
+    }
+
     pub fn documents(&self) -> &[Document] {
         &self.documents
     }

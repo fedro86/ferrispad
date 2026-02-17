@@ -34,6 +34,8 @@ struct TabBarState {
     is_dark: bool,
     hover_tab_index: Option<usize>,
     hover_close: bool,
+    drag_source: Option<usize>,
+    drag_target: Option<usize>,
     sender: Sender<Message>,
 }
 
@@ -49,6 +51,8 @@ impl TabBar {
             is_dark: false,
             hover_tab_index: None,
             hover_close: false,
+            drag_source: None,
+            drag_target: None,
             sender,
         }));
 
@@ -321,6 +325,24 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
             Align::Center,
         );
     }
+
+    // Draw drop indicator during drag
+    if let (Some(source), Some(target)) = (st.drag_source, st.drag_target) {
+        if source != target {
+            let indicator_x = if target <= source {
+                tab_x_offset(wx, target, tab_width)
+            } else {
+                tab_x_offset(wx, target, tab_width) + tab_width
+            };
+            let indicator_color = if st.is_dark {
+                Color::from_rgb(100, 160, 255)
+            } else {
+                Color::from_rgb(30, 100, 220)
+            };
+            draw::set_draw_color(indicator_color);
+            draw::draw_rectf(indicator_x - 1, wy + 2, 3, tab_h - 4);
+        }
+    }
 }
 
 // --- Event handling ---
@@ -328,7 +350,7 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
 fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState>>) -> bool {
     match event {
         Event::Push => {
-            let st = state.borrow();
+            let mut st = state.borrow_mut();
             let tab_count = st.tabs.len();
             if tab_count == 0 {
                 return false;
@@ -342,19 +364,63 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
             {
                 let tab_id = st.tabs[idx].id;
                 let sender = st.sender.clone();
-                drop(st);
 
                 if button == 2 {
-                    // Middle click -> close
+                    drop(st);
                     sender.send(Message::TabClose(tab_id));
                 } else if button == 1 {
                     if is_close {
+                        drop(st);
                         sender.send(Message::TabClose(tab_id));
                     } else {
+                        // Start potential drag
+                        st.drag_source = Some(idx);
+                        st.drag_target = None;
+                        drop(st);
                         sender.send(Message::TabSwitch(tab_id));
                     }
                 }
                 return true;
+            }
+            false
+        }
+        Event::Drag => {
+            let mut st = state.borrow_mut();
+            if st.drag_source.is_none() {
+                return false;
+            }
+            let tab_count = st.tabs.len();
+            if tab_count < 2 {
+                return true;
+            }
+            let tab_width = compute_tab_width(wid.w(), tab_count);
+            let mx = fltk::app::event_x();
+            let my = fltk::app::event_y();
+
+            let new_target = hit_test(wid.x(), wid.y(), tab_count, tab_width, mx, my)
+                .map(|(idx, _)| idx);
+
+            if new_target != st.drag_target {
+                st.drag_target = new_target;
+                drop(st);
+                wid.redraw();
+            }
+            true
+        }
+        Event::Released => {
+            let mut st = state.borrow_mut();
+            let source = st.drag_source.take();
+            let target = st.drag_target.take();
+            drop(st);
+            wid.redraw();
+
+            if let (Some(from), Some(to)) = (source, target) {
+                if from != to {
+                    let st = state.borrow();
+                    let sender = st.sender.clone();
+                    drop(st);
+                    sender.send(Message::TabMove(from, to));
+                }
             }
             false
         }
@@ -391,6 +457,8 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
         }
         Event::Leave => {
             let mut st = state.borrow_mut();
+            st.drag_source = None;
+            st.drag_target = None;
             if st.hover_tab_index.is_some() || st.hover_close {
                 st.hover_tab_index = None;
                 st.hover_close = false;

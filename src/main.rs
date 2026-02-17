@@ -200,6 +200,10 @@ fn main() {
                         }
                     }
                 }
+                Message::TabMove(from, to) => {
+                    state.tab_manager.move_tab(from, to);
+                    state.rebuild_tab_bar();
+                }
                 Message::TabNext => state.switch_to_next_tab(),
                 Message::TabPrevious => state.switch_to_previous_tab(),
 

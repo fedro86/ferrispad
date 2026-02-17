@@ -19,6 +19,7 @@ pub enum Message {
     TabSwitch(DocumentId),
     TabClose(DocumentId),
     TabCloseActive,
+    TabMove(usize, usize),
     TabNext,
     TabPrevious,
 
