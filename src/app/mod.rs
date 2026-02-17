@@ -8,3 +8,4 @@ pub mod session;
 pub mod settings;
 pub mod updater;
 pub mod syntax;
+pub mod highlight_controller;
