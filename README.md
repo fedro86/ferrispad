@@ -64,8 +64,8 @@ Download ready-to-use binaries for:
 
 ```bash
 # Download and install the .deb package
-wget https://www.ferrispad.com/assets/binaries/ubuntu/FerrisPad-v0.9.0-rc.2-amd64.deb
-sudo dpkg -i FerrisPad-v0.9.0-rc.2-amd64.deb
+wget https://www.ferrispad.com/assets/binaries/ubuntu/FerrisPad-v0.9.0-rc.3-amd64.deb
+sudo dpkg -i FerrisPad-v0.9.0-rc.3-amd64.deb
 
 # Launch from application menu or run
 FerrisPad
