@@ -5,6 +5,27 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0-rc.3] - 2026-02-17
+
+### Added
+- **Syntax Highlighting**: 50+ languages via syntect with oniguruma regex backend. Chunked non-blocking processing for large files (5000+ lines) with sparse checkpoints every 128 lines for fast incremental re-highlighting.
+- **Drag-to-Reorder Tabs**: Drag tabs left or right with a visual blue drop indicator to reorder open documents.
+- **Session Schema Versioning**: Session files now include a version field for future-proof migration support.
+
+### Fixed
+- **Find No Longer Marks Document as Dirty**: FLTK fires the modify callback for selection changes; the dirty flag now only sets when text is actually inserted or deleted.
+- **View Toggle for Highlighting**: Toggling syntax highlighting via the View menu no longer persists to settings. Settings is the authority at startup; View menu toggles only affect the current session.
+- **Allow Closing App While Dialog is Open**: The `run_dialog` helper checks `app::should_program_quit()` so the app can exit even with a dialog open.
+- **Memory Leaks in Syntax Highlighting**: Reduced highlighting memory from 290MB to 63MB on large files.
+- **TextBuffer::text() Memory Leaks**: Plugged 3.8MB/call leak via `buffer_text_no_leak()` helper across find, replace, goto, and session operations.
+- **Native File Dialogs Restored**: Fixed regression that broke native file chooser on Linux.
+
+### Changed
+- **Architecture Refactoring**: Extracted `HighlightController` (11 methods + 5 fields), `UpdateController`, `buffer_utils` module, and `FindState` from AppState for cleaner separation of concerns.
+- **Error Handling**: Added `thiserror`-based `AppError` enum replacing `Result<T, String>` in session, settings, and updater modules.
+- **Named Constants**: Consolidated `LARGE_FILE_THRESHOLD` into a single module-level constant.
+- **Website Updated**: Features section now reflects syntax highlighting, tabs, find & replace, dark mode, and in-app updates.
+
 ## [0.9.0-rc.2] - 2026-02-15
 
 ### Added
@@ -270,6 +291,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FLTK-based GUI
 - Rust implementation for speed and safety
 
+[0.9.0-rc.3]: https://github.com/fedro86/ferrispad/compare/0.9.0-rc.2...0.9.0-rc.3
+[0.9.0-rc.2]: https://github.com/fedro86/ferrispad/compare/0.9.0-rc.1...0.9.0-rc.2
 [0.9.0-rc.1]: https://github.com/fedro86/ferrispad/compare/0.1.8...0.9.0-rc.1
 [0.1.8]: https://github.com/fedro86/ferrispad/compare/0.1.7...0.1.8
 [0.1.7]: https://github.com/fedro86/ferrispad/compare/0.1.6...0.1.7
