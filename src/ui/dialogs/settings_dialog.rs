@@ -1,5 +1,4 @@
 use fltk::{
-    app,
     button::{Button, CheckButton, RadioRoundButton},
     enums::Color,
     frame::Frame,
@@ -187,9 +186,7 @@ pub fn show_settings_dialog(current_settings: &AppSettings) -> Option<AppSetting
         w.hide();
     });
 
-    while dialog.shown() {
-        app::wait();
-    }
+    super::run_dialog(&dialog);
 
     result.borrow().clone()
 }

@@ -1,5 +1,4 @@
 use fltk::{
-    app,
     button::Button,
     dialog,
     enums::CallbackTrigger,
@@ -78,7 +77,5 @@ pub fn show_goto_line_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
         dialog_x.clone().hide();
     });
 
-    while dialog_win.shown() {
-        app::wait();
-    }
+    super::run_dialog(&dialog_win);
 }

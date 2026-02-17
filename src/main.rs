@@ -94,10 +94,14 @@ fn main() {
         state.open_file(path.clone());
     }
 
-    // Window close button -> send message
+    // Window close button -> signal quit so nested dialog loops break out,
+    // then send the message for the main event loop to handle.
     w.wind.set_callback({
         let s = sender.clone();
-        move |_| s.send(Message::WindowClose)
+        move |_| {
+            fltk::app::program_should_quit(true);
+            s.send(Message::WindowClose);
+        }
     });
 
     // Banner click/dismiss handlers
@@ -172,6 +176,9 @@ fn main() {
                 Message::FileQuit | Message::WindowClose => {
                     if state.file_quit() {
                         fltk_app::quit();
+                    } else {
+                        // User cancelled the quit — reset the flag
+                        fltk::app::program_should_quit(false);
                     }
                 }
 

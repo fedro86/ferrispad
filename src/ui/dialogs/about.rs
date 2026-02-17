@@ -1,5 +1,4 @@
 use fltk::{
-    app,
     button::Button,
     enums::{Color, Font},
     frame::Frame,
@@ -85,7 +84,5 @@ pub fn show_about_dialog() {
     });
 
     dialog.show();
-    while dialog.shown() {
-        app::wait();
-    }
+    super::run_dialog(&dialog);
 }

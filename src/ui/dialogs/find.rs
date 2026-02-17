@@ -1,5 +1,4 @@
 use fltk::{
-    app,
     button::{Button, CheckButton},
     dialog,
     enums::CallbackTrigger,
@@ -220,9 +219,7 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
         dialog_x.clone().hide();
     });
 
-    while dialog_win.shown() {
-        app::wait();
-    }
+    super::run_dialog(&dialog_win);
 }
 
 /// Show Find dialog
@@ -349,7 +346,5 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
         dialog_x.clone().hide();
     });
 
-    while dialog_win.shown() {
-        app::wait();
-    }
+    super::run_dialog(&dialog_win);
 }
