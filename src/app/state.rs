@@ -587,11 +587,6 @@ impl AppState {
 
     pub fn toggle_highlighting(&mut self) {
         self.highlight.highlighting_enabled = !self.highlight.highlighting_enabled;
-        {
-            let mut s = self.settings.borrow_mut();
-            s.highlighting_enabled = self.highlight.highlighting_enabled;
-            let _ = s.save();
-        }
         if self.highlight.highlighting_enabled {
             self.highlight.rehighlight_all_documents(&mut self.tab_manager, &self.sender);
             self.bind_active_buffer();
