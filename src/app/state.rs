@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Instant;
 
 use super::buffer_utils::buffer_text_no_leak;
 
@@ -18,13 +19,15 @@ use std::fs;
 
 use super::document::DocumentId;
 use super::highlight_controller::{HighlightController, HighlightWidgets};
+use super::preview_controller::{self, PreviewController, wrap_html_for_helpview, extract_resize_tasks, ImageResizeProgress};
 use super::session::{self, SessionRestore};
-use super::tab_manager::TabManager;
+use super::tab_manager::{GroupColor, GroupId, TabManager};
 use super::platform::detect_system_dark_mode;
 use super::messages::Message;
 use super::settings::{AppSettings, FontChoice, ThemeMode};
 use super::update_controller::UpdateController;
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
+use crate::ui::editor_container::EditorContainer;
 use crate::ui::file_dialogs::{native_open_dialog, native_open_multi_dialog, native_save_dialog};
 use crate::ui::tab_bar::TabBar;
 use crate::ui::theme::apply_theme;
@@ -35,6 +38,7 @@ pub struct AppState {
     pub tab_manager: TabManager,
     pub tabs_enabled: bool,
     pub tab_bar: Option<TabBar>,
+    pub editor_container: EditorContainer,
     pub editor: TextEditor,
     pub window: Window,
     pub menu: MenuBar,
@@ -47,13 +51,18 @@ pub struct AppState {
     pub word_wrap: bool,
     pub update: UpdateController,
     pub highlight: HighlightController,
+    pub preview: PreviewController,
     /// Last directory used in a file open/save dialog.
     pub last_open_directory: Option<String>,
+    /// Tracks when the session was last auto-saved.
+    last_auto_save: Instant,
+    /// Whether something changed since the last auto-save.
+    session_dirty: bool,
 }
 
 impl AppState {
     pub fn new(
-        editor: TextEditor,
+        editor_container: EditorContainer,
         window: Window,
         menu: MenuBar,
         flex: Flex,
@@ -81,10 +90,16 @@ impl AppState {
         let highlighting_enabled = settings.borrow().highlighting_enabled;
         let highlight = HighlightController::new(dark_mode, font, font_size, highlighting_enabled);
 
+        let preview_enabled = settings.borrow().preview_enabled;
+        let preview = PreviewController::new(preview_enabled);
+
+        let editor = editor_container.editor().clone();
+
         Self {
             tab_manager,
             tabs_enabled,
             tab_bar,
+            editor_container,
             editor,
             window,
             menu,
@@ -97,7 +112,10 @@ impl AppState {
             word_wrap,
             update: UpdateController::new(),
             highlight,
+            preview,
             last_open_directory: None,
+            last_auto_save: Instant::now(),
+            session_dirty: false,
         }
     }
 
@@ -157,6 +175,7 @@ impl AppState {
 
         self.update_linenumber_width();
         self.update_window_title();
+        self.update_preview();
     }
 
     /// Rebuild the tab bar UI from current documents
@@ -165,6 +184,7 @@ impl AppState {
             let active_id = self.tab_manager.active_id();
             tab_bar.rebuild(
                 self.tab_manager.documents(),
+                self.tab_manager.groups(),
                 active_id,
                 &self.sender,
                 self.dark_mode,
@@ -219,6 +239,16 @@ impl AppState {
             self.switch_to_document(active_id);
         }
         self.rebuild_tab_bar();
+        // Ask glibc to return freed C++ (FLTK) pages to the OS.
+        // jemalloc handles Rust allocations; glibc handles C++ allocations
+        // and won't return pages without an explicit trim.
+        #[cfg(target_os = "linux")]
+        unsafe {
+            unsafe extern "C" { fn malloc_trim(pad: std::ffi::c_int) -> std::ffi::c_int; }
+            malloc_trim(0);
+        }
+        #[cfg(debug_assertions)]
+        eprintln!("[debug] parent_flex children after close_tab: {}", self.editor_container.parent_flex_children());
         false
     }
 
@@ -237,7 +267,25 @@ impl AppState {
                         self.rebuild_tab_bar();
                         return;
                     }
+                    // Close empty Untitled tab if it's the only one
+                    let empty_untitled = if self.tab_manager.count() == 1 {
+                        self.tab_manager.active_doc().and_then(|doc| {
+                            if doc.file_path.is_none()
+                                && !doc.is_dirty()
+                                && doc.buffer.length() == 0
+                            {
+                                Some(doc.id)
+                            } else {
+                                None
+                            }
+                        })
+                    } else {
+                        None
+                    };
                     let id = self.tab_manager.add_from_file(path.clone(), &content);
+                    if let Some(untitled_id) = empty_untitled {
+                        self.tab_manager.remove(untitled_id);
+                    }
                     self.detect_and_highlight(id, &path);
                     self.switch_to_document(id);
                     self.rebuild_tab_bar();
@@ -252,6 +300,7 @@ impl AppState {
                         self.detect_and_highlight(id, &path);
                     }
                     self.update_window_title();
+                    self.update_preview();
                 }
             }
             Err(e) => dialog::alert_default(&format!("Error opening file: {}", e)),
@@ -274,6 +323,7 @@ impl AppState {
                 doc.style_buffer.set_text("");
             }
             self.update_window_title();
+            self.update_preview();
         }
     }
 
@@ -306,6 +356,7 @@ impl AppState {
                     }
                     self.update_window_title();
                     self.rebuild_tab_bar();
+                    self.update_preview();
                 }
                 Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
             }
@@ -349,6 +400,7 @@ impl AppState {
                     }
                     self.update_window_title();
                     self.rebuild_tab_bar();
+                    self.update_preview();
                 }
                 Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
             }
@@ -373,10 +425,25 @@ impl AppState {
             self.tab_manager.remove(id);
         }
 
+        // Restore groups and build index -> GroupId mapping
+        use super::tab_manager::TabGroup as TG;
+        let restored_groups: Vec<TG> = session_data.groups.iter().map(|gs| {
+            TG {
+                id: GroupId(0), // placeholder, restore_groups assigns real ids
+                name: gs.name.clone(),
+                color: GroupColor::from_str(&gs.color).unwrap_or(GroupColor::Grey),
+                collapsed: gs.collapsed,
+            }
+        }).collect();
+        let group_ids = self.tab_manager.restore_groups(restored_groups);
+
         let mut first_id = None;
         let target_index = session_data.active_index;
 
         for (i, doc_session) in session_data.documents.iter().enumerate() {
+            // Resolve group assignment
+            let group_id = doc_session.group_index.and_then(|idx| group_ids.get(idx).copied());
+
             if let Some(ref path) = doc_session.file_path {
                 if let Ok(content) = fs::read_to_string(path) {
                     let id = self.tab_manager.add_from_file(path.clone(), &content);
@@ -398,6 +465,7 @@ impl AppState {
 
                     if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
                         doc.cursor_position = doc_session.cursor_position;
+                        doc.group_id = group_id;
                     }
 
                     if i == target_index {
@@ -411,6 +479,7 @@ impl AppState {
                         if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
                             doc.buffer.set_text(&temp_content);
                             doc.cursor_position = doc_session.cursor_position;
+                            doc.group_id = group_id;
                         }
                         if first_id.is_none() {
                             first_id = Some(id);
@@ -514,12 +583,41 @@ impl AppState {
         };
 
         if should_quit {
+            preview_controller::cleanup_temp_images();
             if let Err(e) = session::save_session(&self.tab_manager, session_mode, self.last_open_directory.as_deref()) {
                 eprintln!("Failed to save session: {}", e);
             }
         }
 
         should_quit
+    }
+
+    /// Mark that the session state has changed and should be auto-saved.
+    pub fn mark_session_dirty(&mut self) {
+        self.session_dirty = true;
+    }
+
+    /// Auto-save the session every 30 seconds if something changed.
+    pub fn auto_save_session_if_needed(&mut self) {
+        const AUTO_SAVE_INTERVAL_SECS: u64 = 30;
+
+        if !self.session_dirty {
+            return;
+        }
+        if self.last_auto_save.elapsed().as_secs() < AUTO_SAVE_INTERVAL_SECS {
+            return;
+        }
+
+        let session_mode = self.settings.borrow().session_restore;
+        if session_mode == SessionRestore::Off {
+            return;
+        }
+
+        if let Err(e) = session::save_session(&self.tab_manager, session_mode, self.last_open_directory.as_deref()) {
+            eprintln!("Auto-save session failed: {}", e);
+        }
+        self.session_dirty = false;
+        self.last_auto_save = Instant::now();
     }
 
     pub fn switch_to_next_tab(&mut self) {
@@ -605,6 +703,151 @@ impl AppState {
         }
     }
 
+    // --- Preview ---
+
+    pub fn toggle_preview(&mut self) {
+        let enabled = self.preview.toggle();
+
+        // Persist the setting
+        {
+            let mut s = self.settings.borrow_mut();
+            s.preview_enabled = enabled;
+            let _ = s.save();
+        }
+        self.update_menu_checkbox("View/Toggle Markdown Preview", enabled);
+
+        if enabled {
+            self.update_preview();
+        } else {
+            self.preview.chunked_resize = None;
+            PreviewController::cleanup_preview_file();
+            // hide_preview() calls set_value("") which releases HelpView refs,
+            // then we release the Fl_Shared_Image cache entries.
+            self.editor_container.hide_preview();
+            self.preview.release_cached_images();
+            #[cfg(target_os = "linux")]
+            unsafe {
+                unsafe extern "C" { fn malloc_trim(pad: std::ffi::c_int) -> std::ffi::c_int; }
+                malloc_trim(0);
+            }
+        }
+    }
+
+    pub fn update_preview(&mut self) {
+        // Cancel any in-progress image resize
+        self.preview.chunked_resize = None;
+
+        if !self.preview.enabled {
+            if self.editor_container.is_split() {
+                // hide_preview() calls set_value("") which releases HelpView refs,
+                // then we release the Fl_Shared_Image cache entries.
+                self.editor_container.hide_preview();
+                self.preview.release_cached_images();
+            }
+            return;
+        }
+
+        let is_md = self.tab_manager.active_doc()
+            .and_then(|doc| doc.file_path.as_deref())
+            .map(|p| PreviewController::is_markdown_file(Some(p)))
+            .unwrap_or(false);
+
+        if !is_md {
+            if self.editor_container.is_split() {
+                self.editor_container.hide_preview();
+                self.preview.release_cached_images();
+            }
+            return;
+        }
+
+        // Get the text and file path
+        let (text, file_path) = {
+            if let Some(doc) = self.tab_manager.active_doc() {
+                (buffer_text_no_leak(&doc.buffer), doc.file_path.clone())
+            } else {
+                return;
+            }
+        };
+
+        let raw_html = PreviewController::render_markdown(&text);
+
+        // Phase 1: extract resize tasks and show preview immediately (images at native size)
+        if let Some(ref md_path) = file_path {
+            let md_dir = std::path::Path::new(md_path)
+                .parent()
+                .unwrap_or(std::path::Path::new("."))
+                .to_path_buf();
+
+            let (phase1_html, tasks) = extract_resize_tasks(&raw_html, &md_dir);
+
+            // Show phase-1 HTML immediately
+            let wrapped = wrap_html_for_helpview(&phase1_html);
+            if let Some(temp_path) = PreviewController::write_preview_file(&wrapped) {
+                // Release old cached images before loading new content.
+                // HelpView's load() replaces content, releasing old refs first.
+                self.preview.release_cached_images();
+                self.preview.track_images_in_html(&phase1_html);
+                self.editor_container.show_preview();
+                self.editor_container.load_preview_file(&temp_path);
+            }
+
+            // Start async image resize if there are tasks.
+            // Pass the original raw HTML so rewrite_img_sources can match src attrs.
+            if self.preview.start_image_resize(raw_html, tasks, md_dir) {
+                // Show banner
+                self.update_banner_frame.set_label("  Resizing images... (0/?)");
+                self.update_banner_frame.show();
+                self.flex.fixed(&self.update_banner_frame, 30);
+                self.window.redraw();
+
+                // Schedule first chunk
+                let s = self.sender;
+                fltk::app::add_timeout3(0.0, move |_| {
+                    s.send(Message::ContinueImageResize);
+                });
+            }
+        } else {
+            // Fallback: no file path, just show raw HTML
+            let wrapped = wrap_html_for_helpview(&raw_html);
+            self.editor_container.show_preview();
+            self.editor_container.load_preview_fallback(&wrapped);
+        }
+    }
+
+    pub fn continue_image_resize(&mut self) {
+        match self.preview.process_next_image() {
+            Some(ImageResizeProgress::InProgress(done, total)) => {
+                self.update_banner_frame.set_label(
+                    &format!("  Resizing images... ({}/{})", done, total)
+                );
+                self.window.redraw();
+
+                let s = self.sender;
+                fltk::app::add_timeout3(0.0, move |_| {
+                    s.send(Message::ContinueImageResize);
+                });
+            }
+            Some(ImageResizeProgress::Done(final_html)) => {
+                let wrapped = wrap_html_for_helpview(&final_html);
+                if let Some(temp_path) = PreviewController::write_preview_file(&wrapped) {
+                    // Release phase-1 cached images, track phase-3 images.
+                    // load_preview_file replaces content, releasing old HelpView refs.
+                    self.preview.release_cached_images();
+                    self.preview.track_images_in_html(&final_html);
+                    self.editor_container.load_preview_file(&temp_path);
+                }
+
+                // Hide banner
+                self.update_banner_frame.hide();
+                self.flex.fixed(&self.update_banner_frame, 0);
+                self.window.redraw();
+            }
+            None => {
+                // No resize in progress — orphan message, ignore
+            }
+        }
+    }
+
     // --- Format ---
 
     pub fn set_font(&mut self, font: Font) {
@@ -678,6 +921,11 @@ impl AppState {
         self.highlight.highlighting_enabled = new_settings.highlighting_enabled;
         self.update_menu_checkbox("View/Toggle Syntax Highlighting", self.highlight.highlighting_enabled);
 
+        // Preview setting
+        let preview_changed = self.preview.enabled != new_settings.preview_enabled;
+        self.preview.enabled = new_settings.preview_enabled;
+        self.update_menu_checkbox("View/Toggle Markdown Preview", self.preview.enabled);
+
         self.editor.redraw();
 
         *self.settings.borrow_mut() = new_settings;
@@ -696,6 +944,10 @@ impl AppState {
         } else if self.highlight.highlighting_enabled {
             self.highlight.rehighlight_all_documents(&mut self.tab_manager, &self.sender);
             self.bind_active_buffer();
+        }
+
+        if preview_changed {
+            self.update_preview();
         }
     }
 
@@ -760,6 +1012,78 @@ impl AppState {
                 window: &mut self.window,
             },
         );
+    }
+
+    // --- Tab Group handlers ---
+
+    pub fn handle_group_create(&mut self, doc_id: DocumentId) {
+        self.tab_manager.create_group(&[doc_id]);
+        self.rebuild_tab_bar();
+    }
+
+    pub fn handle_group_delete(&mut self, group_id: GroupId) {
+        self.tab_manager.delete_group(group_id);
+        self.rebuild_tab_bar();
+    }
+
+    pub fn handle_group_close(&mut self, group_id: GroupId) {
+        let doc_ids = self.tab_manager.group_doc_ids(group_id);
+        for id in doc_ids {
+            if self.close_tab(id) {
+                // Last tab closed — app should exit, but we continue
+                // since close_tab already handles that signal
+                return;
+            }
+        }
+        // Remove the group itself (tabs already removed from it by close_tab)
+        self.tab_manager.delete_group(group_id);
+        self.rebuild_tab_bar();
+    }
+
+    pub fn handle_group_rename(&mut self, group_id: GroupId) {
+        let current_name = self.tab_manager.group_by_id(group_id)
+            .map(|g| g.name.clone())
+            .unwrap_or_default();
+        if let Some(new_name) = dialog::input_default("Group name:", &current_name) {
+            self.tab_manager.rename_group(group_id, new_name);
+            self.rebuild_tab_bar();
+        }
+    }
+
+    pub fn handle_group_recolor(&mut self, group_id: GroupId, color: GroupColor) {
+        self.tab_manager.recolor_group(group_id, color);
+        self.rebuild_tab_bar();
+    }
+
+    pub fn handle_group_add_tab(&mut self, doc_id: DocumentId, group_id: GroupId) {
+        self.tab_manager.set_tab_group(doc_id, Some(group_id));
+        self.rebuild_tab_bar();
+    }
+
+    pub fn handle_group_remove_tab(&mut self, doc_id: DocumentId) {
+        self.tab_manager.set_tab_group(doc_id, None);
+        self.rebuild_tab_bar();
+    }
+
+    pub fn handle_group_toggle(&mut self, group_id: GroupId) {
+        self.tab_manager.toggle_group_collapsed(group_id);
+        self.rebuild_tab_bar();
+    }
+
+    pub fn handle_group_by_drag(&mut self, source_id: DocumentId, target_id: DocumentId) {
+        let target_group = self.tab_manager.documents()
+            .iter()
+            .find(|d| d.id == target_id)
+            .and_then(|d| d.group_id);
+
+        if let Some(gid) = target_group {
+            // Target is already in a group — add source to that group
+            self.tab_manager.set_tab_group(source_id, Some(gid));
+        } else {
+            // Neither grouped — create a new group with both
+            self.tab_manager.create_group(&[target_id, source_id]);
+        }
+        self.rebuild_tab_bar();
     }
 
     pub fn start_queued_highlights(&mut self) {

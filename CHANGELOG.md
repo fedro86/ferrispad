@@ -5,6 +5,22 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0-rc.4] - 2026-02-17
+
+### Added
+- **Markdown Preview**: Live side-by-side preview for `.md` files with async image resizing. Toggle via View menu or settings. Uses FLTK HelpView with pulldown-cmark rendering.
+- **Windows Executable Metadata**: File properties now show version, description, and copyright via embedded resource manifest.
+
+### Fixed
+- **Modify Callback Leak**: Every tab close leaked the style buffer + closure data because fltk-rs's `remove_modify_callback` creates a new shim with a different address, so FLTK could never find the callback to remove. Fixed by using direct FFI with a single module-level shim for pointer-equality matching.
+- **Tile Widget Leak**: Every preview toggle leaked a C++ `Fl_Tile` widget because dropping the Rust wrapper only freed the `WidgetTracker`, not the C++ widget. Fixed by removing children first then calling `fltk::app::delete_widget()`.
+- **Fl_Shared_Image Cache Leak**: Preview images stayed in FLTK's global shared image cache after HelpView content was replaced. Added explicit cache release via `Fl_Shared_Image_get`/`Fl_Shared_Image_delete` FFI.
+- **glibc Memory Not Returned**: FLTK's C++ allocations go through glibc malloc, which doesn't return pages to the OS without explicit `malloc_trim(0)`. Added targeted trim calls after tab close and preview hide.
+
+### Changed
+- Replaced overengineered `memory.rs` module with inline `malloc_trim` at the two sites where C++ memory is actually freed.
+- Added `tikv-jemalloc-ctl` for configuring jemalloc dirty/muzzy decay to 0ms at startup (immediate page return for Rust-side allocations).
+
 ## [0.9.0-rc.3] - 2026-02-17
 
 ### Added
@@ -291,6 +307,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FLTK-based GUI
 - Rust implementation for speed and safety
 
+[0.9.0-rc.4]: https://github.com/fedro86/ferrispad/compare/0.9.0-rc.3...0.9.0-rc.4
 [0.9.0-rc.3]: https://github.com/fedro86/ferrispad/compare/0.9.0-rc.2...0.9.0-rc.3
 [0.9.0-rc.2]: https://github.com/fedro86/ferrispad/compare/0.9.0-rc.1...0.9.0-rc.2
 [0.9.0-rc.1]: https://github.com/fedro86/ferrispad/compare/0.1.8...0.9.0-rc.1

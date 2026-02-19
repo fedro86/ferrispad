@@ -4,12 +4,96 @@ use fltk::text::TextBuffer;
 use super::document::{Document, DocumentId};
 use super::messages::Message;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GroupId(pub u64);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroupColor {
+    Red,
+    Orange,
+    Yellow,
+    Green,
+    Blue,
+    Purple,
+    Grey,
+}
+
+impl GroupColor {
+    pub const ALL: [GroupColor; 7] = [
+        GroupColor::Red,
+        GroupColor::Orange,
+        GroupColor::Yellow,
+        GroupColor::Green,
+        GroupColor::Blue,
+        GroupColor::Purple,
+        GroupColor::Grey,
+    ];
+
+    pub fn to_rgb(&self) -> (u8, u8, u8) {
+        match self {
+            GroupColor::Red => (220, 60, 60),
+            GroupColor::Orange => (230, 150, 30),
+            GroupColor::Yellow => (210, 190, 40),
+            GroupColor::Green => (60, 170, 80),
+            GroupColor::Blue => (60, 120, 220),
+            GroupColor::Purple => (150, 80, 200),
+            GroupColor::Grey => (140, 140, 140),
+        }
+    }
+
+    pub fn to_rgb_dark(&self) -> (u8, u8, u8) {
+        match self {
+            GroupColor::Red => (180, 50, 50),
+            GroupColor::Orange => (190, 120, 25),
+            GroupColor::Yellow => (170, 155, 35),
+            GroupColor::Green => (50, 140, 65),
+            GroupColor::Blue => (50, 100, 180),
+            GroupColor::Purple => (125, 65, 165),
+            GroupColor::Grey => (120, 120, 120),
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            GroupColor::Red => "Red",
+            GroupColor::Orange => "Orange",
+            GroupColor::Yellow => "Yellow",
+            GroupColor::Green => "Green",
+            GroupColor::Blue => "Blue",
+            GroupColor::Purple => "Purple",
+            GroupColor::Grey => "Grey",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<GroupColor> {
+        match s {
+            "Red" => Some(GroupColor::Red),
+            "Orange" => Some(GroupColor::Orange),
+            "Yellow" => Some(GroupColor::Yellow),
+            "Green" => Some(GroupColor::Green),
+            "Blue" => Some(GroupColor::Blue),
+            "Purple" => Some(GroupColor::Purple),
+            "Grey" => Some(GroupColor::Grey),
+            _ => None,
+        }
+    }
+}
+
+pub struct TabGroup {
+    pub id: GroupId,
+    pub name: String,
+    pub color: GroupColor,
+    pub collapsed: bool,
+}
+
 pub struct TabManager {
     documents: Vec<Document>,
     active_id: Option<DocumentId>,
     next_id: u64,
     untitled_counter: u32,
     sender: Sender<Message>,
+    groups: Vec<TabGroup>,
+    next_group_id: u64,
 }
 
 impl TabManager {
@@ -20,6 +104,8 @@ impl TabManager {
             next_id: 1,
             untitled_counter: 0,
             sender,
+            groups: Vec::new(),
+            next_group_id: 1,
         }
     }
 
@@ -94,11 +180,94 @@ impl TabManager {
 
     /// Move a tab from one index to another.
     pub fn move_tab(&mut self, from: usize, to: usize) {
-        if from == to || from >= self.documents.len() || to >= self.documents.len() {
+        if from == to || from >= self.documents.len() {
             return;
         }
+        let source_group = self.documents[from].group_id;
+
+        // Clamp `to` so it doesn't land inside a group the source doesn't belong to.
+        // `to` is an insertion index (0..=len), not a tab index.
+        let to = to.min(self.documents.len());
+        let adjusted = self.clamp_insert_outside_foreign_group(to, source_group);
+
         let doc = self.documents.remove(from);
-        self.documents.insert(to, doc);
+        // After removal, insertion indices >= from shift down by 1
+        let insert_at = if adjusted > from { adjusted - 1 } else { adjusted };
+        let insert_at = insert_at.min(self.documents.len());
+        if insert_at == from && self.documents.len() > from {
+            // No actual move needed — re-insert at original position
+            self.documents.insert(from, doc);
+            return;
+        }
+        self.documents.insert(insert_at, doc);
+    }
+
+    /// If `pos` falls inside a contiguous run of a group that `source_group` doesn't belong to,
+    /// snap it to the nearest boundary of that group.
+    fn clamp_insert_outside_foreign_group(&self, pos: usize, source_group: Option<GroupId>) -> usize {
+        if pos == 0 || pos >= self.documents.len() {
+            return pos;
+        }
+        // Check the group of the tabs on either side of the insertion point
+        let left_group = self.documents[pos - 1].group_id;
+        let right_group = self.documents[pos].group_id;
+
+        // Only a problem if both sides are the same group AND source isn't part of it
+        if let Some(gid) = left_group {
+            if left_group == right_group && source_group != Some(gid) {
+                // Find the group boundary — snap to the end of this group
+                let group_end = self.documents.iter()
+                    .rposition(|d| d.group_id == Some(gid))
+                    .map_or(pos, |i| i + 1);
+                return group_end;
+            }
+        }
+        pos
+    }
+
+    /// Move all tabs belonging to a group to a new position.
+    pub fn move_group(&mut self, group_id: GroupId, to: usize) {
+        // Collect the indices of all tabs in this group (in order)
+        let group_indices: Vec<usize> = self.documents.iter()
+            .enumerate()
+            .filter(|(_, d)| d.group_id == Some(group_id))
+            .map(|(i, _)| i)
+            .collect();
+
+        if group_indices.is_empty() {
+            return;
+        }
+
+        // Extract group docs (remove from back to front to keep indices stable)
+        let mut group_docs: Vec<Document> = Vec::new();
+        for &idx in group_indices.iter().rev() {
+            group_docs.push(self.documents.remove(idx));
+        }
+        group_docs.reverse();
+
+        // Adjust insertion point after removals
+        let first_old = group_indices[0];
+        let count = group_docs.len();
+        let insert_at = if to > first_old {
+            // Indices shifted left by the number of removed items before `to`
+            let removed_before = group_indices.iter().filter(|&&i| i < to).count();
+            (to - removed_before).min(self.documents.len())
+        } else {
+            to.min(self.documents.len())
+        };
+
+        // Clamp so we don't split a foreign group
+        let insert_at = self.clamp_insert_outside_foreign_group(insert_at, Some(group_id));
+        let insert_at = insert_at.min(self.documents.len());
+
+        // Re-insert all group docs at the target position
+        for (i, doc) in group_docs.into_iter().enumerate() {
+            self.documents.insert(insert_at + i, doc);
+        }
+
+        // Also reorder the group in the groups list to maintain visual order
+        // (not strictly necessary but keeps things consistent)
+        let _ = count; // used above
     }
 
     pub fn documents(&self) -> &[Document] {
@@ -148,5 +317,112 @@ impl TabManager {
             idx - 1
         };
         Some(self.documents[prev_idx].id)
+    }
+
+    // --- Tab Group methods ---
+
+    pub fn groups(&self) -> &[TabGroup] {
+        &self.groups
+    }
+
+    fn next_group_color(&self) -> GroupColor {
+        GroupColor::ALL[self.groups.len() % GroupColor::ALL.len()]
+    }
+
+    pub fn create_group(&mut self, tab_ids: &[DocumentId]) -> GroupId {
+        let id = GroupId(self.next_group_id);
+        self.next_group_id += 1;
+        let color = self.next_group_color();
+        self.groups.push(TabGroup {
+            id,
+            name: String::new(),
+            color,
+            collapsed: false,
+        });
+        for &doc_id in tab_ids {
+            if let Some(doc) = self.documents.iter_mut().find(|d| d.id == doc_id) {
+                doc.group_id = Some(id);
+            }
+        }
+        id
+    }
+
+    pub fn delete_group(&mut self, id: GroupId) {
+        for doc in &mut self.documents {
+            if doc.group_id == Some(id) {
+                doc.group_id = None;
+            }
+        }
+        self.groups.retain(|g| g.id != id);
+    }
+
+    /// Returns the list of document IDs in the group (for closing).
+    pub fn group_doc_ids(&self, id: GroupId) -> Vec<DocumentId> {
+        self.documents
+            .iter()
+            .filter(|d| d.group_id == Some(id))
+            .map(|d| d.id)
+            .collect()
+    }
+
+    pub fn rename_group(&mut self, id: GroupId, name: String) {
+        if let Some(g) = self.groups.iter_mut().find(|g| g.id == id) {
+            g.name = name;
+        }
+    }
+
+    pub fn recolor_group(&mut self, id: GroupId, color: GroupColor) {
+        if let Some(g) = self.groups.iter_mut().find(|g| g.id == id) {
+            g.color = color;
+        }
+    }
+
+    pub fn set_tab_group(&mut self, doc_id: DocumentId, group_id: Option<GroupId>) {
+        if let Some(doc) = self.documents.iter_mut().find(|d| d.id == doc_id) {
+            doc.group_id = group_id;
+        }
+        // Move the tab to sit next to its group members
+        if let Some(gid) = group_id {
+            if let Some(src) = self.documents.iter().position(|d| d.id == doc_id) {
+                // Find the last tab in this group (excluding the one we're moving)
+                let last_in_group = self.documents.iter().enumerate()
+                    .filter(|(i, d)| d.group_id == Some(gid) && *i != src)
+                    .map(|(i, _)| i)
+                    .last();
+                if let Some(dest) = last_in_group {
+                    let doc = self.documents.remove(src);
+                    // If we removed before dest, dest shifted left by 1
+                    let insert_at = if src < dest { dest } else { dest + 1 };
+                    self.documents.insert(insert_at, doc);
+                }
+            }
+        }
+    }
+
+    pub fn toggle_group_collapsed(&mut self, id: GroupId) {
+        if let Some(g) = self.groups.iter_mut().find(|g| g.id == id) {
+            g.collapsed = !g.collapsed;
+        }
+    }
+
+    pub fn group_by_id(&self, id: GroupId) -> Option<&TabGroup> {
+        self.groups.iter().find(|g| g.id == id)
+    }
+
+    /// Restore groups from session data. Returns a mapping of session group index -> GroupId.
+    pub fn restore_groups(&mut self, groups: Vec<TabGroup>) -> Vec<GroupId> {
+        let mut ids = Vec::new();
+        for g in groups {
+            let id = GroupId(self.next_group_id);
+            self.next_group_id += 1;
+            ids.push(id);
+            self.groups.push(TabGroup {
+                id,
+                name: g.name,
+                color: g.color,
+                collapsed: g.collapsed,
+            });
+        }
+        ids
     }
 }

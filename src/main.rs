@@ -24,6 +24,7 @@ use crate::ui::dialogs::update::check_for_updates_ui;
 use crate::ui::main_window::build_main_window;
 use crate::ui::menu::build_menu;
 use crate::app::updater::{check_for_updates, current_timestamp, should_check_now, UpdateCheckResult};
+use crate::app::preview_controller;
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
 
@@ -43,8 +44,28 @@ fn main() {
         }
     }
 
+    // Configure jemalloc to immediately return freed pages to the OS.
+    // Without this, jemalloc keeps dirty/muzzy pages mapped, inflating RSS.
+    #[cfg(not(target_os = "windows"))]
+    {
+        let decay: isize = 0;
+        unsafe {
+            let _ = tikv_jemalloc_ctl::raw::write(b"arenas.dirty_decay_ms\0", decay);
+            let _ = tikv_jemalloc_ctl::raw::write(b"arenas.muzzy_decay_ms\0", decay);
+        }
+    }
+
+    // Clean up stale temp images from previous runs (crash recovery)
+    preview_controller::cleanup_temp_images();
+
     let _ = fltk_app::lock();
     let app = fltk_app::App::default().with_scheme(fltk_app::AppScheme::Gtk);
+
+    // Register PNG/JPEG/GIF handlers so HelpView can display images
+    {
+        unsafe extern "C" { fn Fl_register_images(); }
+        unsafe { Fl_register_images(); }
+    }
     let (sender, receiver) = fltk_app::channel::<Message>();
 
     // Load settings
@@ -66,7 +87,7 @@ fn main() {
     let app_settings = Rc::new(RefCell::new(settings.clone()));
 
     let mut state = AppState::new(
-        w.text_editor.clone(),
+        w.editor_container,
         w.wind.clone(),
         w.menu.clone(),
         w.flex.clone(),
@@ -170,10 +191,10 @@ fn main() {
         if let Some(msg) = receiver.recv() {
             match msg {
                 // File
-                Message::FileNew => state.file_new(),
-                Message::FileOpen => state.file_open(),
-                Message::FileSave => state.file_save(),
-                Message::FileSaveAs => state.file_save_as(),
+                Message::FileNew => { state.file_new(); state.mark_session_dirty(); }
+                Message::FileOpen => { state.file_open(); state.mark_session_dirty(); }
+                Message::FileSave => { state.file_save(); state.mark_session_dirty(); }
+                Message::FileSaveAs => { state.file_save_as(); state.mark_session_dirty(); }
                 Message::FileQuit | Message::WindowClose => {
                     if state.file_quit() {
                         fltk_app::quit();
@@ -192,6 +213,7 @@ fn main() {
                     if state.close_tab(id) {
                         fltk_app::quit();
                     }
+                    state.mark_session_dirty();
                 }
                 Message::TabCloseActive => {
                     if let Some(id) = state.tab_manager.active_id() {
@@ -199,13 +221,31 @@ fn main() {
                             fltk_app::quit();
                         }
                     }
+                    state.mark_session_dirty();
                 }
                 Message::TabMove(from, to) => {
                     state.tab_manager.move_tab(from, to);
                     state.rebuild_tab_bar();
+                    state.mark_session_dirty();
                 }
                 Message::TabNext => state.switch_to_next_tab(),
                 Message::TabPrevious => state.switch_to_previous_tab(),
+
+                // Tab Groups
+                Message::TabGroupCreate(doc_id) => { state.handle_group_create(doc_id); state.mark_session_dirty(); }
+                Message::TabGroupDelete(group_id) => { state.handle_group_delete(group_id); state.mark_session_dirty(); }
+                Message::TabGroupClose(group_id) => { state.handle_group_close(group_id); state.mark_session_dirty(); }
+                Message::TabGroupRename(group_id) => { state.handle_group_rename(group_id); state.mark_session_dirty(); }
+                Message::TabGroupRecolor(group_id, color) => { state.handle_group_recolor(group_id, color); state.mark_session_dirty(); }
+                Message::TabGroupAddTab(doc_id, group_id) => { state.handle_group_add_tab(doc_id, group_id); state.mark_session_dirty(); }
+                Message::TabGroupRemoveTab(doc_id) => { state.handle_group_remove_tab(doc_id); state.mark_session_dirty(); }
+                Message::TabGroupToggle(group_id) => { state.handle_group_toggle(group_id); state.mark_session_dirty(); }
+                Message::TabGroupByDrag(source_id, target_id) => { state.handle_group_by_drag(source_id, target_id); state.mark_session_dirty(); }
+                Message::TabGroupMove(group_id, to) => {
+                    state.tab_manager.move_group(group_id, to);
+                    state.rebuild_tab_bar();
+                    state.mark_session_dirty();
+                }
 
                 // Edit
                 Message::EditUndo => { let _ = state.active_buffer().undo(); }
@@ -226,6 +266,7 @@ fn main() {
                 Message::ToggleWordWrap => state.toggle_word_wrap(),
                 Message::ToggleDarkMode => state.toggle_dark_mode(),
                 Message::ToggleHighlighting => state.toggle_highlighting(),
+                Message::TogglePreview => state.toggle_preview(),
 
                 // Format
                 Message::SetFont(font) => state.set_font(font),
@@ -239,12 +280,16 @@ fn main() {
                 // Syntax highlighting (debounced)
                 Message::BufferModified(id, pos) => {
                     state.schedule_rehighlight(id, pos);
+                    state.mark_session_dirty();
                 }
                 Message::DoRehighlight => {
                     state.do_pending_rehighlight();
                 }
                 Message::ContinueHighlight => {
                     state.continue_chunked_highlight();
+                }
+                Message::ContinueImageResize => {
+                    state.continue_image_resize();
                 }
 
                 // Background updates
@@ -279,5 +324,6 @@ fn main() {
                 }
             }
         }
+        state.auto_save_session_if_needed();
     }
 }

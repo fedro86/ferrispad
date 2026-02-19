@@ -57,6 +57,9 @@ pub struct AppSettings {
 
     #[serde(default)]
     pub session_restore: SessionRestore,
+
+    #[serde(default)]
+    pub preview_enabled: bool,
 }
 
 fn default_line_numbers() -> bool {
@@ -106,6 +109,7 @@ impl Default for AppSettings {
             skipped_versions: Vec::new(),
             tabs_enabled: false,
             session_restore: SessionRestore::Off,
+            preview_enabled: false,
         }
     }
 }
