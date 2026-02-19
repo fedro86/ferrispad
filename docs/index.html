@@ -5,20 +5,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description"
-        content="FerrisPad - A blazingly fast Rust notepad and minimalist text editor. Lightning-fast startup, cross-platform support for Windows, macOS, and Linux. Download the best Rust text editor today.">
+        content="FerrisPad - A blazingly fast Rust text editor with syntax highlighting, tab groups, session restore, and markdown preview. Lightning-fast startup, cross-platform support for Windows, macOS, and Linux.">
     <meta name="keywords"
-        content="rust notepad, rust text editor, text editor, notepad, rust, fltk, ferrispad, download, minimalist notepad, fast text editor, lightweight editor">
+        content="rust notepad, rust text editor, text editor, notepad, rust, fltk, ferrispad, download, syntax highlighting, tab groups, session restore, fast text editor, lightweight editor">
     <meta name="author" content="FerrisPad Contributors">
 
     <!-- Open Graph / Social Media -->
     <meta property="og:type" content="website">
-    <meta property="og:title" content="FerrisPad - Rust Notepad | Blazingly Fast Text Editor">
+    <meta property="og:title" content="FerrisPad - Blazingly Fast Rust Text Editor">
     <meta property="og:description"
-        content="A minimalist, ultra-fast text editor built with Rust. The best Rust notepad for quick editing.">
+        content="A fast text editor built with Rust. Syntax highlighting, tab groups, session restore, markdown preview. Cross-platform.">
     <meta property="og:image" content="assets/logo.png">
     <meta property="og:url" content="https://www.ferrispad.com">
 
-    <title>FerrisPad - Rust Notepad | Blazingly Fast Text Editor</title>
+    <title>FerrisPad - Blazingly Fast Rust Text Editor</title>
 
     <!-- JSON-LD Structured Data for SEO -->
     <script type="application/ld+json">
@@ -33,8 +33,8 @@
         "price": "0",
         "priceCurrency": "USD"
       },
-      "description": "A blazingly fast, minimalist notepad written in Rust. Lightning-fast startup, clean interface, cross-platform text editor.",
-      "softwareVersion": "0.1.8",
+      "description": "A blazingly fast text editor written in Rust with syntax highlighting, tab groups, session restore, and markdown preview.",
+      "softwareVersion": "0.9.0",
       "programmingLanguage": "Rust",
       "author": {
         "@type": "Organization",
@@ -47,7 +47,7 @@
         "ratingValue": "5",
         "ratingCount": "1"
       },
-      "keywords": "rust notepad, rust text editor, minimalist notepad, fast text editor, lightweight editor"
+      "keywords": "rust text editor, rust notepad, syntax highlighting, tab groups, session restore, fast text editor, lightweight editor"
     }
     </script>
     <link rel="icon" type="image/png" href="assets/favicon.png">
@@ -75,10 +75,10 @@
     <section class="hero">
         <div class="container">
             <img src="assets/logo.png" alt="FerrisPad - Fast Rust Notepad and Text Editor Logo" class="hero-logo">
-            <h1 class="hero-title">FerrisPad - Rust Notepad</h1>
-            <p class="hero-subtitle">A blazingly fast, minimalist notepad written in Rust 🦀</p>
+            <h1 class="hero-title">FerrisPad - Rust Text Editor</h1>
+            <p class="hero-subtitle">A blazingly fast text editor written in Rust 🦀</p>
             <p class="hero-description">
-                Lightning-fast startup. Clean interface. Zero bloat. Just a notepad that works.
+                Lightning-fast startup. Syntax highlighting. Tab groups. Session restore. Zero bloat.
             </p>
             <div class="hero-buttons">
                 <a href="https://github.com/fedro86/ferrispad/releases/download/0.1.7/FerrisPad-v0.1.7-macos.dmg"
@@ -113,17 +113,27 @@
                 <div class="feature-card">
                     <div class="feature-icon">⚡</div>
                     <h3>Lightning Fast</h3>
-                    <p>Opens instantly. No splash screens, no loading delays. Built with Rust and FLTK for pure speed.</p>
+                    <p>Opens instantly. No splash screens, no loading delays. Built with Rust and FLTK for pure speed with jemalloc.</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">🎨</div>
                     <h3>Syntax Highlighting</h3>
-                    <p>Over 50 languages supported out of the box. Handles large files with chunked, non-blocking processing.</p>
+                    <p>Over 50 languages supported. Chunked, non-blocking processing handles large files without freezing the UI.</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">📑</div>
-                    <h3>Tabs & Session Restore</h3>
-                    <p>Work with multiple files in draggable tabs. Reopen where you left off with full session restore.</p>
+                    <h3>Tab Groups</h3>
+                    <p>Organize files with colored tab groups. Drag to group, collapse into chips, reorder entire groups. Full drag-and-drop support.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">💾</div>
+                    <h3>Crash-Safe Sessions</h3>
+                    <p>Auto-saves every 30 seconds. Recover all tabs after crashes, forced kills, or power loss. Three restore modes available.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📝</div>
+                    <h3>Markdown Preview</h3>
+                    <p>Live preview for Markdown files with async image resizing. Toggle on and off as you write.</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">🔍</div>
@@ -143,7 +153,7 @@
                 <div class="feature-card">
                     <div class="feature-icon">🔔</div>
                     <h3>In-App Updates</h3>
-                    <p>One-click update downloads and installs. Checks GitHub once per day, fully optional and privacy-first.</p>
+                    <p>Checks GitHub once per day with stable/unstable channel support. Fully optional and privacy-first.</p>
                 </div>
                 <div class="feature-card">
                     <div class="feature-icon">🔓</div>
@@ -579,7 +589,7 @@ cargo run --release
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>&copy; 2024 FerrisPad Contributors. Licensed under MIT.</p>
+                <p>&copy; 2024-2026 FerrisPad Contributors. Licensed under MIT.</p>
             </div>
         </div>
     </footer>
