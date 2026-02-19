@@ -241,6 +241,11 @@ fn main() {
                 Message::TabGroupRemoveTab(doc_id) => { state.handle_group_remove_tab(doc_id); state.mark_session_dirty(); }
                 Message::TabGroupToggle(group_id) => { state.handle_group_toggle(group_id); state.mark_session_dirty(); }
                 Message::TabGroupByDrag(source_id, target_id) => { state.handle_group_by_drag(source_id, target_id); state.mark_session_dirty(); }
+                Message::TabGroupMove(group_id, to) => {
+                    state.tab_manager.move_group(group_id, to);
+                    state.rebuild_tab_bar();
+                    state.mark_session_dirty();
+                }
 
                 // Edit
                 Message::EditUndo => { let _ = state.active_buffer().undo(); }

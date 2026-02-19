@@ -65,6 +65,12 @@ enum HitResult {
 }
 
 #[derive(Clone, Copy, PartialEq)]
+enum DragSource {
+    Tab(usize),          // dragging a single tab
+    Group(GroupId),      // dragging a collapsed group chip
+}
+
+#[derive(Clone, Copy, PartialEq)]
 enum DragTarget {
     OnTab(usize),    // center zone → will group
     InsertAt(usize), // edge zone → will reorder (index = insertion point)
@@ -80,7 +86,7 @@ struct TabBarState {
     hover_plus: bool,
     hover_group_label: Option<GroupId>,
     hover_collapsed_chip: Option<GroupId>,
-    drag_source: Option<usize>,
+    drag_source: Option<DragSource>,
     drag_target: Option<DragTarget>,
     sender: Sender<Message>,
     widget_w: i32,
@@ -656,16 +662,22 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
             DragTarget::InsertAt(pos) => {
                 // Draw vertical insertion line at the position
                 let indicator_x = if let Some(item) = st.layout.iter().find(|it| matches!(it, LayoutItem::Tab { index, .. } if index == pos)) {
-                    // Insert before this tab
+                    // Insert before this visible tab
                     if let LayoutItem::Tab { x, .. } = item { Some(wx + *x) } else { None }
-                } else {
-                    // pos is past the last tab — find the previous tab's right edge
-                    if *pos > 0 {
-                        st.layout.iter().find(|it| matches!(it, LayoutItem::Tab { index, .. } if *index == pos - 1))
-                            .map(|it| if let LayoutItem::Tab { x, width, .. } = it { wx + *x + *width } else { 0 })
+                } else if *pos > 0 {
+                    // Check if previous tab is visible
+                    if let Some(item) = st.layout.iter().find(|it| matches!(it, LayoutItem::Tab { index, .. } if *index == pos - 1)) {
+                        if let LayoutItem::Tab { x, width, .. } = item { Some(wx + *x + *width) } else { None }
                     } else {
-                        None
+                        // Target tab is inside a collapsed group — find the chip
+                        let target_group = st.tabs.get(*pos).or_else(|| st.tabs.get(pos - 1)).and_then(|t| t.group_id);
+                        target_group.and_then(|gid| {
+                            st.layout.iter().find(|it| matches!(it, LayoutItem::CollapsedChip { group_id, .. } if *group_id == gid))
+                                .map(|it| if let LayoutItem::CollapsedChip { x, width, .. } = it { wx + *x + *width } else { 0 })
+                        })
                     }
+                } else {
+                    Some(wx)
                 };
                 if let Some(ix) = indicator_x {
                     let indicator_color = if st.is_dark {
@@ -778,7 +790,7 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                                 drop(st);
                                 state.borrow_mut()
                             };
-                            st_mut.drag_source = Some(index);
+                            st_mut.drag_source = Some(DragSource::Tab(index));
                             st_mut.drag_target = None;
                             let sender = st_mut.sender.clone();
                             drop(st_mut);
@@ -800,10 +812,13 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                     return true;
                 }
                 HitResult::CollapsedChip(gid) => {
-                    let sender = st.sender.clone();
                     if button == 1 {
-                        drop(st);
-                        sender.send(Message::TabGroupToggle(gid));
+                        let mut st_mut = {
+                            drop(st);
+                            state.borrow_mut()
+                        };
+                        st_mut.drag_source = Some(DragSource::Group(gid));
+                        st_mut.drag_target = None;
                     } else if button == 3 {
                         drop(st);
                         let st2 = state.borrow();
@@ -825,29 +840,81 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
             let mx = fltk::app::event_x() - wid.x();
             let my = fltk::app::event_y();
 
-            let new_target = match hit_test_layout(&st.layout, wid.y(), mx, my) {
-                HitResult::Tab { index, .. } if index != source => {
-                    // Find this tab's layout entry to compute zone
-                    if let Some(item) = st.layout.iter().find(|it| matches!(it, LayoutItem::Tab { index: i, .. } if *i == index)) {
-                        if let LayoutItem::Tab { x, width, .. } = item {
-                            let relative_x = mx - *x;
-                            let left_zone = *width * 25 / 100;
-                            let right_zone = *width * 75 / 100;
-                            if relative_x < left_zone {
-                                Some(DragTarget::InsertAt(index))
-                            } else if relative_x > right_zone {
-                                Some(DragTarget::InsertAt(index + 1))
+            let new_target = match source {
+                DragSource::Tab(src_idx) => {
+                    match hit_test_layout(&st.layout, wid.y(), mx, my) {
+                        HitResult::Tab { index, .. } if index != src_idx => {
+                            if let Some(item) = st.layout.iter().find(|it| matches!(it, LayoutItem::Tab { index: i, .. } if *i == index)) {
+                                if let LayoutItem::Tab { x, width, .. } = item {
+                                    let relative_x = mx - *x;
+                                    let left_zone = *width * 25 / 100;
+                                    let right_zone = *width * 75 / 100;
+                                    if relative_x < left_zone {
+                                        Some(DragTarget::InsertAt(index))
+                                    } else if relative_x > right_zone {
+                                        Some(DragTarget::InsertAt(index + 1))
+                                    } else {
+                                        Some(DragTarget::OnTab(index))
+                                    }
+                                } else {
+                                    None
+                                }
                             } else {
-                                Some(DragTarget::OnTab(index))
+                                None
                             }
-                        } else {
-                            None
                         }
-                    } else {
-                        None
+                        _ => None,
                     }
                 }
-                _ => None,
+                DragSource::Group(src_gid) => {
+                    // Groups can only be reordered (InsertAt), not grouped into other tabs
+                    match hit_test_layout(&st.layout, wid.y(), mx, my) {
+                        HitResult::Tab { index, .. } => {
+                            // Don't allow dropping inside own group
+                            let is_own = st.tabs.get(index).map_or(false, |t| t.group_id == Some(src_gid));
+                            if is_own {
+                                None
+                            } else if let Some(item) = st.layout.iter().find(|it| matches!(it, LayoutItem::Tab { index: i, .. } if *i == index)) {
+                                if let LayoutItem::Tab { x, width, .. } = item {
+                                    let half = *width / 2;
+                                    if (mx - *x) < half {
+                                        Some(DragTarget::InsertAt(index))
+                                    } else {
+                                        Some(DragTarget::InsertAt(index + 1))
+                                    }
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        }
+                        HitResult::CollapsedChip(gid) if gid != src_gid => {
+                            // Find the first tab index of this collapsed group to use as insert point
+                            if let Some(idx) = st.tabs.iter().position(|t| t.group_id == Some(gid)) {
+                                if let Some(item) = st.layout.iter().find(|it| matches!(it, LayoutItem::CollapsedChip { group_id, .. } if *group_id == gid)) {
+                                    if let LayoutItem::CollapsedChip { x, width, .. } = item {
+                                        let half = *width / 2;
+                                        if (mx - *x) < half {
+                                            Some(DragTarget::InsertAt(idx))
+                                        } else {
+                                            // After the last tab of this group
+                                            let last = st.tabs.iter().rposition(|t| t.group_id == Some(gid)).unwrap_or(idx);
+                                            Some(DragTarget::InsertAt(last + 1))
+                                        }
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    }
+                }
             };
 
             if new_target != st.drag_target {
@@ -864,23 +931,38 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
             drop(st);
             wid.redraw();
 
-            if let (Some(from), Some(drag_target)) = (source, target) {
-                let st = state.borrow();
-                let sender = st.sender.clone();
-                match drag_target {
-                    DragTarget::OnTab(target_idx) => {
-                        let source_id = st.tabs[from].id;
-                        let target_id = st.tabs[target_idx].id;
-                        drop(st);
-                        sender.send(Message::TabGroupByDrag(source_id, target_id));
-                    }
-                    DragTarget::InsertAt(to) => {
-                        drop(st);
-                        if from != to {
-                            sender.send(Message::TabMove(from, to));
+            match (source, target) {
+                (Some(src), Some(drag_target)) => {
+                    let st = state.borrow();
+                    let sender = st.sender.clone();
+                    match (src, drag_target) {
+                        (DragSource::Tab(from), DragTarget::OnTab(target_idx)) => {
+                            let source_id = st.tabs[from].id;
+                            let target_id = st.tabs[target_idx].id;
+                            drop(st);
+                            sender.send(Message::TabGroupByDrag(source_id, target_id));
                         }
+                        (DragSource::Tab(from), DragTarget::InsertAt(to)) => {
+                            drop(st);
+                            if from != to {
+                                sender.send(Message::TabMove(from, to));
+                            }
+                        }
+                        (DragSource::Group(gid), DragTarget::InsertAt(to)) => {
+                            drop(st);
+                            sender.send(Message::TabGroupMove(gid, to));
+                        }
+                        _ => {}
                     }
                 }
+                (Some(DragSource::Group(gid)), None) => {
+                    // Click without drag on collapsed chip → toggle expand
+                    let st = state.borrow();
+                    let sender = st.sender.clone();
+                    drop(st);
+                    sender.send(Message::TabGroupToggle(gid));
+                }
+                _ => {}
             }
             false
         }

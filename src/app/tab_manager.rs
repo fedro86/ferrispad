@@ -225,6 +225,51 @@ impl TabManager {
         pos
     }
 
+    /// Move all tabs belonging to a group to a new position.
+    pub fn move_group(&mut self, group_id: GroupId, to: usize) {
+        // Collect the indices of all tabs in this group (in order)
+        let group_indices: Vec<usize> = self.documents.iter()
+            .enumerate()
+            .filter(|(_, d)| d.group_id == Some(group_id))
+            .map(|(i, _)| i)
+            .collect();
+
+        if group_indices.is_empty() {
+            return;
+        }
+
+        // Extract group docs (remove from back to front to keep indices stable)
+        let mut group_docs: Vec<Document> = Vec::new();
+        for &idx in group_indices.iter().rev() {
+            group_docs.push(self.documents.remove(idx));
+        }
+        group_docs.reverse();
+
+        // Adjust insertion point after removals
+        let first_old = group_indices[0];
+        let count = group_docs.len();
+        let insert_at = if to > first_old {
+            // Indices shifted left by the number of removed items before `to`
+            let removed_before = group_indices.iter().filter(|&&i| i < to).count();
+            (to - removed_before).min(self.documents.len())
+        } else {
+            to.min(self.documents.len())
+        };
+
+        // Clamp so we don't split a foreign group
+        let insert_at = self.clamp_insert_outside_foreign_group(insert_at, Some(group_id));
+        let insert_at = insert_at.min(self.documents.len());
+
+        // Re-insert all group docs at the target position
+        for (i, doc) in group_docs.into_iter().enumerate() {
+            self.documents.insert(insert_at + i, doc);
+        }
+
+        // Also reorder the group in the groups list to maintain visual order
+        // (not strictly necessary but keeps things consistent)
+        let _ = count; // used above
+    }
+
     pub fn documents(&self) -> &[Document] {
         &self.documents
     }

@@ -34,6 +34,7 @@ pub enum Message {
     TabGroupRemoveTab(DocumentId),
     TabGroupToggle(GroupId),
     TabGroupByDrag(DocumentId, DocumentId),
+    TabGroupMove(GroupId, usize),
 
     // Edit
     EditUndo,
