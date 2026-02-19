@@ -21,6 +21,8 @@ const CLOSE_BTN_MARGIN: i32 = 6;
 const TAB_H_PADDING: i32 = 10;
 const CORNER_RADIUS: i32 = 6;
 const TAB_GAP: i32 = 1;
+const PLUS_BTN_WIDTH: i32 = 28;
+const PLUS_BTN_MARGIN: i32 = 4;
 
 struct TabInfo {
     id: DocumentId,
@@ -34,6 +36,7 @@ struct TabBarState {
     is_dark: bool,
     hover_tab_index: Option<usize>,
     hover_close: bool,
+    hover_plus: bool,
     drag_source: Option<usize>,
     drag_target: Option<usize>,
     sender: Sender<Message>,
@@ -51,6 +54,7 @@ impl TabBar {
             is_dark: false,
             hover_tab_index: None,
             hover_close: false,
+            hover_plus: false,
             drag_source: None,
             drag_target: None,
             sender,
@@ -144,8 +148,9 @@ fn compute_tab_width(widget_w: i32, tab_count: usize) -> i32 {
     if tab_count == 0 {
         return MAX_TAB_WIDTH;
     }
+    let reserved = PLUS_BTN_WIDTH + PLUS_BTN_MARGIN;
     let total_gaps = TAB_GAP * (tab_count as i32 - 1);
-    let w = (widget_w - total_gaps) / tab_count as i32;
+    let w = (widget_w - total_gaps - reserved) / tab_count as i32;
     w.clamp(MIN_TAB_WIDTH, MAX_TAB_WIDTH)
 }
 
@@ -197,6 +202,26 @@ fn hit_test(
         && my <= close_y + CLOSE_BTN_SIZE;
 
     Some((idx, is_close))
+}
+
+fn plus_btn_x(widget_x: i32, tab_count: usize, tab_width: i32) -> i32 {
+    if tab_count == 0 {
+        widget_x + PLUS_BTN_MARGIN
+    } else {
+        tab_x_offset(widget_x, tab_count, tab_width) + PLUS_BTN_MARGIN
+    }
+}
+
+fn hit_test_plus_btn(
+    widget_x: i32,
+    widget_y: i32,
+    tab_count: usize,
+    tab_width: i32,
+    mx: i32,
+    my: i32,
+) -> bool {
+    let px = plus_btn_x(widget_x, tab_count, tab_width);
+    mx >= px && mx < px + PLUS_BTN_WIDTH && my >= widget_y && my < widget_y + TAB_BAR_HEIGHT
 }
 
 // --- Truncation ---
@@ -255,12 +280,33 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
     draw::draw_rectf(wx, wy, ww, wh);
 
     let tab_count = st.tabs.len();
-    if tab_count == 0 {
-        return;
-    }
-
     let tab_width = compute_tab_width(ww, tab_count);
     let tab_h = wh;
+
+    // Draw "+" button
+    {
+        let px = plus_btn_x(wx, tab_count, tab_width);
+        let btn_h = wh - 4;
+        let btn_y = wy + 2;
+        let bg = if st.hover_plus {
+            if st.is_dark {
+                Color::from_rgb(60, 60, 60)
+            } else {
+                Color::from_rgb(210, 210, 210)
+            }
+        } else {
+            colors.inactive_bg
+        };
+        draw_rounded_top_rect(px, btn_y, PLUS_BTN_WIDTH, btn_h, CORNER_RADIUS, bg);
+        let text_color = if st.hover_plus {
+            colors.active_text
+        } else {
+            colors.inactive_text
+        };
+        draw::set_draw_color(text_color);
+        draw::set_font(Font::HelveticaBold, 16);
+        draw::draw_text2("+", px, btn_y, PLUS_BTN_WIDTH, btn_h, Align::Center);
+    }
 
     for (i, tab) in st.tabs.iter().enumerate() {
         let tx = tab_x_offset(wx, i, tab_width);
@@ -352,13 +398,24 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
         Event::Push => {
             let mut st = state.borrow_mut();
             let tab_count = st.tabs.len();
-            if tab_count == 0 {
-                return false;
-            }
             let tab_width = compute_tab_width(wid.w(), tab_count);
             let mx = fltk::app::event_x();
             let my = fltk::app::event_y();
             let button = fltk::app::event_button();
+
+            // Check "+" button
+            if button == 1
+                && hit_test_plus_btn(wid.x(), wid.y(), tab_count, tab_width, mx, my)
+            {
+                let sender = st.sender.clone();
+                drop(st);
+                sender.send(Message::FileNew);
+                return true;
+            }
+
+            if tab_count == 0 {
+                return false;
+            }
 
             if let Some((idx, is_close)) = hit_test(wid.x(), wid.y(), tab_count, tab_width, mx, my)
             {
@@ -427,29 +484,32 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
         Event::Move => {
             let mut st = state.borrow_mut();
             let tab_count = st.tabs.len();
-            if tab_count == 0 {
-                if st.hover_tab_index.is_some() {
-                    st.hover_tab_index = None;
-                    st.hover_close = false;
-                    drop(st);
-                    wid.redraw();
-                }
-                return false;
-            }
             let tab_width = compute_tab_width(wid.w(), tab_count);
             let mx = fltk::app::event_x();
             let my = fltk::app::event_y();
 
-            let (new_hover, new_close) =
-                if let Some((idx, is_close)) = hit_test(wid.x(), wid.y(), tab_count, tab_width, mx, my) {
+            let new_hover_plus =
+                hit_test_plus_btn(wid.x(), wid.y(), tab_count, tab_width, mx, my);
+
+            let (new_hover, new_close) = if tab_count > 0 {
+                if let Some((idx, is_close)) =
+                    hit_test(wid.x(), wid.y(), tab_count, tab_width, mx, my)
+                {
                     (Some(idx), is_close)
                 } else {
                     (None, false)
-                };
+                }
+            } else {
+                (None, false)
+            };
 
-            if new_hover != st.hover_tab_index || new_close != st.hover_close {
+            if new_hover != st.hover_tab_index
+                || new_close != st.hover_close
+                || new_hover_plus != st.hover_plus
+            {
                 st.hover_tab_index = new_hover;
                 st.hover_close = new_close;
+                st.hover_plus = new_hover_plus;
                 drop(st);
                 wid.redraw();
             }
@@ -459,9 +519,10 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
             let mut st = state.borrow_mut();
             st.drag_source = None;
             st.drag_target = None;
-            if st.hover_tab_index.is_some() || st.hover_close {
+            if st.hover_tab_index.is_some() || st.hover_close || st.hover_plus {
                 st.hover_tab_index = None;
                 st.hover_close = false;
+                st.hover_plus = false;
                 drop(st);
                 wid.redraw();
             }
