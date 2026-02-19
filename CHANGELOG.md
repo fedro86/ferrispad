@@ -5,82 +5,39 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.0-rc.4] - 2026-02-17
+## [0.9.0] - 2026-02-19
 
 ### Added
-- **Markdown Preview**: Live side-by-side preview for `.md` files with async image resizing. Toggle via View menu or settings. Uses FLTK HelpView with pulldown-cmark rendering.
-- **Windows Executable Metadata**: File properties now show version, description, and copyright via embedded resource manifest.
+- **Markdown Preview**: Live side-by-side preview for `.md` files with async image resizing. Toggle via View menu or settings.
+- **Tab Groups**: Colored tab groups (Red, Orange, Yellow, Green, Blue, Purple, Grey) with group labels, collapse/expand into compact chips, right-click context menu for group management (create, rename, recolor, ungroup, close).
+- **Drag-to-Group**: Drag a tab onto the center of another tab to group them. Drag to the edges to reorder. Visual feedback: 50% blended highlight for grouping, vertical insertion line for reordering.
+- **Draggable Collapsed Groups**: Collapsed group chips can be dragged to reorder entire groups. Click-without-drag still toggles expand/collapse.
+- **Group Reorder Protection**: Ungrouped tabs cannot be inserted between tabs of the same group; insertion point snaps to group boundary.
+- **Crash-Safe Session Auto-Save**: Session auto-saves every 30 seconds so tabs survive task manager kills, crashes, and power loss.
+- **"+" New Tab Button**: Quick new tab creation button in the tab bar.
+- **Syntax Highlighting**: 50+ languages via syntect with oniguruma regex backend. Chunked non-blocking processing for large files with sparse checkpoints every 128 lines.
+- **Tabbed Editing**: Custom-drawn tab bar with rounded top corners, shrink-to-fit sizing, per-tab close buttons, hover highlighting, middle-click close, and dark/light theme support.
+- **Session Restore**: Three modes (Off, Saved Files Only, Full including unsaved content) with multi-instance session merging and schema versioning.
+- **Select All** (Ctrl+A), **Find Previous** (Ctrl+Shift+G), **Go To Line** (Ctrl+G).
+- **Dynamic Line Number Gutter**: Auto-sizes based on document line count.
+- **macOS Dark Mode Detection** via `AppleInterfaceStyle` defaults key.
+- **Windows Executable Metadata**: Version, description, and copyright via embedded resource manifest.
 
 ### Fixed
-- **Modify Callback Leak**: Every tab close leaked the style buffer + closure data because fltk-rs's `remove_modify_callback` creates a new shim with a different address, so FLTK could never find the callback to remove. Fixed by using direct FFI with a single module-level shim for pointer-equality matching.
-- **Tile Widget Leak**: Every preview toggle leaked a C++ `Fl_Tile` widget because dropping the Rust wrapper only freed the `WidgetTracker`, not the C++ widget. Fixed by removing children first then calling `fltk::app::delete_widget()`.
-- **Fl_Shared_Image Cache Leak**: Preview images stayed in FLTK's global shared image cache after HelpView content was replaced. Added explicit cache release via `Fl_Shared_Image_get`/`Fl_Shared_Image_delete` FFI.
-- **glibc Memory Not Returned**: FLTK's C++ allocations go through glibc malloc, which doesn't return pages to the OS without explicit `malloc_trim(0)`. Added targeted trim calls after tab close and preview hide.
-
-### Changed
-- Replaced overengineered `memory.rs` module with inline `malloc_trim` at the two sites where C++ memory is actually freed.
-- Added `tikv-jemalloc-ctl` for configuring jemalloc dirty/muzzy decay to 0ms at startup (immediate page return for Rust-side allocations).
-
-## [0.9.0-rc.3] - 2026-02-17
-
-### Added
-- **Syntax Highlighting**: 50+ languages via syntect with oniguruma regex backend. Chunked non-blocking processing for large files (5000+ lines) with sparse checkpoints every 128 lines for fast incremental re-highlighting.
-- **Drag-to-Reorder Tabs**: Drag tabs left or right with a visual blue drop indicator to reorder open documents.
-- **Session Schema Versioning**: Session files now include a version field for future-proof migration support.
-
-### Fixed
-- **Find No Longer Marks Document as Dirty**: FLTK fires the modify callback for selection changes; the dirty flag now only sets when text is actually inserted or deleted.
-- **View Toggle for Highlighting**: Toggling syntax highlighting via the View menu no longer persists to settings. Settings is the authority at startup; View menu toggles only affect the current session.
-- **Allow Closing App While Dialog is Open**: The `run_dialog` helper checks `app::should_program_quit()` so the app can exit even with a dialog open.
+- **FLTK Widget Lifecycle Leaks**: Fixed modify callback, tile widget, and shared image cache leaks via direct FFI.
+- **glibc Memory Not Returned**: Added targeted `malloc_trim(0)` calls after tab close and preview hide.
+- **TextBuffer::text() Memory Leak**: Plugged 3.8MB/call leak via `buffer_text_no_leak()` helper.
+- **Find No Longer Marks Document as Dirty**: Dirty flag only sets on actual text changes, not selection changes.
 - **Memory Leaks in Syntax Highlighting**: Reduced highlighting memory from 290MB to 63MB on large files.
-- **TextBuffer::text() Memory Leaks**: Plugged 3.8MB/call leak via `buffer_text_no_leak()` helper across find, replace, goto, and session operations.
 - **Native File Dialogs Restored**: Fixed regression that broke native file chooser on Linux.
+- **Allow Closing App While Dialog is Open**: `run_dialog` checks `app::should_program_quit()`.
 
 ### Changed
-- **Architecture Refactoring**: Extracted `HighlightController` (11 methods + 5 fields), `UpdateController`, `buffer_utils` module, and `FindState` from AppState for cleaner separation of concerns.
-- **Error Handling**: Added `thiserror`-based `AppError` enum replacing `Result<T, String>` in session, settings, and updater modules.
-- **Named Constants**: Consolidated `LARGE_FILE_THRESHOLD` into a single module-level constant.
-- **Website Updated**: Features section now reflects syntax highlighting, tabs, find & replace, dark mode, and in-app updates.
-
-## [0.9.0-rc.2] - 2026-02-15
-
-### Added
-- **Tabbed Editing**: Custom-drawn Edge-like tab bar with rounded top corners, shrink-to-fit sizing with ellipsis truncation, per-tab close buttons, hover highlighting, and dark/light theme support. Keyboard shortcuts: Ctrl+T (new tab), Ctrl+W (close tab), Ctrl+PageUp/Down (switch tabs). Multi-file open dialog when tabs are enabled. Configurable in Settings.
-- **Session Restore**: Persist open documents across app restarts with three modes configurable in Settings: Off (default), Saved Files Only, and Full (including unsaved content). Supports multi-instance session merging so closing one window doesn't erase another's tabs.
-- **Dynamic Line Number Gutter**: Line number column auto-sizes based on document line count, properly supporting files with 100,000+ lines.
-
-## [0.9.0-rc.1] - 2026-02-13
-
-### Added
-- **Select All** (Ctrl+A): Select all text in the editor.
-- **Find Previous** (Ctrl+Shift+G): Search backwards through the document.
-- **Go To Line** (Ctrl+G): Jump to a specific line number with a dedicated dialog.
-- **macOS Dark Mode Detection**: Automatic system theme detection on macOS via `AppleInterfaceStyle` defaults key.
-
-### Changed
-- **Major Architecture Refactoring**: Decomposed monolithic `main.rs` (~2000 lines) into a clean, modular structure separating application logic from UI concerns:
-  - `src/app/` — Application logic layer:
-    - `state.rs` — Centralized application state management
-    - `messages.rs` — Message-passing enum for decoupled communication
-    - `text_ops.rs` — Text editing operations (find, replace, go-to-line)
-    - `file_filters.rs` — File type filter definitions
-    - `platform.rs` — Platform-specific detection (dark mode across OS)
-    - `settings.rs` — User preferences (moved from `src/`)
-    - `updater.rs` — Update checker (moved from `src/`)
-  - `src/ui/` — Presentation layer:
-    - `main_window.rs` — Main window construction
-    - `menu.rs` — Menu bar builder
-    - `theme.rs` — Theme and color management
-    - `file_dialogs.rs` — Native file dialog wrappers
-    - `dialogs/` — All dialog windows (About, Find, Go To Line, Settings, Update)
-  - `src/main.rs` — Reduced to ~210 lines of top-level orchestration
-- **Module imports**: Use `super::` for sibling module imports within `app/` for cleaner internal references.
-
-### Technical
-- Net change: +2,084 lines / -1,916 lines across 20 files.
-- Clear separation of concerns enables independent testing and easier maintenance.
-- Logical grouping paves the way for future plugin/extension architecture.
-- All existing functionality preserved — no behavioral changes.
+- **Major Architecture Refactoring**: Decomposed monolithic `main.rs` into `src/app/` (business logic) and `src/ui/` (presentation) with message-passing event-driven architecture. ~5,200 lines across 28 files.
+- Extracted `HighlightController`, `UpdateController`, `PreviewController`, `EditorContainer`, and `TabManager` from AppState.
+- Added `thiserror`-based `AppError` enum for consistent error handling.
+- Configured jemalloc dirty/muzzy decay to 0ms at startup for immediate page return.
+- Updated README and website to reflect v0.9.0 feature set.
 
 ## [0.1.8] - 2026-02-12
 
@@ -307,10 +264,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FLTK-based GUI
 - Rust implementation for speed and safety
 
-[0.9.0-rc.4]: https://github.com/fedro86/ferrispad/compare/0.9.0-rc.3...0.9.0-rc.4
-[0.9.0-rc.3]: https://github.com/fedro86/ferrispad/compare/0.9.0-rc.2...0.9.0-rc.3
-[0.9.0-rc.2]: https://github.com/fedro86/ferrispad/compare/0.9.0-rc.1...0.9.0-rc.2
-[0.9.0-rc.1]: https://github.com/fedro86/ferrispad/compare/0.1.8...0.9.0-rc.1
+[0.9.0]: https://github.com/fedro86/ferrispad/compare/0.1.8...0.9.0
 [0.1.8]: https://github.com/fedro86/ferrispad/compare/0.1.7...0.1.8
 [0.1.7]: https://github.com/fedro86/ferrispad/compare/0.1.6...0.1.7
 [0.1.6]: https://github.com/fedro86/ferrispad/compare/0.1.5...0.1.6
