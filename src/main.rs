@@ -191,10 +191,10 @@ fn main() {
         if let Some(msg) = receiver.recv() {
             match msg {
                 // File
-                Message::FileNew => state.file_new(),
-                Message::FileOpen => state.file_open(),
-                Message::FileSave => state.file_save(),
-                Message::FileSaveAs => state.file_save_as(),
+                Message::FileNew => { state.file_new(); state.mark_session_dirty(); }
+                Message::FileOpen => { state.file_open(); state.mark_session_dirty(); }
+                Message::FileSave => { state.file_save(); state.mark_session_dirty(); }
+                Message::FileSaveAs => { state.file_save_as(); state.mark_session_dirty(); }
                 Message::FileQuit | Message::WindowClose => {
                     if state.file_quit() {
                         fltk_app::quit();
@@ -213,6 +213,7 @@ fn main() {
                     if state.close_tab(id) {
                         fltk_app::quit();
                     }
+                    state.mark_session_dirty();
                 }
                 Message::TabCloseActive => {
                     if let Some(id) = state.tab_manager.active_id() {
@@ -220,24 +221,26 @@ fn main() {
                             fltk_app::quit();
                         }
                     }
+                    state.mark_session_dirty();
                 }
                 Message::TabMove(from, to) => {
                     state.tab_manager.move_tab(from, to);
                     state.rebuild_tab_bar();
+                    state.mark_session_dirty();
                 }
                 Message::TabNext => state.switch_to_next_tab(),
                 Message::TabPrevious => state.switch_to_previous_tab(),
 
                 // Tab Groups
-                Message::TabGroupCreate(doc_id) => state.handle_group_create(doc_id),
-                Message::TabGroupDelete(group_id) => state.handle_group_delete(group_id),
-                Message::TabGroupClose(group_id) => state.handle_group_close(group_id),
-                Message::TabGroupRename(group_id) => state.handle_group_rename(group_id),
-                Message::TabGroupRecolor(group_id, color) => state.handle_group_recolor(group_id, color),
-                Message::TabGroupAddTab(doc_id, group_id) => state.handle_group_add_tab(doc_id, group_id),
-                Message::TabGroupRemoveTab(doc_id) => state.handle_group_remove_tab(doc_id),
-                Message::TabGroupToggle(group_id) => state.handle_group_toggle(group_id),
-                Message::TabGroupByDrag(source_id, target_id) => state.handle_group_by_drag(source_id, target_id),
+                Message::TabGroupCreate(doc_id) => { state.handle_group_create(doc_id); state.mark_session_dirty(); }
+                Message::TabGroupDelete(group_id) => { state.handle_group_delete(group_id); state.mark_session_dirty(); }
+                Message::TabGroupClose(group_id) => { state.handle_group_close(group_id); state.mark_session_dirty(); }
+                Message::TabGroupRename(group_id) => { state.handle_group_rename(group_id); state.mark_session_dirty(); }
+                Message::TabGroupRecolor(group_id, color) => { state.handle_group_recolor(group_id, color); state.mark_session_dirty(); }
+                Message::TabGroupAddTab(doc_id, group_id) => { state.handle_group_add_tab(doc_id, group_id); state.mark_session_dirty(); }
+                Message::TabGroupRemoveTab(doc_id) => { state.handle_group_remove_tab(doc_id); state.mark_session_dirty(); }
+                Message::TabGroupToggle(group_id) => { state.handle_group_toggle(group_id); state.mark_session_dirty(); }
+                Message::TabGroupByDrag(source_id, target_id) => { state.handle_group_by_drag(source_id, target_id); state.mark_session_dirty(); }
 
                 // Edit
                 Message::EditUndo => { let _ = state.active_buffer().undo(); }
@@ -272,6 +275,7 @@ fn main() {
                 // Syntax highlighting (debounced)
                 Message::BufferModified(id, pos) => {
                     state.schedule_rehighlight(id, pos);
+                    state.mark_session_dirty();
                 }
                 Message::DoRehighlight => {
                     state.do_pending_rehighlight();
@@ -315,5 +319,6 @@ fn main() {
                 }
             }
         }
+        state.auto_save_session_if_needed();
     }
 }

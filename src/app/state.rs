@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Instant;
 
 use super::buffer_utils::buffer_text_no_leak;
 
@@ -53,6 +54,10 @@ pub struct AppState {
     pub preview: PreviewController,
     /// Last directory used in a file open/save dialog.
     pub last_open_directory: Option<String>,
+    /// Tracks when the session was last auto-saved.
+    last_auto_save: Instant,
+    /// Whether something changed since the last auto-save.
+    session_dirty: bool,
 }
 
 impl AppState {
@@ -109,6 +114,8 @@ impl AppState {
             highlight,
             preview,
             last_open_directory: None,
+            last_auto_save: Instant::now(),
+            session_dirty: false,
         }
     }
 
@@ -583,6 +590,34 @@ impl AppState {
         }
 
         should_quit
+    }
+
+    /// Mark that the session state has changed and should be auto-saved.
+    pub fn mark_session_dirty(&mut self) {
+        self.session_dirty = true;
+    }
+
+    /// Auto-save the session every 30 seconds if something changed.
+    pub fn auto_save_session_if_needed(&mut self) {
+        const AUTO_SAVE_INTERVAL_SECS: u64 = 30;
+
+        if !self.session_dirty {
+            return;
+        }
+        if self.last_auto_save.elapsed().as_secs() < AUTO_SAVE_INTERVAL_SECS {
+            return;
+        }
+
+        let session_mode = self.settings.borrow().session_restore;
+        if session_mode == SessionRestore::Off {
+            return;
+        }
+
+        if let Err(e) = session::save_session(&self.tab_manager, session_mode, self.last_open_directory.as_deref()) {
+            eprintln!("Auto-save session failed: {}", e);
+        }
+        self.session_dirty = false;
+        self.last_auto_save = Instant::now();
     }
 
     pub fn switch_to_next_tab(&mut self) {
