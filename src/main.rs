@@ -228,6 +228,17 @@ fn main() {
                 Message::TabNext => state.switch_to_next_tab(),
                 Message::TabPrevious => state.switch_to_previous_tab(),
 
+                // Tab Groups
+                Message::TabGroupCreate(doc_id) => state.handle_group_create(doc_id),
+                Message::TabGroupDelete(group_id) => state.handle_group_delete(group_id),
+                Message::TabGroupClose(group_id) => state.handle_group_close(group_id),
+                Message::TabGroupRename(group_id) => state.handle_group_rename(group_id),
+                Message::TabGroupRecolor(group_id, color) => state.handle_group_recolor(group_id, color),
+                Message::TabGroupAddTab(doc_id, group_id) => state.handle_group_add_tab(doc_id, group_id),
+                Message::TabGroupRemoveTab(doc_id) => state.handle_group_remove_tab(doc_id),
+                Message::TabGroupToggle(group_id) => state.handle_group_toggle(group_id),
+                Message::TabGroupByDrag(source_id, target_id) => state.handle_group_by_drag(source_id, target_id),
+
                 // Edit
                 Message::EditUndo => { let _ = state.active_buffer().undo(); }
                 Message::EditRedo => { let _ = state.active_buffer().redo(); }

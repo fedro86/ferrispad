@@ -1,6 +1,7 @@
 use fltk::enums::Font;
 
 use super::document::DocumentId;
+use super::tab_manager::{GroupColor, GroupId};
 use super::updater::ReleaseInfo;
 
 /// All messages that can be sent through the FLTK channel.
@@ -22,6 +23,17 @@ pub enum Message {
     TabMove(usize, usize),
     TabNext,
     TabPrevious,
+
+    // Tab Groups
+    TabGroupCreate(DocumentId),
+    TabGroupDelete(GroupId),
+    TabGroupClose(GroupId),
+    TabGroupRename(GroupId),
+    TabGroupRecolor(GroupId, GroupColor),
+    TabGroupAddTab(DocumentId, GroupId),
+    TabGroupRemoveTab(DocumentId),
+    TabGroupToggle(GroupId),
+    TabGroupByDrag(DocumentId, DocumentId),
 
     // Edit
     EditUndo,

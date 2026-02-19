@@ -20,7 +20,7 @@ use super::document::DocumentId;
 use super::highlight_controller::{HighlightController, HighlightWidgets};
 use super::preview_controller::{self, PreviewController, wrap_html_for_helpview, extract_resize_tasks, ImageResizeProgress};
 use super::session::{self, SessionRestore};
-use super::tab_manager::TabManager;
+use super::tab_manager::{GroupColor, GroupId, TabManager};
 use super::platform::detect_system_dark_mode;
 use super::messages::Message;
 use super::settings::{AppSettings, FontChoice, ThemeMode};
@@ -177,6 +177,7 @@ impl AppState {
             let active_id = self.tab_manager.active_id();
             tab_bar.rebuild(
                 self.tab_manager.documents(),
+                self.tab_manager.groups(),
                 active_id,
                 &self.sender,
                 self.dark_mode,
@@ -417,10 +418,25 @@ impl AppState {
             self.tab_manager.remove(id);
         }
 
+        // Restore groups and build index -> GroupId mapping
+        use super::tab_manager::TabGroup as TG;
+        let restored_groups: Vec<TG> = session_data.groups.iter().map(|gs| {
+            TG {
+                id: GroupId(0), // placeholder, restore_groups assigns real ids
+                name: gs.name.clone(),
+                color: GroupColor::from_str(&gs.color).unwrap_or(GroupColor::Grey),
+                collapsed: gs.collapsed,
+            }
+        }).collect();
+        let group_ids = self.tab_manager.restore_groups(restored_groups);
+
         let mut first_id = None;
         let target_index = session_data.active_index;
 
         for (i, doc_session) in session_data.documents.iter().enumerate() {
+            // Resolve group assignment
+            let group_id = doc_session.group_index.and_then(|idx| group_ids.get(idx).copied());
+
             if let Some(ref path) = doc_session.file_path {
                 if let Ok(content) = fs::read_to_string(path) {
                     let id = self.tab_manager.add_from_file(path.clone(), &content);
@@ -442,6 +458,7 @@ impl AppState {
 
                     if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
                         doc.cursor_position = doc_session.cursor_position;
+                        doc.group_id = group_id;
                     }
 
                     if i == target_index {
@@ -455,6 +472,7 @@ impl AppState {
                         if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
                             doc.buffer.set_text(&temp_content);
                             doc.cursor_position = doc_session.cursor_position;
+                            doc.group_id = group_id;
                         }
                         if first_id.is_none() {
                             first_id = Some(id);
@@ -959,6 +977,78 @@ impl AppState {
                 window: &mut self.window,
             },
         );
+    }
+
+    // --- Tab Group handlers ---
+
+    pub fn handle_group_create(&mut self, doc_id: DocumentId) {
+        self.tab_manager.create_group(&[doc_id]);
+        self.rebuild_tab_bar();
+    }
+
+    pub fn handle_group_delete(&mut self, group_id: GroupId) {
+        self.tab_manager.delete_group(group_id);
+        self.rebuild_tab_bar();
+    }
+
+    pub fn handle_group_close(&mut self, group_id: GroupId) {
+        let doc_ids = self.tab_manager.group_doc_ids(group_id);
+        for id in doc_ids {
+            if self.close_tab(id) {
+                // Last tab closed — app should exit, but we continue
+                // since close_tab already handles that signal
+                return;
+            }
+        }
+        // Remove the group itself (tabs already removed from it by close_tab)
+        self.tab_manager.delete_group(group_id);
+        self.rebuild_tab_bar();
+    }
+
+    pub fn handle_group_rename(&mut self, group_id: GroupId) {
+        let current_name = self.tab_manager.group_by_id(group_id)
+            .map(|g| g.name.clone())
+            .unwrap_or_default();
+        if let Some(new_name) = dialog::input_default("Group name:", &current_name) {
+            self.tab_manager.rename_group(group_id, new_name);
+            self.rebuild_tab_bar();
+        }
+    }
+
+    pub fn handle_group_recolor(&mut self, group_id: GroupId, color: GroupColor) {
+        self.tab_manager.recolor_group(group_id, color);
+        self.rebuild_tab_bar();
+    }
+
+    pub fn handle_group_add_tab(&mut self, doc_id: DocumentId, group_id: GroupId) {
+        self.tab_manager.set_tab_group(doc_id, Some(group_id));
+        self.rebuild_tab_bar();
+    }
+
+    pub fn handle_group_remove_tab(&mut self, doc_id: DocumentId) {
+        self.tab_manager.set_tab_group(doc_id, None);
+        self.rebuild_tab_bar();
+    }
+
+    pub fn handle_group_toggle(&mut self, group_id: GroupId) {
+        self.tab_manager.toggle_group_collapsed(group_id);
+        self.rebuild_tab_bar();
+    }
+
+    pub fn handle_group_by_drag(&mut self, source_id: DocumentId, target_id: DocumentId) {
+        let target_group = self.tab_manager.documents()
+            .iter()
+            .find(|d| d.id == target_id)
+            .and_then(|d| d.group_id);
+
+        if let Some(gid) = target_group {
+            // Target is already in a group — add source to that group
+            self.tab_manager.set_tab_group(source_id, Some(gid));
+        } else {
+            // Neither grouped — create a new group with both
+            self.tab_manager.create_group(&[target_id, source_id]);
+        }
+        self.rebuild_tab_bar();
     }
 
     pub fn start_queued_highlights(&mut self) {

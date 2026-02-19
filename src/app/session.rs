@@ -31,6 +31,8 @@ pub struct SessionData {
     pub documents: Vec<DocumentSession>,
     #[serde(default)]
     pub last_open_directory: Option<String>,
+    #[serde(default)]
+    pub groups: Vec<GroupSession>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -40,6 +42,15 @@ pub struct DocumentSession {
     pub cursor_position: i32,
     pub temp_file: Option<String>,
     pub was_dirty: bool,
+    #[serde(default)]
+    pub group_index: Option<usize>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct GroupSession {
+    pub name: String,
+    pub color: String,
+    pub collapsed: bool,
 }
 
 /// Returns the session directory path: data_dir/ferrispad/session/
@@ -74,11 +85,24 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
         .and_then(|id| docs.iter().position(|d| d.id == id))
         .unwrap_or(0);
 
+    // Build group sessions and a mapping from GroupId -> index
+    let groups = tab_manager.groups();
+    let group_sessions: Vec<GroupSession> = groups.iter().map(|g| GroupSession {
+        name: g.name.clone(),
+        color: g.color.as_str().to_string(),
+        collapsed: g.collapsed,
+    }).collect();
+
     let mut doc_sessions = Vec::new();
 
     for doc in docs {
         let is_dirty = doc.is_dirty();
         let has_path = doc.file_path.is_some();
+
+        // Find group index for this document
+        let group_index = doc.group_id.and_then(|gid| {
+            groups.iter().position(|g| g.id == gid)
+        });
 
         match mode {
             SessionRestore::SavedFiles => {
@@ -89,6 +113,7 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
                         cursor_position: doc.cursor_position,
                         temp_file: None,
                         was_dirty: false,
+                        group_index,
                     });
                 }
             }
@@ -116,6 +141,7 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
                     cursor_position: doc.cursor_position,
                     temp_file,
                     was_dirty: is_dirty,
+                    group_index,
                 });
             }
             SessionRestore::Off => unreachable!(),
@@ -154,6 +180,7 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
         active_index,
         documents: doc_sessions,
         last_open_directory: last_open_directory.map(|s| s.to_string()),
+        groups: group_sessions,
     };
 
     let json = serde_json::to_string_pretty(&session_data)?;

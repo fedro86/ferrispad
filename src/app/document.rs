@@ -7,6 +7,7 @@ use fltk::text::TextBuffer;
 
 use super::messages::Message;
 use super::syntax::checkpoint::SparseCheckpoints;
+use super::tab_manager::GroupId;
 use super::text_ops::extract_filename;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -117,6 +118,7 @@ pub struct Document {
     pub cursor_position: i32,
     pub checkpoints: SparseCheckpoints,
     pub syntax_name: Option<String>,
+    pub group_id: Option<GroupId>,
     /// Pointer to the heap-allocated closure passed to FLTK's modify callback.
     /// Must be freed in cleanup() after removing the callback.
     modify_cb_data: *mut c_void,
@@ -147,6 +149,7 @@ impl Document {
             cursor_position: 0,
             checkpoints: SparseCheckpoints::new(),
             syntax_name: None,
+            group_id: None,
             modify_cb_data,
         }
     }
@@ -177,6 +180,7 @@ impl Document {
             cursor_position: 0,
             checkpoints: SparseCheckpoints::new(),
             syntax_name: None,
+            group_id: None,
             modify_cb_data,
         }
     }
