@@ -267,4 +267,78 @@ mod tests {
         let text = "hello";
         assert_eq!(line_number_to_byte_position(text, 0), None);
     }
+
+    // Additional edge case tests
+
+    #[test]
+    fn test_find_empty_search() {
+        let text = "hello world";
+        assert_eq!(find_in_text(text, "", 0, false), None);
+        assert_eq!(find_in_text_backward(text, "", text.len(), false), None);
+    }
+
+    #[test]
+    fn test_find_start_beyond_text() {
+        let text = "hello";
+        assert_eq!(find_in_text(text, "hello", 100, false), None);
+    }
+
+    #[test]
+    fn test_replace_empty_search() {
+        let text = "hello world";
+        let (result, count) = replace_all_in_text(text, "", "X", false);
+        assert_eq!(result, "hello world");
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_replace_with_longer_string() {
+        let text = "a b c";
+        let (result, count) = replace_all_in_text(text, " ", "---", false);
+        assert_eq!(result, "a---b---c");
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_line_to_pos_empty_text() {
+        let text = "";
+        assert_eq!(line_number_to_byte_position(text, 1), Some(0));
+        assert_eq!(line_number_to_byte_position(text, 2), None);
+    }
+
+    #[test]
+    fn test_line_to_pos_single_newline() {
+        let text = "\n";
+        assert_eq!(line_number_to_byte_position(text, 1), Some(0));
+        assert_eq!(line_number_to_byte_position(text, 2), Some(1));
+        assert_eq!(line_number_to_byte_position(text, 3), None);
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_extract_filename_windows_path() {
+        // Windows Path parses Windows paths correctly
+        assert_eq!(extract_filename("C:\\Users\\test\\file.txt"), "file.txt");
+    }
+
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn test_extract_filename_unix_absolute() {
+        // Unix systems parse forward-slash paths
+        assert_eq!(extract_filename("/usr/local/bin/program"), "program");
+    }
+
+    #[test]
+    fn test_find_unicode() {
+        let text = "Hello 世界 world";
+        assert_eq!(find_in_text(text, "世界", 0, false), Some(6));
+    }
+
+    #[test]
+    fn test_replace_unicode() {
+        let text = "Hello 世界";
+        let (result, count) = replace_all_in_text(text, "世界", "World", false);
+        assert_eq!(result, "Hello World");
+        assert_eq!(count, 1);
+    }
 }
