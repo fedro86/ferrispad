@@ -247,3 +247,102 @@ fn make_hash(name: &str, id: u64) -> u64 {
         .hash(&mut hasher);
     hasher.finish()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_session_restore_default() {
+        let mode: SessionRestore = SessionRestore::default();
+        assert_eq!(mode, SessionRestore::Off);
+    }
+
+    #[test]
+    fn test_session_data_serialization() {
+        let data = SessionData {
+            version: 1,
+            active_index: 0,
+            documents: vec![DocumentSession {
+                file_path: Some("/tmp/test.txt".to_string()),
+                display_name: "test.txt".to_string(),
+                cursor_position: 42,
+                temp_file: None,
+                was_dirty: false,
+                group_index: None,
+            }],
+            last_open_directory: Some("/tmp".to_string()),
+            groups: vec![],
+        };
+
+        let json = serde_json::to_string(&data).unwrap();
+        let loaded: SessionData = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(loaded.version, 1);
+        assert_eq!(loaded.active_index, 0);
+        assert_eq!(loaded.documents.len(), 1);
+        assert_eq!(loaded.documents[0].file_path, Some("/tmp/test.txt".to_string()));
+        assert_eq!(loaded.documents[0].cursor_position, 42);
+    }
+
+    #[test]
+    fn test_session_data_missing_version_uses_default() {
+        // Old format without version field
+        let json = r#"{
+            "active_index": 0,
+            "documents": []
+        }"#;
+
+        let loaded: SessionData = serde_json::from_str(json).unwrap();
+        assert_eq!(loaded.version, CURRENT_SESSION_VERSION);
+    }
+
+    #[test]
+    fn test_document_session_serialization() {
+        let doc = DocumentSession {
+            file_path: None,
+            display_name: "Untitled".to_string(),
+            cursor_position: 0,
+            temp_file: Some("abc123.tmp".to_string()),
+            was_dirty: true,
+            group_index: Some(0),
+        };
+
+        let json = serde_json::to_string(&doc).unwrap();
+        let loaded: DocumentSession = serde_json::from_str(&json).unwrap();
+
+        assert!(loaded.file_path.is_none());
+        assert_eq!(loaded.display_name, "Untitled");
+        assert_eq!(loaded.temp_file, Some("abc123.tmp".to_string()));
+        assert!(loaded.was_dirty);
+        assert_eq!(loaded.group_index, Some(0));
+    }
+
+    #[test]
+    fn test_group_session_serialization() {
+        let group = GroupSession {
+            name: "Test Group".to_string(),
+            color: "coral".to_string(),
+            collapsed: true,
+        };
+
+        let json = serde_json::to_string(&group).unwrap();
+        let loaded: GroupSession = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(loaded.name, "Test Group");
+        assert_eq!(loaded.color, "coral");
+        assert!(loaded.collapsed);
+    }
+
+    #[test]
+    fn test_load_session_off_returns_none() {
+        let result = load_session(SessionRestore::Off);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_session_dir_returns_path() {
+        let dir = session_dir();
+        assert!(dir.ends_with("ferrispad/session") || dir.ends_with("ferrispad\\session"));
+    }
+}
