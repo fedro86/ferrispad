@@ -9,9 +9,15 @@
 
 FerrisPad is a fast, lightweight text editor built with Rust and FLTK. Named after **Ferris** (the beloved mascot of the Rust programming language), it combines the responsiveness of a simple notepad with the features you actually need for daily editing.
 
-It opens instantly, supports syntax highlighting for 50+ languages, manages multiple files with tab groups, and restores your full session across restarts. All in a single, self-contained binary with no runtime dependencies.
+It opens instantly, supports syntax highlighting for 50+ languages, manages multiple files with tab groups, and restores your full session across restarts. All in a single, self-contained binary with **no runtime dependencies**.
 
 > **About Ferris**: Ferris is the unofficial mascot of Rust, a friendly orange crab that represents the community values of the language: safety, speed, and concurrency.
+
+## Philosophy
+
+FerrisPad is built with a strict technical "constitution." We guarantee **0% CPU usage when idle**, **RAM frugality** through active memory management, a single self-contained binary, and absolute privacy with zero telemetry.
+
+Read the full [FerrisPad Philosophy](PHILOSOPHY.md) to understand how we decide on new features.
 
 ## Features
 
