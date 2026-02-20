@@ -34,7 +34,7 @@ Read the full [FerrisPad Philosophy](PHILOSOPHY.md) to understand how we decide 
 - Sparse checkpoints every 128 lines for efficient incremental re-highlighting
 
 <div align="center">
-  <video src="docs/assets/videos/syntax_highlight.mp4" width="800" controls muted autoplay loop></video>
+  <video src="https://raw.githubusercontent.com/fedro86/ferrispad/master/docs/assets/videos/syntax_highlight.mp4" width="800" controls muted autoplay loop></video>
 </div>
 
 **Tabs & Groups**
@@ -47,7 +47,7 @@ Read the full [FerrisPad Philosophy](PHILOSOPHY.md) to understand how we decide 
 - Middle-click to close tabs, right-click context menu for group management
 
 <div align="center">
-  <video src="docs/assets/videos/activate_tabs.mp4" width="800" controls muted autoplay loop></video>
+  <video src="https://raw.githubusercontent.com/fedro86/ferrispad/master/docs/assets/videos/activate_tabs.mp4" width="800" controls muted autoplay loop></video>
 </div>
 
 **Session & Persistence**
@@ -57,7 +57,7 @@ Read the full [FerrisPad Philosophy](PHILOSOPHY.md) to understand how we decide 
 - Remembers last open directory
 
 <div align="center">
-  <video src="docs/assets/videos/session_restore.mp4" width="800" controls muted autoplay loop></video>
+  <video src="https://raw.githubusercontent.com/fedro86/ferrispad/master/docs/assets/videos/session_restore.mp4" width="800" controls muted autoplay loop></video>
 </div>
 
 **Markdown Preview**
@@ -65,7 +65,7 @@ Read the full [FerrisPad Philosophy](PHILOSOPHY.md) to understand how we decide 
 - Toggle preview on/off
 
 <div align="center">
-  <video src="docs/assets/videos/md_preview.mp4" width="800" controls muted autoplay loop></video>
+  <video src="https://raw.githubusercontent.com/fedro86/ferrispad/master/docs/assets/videos/md_preview.mp4" width="800" controls muted autoplay loop></video>
 </div>
 
 **Appearance**
