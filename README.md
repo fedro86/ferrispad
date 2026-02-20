@@ -27,6 +27,10 @@ It opens instantly, supports syntax highlighting for 50+ languages, manages mult
 - Chunked, non-blocking processing for large files (2000-line chunks via FLTK event loop)
 - Sparse checkpoints every 128 lines for efficient incremental re-highlighting
 
+<div align="center">
+  <video src="docs/assets/videos/syntax_highlight.mp4" width="800" controls muted autoplay loop></video>
+</div>
+
 **Tabs & Groups**
 - Draggable tabs with reorder support
 - Tab groups with colored labels (Red, Orange, Yellow, Green, Blue, Purple, Grey)
@@ -36,15 +40,27 @@ It opens instantly, supports syntax highlighting for 50+ languages, manages mult
 - "+" button for quick new tab creation
 - Middle-click to close tabs, right-click context menu for group management
 
+<div align="center">
+  <video src="docs/assets/videos/activate_tabs.mp4" width="800" controls muted autoplay loop></video>
+</div>
+
 **Session & Persistence**
 - Three restore modes: Off, Saved Files Only, Full (including unsaved content)
 - Auto-saves session every 30 seconds to survive crashes and forced kills
 - Persistent settings (theme, font, view options, update preferences)
 - Remembers last open directory
 
+<div align="center">
+  <video src="docs/assets/videos/session_restore.mp4" width="800" controls muted autoplay loop></video>
+</div>
+
 **Markdown Preview**
 - Live preview for Markdown files with async image resizing
 - Toggle preview on/off
+
+<div align="center">
+  <video src="docs/assets/videos/md_preview.mp4" width="800" controls muted autoplay loop></video>
+</div>
 
 **Appearance**
 - Light & Dark modes with automatic system theme detection

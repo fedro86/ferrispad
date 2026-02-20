@@ -107,7 +107,7 @@ impl Default for AppSettings {
             update_channel: default_update_channel(),
             last_update_check: 0,
             skipped_versions: Vec::new(),
-            tabs_enabled: false,
+            tabs_enabled: true,
             session_restore: SessionRestore::Off,
             preview_enabled: false,
         }
