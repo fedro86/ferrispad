@@ -179,8 +179,8 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
             return;
         }
 
-        if let Some((start, end)) = tb2.selection_position() {
-            if start != end {
+        if let Some((start, end)) = tb2.selection_position()
+            && start != end {
                 let selected = tb2.selection_text();
                 let case_sensitive = case_check2.is_checked();
 
@@ -196,7 +196,6 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
                     *sp2.borrow_mut() = (start as usize) + replacement.len();
                 }
             }
-        }
 
         find_btn2.do_callback();
     });

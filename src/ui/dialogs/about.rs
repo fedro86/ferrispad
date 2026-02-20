@@ -45,13 +45,11 @@ pub fn show_about_dialog() {
     flex.fixed(&_spacer1, 10);
 
     // Info section
-    let info_text = format!(
-        "Copyright \u{00a9} 2025 FerrisPad Contributors\n\
+    let info_text = "Copyright \u{00a9} 2025 FerrisPad Contributors\n\
          Licensed under the MIT License\n\n\
          Built with Rust \u{1f980} and FLTK\n\n\
          Website: www.ferrispad.com\n\
-         GitHub: github.com/fedro86/ferrispad"
-    );
+         GitHub: github.com/fedro86/ferrispad".to_string();
 
     let mut info_frame = Frame::default();
     info_frame.set_label(&info_text);

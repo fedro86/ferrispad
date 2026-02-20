@@ -151,8 +151,8 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
     // Merge with existing session: keep docs from other instances that
     // aren't open in this one, so closing one instance doesn't erase another's tabs.
     let session_file = dir.join("session.json");
-    if let Ok(existing_json) = fs::read_to_string(&session_file) {
-        if let Ok(existing) = serde_json::from_str::<SessionData>(&existing_json) {
+    if let Ok(existing_json) = fs::read_to_string(&session_file)
+        && let Ok(existing) = serde_json::from_str::<SessionData>(&existing_json) {
             // Collect file paths this instance knows about (owned to avoid borrow conflict)
             let our_paths: HashSet<String> = doc_sessions
                 .iter()
@@ -173,7 +173,6 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
                 }
             }
         }
-    }
 
     let session_data = SessionData {
         version: CURRENT_SESSION_VERSION,
@@ -222,11 +221,10 @@ pub fn clear_session() {
 
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
-            if let Some(ext) = entry.path().extension() {
-                if ext == "tmp" {
+            if let Some(ext) = entry.path().extension()
+                && ext == "tmp" {
                     let _ = fs::remove_file(entry.path());
                 }
-            }
         }
     }
 }

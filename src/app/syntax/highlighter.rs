@@ -105,15 +105,14 @@ pub fn highlight_incremental(
             let cp_idx = line_idx / CHECKPOINT_INTERVAL;
 
             // Check convergence at checkpoint boundaries (skip the starting checkpoint)
-            if cp_idx > start_cp_idx && cp_idx < checkpoints.len() {
-                if parse_state == checkpoints.parse_states[cp_idx]
+            if cp_idx > start_cp_idx && cp_idx < checkpoints.len()
+                && parse_state == checkpoints.parse_states[cp_idx]
                     && highlight_state == checkpoints.highlight_states[cp_idx]
                 {
                     // Converged — no more changes needed
                     _converged_at_cp = Some(cp_idx);
                     break;
                 }
-            }
 
             // Update checkpoint in place (or push if we're past the old length)
             if cp_idx < checkpoints.len() {

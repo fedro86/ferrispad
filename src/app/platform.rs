@@ -21,7 +21,7 @@ pub fn detect_system_dark_mode() -> bool {
         use std::process::Command;
 
         if let Ok(output) = Command::new("gsettings")
-            .args(&["get", "org.gnome.desktop.interface", "gtk-theme"])
+            .args(["get", "org.gnome.desktop.interface", "gtk-theme"])
             .output()
         {
             let theme = String::from_utf8_lossy(&output.stdout).to_lowercase();
@@ -32,7 +32,7 @@ pub fn detect_system_dark_mode() -> bool {
 
         // Try alternative method for other desktop environments
         if let Ok(output) = Command::new("gsettings")
-            .args(&["get", "org.gnome.desktop.interface", "color-scheme"])
+            .args(["get", "org.gnome.desktop.interface", "color-scheme"])
             .output()
         {
             let scheme = String::from_utf8_lossy(&output.stdout);
@@ -48,7 +48,7 @@ pub fn detect_system_dark_mode() -> bool {
         use std::process::Command;
 
         if let Ok(output) = Command::new("defaults")
-            .args(&["read", "-g", "AppleInterfaceStyle"])
+            .args(["read", "-g", "AppleInterfaceStyle"])
             .output()
         {
             if output.status.success() {

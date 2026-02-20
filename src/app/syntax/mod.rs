@@ -206,9 +206,7 @@ impl SyntaxHighlighter {
     pub fn process_chunk(&mut self) -> Option<ChunkOutput> {
         let mut cs = self.chunked.take()?;
 
-        if self.syntax_set.find_syntax_by_name(&cs.syntax_name).is_none() {
-            return None;
-        }
+        self.syntax_set.find_syntax_by_name(&cs.syntax_name)?;
         let theme = &self.theme_set.themes[&self.theme_name];
         let highlighter = Highlighter::new(theme);
 
@@ -274,5 +272,5 @@ impl SyntaxHighlighter {
 }
 
 fn make_default_style(text: &str) -> String {
-    std::iter::repeat('A').take(text.len()).collect()
+    std::iter::repeat_n('A', text.len()).collect()
 }

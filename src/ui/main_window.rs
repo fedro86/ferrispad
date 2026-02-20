@@ -42,7 +42,7 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWi
 
     // Tab bar (only when tabs enabled)
     let tab_bar = if tabs_enabled {
-        let tb = TabBar::new(0, 30, 640, sender.clone());
+        let tb = TabBar::new(0, 30, 640, *sender);
         flex.fixed(&tb.widget, TAB_BAR_HEIGHT);
         Some(tb)
     } else {

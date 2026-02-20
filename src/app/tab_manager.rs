@@ -29,7 +29,7 @@ impl GroupColor {
         GroupColor::Grey,
     ];
 
-    pub fn to_rgb(&self) -> (u8, u8, u8) {
+    pub fn to_rgb(self) -> (u8, u8, u8) {
         match self {
             GroupColor::Red => (220, 60, 60),
             GroupColor::Orange => (230, 150, 30),
@@ -41,7 +41,7 @@ impl GroupColor {
         }
     }
 
-    pub fn to_rgb_dark(&self) -> (u8, u8, u8) {
+    pub fn to_rgb_dark(self) -> (u8, u8, u8) {
         match self {
             GroupColor::Red => (180, 50, 50),
             GroupColor::Orange => (190, 120, 25),
@@ -118,7 +118,7 @@ impl TabManager {
     pub fn add_untitled(&mut self) -> DocumentId {
         self.untitled_counter += 1;
         let id = self.next_document_id();
-        let doc = Document::new_untitled(id, self.untitled_counter, self.sender.clone());
+        let doc = Document::new_untitled(id, self.untitled_counter, self.sender);
         self.documents.push(doc);
         self.active_id = Some(id);
         id
@@ -126,7 +126,7 @@ impl TabManager {
 
     pub fn add_from_file(&mut self, path: String, content: &str) -> DocumentId {
         let id = self.next_document_id();
-        let doc = Document::new_from_file(id, path, content, self.sender.clone());
+        let doc = Document::new_from_file(id, path, content, self.sender);
         self.documents.push(doc);
         self.active_id = Some(id);
         id
@@ -213,15 +213,14 @@ impl TabManager {
         let right_group = self.documents[pos].group_id;
 
         // Only a problem if both sides are the same group AND source isn't part of it
-        if let Some(gid) = left_group {
-            if left_group == right_group && source_group != Some(gid) {
+        if let Some(gid) = left_group
+            && left_group == right_group && source_group != Some(gid) {
                 // Find the group boundary — snap to the end of this group
                 let group_end = self.documents.iter()
                     .rposition(|d| d.group_id == Some(gid))
                     .map_or(pos, |i| i + 1);
                 return group_end;
             }
-        }
         pos
     }
 
@@ -382,13 +381,13 @@ impl TabManager {
             doc.group_id = group_id;
         }
         // Move the tab to sit next to its group members
-        if let Some(gid) = group_id {
-            if let Some(src) = self.documents.iter().position(|d| d.id == doc_id) {
+        if let Some(gid) = group_id
+            && let Some(src) = self.documents.iter().position(|d| d.id == doc_id) {
                 // Find the last tab in this group (excluding the one we're moving)
                 let last_in_group = self.documents.iter().enumerate()
                     .filter(|(i, d)| d.group_id == Some(gid) && *i != src)
                     .map(|(i, _)| i)
-                    .last();
+                    .next_back();
                 if let Some(dest) = last_in_group {
                     let doc = self.documents.remove(src);
                     // If we removed before dest, dest shifted left by 1
@@ -396,7 +395,6 @@ impl TabManager {
                     self.documents.insert(insert_at, doc);
                 }
             }
-        }
     }
 
     pub fn toggle_group_collapsed(&mut self, id: GroupId) {
@@ -424,5 +422,30 @@ impl TabManager {
             });
         }
         ids
+    }
+}
+
+// Note: TabManager tests require FLTK initialization which doesn't work well
+// with parallel test execution. Tests for TabManager logic are covered via
+// integration testing. Unit tests for pure functions like GroupColor are below.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_group_color_to_rgb() {
+        let color = GroupColor::Blue;
+        let (r, g, b) = color.to_rgb();
+        assert!(r < g && g < b); // Blue should have highest blue component
+    }
+
+    #[test]
+    fn test_group_color_to_rgb_dark() {
+        let color = GroupColor::Green;
+        let (r, g, b) = color.to_rgb_dark();
+        // Dark mode colors should be different from light mode
+        let (lr, lg, lb) = color.to_rgb();
+        assert!(r != lr || g != lg || b != lb);
     }
 }

@@ -223,8 +223,8 @@ fn compute_layout(st: &mut TabBarState) {
         if tab_group != current_group {
             current_group = tab_group;
 
-            if let Some(gid) = tab_group {
-                if let Some(ginfo) = st.groups.iter().find(|g| g.id == gid) {
+            if let Some(gid) = tab_group
+                && let Some(ginfo) = st.groups.iter().find(|g| g.id == gid) {
                     if ginfo.collapsed {
                         // Count how many tabs are in this group
                         let count = st.tabs[i..].iter().take_while(|t| t.group_id == Some(gid)).count();
@@ -251,7 +251,6 @@ fn compute_layout(st: &mut TabBarState) {
                         fixed_width += lw + GROUP_LABEL_GAP;
                     }
                 }
-            }
         }
 
         // Emit tab placeholder
@@ -468,13 +467,12 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                 }
 
                 // Group color underline
-                if let Some(gid) = tab.group_id {
-                    if let Some(ginfo) = st.groups.iter().find(|g| g.id == gid) {
+                if let Some(gid) = tab.group_id
+                    && let Some(ginfo) = st.groups.iter().find(|g| g.id == gid) {
                         let gc = group_color_to_fltk(ginfo.color, st.is_dark);
                         draw::set_draw_color(gc);
                         draw::draw_rectf(tx, wy + wh - GROUP_UNDERLINE, tab_width, GROUP_UNDERLINE);
                     }
-                }
 
                 // Text label
                 let text_color = if tab.is_active {
@@ -614,19 +612,15 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                     } else {
                         Color::from_rgb(210, 210, 210)
                     }
+                } else if st.is_dark {
+                    Color::from_rgb(35, 35, 35)
                 } else {
-                    if st.is_dark {
-                        Color::from_rgb(35, 35, 35)
-                    } else {
-                        Color::from_rgb(220, 220, 220)
-                    }
+                    Color::from_rgb(220, 220, 220)
                 };
                 draw_rounded_top_rect(px, btn_y, PLUS_BTN_WIDTH, btn_h, CORNER_RADIUS, bg);
                 let text_color = if st.hover_plus {
                     if st.is_dark { Color::from_rgb(230, 230, 230) } else { Color::from_rgb(0, 0, 0) }
-                } else {
-                    if st.is_dark { Color::from_rgb(140, 140, 140) } else { Color::from_rgb(80, 80, 80) }
-                };
+                } else if st.is_dark { Color::from_rgb(140, 140, 140) } else { Color::from_rgb(80, 80, 80) };
                 draw::set_draw_color(text_color);
                 draw::set_font(Font::HelveticaBold, 16);
                 draw::draw_text2("+", px, btn_y, PLUS_BTN_WIDTH, btn_h, Align::Center);
@@ -639,9 +633,9 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
         match drag_target {
             DragTarget::OnTab(target_idx) => {
                 // Highlight the target tab — 50% blend of blue tint over tab background
-                if let Some(item) = st.layout.iter().find(|it| matches!(it, LayoutItem::Tab { index, .. } if index == target_idx)) {
-                    if let LayoutItem::Tab { x, width, .. } = item {
-                        let is_active = st.tabs.get(*target_idx).map_or(false, |t| t.is_active);
+                if let Some(item) = st.layout.iter().find(|it| matches!(it, LayoutItem::Tab { index, .. } if index == target_idx))
+                    && let LayoutItem::Tab { x, width, .. } = item {
+                        let is_active = st.tabs.get(*target_idx).is_some_and(|t| t.is_active);
                         let bg = if is_active { colors.active_bg } else { colors.inactive_bg };
                         let (br, bg_g, bb) = bg.to_rgb();
                         let (tr, tg, tb) = if st.is_dark {
@@ -657,7 +651,6 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                         );
                         draw_rounded_top_rect(wx + *x, wy + 2, *width, wh - 2, CORNER_RADIUS, blended);
                     }
-                }
             }
             DragTarget::InsertAt(pos) => {
                 // Draw vertical insertion line at the position
@@ -696,7 +689,7 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
 // --- Context menu ---
 
 fn show_context_menu(st: &TabBarState, tab_index: Option<usize>, group_id: Option<GroupId>) {
-    let sender = st.sender.clone();
+    let sender = st.sender;
     // Position at mouse cursor with a 1x1 anchor so Wayland has a valid rectangle
     let mx = fltk::app::event_x();
     let my = fltk::app::event_y();
@@ -709,18 +702,18 @@ fn show_context_menu(st: &TabBarState, tab_index: Option<usize>, group_id: Optio
         let tab_id = tab.id;
 
         if let Some(gid) = tab.group_id {
-            menu.add_emit("Remove from group", sc, fl, sender.clone(), Message::TabGroupRemoveTab(tab_id));
-            menu.add_emit("Rename group", sc, fl, sender.clone(), Message::TabGroupRename(gid));
+            menu.add_emit("Remove from group", sc, fl, sender, Message::TabGroupRemoveTab(tab_id));
+            menu.add_emit("Rename group", sc, fl, sender, Message::TabGroupRename(gid));
 
             for color in GroupColor::ALL {
                 let label = format!("Change color/{}", color.as_str());
-                menu.add_emit(&label, sc, fl, sender.clone(), Message::TabGroupRecolor(gid, color));
+                menu.add_emit(&label, sc, fl, sender, Message::TabGroupRecolor(gid, color));
             }
 
-            menu.add_emit("Ungroup all", sc, fl, sender.clone(), Message::TabGroupDelete(gid));
-            menu.add_emit("Close group", sc, fl, sender.clone(), Message::TabGroupClose(gid));
+            menu.add_emit("Ungroup all", sc, fl, sender, Message::TabGroupDelete(gid));
+            menu.add_emit("Close group", sc, fl, sender, Message::TabGroupClose(gid));
         } else {
-            menu.add_emit("Add to new group", sc, fl, sender.clone(), Message::TabGroupCreate(tab_id));
+            menu.add_emit("Add to new group", sc, fl, sender, Message::TabGroupCreate(tab_id));
 
             for ginfo in &st.groups {
                 let label = if ginfo.name.is_empty() {
@@ -728,19 +721,19 @@ fn show_context_menu(st: &TabBarState, tab_index: Option<usize>, group_id: Optio
                 } else {
                     format!("Move to group/{}", ginfo.name)
                 };
-                menu.add_emit(&label, sc, fl, sender.clone(), Message::TabGroupAddTab(tab_id, ginfo.id));
+                menu.add_emit(&label, sc, fl, sender, Message::TabGroupAddTab(tab_id, ginfo.id));
             }
         }
     } else if let Some(gid) = group_id {
-        menu.add_emit("Rename group", sc, fl, sender.clone(), Message::TabGroupRename(gid));
+        menu.add_emit("Rename group", sc, fl, sender, Message::TabGroupRename(gid));
 
         for color in GroupColor::ALL {
             let label = format!("Change color/{}", color.as_str());
-            menu.add_emit(&label, sc, fl, sender.clone(), Message::TabGroupRecolor(gid, color));
+            menu.add_emit(&label, sc, fl, sender, Message::TabGroupRecolor(gid, color));
         }
 
-        menu.add_emit("Ungroup all", sc, fl, sender.clone(), Message::TabGroupDelete(gid));
-        menu.add_emit("Close group", sc, fl, sender.clone(), Message::TabGroupClose(gid));
+        menu.add_emit("Ungroup all", sc, fl, sender, Message::TabGroupDelete(gid));
+        menu.add_emit("Close group", sc, fl, sender, Message::TabGroupClose(gid));
     }
 
     menu.popup();
@@ -760,14 +753,14 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
 
             match hit {
                 HitResult::PlusButton if button == 1 => {
-                    let sender = st.sender.clone();
+                    let sender = st.sender;
                     drop(st);
                     sender.send(Message::FileNew);
-                    return true;
+                    true
                 }
                 HitResult::Tab { index, is_close } => {
                     let tab_id = st.tabs[index].id;
-                    let sender = st.sender.clone();
+                    let sender = st.sender;
 
                     if button == 3 {
                         // Right-click context menu
@@ -792,15 +785,15 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                             };
                             st_mut.drag_source = Some(DragSource::Tab(index));
                             st_mut.drag_target = None;
-                            let sender = st_mut.sender.clone();
+                            let sender = st_mut.sender;
                             drop(st_mut);
                             sender.send(Message::TabSwitch(tab_id));
                         }
                     }
-                    return true;
+                    true
                 }
                 HitResult::GroupLabel(gid) => {
-                    let sender = st.sender.clone();
+                    let sender = st.sender;
                     if button == 1 {
                         drop(st);
                         sender.send(Message::TabGroupToggle(gid));
@@ -809,7 +802,7 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                         let st2 = state.borrow();
                         show_context_menu(&st2, None, Some(gid));
                     }
-                    return true;
+                    true
                 }
                 HitResult::CollapsedChip(gid) => {
                     if button == 1 {
@@ -824,10 +817,10 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                         let st2 = state.borrow();
                         show_context_menu(&st2, None, Some(gid));
                     }
-                    return true;
+                    true
                 }
                 _ => {
-                    return false;
+                    false
                 }
             }
         }
@@ -871,7 +864,7 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                     match hit_test_layout(&st.layout, wid.y(), mx, my) {
                         HitResult::Tab { index, .. } => {
                             // Don't allow dropping inside own group
-                            let is_own = st.tabs.get(index).map_or(false, |t| t.group_id == Some(src_gid));
+                            let is_own = st.tabs.get(index).is_some_and(|t| t.group_id == Some(src_gid));
                             if is_own {
                                 None
                             } else if let Some(item) = st.layout.iter().find(|it| matches!(it, LayoutItem::Tab { index: i, .. } if *i == index)) {
@@ -934,7 +927,7 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
             match (source, target) {
                 (Some(src), Some(drag_target)) => {
                     let st = state.borrow();
-                    let sender = st.sender.clone();
+                    let sender = st.sender;
                     match (src, drag_target) {
                         (DragSource::Tab(from), DragTarget::OnTab(target_idx)) => {
                             let source_id = st.tabs[from].id;
@@ -958,7 +951,7 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                 (Some(DragSource::Group(gid)), None) => {
                     // Click without drag on collapsed chip → toggle expand
                     let st = state.borrow();
-                    let sender = st.sender.clone();
+                    let sender = st.sender;
                     drop(st);
                     sender.send(Message::TabGroupToggle(gid));
                 }

@@ -100,7 +100,7 @@ fn main() {
         w.menu.clone(),
         w.flex.clone(),
         w.update_banner_frame.clone(),
-        sender.clone(),
+        sender,
         app_settings.clone(),
         initial_dark_mode,
         settings.line_numbers_enabled,
@@ -127,7 +127,7 @@ fn main() {
     // Window close button -> signal quit so nested dialog loops break out,
     // then send the message for the main event loop to handle.
     w.wind.set_callback({
-        let s = sender.clone();
+        let s = sender;
         move |_| {
             fltk::app::program_should_quit(true);
             s.send(Message::WindowClose);
@@ -136,7 +136,7 @@ fn main() {
 
     // Banner click/dismiss handlers
     w.update_banner_frame.handle({
-        let s = sender.clone();
+        let s = sender;
         move |_, event| match event {
             fltk::enums::Event::Push => {
                 s.send(Message::ShowBannerUpdate);
@@ -178,7 +178,7 @@ fn main() {
         drop(settings_lock);
 
         if auto_check && should_check {
-            let s = sender.clone();
+            let s = sender;
             std::thread::spawn(move || {
                 let current_version = env!("CARGO_PKG_VERSION");
                 let result = check_for_updates(current_version, channel, &skipped);
@@ -224,11 +224,10 @@ fn main() {
                     state.mark_session_dirty();
                 }
                 Message::TabCloseActive => {
-                    if let Some(id) = state.tab_manager.active_id() {
-                        if state.close_tab(id) {
+                    if let Some(id) = state.tab_manager.active_id()
+                        && state.close_tab(id) {
                             fltk_app::quit();
                         }
-                    }
                     state.mark_session_dirty();
                 }
                 Message::TabMove(from, to) => {

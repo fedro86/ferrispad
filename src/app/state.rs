@@ -75,7 +75,7 @@ impl AppState {
         tabs_enabled: bool,
         tab_bar: Option<TabBar>,
     ) -> Self {
-        let mut tab_manager = TabManager::new(sender.clone());
+        let mut tab_manager = TabManager::new(sender);
         tab_manager.add_untitled();
 
         let font = {
@@ -195,8 +195,8 @@ impl AppState {
     /// Close a tab by id. Returns true if the app should exit (no tabs remaining).
     pub fn close_tab(&mut self, id: DocumentId) -> bool {
         // Check if document is dirty
-        if let Some(doc) = self.tab_manager.doc_by_id(id) {
-            if doc.is_dirty() {
+        if let Some(doc) = self.tab_manager.doc_by_id(id)
+            && doc.is_dirty() {
                 let name = doc.display_name.clone();
                 let choice = dialog::choice2_default(
                     &format!("\"{}\" has unsaved changes.", name),
@@ -212,22 +212,19 @@ impl AppState {
                             self.switch_to_document(id);
                         }
                         self.file_save();
-                        if let Some(doc) = self.tab_manager.doc_by_id(id) {
-                            if doc.is_dirty() {
-                                if let Some(prev) = was_active {
-                                    if prev != id {
+                        if let Some(doc) = self.tab_manager.doc_by_id(id)
+                            && doc.is_dirty() {
+                                if let Some(prev) = was_active
+                                    && prev != id {
                                         self.switch_to_document(prev);
                                     }
-                                }
                                 return false;
                             }
-                        }
                     }
                     Some(1) => {}
                     _ => return false,
                 }
             }
-        }
 
         self.tab_manager.remove(id);
 
@@ -460,15 +457,12 @@ impl AppState {
 
                     self.detect_and_highlight(id, path);
 
-                    if mode == SessionRestore::Full {
-                        if let Some(ref temp_file) = doc_session.temp_file {
-                            if let Some(temp_content) = session::read_temp_file(temp_file) {
-                                if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+                    if mode == SessionRestore::Full
+                        && let Some(ref temp_file) = doc_session.temp_file
+                            && let Some(temp_content) = session::read_temp_file(temp_file)
+                                && let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
                                     doc.buffer.set_text(&temp_content);
                                 }
-                            }
-                        }
-                    }
 
                     if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
                         doc.cursor_position = doc_session.cursor_position;
@@ -479,9 +473,9 @@ impl AppState {
                         self.tab_manager.set_active(id);
                     }
                 }
-            } else if mode == SessionRestore::Full {
-                if let Some(ref temp_file) = doc_session.temp_file {
-                    if let Some(temp_content) = session::read_temp_file(temp_file) {
+            } else if mode == SessionRestore::Full
+                && let Some(ref temp_file) = doc_session.temp_file
+                    && let Some(temp_content) = session::read_temp_file(temp_file) {
                         let id = self.tab_manager.add_untitled();
                         if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
                             doc.buffer.set_text(&temp_content);
@@ -495,8 +489,6 @@ impl AppState {
                             self.tab_manager.set_active(id);
                         }
                     }
-                }
-            }
         }
 
         if self.tab_manager.count() == 0 {
@@ -547,11 +539,10 @@ impl AppState {
                         for id in dirty_docs {
                             self.switch_to_document(id);
                             self.file_save();
-                            if let Some(doc) = self.tab_manager.doc_by_id(id) {
-                                if doc.is_dirty() {
+                            if let Some(doc) = self.tab_manager.doc_by_id(id)
+                                && doc.is_dirty() {
                                     return false;
                                 }
-                            }
                         }
                         true
                     }
@@ -563,7 +554,7 @@ impl AppState {
             let is_dirty = self
                 .tab_manager
                 .active_doc()
-                .map_or(false, |d| d.is_dirty());
+                .is_some_and(|d| d.is_dirty());
 
             if is_dirty {
                 let choice = dialog::choice2_default(
@@ -579,7 +570,7 @@ impl AppState {
                         !self
                             .tab_manager
                             .active_doc()
-                            .map_or(false, |d| d.is_dirty())
+                            .is_some_and(|d| d.is_dirty())
                     }
                     Some(1) => true,
                     _ => false,
@@ -962,15 +953,14 @@ impl AppState {
 
     fn update_menu_checkbox(&self, path: &str, checked: bool) {
         let idx = self.menu.find_index(path);
-        if idx >= 0 {
-            if let Some(mut item) = self.menu.at(idx) {
+        if idx >= 0
+            && let Some(mut item) = self.menu.at(idx) {
                 if checked {
                     item.set();
                 } else {
                     item.clear();
                 }
             }
-        }
     }
 
     // --- Syntax highlighting (delegates to HighlightController) ---
