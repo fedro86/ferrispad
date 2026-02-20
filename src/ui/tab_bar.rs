@@ -837,20 +837,16 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                 DragSource::Tab(src_idx) => {
                     match hit_test_layout(&st.layout, wid.y(), mx, my) {
                         HitResult::Tab { index, .. } if index != src_idx => {
-                            if let Some(item) = st.layout.iter().find(|it| matches!(it, LayoutItem::Tab { index: i, .. } if *i == index)) {
-                                if let LayoutItem::Tab { x, width, .. } = item {
-                                    let relative_x = mx - *x;
-                                    let left_zone = *width * 25 / 100;
-                                    let right_zone = *width * 75 / 100;
-                                    if relative_x < left_zone {
-                                        Some(DragTarget::InsertAt(index))
-                                    } else if relative_x > right_zone {
-                                        Some(DragTarget::InsertAt(index + 1))
-                                    } else {
-                                        Some(DragTarget::OnTab(index))
-                                    }
+                            if let Some(LayoutItem::Tab { x, width, .. }) = st.layout.iter().find(|it| matches!(it, LayoutItem::Tab { index: i, .. } if *i == index)) {
+                                let relative_x = mx - *x;
+                                let left_zone = *width * 25 / 100;
+                                let right_zone = *width * 75 / 100;
+                                if relative_x < left_zone {
+                                    Some(DragTarget::InsertAt(index))
+                                } else if relative_x > right_zone {
+                                    Some(DragTarget::InsertAt(index + 1))
                                 } else {
-                                    None
+                                    Some(DragTarget::OnTab(index))
                                 }
                             } else {
                                 None
@@ -867,16 +863,12 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                             let is_own = st.tabs.get(index).is_some_and(|t| t.group_id == Some(src_gid));
                             if is_own {
                                 None
-                            } else if let Some(item) = st.layout.iter().find(|it| matches!(it, LayoutItem::Tab { index: i, .. } if *i == index)) {
-                                if let LayoutItem::Tab { x, width, .. } = item {
-                                    let half = *width / 2;
-                                    if (mx - *x) < half {
-                                        Some(DragTarget::InsertAt(index))
-                                    } else {
-                                        Some(DragTarget::InsertAt(index + 1))
-                                    }
+                            } else if let Some(LayoutItem::Tab { x, width, .. }) = st.layout.iter().find(|it| matches!(it, LayoutItem::Tab { index: i, .. } if *i == index)) {
+                                let half = *width / 2;
+                                if (mx - *x) < half {
+                                    Some(DragTarget::InsertAt(index))
                                 } else {
-                                    None
+                                    Some(DragTarget::InsertAt(index + 1))
                                 }
                             } else {
                                 None
@@ -885,18 +877,14 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                         HitResult::CollapsedChip(gid) if gid != src_gid => {
                             // Find the first tab index of this collapsed group to use as insert point
                             if let Some(idx) = st.tabs.iter().position(|t| t.group_id == Some(gid)) {
-                                if let Some(item) = st.layout.iter().find(|it| matches!(it, LayoutItem::CollapsedChip { group_id, .. } if *group_id == gid)) {
-                                    if let LayoutItem::CollapsedChip { x, width, .. } = item {
-                                        let half = *width / 2;
-                                        if (mx - *x) < half {
-                                            Some(DragTarget::InsertAt(idx))
-                                        } else {
-                                            // After the last tab of this group
-                                            let last = st.tabs.iter().rposition(|t| t.group_id == Some(gid)).unwrap_or(idx);
-                                            Some(DragTarget::InsertAt(last + 1))
-                                        }
+                                if let Some(LayoutItem::CollapsedChip { x, width, .. }) = st.layout.iter().find(|it| matches!(it, LayoutItem::CollapsedChip { group_id, .. } if *group_id == gid)) {
+                                    let half = *width / 2;
+                                    if (mx - *x) < half {
+                                        Some(DragTarget::InsertAt(idx))
                                     } else {
-                                        None
+                                        // After the last tab of this group
+                                        let last = st.tabs.iter().rposition(|t| t.group_id == Some(gid)).unwrap_or(idx);
+                                        Some(DragTarget::InsertAt(last + 1))
                                     }
                                 } else {
                                     None

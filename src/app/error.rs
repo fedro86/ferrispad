@@ -10,16 +10,7 @@ pub enum AppError {
 
     #[error("Update error: {0}")]
     Update(String),
-
-    #[error("Settings error: {0}")]
-    Settings(String),
-
-    #[error("Session error: {0}")]
-    Session(String),
 }
-
-/// Convenience type alias for Results with AppError
-pub type Result<T> = std::result::Result<T, AppError>;
 
 #[cfg(test)]
 mod tests {
@@ -37,11 +28,5 @@ mod tests {
     fn test_error_display() {
         let err = AppError::Update("version check failed".to_string());
         assert_eq!(err.to_string(), "Update error: version check failed");
-
-        let err = AppError::Settings("invalid font size".to_string());
-        assert_eq!(err.to_string(), "Settings error: invalid font size");
-
-        let err = AppError::Session("corrupt session file".to_string());
-        assert_eq!(err.to_string(), "Session error: corrupt session file");
     }
 }
