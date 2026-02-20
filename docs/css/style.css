@@ -415,6 +415,57 @@ section {
 }
 
 /* ===================================
+   Philosophy Section
+   =================================== */
+.philosophy {
+    background: var(--bg-primary);
+    text-align: center;
+}
+
+.philosophy-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--spacing-lg);
+    margin-bottom: var(--spacing-xl);
+}
+
+.philosophy-card {
+    padding: var(--spacing-md);
+    transition: var(--transition);
+}
+
+.philosophy-card-icon {
+    font-size: 3.5rem;
+    margin-bottom: var(--spacing-sm);
+    display: block;
+}
+
+.philosophy-card h3 {
+    color: var(--accent-color);
+    margin-bottom: var(--spacing-sm);
+    font-size: 1.5rem;
+}
+
+.philosophy-card p {
+    color: var(--text-secondary);
+    line-height: 1.7;
+}
+
+.philosophy-action {
+    margin-top: var(--spacing-md);
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.philosophy-action a {
+    border-bottom: 2px solid transparent;
+}
+
+.philosophy-action a:hover {
+    border-bottom-color: var(--accent-color);
+}
+
+/* ===================================
    Download Section
    =================================== */
 .download {
