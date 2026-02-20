@@ -55,8 +55,16 @@ pub fn apply_theme(
     menu.redraw();
 }
 
-/// Set Windows title bar theme (Windows 10 build 1809+)
-/// Must be called AFTER window.show() to have a valid HWND
+/// Set Windows title bar theme (Windows 10 build 1809+).
+///
+/// # Important: FLTK Widget Lifecycle
+///
+/// This function MUST be called AFTER `window.show()` because:
+/// - `window.raw_handle()` returns the native HWND
+/// - The HWND is only valid after the window is displayed
+/// - Calling before show() returns an invalid handle, causing crashes
+///
+/// See `docs/temp/0.1.6/02_WINDOWS_TITLE_BAR_DEBUGGING_JOURNEY.md` for details.
 #[cfg(target_os = "windows")]
 pub fn set_windows_titlebar_theme(window: &Window, is_dark: bool) {
     use std::mem::size_of;
@@ -64,6 +72,15 @@ pub fn set_windows_titlebar_theme(window: &Window, is_dark: bool) {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
 
+    // SAFETY: We call Windows DWM API to set the title bar dark mode attribute.
+    // Preconditions:
+    //   - window.show() has been called (HWND is valid)
+    //   - window has not been destroyed
+    // The DwmSetWindowAttribute call is safe:
+    //   - Invalid HWNDs cause the call to fail silently (returns error code)
+    //   - Invalid attribute IDs are ignored by Windows
+    //   - We try both attribute 19 and 20 for version compatibility
+    // Results are ignored because older Windows versions may not support these.
     unsafe {
         let hwnd = HWND(window.raw_handle() as *mut std::ffi::c_void);
 

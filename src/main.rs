@@ -49,6 +49,10 @@ fn main() {
     #[cfg(not(target_os = "windows"))]
     {
         let decay: isize = 0;
+        // SAFETY: jemalloc is initialized before main() by the global_allocator.
+        // These mallctl writes configure decay timing; invalid keys or values
+        // are silently ignored by jemalloc rather than causing UB.
+        // Must be called early before significant allocations occur.
         unsafe {
             let _ = tikv_jemalloc_ctl::raw::write(b"arenas.dirty_decay_ms\0", decay);
             let _ = tikv_jemalloc_ctl::raw::write(b"arenas.muzzy_decay_ms\0", decay);
@@ -64,6 +68,10 @@ fn main() {
     // Register PNG/JPEG/GIF handlers so HelpView can display images
     {
         unsafe extern "C" { fn Fl_register_images(); }
+        // SAFETY: Fl_register_images() is a standard FLTK initialization function
+        // that registers image format handlers. Must be called once after FLTK
+        // is initialized (App::default() above) and before loading any images.
+        // It's idempotent - multiple calls are safe but unnecessary.
         unsafe { Fl_register_images(); }
     }
     let (sender, receiver) = fltk_app::channel::<Message>();

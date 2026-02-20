@@ -243,9 +243,16 @@ impl AppState {
         // jemalloc handles Rust allocations; glibc handles C++ allocations
         // and won't return pages without an explicit trim.
         #[cfg(target_os = "linux")]
-        unsafe {
-            unsafe extern "C" { fn malloc_trim(pad: std::ffi::c_int) -> std::ffi::c_int; }
-            malloc_trim(0);
+        {
+            // SAFETY: malloc_trim is a glibc extension that releases free memory
+            // back to the OS. It's safe to call at any time - worst case it does
+            // nothing if there's no memory to release. The pad=0 argument means
+            // "release as much as possible". This helps prevent RSS bloat after
+            // closing large documents.
+            unsafe {
+                unsafe extern "C" { fn malloc_trim(pad: std::ffi::c_int) -> std::ffi::c_int; }
+                malloc_trim(0);
+            }
         }
         #[cfg(debug_assertions)]
         eprintln!("[debug] parent_flex children after close_tab: {}", self.editor_container.parent_flex_children());
@@ -725,6 +732,8 @@ impl AppState {
             // then we release the Fl_Shared_Image cache entries.
             self.editor_container.hide_preview();
             self.preview.release_cached_images();
+            // SAFETY: malloc_trim releases freed glibc memory back to the OS.
+            // Safe to call at any time; helps reclaim memory after clearing preview.
             #[cfg(target_os = "linux")]
             unsafe {
                 unsafe extern "C" { fn malloc_trim(pad: std::ffi::c_int) -> std::ffi::c_int; }

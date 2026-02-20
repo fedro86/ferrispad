@@ -62,7 +62,7 @@ impl PreviewController {
         let mut rest = html;
         while let Some(img_start) = rest.find("<img ") {
             let tag_content = &rest[img_start..];
-            let tag_end = tag_content.find('>').unwrap_or(tag_content.len() - 1) + 1;
+            let tag_end = tag_content.find('>').map(|i| i + 1).unwrap_or(tag_content.len());
             let tag = &tag_content[..tag_end];
             if let Some(src) = extract_attr(tag, "src") {
                 self.loaded_image_paths.push(src);
@@ -212,6 +212,16 @@ fn release_shared_image(path: &str) {
         fn Fl_Shared_Image_delete(img: *mut std::ffi::c_void);
     }
 
+    // SAFETY: FLTK's Fl_Shared_Image uses reference counting internally.
+    // After HelpView::set_value("") clears the view, the global cache still
+    // holds one reference (refcount=1). Our strategy:
+    //   1. get() retrieves the cached entry and increments refcount → 2
+    //   2. First delete() decrements → 1
+    //   3. Second delete() decrements → 0, triggering actual deallocation
+    //
+    // This is correct because we need to release BOTH our get() reference
+    // AND the cache's original reference to fully free the image memory.
+    // If get() returns null, the image wasn't in cache (already freed).
     unsafe {
         let img = Fl_Shared_Image_get(c_path.as_ptr(), 0, 0);
         if !img.is_null() {
@@ -235,7 +245,7 @@ pub fn extract_resize_tasks(html: &str, md_dir: &Path) -> (String, Vec<ImageResi
         phase1_html.push_str(&rest[..img_start]);
 
         let tag_content = &rest[img_start..];
-        let tag_end = tag_content.find('>').unwrap_or(tag_content.len() - 1) + 1;
+        let tag_end = tag_content.find('>').map(|i| i + 1).unwrap_or(tag_content.len());
         let tag = &tag_content[..tag_end];
         let self_closing = tag.ends_with("/>");
 
@@ -455,7 +465,7 @@ fn rewrite_img_sources(html: &str, tasks: &[ImageResizeTask], md_dir: &Path) -> 
         result.push_str(&rest[..img_start]);
 
         let tag_content = &rest[img_start..];
-        let tag_end = tag_content.find('>').unwrap_or(tag_content.len() - 1) + 1;
+        let tag_end = tag_content.find('>').map(|i| i + 1).unwrap_or(tag_content.len());
         let tag = &tag_content[..tag_end];
         let self_closing = tag.ends_with("/>");
 
