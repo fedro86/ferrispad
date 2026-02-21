@@ -96,11 +96,8 @@ impl AppState {
         let preview_enabled = settings.borrow().preview_enabled;
         let preview = PreviewController::new(preview_enabled);
 
-        // Create GTK preview window (WebView initialized later after gtk::init)
-        let mut preview_window = PreviewWindow::new();
-        if let Err(e) = preview_window.init_webview() {
-            eprintln!("Warning: Failed to initialize preview WebView: {}", e);
-        }
+        // Create preview window handle (WebView lazily initialized on first use)
+        let preview_window = PreviewWindow::new();
 
         let editor = editor_container.editor().clone();
 

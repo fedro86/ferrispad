@@ -59,15 +59,6 @@ fn main() {
         }
     }
 
-    // Initialize GTK for the preview window (uses WebKitGTK via WRY).
-    // Must be called before FLTK init and before any GTK widgets are created.
-    #[cfg(not(target_os = "windows"))]
-    {
-        if gtk::init().is_err() {
-            eprintln!("Warning: Failed to initialize GTK. Preview window will be disabled.");
-        }
-    }
-
     let _ = fltk_app::lock();
     let app = fltk_app::App::default().with_scheme(fltk_app::AppScheme::Gtk);
 

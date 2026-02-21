@@ -3,6 +3,9 @@
 //! This module provides a separate GTK window containing a WebView for
 //! rendering Markdown with full HTML5/CSS3 support. It works on both
 //! X11 and Wayland display servers.
+//!
+//! The WebView is lazily initialized on first use to avoid ~100MB memory
+//! overhead when the preview feature is not used.
 
 #[cfg(not(target_os = "windows"))]
 use gtk::glib;
@@ -14,9 +17,12 @@ use wry::{WebView, WebViewBuilder, WebViewBuilderExtUnix};
 use std::fs;
 
 /// A separate GTK window containing a WebView for Markdown preview.
+/// The window and WebView are lazily initialized on first use.
 #[cfg(not(target_os = "windows"))]
 pub struct PreviewWindow {
-    window: gtk::Window,
+    /// GTK window - created lazily on first show()
+    window: Option<gtk::Window>,
+    /// WRY WebView - created lazily with the window
     webview: Option<WebView>,
     /// Path to temp file used for serving HTML content.
     temp_path: std::path::PathBuf,
@@ -25,8 +31,32 @@ pub struct PreviewWindow {
 
 #[cfg(not(target_os = "windows"))]
 impl PreviewWindow {
-    /// Create a new preview window. The window is hidden by default.
+    /// Create a new preview window handle. The actual GTK window and WebView
+    /// are not created until first use (lazy initialization).
     pub fn new() -> Self {
+        let temp_path = std::env::temp_dir().join("ferrispad_preview.html");
+
+        Self {
+            window: None,
+            webview: None,
+            temp_path,
+            is_visible: false,
+        }
+    }
+
+    /// Initialize the GTK window and WebView if not already done.
+    /// Called automatically by show() and set_html().
+    fn ensure_initialized(&mut self) -> Result<(), String> {
+        if self.webview.is_some() {
+            return Ok(());
+        }
+
+        // Initialize GTK on first use (lazy to avoid ~35MB overhead if preview unused)
+        if gtk::init().is_err() {
+            return Err("Failed to initialize GTK".to_string());
+        }
+
+        // Create the GTK window
         let window = gtk::Window::new(gtk::WindowType::Toplevel);
         window.set_title("FerrisPad Preview");
         window.set_default_size(600, 800);
@@ -39,29 +69,11 @@ impl PreviewWindow {
             glib::Propagation::Stop
         });
 
-        // Create temp file path for serving HTML content
-        let temp_path = std::env::temp_dir().join("ferrispad_preview.html");
-
-        Self {
-            window,
-            webview: None,
-            temp_path,
-            is_visible: false,
-        }
-    }
-
-    /// Initialize the WebView inside the window.
-    /// Must be called after gtk::init() and before show().
-    pub fn init_webview(&mut self) -> Result<(), String> {
-        if self.webview.is_some() {
-            return Ok(());
-        }
-
         // Create a Box container that expands to fill the window
         let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
         vbox.set_hexpand(true);
         vbox.set_vexpand(true);
-        self.window.add(&vbox);
+        window.add(&vbox);
 
         // Write default HTML to temp file first
         let _ = fs::write(&self.temp_path, Self::default_html());
@@ -82,19 +94,28 @@ impl PreviewWindow {
         }
 
         vbox.show_all();
+        self.window = Some(window);
         self.webview = Some(webview);
         Ok(())
     }
 
-    /// Show the preview window.
+    /// Show the preview window. Initializes GTK/WebView on first call.
     pub fn show(&mut self) {
-        self.window.show_all();
+        if let Err(e) = self.ensure_initialized() {
+            eprintln!("Warning: Failed to initialize preview WebView: {}", e);
+            return;
+        }
+        if let Some(ref window) = self.window {
+            window.show_all();
+        }
         self.is_visible = true;
     }
 
     /// Hide the preview window.
     pub fn hide(&mut self) {
-        self.window.hide();
+        if let Some(ref window) = self.window {
+            window.hide();
+        }
         self.is_visible = false;
     }
 
@@ -114,9 +135,14 @@ impl PreviewWindow {
         }
     }
 
-    /// Set the HTML content to display.
+    /// Set the HTML content to display. Initializes WebView on first call.
     /// Writes HTML to temp file and navigates to it, allowing file:// URLs to resolve.
-    pub fn set_html(&self, html: &str) {
+    pub fn set_html(&mut self, html: &str) {
+        if let Err(e) = self.ensure_initialized() {
+            eprintln!("Warning: Failed to initialize preview WebView: {}", e);
+            return;
+        }
+
         // Write HTML to temp file
         if fs::write(&self.temp_path, html).is_err() {
             return;
@@ -132,10 +158,12 @@ impl PreviewWindow {
     /// Update the window position to be next to the main FLTK window.
     /// Places the preview window to the right of the main window.
     pub fn sync_position(&self, main_x: i32, main_y: i32, main_w: i32, main_h: i32) {
-        // Position preview window to the right of main window
-        let preview_x = main_x + main_w + 10; // 10px gap
-        self.window.move_(preview_x, main_y);
-        self.window.resize(main_w / 2, main_h);
+        if let Some(ref window) = self.window {
+            // Position preview window to the right of main window
+            let preview_x = main_x + main_w + 10; // 10px gap
+            window.move_(preview_x, main_y);
+            window.resize(main_w / 2, main_h);
+        }
     }
 
     /// Default HTML shown when preview is empty.
@@ -181,16 +209,11 @@ impl PreviewWindow {
         Self
     }
 
-    pub fn init_webview(&mut self) -> Result<(), String> {
-        // TODO: Implement Windows WebView2 support
-        Ok(())
-    }
-
     pub fn show(&mut self) {}
     pub fn hide(&mut self) {}
     pub fn is_visible(&self) -> bool { false }
     pub fn toggle(&mut self) {}
-    pub fn set_html(&self, _html: &str) {}
+    pub fn set_html(&mut self, _html: &str) {}
     pub fn sync_position(&self, _x: i32, _y: i32, _w: i32, _h: i32) {}
 }
 
