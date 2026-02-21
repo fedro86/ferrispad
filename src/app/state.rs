@@ -19,7 +19,7 @@ use std::fs;
 
 use super::document::DocumentId;
 use super::highlight_controller::{HighlightController, HighlightWidgets};
-use super::preview_controller::{self, PreviewController, wrap_html_for_helpview, extract_resize_tasks, ImageResizeProgress};
+use super::preview_controller::{PreviewController, wrap_html_for_webview};
 use super::session::{self, SessionRestore};
 use super::tab_manager::{GroupColor, GroupId, TabManager};
 use super::platform::detect_system_dark_mode;
@@ -29,6 +29,7 @@ use super::update_controller::UpdateController;
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::editor_container::EditorContainer;
 use crate::ui::file_dialogs::{native_open_dialog, native_open_multi_dialog, native_save_dialog};
+use crate::ui::preview_window::PreviewWindow;
 use crate::ui::tab_bar::TabBar;
 use crate::ui::theme::{apply_theme, apply_syntax_theme_colors};
 #[cfg(target_os = "windows")]
@@ -38,7 +39,6 @@ pub struct AppState {
     pub tab_manager: TabManager,
     pub tabs_enabled: bool,
     pub tab_bar: Option<TabBar>,
-    pub editor_container: EditorContainer,
     pub editor: TextEditor,
     pub window: Window,
     pub menu: MenuBar,
@@ -52,6 +52,8 @@ pub struct AppState {
     pub update: UpdateController,
     pub highlight: HighlightController,
     pub preview: PreviewController,
+    /// GTK-based preview window with WebView for Markdown rendering.
+    pub preview_window: PreviewWindow,
     /// Last directory used in a file open/save dialog.
     pub last_open_directory: Option<String>,
     /// Tracks when the session was last auto-saved.
@@ -94,13 +96,18 @@ impl AppState {
         let preview_enabled = settings.borrow().preview_enabled;
         let preview = PreviewController::new(preview_enabled);
 
+        // Create GTK preview window (WebView initialized later after gtk::init)
+        let mut preview_window = PreviewWindow::new();
+        if let Err(e) = preview_window.init_webview() {
+            eprintln!("Warning: Failed to initialize preview WebView: {}", e);
+        }
+
         let editor = editor_container.editor().clone();
 
         Self {
             tab_manager,
             tabs_enabled,
             tab_bar,
-            editor_container,
             editor,
             window,
             menu,
@@ -114,6 +121,7 @@ impl AppState {
             update: UpdateController::new(),
             highlight,
             preview,
+            preview_window,
             last_open_directory: None,
             last_auto_save: Instant::now(),
             session_dirty: false,
@@ -252,8 +260,6 @@ impl AppState {
                 malloc_trim(0);
             }
         }
-        #[cfg(debug_assertions)]
-        eprintln!("[debug] parent_flex children after close_tab: {}", self.editor_container.parent_flex_children());
         false
     }
 
@@ -581,11 +587,10 @@ impl AppState {
             }
         };
 
-        if should_quit {
-            preview_controller::cleanup_temp_images();
-            if let Err(e) = session::save_session(&self.tab_manager, session_mode, self.last_open_directory.as_deref()) {
-                eprintln!("Failed to save session: {}", e);
-            }
+        if should_quit
+            && let Err(e) = session::save_session(&self.tab_manager, session_mode, self.last_open_directory.as_deref())
+        {
+            eprintln!("Failed to save session: {}", e);
         }
 
         should_quit
@@ -725,33 +730,14 @@ impl AppState {
         if enabled {
             self.update_preview();
         } else {
-            self.preview.chunked_resize = None;
-            PreviewController::cleanup_preview_file();
-            // hide_preview() calls set_value("") which releases HelpView refs,
-            // then we release the Fl_Shared_Image cache entries.
-            self.editor_container.hide_preview();
-            self.preview.release_cached_images();
-            // SAFETY: malloc_trim releases freed glibc memory back to the OS.
-            // Safe to call at any time; helps reclaim memory after clearing preview.
-            #[cfg(target_os = "linux")]
-            unsafe {
-                unsafe extern "C" { fn malloc_trim(pad: std::ffi::c_int) -> std::ffi::c_int; }
-                malloc_trim(0);
-            }
+            // Hide the GTK preview window
+            self.preview_window.hide();
         }
     }
 
     pub fn update_preview(&mut self) {
-        // Cancel any in-progress image resize
-        self.preview.chunked_resize = None;
-
         if !self.preview.enabled {
-            if self.editor_container.is_split() {
-                // hide_preview() calls set_value("") which releases HelpView refs,
-                // then we release the Fl_Shared_Image cache entries.
-                self.editor_container.hide_preview();
-                self.preview.release_cached_images();
-            }
+            self.preview_window.hide();
             return;
         }
 
@@ -761,98 +747,40 @@ impl AppState {
             .unwrap_or(false);
 
         if !is_md {
-            if self.editor_container.is_split() {
-                self.editor_container.hide_preview();
-                self.preview.release_cached_images();
-            }
+            self.preview_window.hide();
             return;
         }
 
-        // Get the text and file path
-        let (text, file_path) = {
+        // Get the text and base directory for resolving relative paths
+        let (text, base_dir) = {
             if let Some(doc) = self.tab_manager.active_doc() {
-                (buffer_text_no_leak(&doc.buffer), doc.file_path.clone())
+                let text = buffer_text_no_leak(&doc.buffer);
+                let base = doc.file_path.as_ref()
+                    .and_then(|p| std::path::Path::new(p).parent())
+                    .map(|p| p.to_path_buf());
+                (text, base)
             } else {
                 return;
             }
         };
 
+        // Render markdown to HTML
         let raw_html = PreviewController::render_markdown(&text);
 
-        // Phase 1: extract resize tasks and show preview immediately (images at native size)
-        if let Some(ref md_path) = file_path {
-            let md_dir = std::path::Path::new(md_path)
-                .parent()
-                .unwrap_or(std::path::Path::new("."))
-                .to_path_buf();
+        // Wrap in full HTML document with CSS styling
+        let full_html = wrap_html_for_webview(&raw_html, self.dark_mode, base_dir.as_deref());
 
-            let (phase1_html, tasks) = extract_resize_tasks(&raw_html, &md_dir);
+        // Show in GTK WebView window
+        self.preview_window.set_html(&full_html);
 
-            // Show phase-1 HTML immediately
-            let wrapped = wrap_html_for_helpview(&phase1_html);
-            if let Some(temp_path) = PreviewController::write_preview_file(&wrapped) {
-                // Release old cached images before loading new content.
-                // HelpView's load() replaces content, releasing old refs first.
-                self.preview.release_cached_images();
-                self.preview.track_images_in_html(&phase1_html);
-                self.editor_container.show_preview();
-                self.editor_container.load_preview_file(&temp_path);
-            }
-
-            // Start async image resize if there are tasks.
-            // Pass the original raw HTML so rewrite_img_sources can match src attrs.
-            if self.preview.start_image_resize(raw_html, tasks, md_dir) {
-                // Show banner
-                self.update_banner_frame.set_label("  Resizing images... (0/?)");
-                self.update_banner_frame.show();
-                self.flex.fixed(&self.update_banner_frame, 30);
-                self.window.redraw();
-
-                // Schedule first chunk
-                let s = self.sender;
-                fltk::app::add_timeout3(0.0, move |_| {
-                    s.send(Message::ContinueImageResize);
-                });
-            }
-        } else {
-            // Fallback: no file path, just show raw HTML
-            let wrapped = wrap_html_for_helpview(&raw_html);
-            self.editor_container.show_preview();
-            self.editor_container.load_preview_fallback(&wrapped);
-        }
-    }
-
-    pub fn continue_image_resize(&mut self) {
-        match self.preview.process_next_image() {
-            Some(ImageResizeProgress::InProgress(done, total)) => {
-                self.update_banner_frame.set_label(
-                    &format!("  Resizing images... ({}/{})", done, total)
-                );
-                self.window.redraw();
-
-                let s = self.sender;
-                fltk::app::add_timeout3(0.0, move |_| {
-                    s.send(Message::ContinueImageResize);
-                });
-            }
-            Some(ImageResizeProgress::Done(final_html)) => {
-                let wrapped = wrap_html_for_helpview(&final_html);
-                if let Some(temp_path) = PreviewController::write_preview_file(&wrapped) {
-                    // Release phase-1 cached images, track phase-3 images.
-                    // load_preview_file replaces content, releasing old HelpView refs.
-                    self.preview.release_cached_images();
-                    self.preview.track_images_in_html(&final_html);
-                    self.editor_container.load_preview_file(&temp_path);
-                }
-
-                // Hide banner
-                self.update_banner_frame.hide();
-                self.flex.fixed(&self.update_banner_frame, 0);
-                self.window.redraw();
-            }
-            None => {
-                // No resize in progress — orphan message, ignore
-            }
+        // Only position and show if not already visible (preserve user's window position/size)
+        if !self.preview_window.is_visible() {
+            let x = self.window.x();
+            let y = self.window.y();
+            let w = self.window.width();
+            let h = self.window.height();
+            self.preview_window.sync_position(x, y, w, h);
+            self.preview_window.show();
         }
     }
 

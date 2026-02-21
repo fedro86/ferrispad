@@ -68,7 +68,6 @@ pub enum Message {
     BufferModified(DocumentId, i32),
     DoRehighlight,
     ContinueHighlight,
-    ContinueImageResize,
 
     // Background updates
     BackgroundUpdateResult(Option<ReleaseInfo>),

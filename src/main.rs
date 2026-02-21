@@ -12,6 +12,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::env;
 
+
 use crate::app::messages::Message;
 use crate::app::platform::detect_system_dark_mode;
 use crate::app::state::AppState;
@@ -24,7 +25,6 @@ use crate::ui::dialogs::update::check_for_updates_ui;
 use crate::ui::main_window::build_main_window;
 use crate::ui::menu::build_menu;
 use crate::app::updater::{check_for_updates, current_timestamp, should_check_now, UpdateCheckResult};
-use crate::app::preview_controller;
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
 
@@ -59,21 +59,18 @@ fn main() {
         }
     }
 
-    // Clean up stale temp images from previous runs (crash recovery)
-    preview_controller::cleanup_temp_images();
+    // Initialize GTK for the preview window (uses WebKitGTK via WRY).
+    // Must be called before FLTK init and before any GTK widgets are created.
+    #[cfg(not(target_os = "windows"))]
+    {
+        if gtk::init().is_err() {
+            eprintln!("Warning: Failed to initialize GTK. Preview window will be disabled.");
+        }
+    }
 
     let _ = fltk_app::lock();
     let app = fltk_app::App::default().with_scheme(fltk_app::AppScheme::Gtk);
 
-    // Register PNG/JPEG/GIF handlers so HelpView can display images
-    {
-        unsafe extern "C" { fn Fl_register_images(); }
-        // SAFETY: Fl_register_images() is a standard FLTK initialization function
-        // that registers image format handlers. Must be called once after FLTK
-        // is initialized (App::default() above) and before loading any images.
-        // It's idempotent - multiple calls are safe but unnecessary.
-        unsafe { Fl_register_images(); }
-    }
     let (sender, receiver) = fltk_app::channel::<Message>();
 
     // Load settings
@@ -168,6 +165,11 @@ fn main() {
     // Start deferred highlighting for session-restored documents
     state.start_queued_highlights();
 
+    // Show preview window if enabled in settings and viewing a markdown file
+    if state.preview.enabled {
+        state.update_preview();
+    }
+
     // Background update check via channel
     {
         let settings_lock = app_settings.borrow();
@@ -194,7 +196,21 @@ fn main() {
         }
     }
 
-    // Main event loop with message dispatch
+    // Set up a periodic timer to pump GTK events while FLTK waits.
+    // This ensures GTK's WebView stays responsive.
+    #[cfg(not(target_os = "windows"))]
+    {
+        fn pump_gtk_events(_: fltk_app::TimeoutHandle) {
+            while gtk::events_pending() {
+                gtk::main_iteration_do(false);
+            }
+            // Re-schedule the timer (16ms ≈ 60fps)
+            fltk_app::add_timeout3(0.016, pump_gtk_events);
+        }
+        fltk_app::add_timeout3(0.016, pump_gtk_events);
+    }
+
+    // Main event loop with message dispatch.
     while app.wait() {
         if let Some(msg) = receiver.recv() {
             match msg {
@@ -294,9 +310,6 @@ fn main() {
                 }
                 Message::ContinueHighlight => {
                     state.continue_chunked_highlight();
-                }
-                Message::ContinueImageResize => {
-                    state.continue_image_resize();
                 }
 
                 // Background updates
