@@ -10,9 +10,7 @@ use fltk::{
     widget::Widget,
 };
 
-use crate::app::document::{Document, DocumentId};
-use crate::app::messages::Message;
-use crate::app::tab_manager::{GroupColor, GroupId, TabGroup};
+use crate::app::{Document, DocumentId, GroupColor, GroupId, Message, TabGroup};
 
 pub const TAB_BAR_HEIGHT: i32 = 30;
 

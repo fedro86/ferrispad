@@ -2,9 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-use super::error::AppError;
-use super::session::SessionRestore;
-use super::updater::UpdateChannel;
+use crate::app::infrastructure::error::AppError;
+use crate::app::services::session::SessionRestore;
+use crate::app::services::updater::UpdateChannel;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ThemeMode {

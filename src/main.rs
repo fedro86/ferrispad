@@ -12,18 +12,16 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::env;
 
-use crate::app::messages::Message;
-use crate::app::platform::detect_system_dark_mode;
+use crate::app::controllers::update::BannerWidgets;
+use crate::app::services::updater::{check_for_updates, current_timestamp, should_check_now, UpdateCheckResult};
 use crate::app::state::AppState;
-use crate::app::settings::{AppSettings, ThemeMode};
+use crate::app::{detect_system_dark_mode, AppSettings, Message, ThemeMode};
 use crate::ui::dialogs::about::show_about_dialog;
 use crate::ui::dialogs::find::{show_find_dialog, show_replace_dialog};
 use crate::ui::dialogs::goto_line::show_goto_line_dialog;
-use crate::app::update_controller::BannerWidgets;
 use crate::ui::dialogs::update::check_for_updates_ui;
 use crate::ui::main_window::build_main_window;
 use crate::ui::menu::build_menu;
-use crate::app::updater::{check_for_updates, current_timestamp, should_check_now, UpdateCheckResult};
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
 

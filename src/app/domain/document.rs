@@ -6,9 +6,9 @@ use fltk::app::Sender;
 use fltk::text::TextBuffer;
 
 use super::messages::Message;
-use super::syntax::checkpoint::SparseCheckpoints;
-use super::tab_manager::GroupId;
-use super::text_ops::extract_filename;
+use crate::app::controllers::tabs::GroupId;
+use crate::app::services::syntax::checkpoint::SparseCheckpoints;
+use crate::app::services::text_ops::extract_filename;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DocumentId(pub u64);

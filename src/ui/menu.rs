@@ -5,8 +5,7 @@ use fltk::{
     prelude::*,
 };
 
-use crate::app::messages::Message;
-use crate::app::settings::AppSettings;
+use crate::app::{AppSettings, Message};
 
 pub fn build_menu(
     menu: &mut MenuBar,

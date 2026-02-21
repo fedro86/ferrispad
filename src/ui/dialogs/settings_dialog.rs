@@ -11,10 +11,7 @@ use fltk::{
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::app::messages::Message;
-use crate::app::session::SessionRestore;
-use crate::app::settings::{AppSettings, FontChoice, SyntaxTheme, ThemeMode};
-use crate::app::updater::UpdateChannel;
+use crate::app::{AppSettings, FontChoice, Message, SessionRestore, SyntaxTheme, ThemeMode, UpdateChannel};
 
 /// Show settings dialog and return updated settings if user clicked Save.
 /// The sender is used to send live preview messages for theme changes.

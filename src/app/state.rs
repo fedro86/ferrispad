@@ -2,8 +2,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Instant;
 
-use super::buffer_utils::buffer_text_no_leak;
-
 use fltk::{
     app::Sender,
     dialog,
@@ -17,15 +15,16 @@ use fltk::{
 };
 use std::fs;
 
-use super::document::DocumentId;
-use super::highlight_controller::{HighlightController, HighlightWidgets};
-use super::preview_controller::{PreviewController, wrap_html_for_preview};
-use super::session::{self, SessionRestore};
-use super::tab_manager::{GroupColor, GroupId, TabManager};
-use super::platform::detect_system_dark_mode;
-use super::messages::Message;
-use super::settings::{AppSettings, FontChoice, SyntaxTheme, ThemeMode};
-use super::update_controller::UpdateController;
+use super::controllers::highlight::{HighlightController, HighlightWidgets};
+use super::controllers::preview::{wrap_html_for_preview, PreviewController};
+use super::controllers::tabs::{GroupColor, GroupId, TabManager};
+use super::controllers::update::UpdateController;
+use super::domain::document::DocumentId;
+use super::domain::messages::Message;
+use super::domain::settings::{AppSettings, FontChoice, SyntaxTheme, ThemeMode};
+use super::infrastructure::buffer::buffer_text_no_leak;
+use super::infrastructure::platform::detect_system_dark_mode;
+use super::services::session::{self, SessionRestore};
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::editor_container::EditorContainer;
 use crate::ui::file_dialogs::{native_open_dialog, native_open_multi_dialog, native_save_dialog};
@@ -441,7 +440,7 @@ impl AppState {
         }
 
         // Restore groups and build index -> GroupId mapping
-        use super::tab_manager::TabGroup as TG;
+        use super::controllers::tabs::TabGroup as TG;
         let restored_groups: Vec<TG> = session_data.groups.iter().map(|gs| {
             TG {
                 id: GroupId(0), // placeholder, restore_groups assigns real ids
@@ -592,9 +591,8 @@ impl AppState {
         };
 
         if should_quit {
-            if let Err(e) = session::save_session(&self.tab_manager, session_mode, self.last_open_directory.as_deref()) {
-                eprintln!("Failed to save session: {}", e);
-            }
+            let _ = session::save_session(&self.tab_manager, session_mode, self.last_open_directory.as_deref())
+                .inspect_err(|e| eprintln!("Failed to save session: {}", e));
         }
 
         should_quit

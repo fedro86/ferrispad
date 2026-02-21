@@ -8,12 +8,12 @@ use fltk::{
     window::Window,
 };
 
-use super::document::DocumentId;
-use super::messages::Message;
-use super::buffer_utils::buffer_text_no_leak;
-use super::settings::SyntaxTheme;
-use super::syntax::SyntaxHighlighter;
-use super::tab_manager::TabManager;
+use super::tabs::TabManager;
+use crate::app::domain::document::DocumentId;
+use crate::app::domain::messages::Message;
+use crate::app::domain::settings::SyntaxTheme;
+use crate::app::infrastructure::buffer::buffer_text_no_leak;
+use crate::app::services::syntax::SyntaxHighlighter;
 
 const LARGE_FILE_THRESHOLD: usize = 5000;
 

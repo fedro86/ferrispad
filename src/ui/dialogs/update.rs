@@ -13,12 +13,12 @@ use fltk::{
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::app::settings::AppSettings;
-use crate::app::updater;
+use crate::app::AppSettings;
+use crate::app::services::updater;
 
 /// Check for updates and show UI dialog (manual check)
 pub fn check_for_updates_ui(settings: &Rc<RefCell<AppSettings>>) {
-    use crate::app::updater::{check_for_updates, current_timestamp, UpdateCheckResult};
+    use crate::app::services::updater::{check_for_updates, current_timestamp, UpdateCheckResult};
 
     let current_version = env!("CARGO_PKG_VERSION");
     let settings_borrowed = settings.borrow();

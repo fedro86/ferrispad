@@ -2,8 +2,8 @@ use fltk::enums::Font;
 
 use super::document::DocumentId;
 use super::settings::SyntaxTheme;
-use super::tab_manager::{GroupColor, GroupId};
-use super::updater::ReleaseInfo;
+use crate::app::controllers::tabs::{GroupColor, GroupId};
+use crate::app::services::updater::ReleaseInfo;
 
 /// All messages that can be sent through the FLTK channel.
 /// Each menu callback sends one of these; the dispatch loop in main handles them.

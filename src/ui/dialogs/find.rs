@@ -11,8 +11,8 @@ use fltk::{
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::app::buffer_utils::buffer_text_no_leak;
-use crate::app::text_ops::{find_in_text, find_in_text_backward, replace_all_in_text};
+use crate::app::buffer_text_no_leak;
+use crate::app::services::text_ops::{find_in_text, find_in_text_backward, replace_all_in_text};
 
 struct FindState {
     search_text: Rc<RefCell<String>>,

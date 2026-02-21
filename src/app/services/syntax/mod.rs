@@ -13,8 +13,8 @@ use checkpoint::{SparseCheckpoints, CHECKPOINT_INTERVAL};
 use highlighter::LinesWithEndings;
 use style_map::StyleMap;
 
-use super::document::DocumentId;
-use super::settings::SyntaxTheme;
+use crate::app::domain::document::DocumentId;
+use crate::app::domain::settings::SyntaxTheme;
 
 const CHUNK_SIZE: usize = 2000;
 

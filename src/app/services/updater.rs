@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::error::AppError;
+use crate::app::infrastructure::error::AppError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum UpdateChannel {

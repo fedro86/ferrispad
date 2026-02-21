@@ -1,8 +1,8 @@
 use fltk::app::Sender;
 use fltk::text::TextBuffer;
 
-use super::document::{Document, DocumentId};
-use super::messages::Message;
+use crate::app::domain::document::{Document, DocumentId};
+use crate::app::domain::messages::Message;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GroupId(pub u64);

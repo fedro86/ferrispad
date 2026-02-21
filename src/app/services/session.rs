@@ -5,9 +5,9 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
-use super::buffer_utils::buffer_text_no_leak;
-use super::error::AppError;
-use super::tab_manager::TabManager;
+use crate::app::controllers::tabs::TabManager;
+use crate::app::infrastructure::buffer::buffer_text_no_leak;
+use crate::app::infrastructure::error::AppError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SessionRestore {

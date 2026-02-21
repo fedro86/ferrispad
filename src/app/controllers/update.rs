@@ -8,8 +8,8 @@ use fltk::{
     window::Window,
 };
 
-use super::settings::AppSettings;
-use super::updater::ReleaseInfo;
+use crate::app::domain::settings::AppSettings;
+use crate::app::services::updater::ReleaseInfo;
 use crate::ui::dialogs::update::show_update_available_dialog;
 
 pub struct BannerWidgets<'a> {

@@ -9,7 +9,7 @@ use fltk::{
     window::Window,
 };
 
-use crate::app::messages::Message;
+use crate::app::Message;
 use super::editor_container::EditorContainer;
 use super::tab_bar::{TabBar, TAB_BAR_HEIGHT};
 
