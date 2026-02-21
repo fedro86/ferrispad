@@ -24,7 +24,6 @@ use crate::ui::dialogs::update::check_for_updates_ui;
 use crate::ui::main_window::build_main_window;
 use crate::ui::menu::build_menu;
 use crate::app::updater::{check_for_updates, current_timestamp, should_check_now, UpdateCheckResult};
-use crate::app::preview_controller;
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
 
@@ -59,21 +58,8 @@ fn main() {
         }
     }
 
-    // Clean up stale temp images from previous runs (crash recovery)
-    preview_controller::cleanup_temp_images();
-
     let _ = fltk_app::lock();
     let app = fltk_app::App::default().with_scheme(fltk_app::AppScheme::Gtk);
-
-    // Register PNG/JPEG/GIF handlers so HelpView can display images
-    {
-        unsafe extern "C" { fn Fl_register_images(); }
-        // SAFETY: Fl_register_images() is a standard FLTK initialization function
-        // that registers image format handlers. Must be called once after FLTK
-        // is initialized (App::default() above) and before loading any images.
-        // It's idempotent - multiple calls are safe but unnecessary.
-        unsafe { Fl_register_images(); }
-    }
     let (sender, receiver) = fltk_app::channel::<Message>();
 
     // Load settings
@@ -273,7 +259,7 @@ fn main() {
                 Message::ToggleWordWrap => state.toggle_word_wrap(),
                 Message::ToggleDarkMode => state.toggle_dark_mode(),
                 Message::ToggleHighlighting => state.toggle_highlighting(),
-                Message::TogglePreview => state.toggle_preview(),
+                Message::TogglePreview => state.preview_in_browser(),
 
                 // Format
                 Message::SetFont(font) => state.set_font(font),
@@ -294,9 +280,6 @@ fn main() {
                 }
                 Message::ContinueHighlight => {
                     state.continue_chunked_highlight();
-                }
-                Message::ContinueImageResize => {
-                    state.continue_image_resize();
                 }
 
                 // Background updates

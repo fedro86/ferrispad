@@ -51,8 +51,7 @@ pub fn build_menu(
     menu.add("View/Toggle Dark Mode", Shortcut::None, dm_flag, { let s = *s; move |_| s.send(Message::ToggleDarkMode) });
     let hl_flag = if settings.highlighting_enabled { MenuFlag::Toggle | MenuFlag::Value } else { MenuFlag::Toggle };
     menu.add("View/Toggle Syntax Highlighting", Shortcut::None, hl_flag, { let s = *s; move |_| s.send(Message::ToggleHighlighting) });
-    let pv_flag = if settings.preview_enabled { MenuFlag::Toggle | MenuFlag::Value } else { MenuFlag::Toggle };
-    menu.add("View/Toggle Markdown Preview", Shortcut::Ctrl | 'm', pv_flag, { let s = *s; move |_| s.send(Message::TogglePreview) });
+    menu.add("View/Preview in Browser", Shortcut::Ctrl | 'm', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TogglePreview) });
 
     // Format
     menu.add("Format/Font/Screen (Bold)", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::SetFont(Font::ScreenBold)) });

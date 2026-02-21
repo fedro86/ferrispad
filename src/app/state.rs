@@ -19,7 +19,7 @@ use std::fs;
 
 use super::document::DocumentId;
 use super::highlight_controller::{HighlightController, HighlightWidgets};
-use super::preview_controller::{self, PreviewController, wrap_html_for_helpview, extract_resize_tasks, ImageResizeProgress};
+use super::preview_controller::{PreviewController, wrap_html_for_preview};
 use super::session::{self, SessionRestore};
 use super::tab_manager::{GroupColor, GroupId, TabManager};
 use super::platform::detect_system_dark_mode;
@@ -38,6 +38,7 @@ pub struct AppState {
     pub tab_manager: TabManager,
     pub tabs_enabled: bool,
     pub tab_bar: Option<TabBar>,
+    #[allow(dead_code)]
     pub editor_container: EditorContainer,
     pub editor: TextEditor,
     pub window: Window,
@@ -91,8 +92,7 @@ impl AppState {
         let syntax_theme = settings.borrow().current_syntax_theme(dark_mode);
         let highlight = HighlightController::new(syntax_theme, font, font_size, highlighting_enabled);
 
-        let preview_enabled = settings.borrow().preview_enabled;
-        let preview = PreviewController::new(preview_enabled);
+        let preview = PreviewController::new();
 
         let editor = editor_container.editor().clone();
 
@@ -176,7 +176,6 @@ impl AppState {
 
         self.update_linenumber_width();
         self.update_window_title();
-        self.update_preview();
     }
 
     /// Rebuild the tab bar UI from current documents
@@ -252,8 +251,6 @@ impl AppState {
                 malloc_trim(0);
             }
         }
-        #[cfg(debug_assertions)]
-        eprintln!("[debug] parent_flex children after close_tab: {}", self.editor_container.parent_flex_children());
         false
     }
 
@@ -305,7 +302,6 @@ impl AppState {
                         self.detect_and_highlight(id, &path);
                     }
                     self.update_window_title();
-                    self.update_preview();
                 }
             }
             Err(e) => dialog::alert_default(&format!("Error opening file: {}", e)),
@@ -328,7 +324,6 @@ impl AppState {
                 doc.style_buffer.set_text("");
             }
             self.update_window_title();
-            self.update_preview();
         }
     }
 
@@ -345,9 +340,9 @@ impl AppState {
     }
 
     pub fn file_save(&mut self) {
-        let (file_path, text) = {
+        let (file_path, text, doc_id) = {
             if let Some(doc) = self.tab_manager.active_doc() {
-                (doc.file_path.clone(), buffer_text_no_leak(&doc.buffer))
+                (doc.file_path.clone(), buffer_text_no_leak(&doc.buffer), doc.id.0)
             } else {
                 return;
             }
@@ -361,7 +356,7 @@ impl AppState {
                     }
                     self.update_window_title();
                     self.rebuild_tab_bar();
-                    self.update_preview();
+                    self.update_preview_file(doc_id, path, &text);
                 }
                 Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
             }
@@ -402,14 +397,29 @@ impl AppState {
                             let table = self.highlight.style_table();
                             self.editor.set_highlight_data(style_buf, table);
                         }
+                        self.update_preview_file(id.0, &path, &text);
                     }
                     self.update_window_title();
                     self.rebuild_tab_bar();
-                    self.update_preview();
                 }
                 Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
             }
         }
+    }
+
+    /// Update the preview HTML file if the saved file is markdown.
+    /// This allows the browser to refresh and show updated content.
+    fn update_preview_file(&mut self, doc_id: u64, path: &str, text: &str) {
+        if !PreviewController::is_markdown_file(Some(path)) {
+            return;
+        }
+
+        let raw_html = PreviewController::render_markdown(text);
+        let base_dir = std::path::Path::new(path).parent();
+        let wrapped = wrap_html_for_preview(&raw_html, self.dark_mode, base_dir);
+
+        // Silently update the temp file - don't open browser again
+        let _ = self.preview.write_html(Some(path), doc_id, &wrapped);
     }
 
     /// Restore session from disk. Call after bind_active_buffer and apply_settings.
@@ -582,7 +592,6 @@ impl AppState {
         };
 
         if should_quit {
-            preview_controller::cleanup_temp_images();
             if let Err(e) = session::save_session(&self.tab_manager, session_mode, self.last_open_directory.as_deref()) {
                 eprintln!("Failed to save session: {}", e);
             }
@@ -711,60 +720,20 @@ impl AppState {
 
     // --- Preview ---
 
-    pub fn toggle_preview(&mut self) {
-        let enabled = self.preview.toggle();
-
-        // Persist the setting
-        {
-            let mut s = self.settings.borrow_mut();
-            s.preview_enabled = enabled;
-            let _ = s.save();
-        }
-        self.update_menu_checkbox("View/Toggle Markdown Preview", enabled);
-
-        if enabled {
-            self.update_preview();
-        } else {
-            self.preview.chunked_resize = None;
-            PreviewController::cleanup_preview_file();
-            // hide_preview() calls set_value("") which releases HelpView refs,
-            // then we release the Fl_Shared_Image cache entries.
-            self.editor_container.hide_preview();
-            self.preview.release_cached_images();
-            // SAFETY: malloc_trim releases freed glibc memory back to the OS.
-            // Safe to call at any time; helps reclaim memory after clearing preview.
-            #[cfg(target_os = "linux")]
-            unsafe {
-                unsafe extern "C" { fn malloc_trim(pad: std::ffi::c_int) -> std::ffi::c_int; }
-                malloc_trim(0);
-            }
-        }
-    }
-
-    pub fn update_preview(&mut self) {
-        // Cancel any in-progress image resize
-        self.preview.chunked_resize = None;
-
-        if !self.preview.enabled {
-            if self.editor_container.is_split() {
-                // hide_preview() calls set_value("") which releases HelpView refs,
-                // then we release the Fl_Shared_Image cache entries.
-                self.editor_container.hide_preview();
-                self.preview.release_cached_images();
-            }
-            return;
-        }
-
-        let is_md = self.tab_manager.active_doc()
-            .and_then(|doc| doc.file_path.as_deref())
-            .map(|p| PreviewController::is_markdown_file(Some(p)))
-            .unwrap_or(false);
+    /// Open the current markdown file in the default browser for preview.
+    pub fn preview_in_browser(&mut self) {
+        // Check if current file is markdown
+        let (is_md, doc_id) = self.tab_manager.active_doc()
+            .map(|doc| {
+                let is_md = doc.file_path.as_deref()
+                    .map(|p| PreviewController::is_markdown_file(Some(p)))
+                    .unwrap_or(false);
+                (is_md, doc.id.0)
+            })
+            .unwrap_or((false, 0));
 
         if !is_md {
-            if self.editor_container.is_split() {
-                self.editor_container.hide_preview();
-                self.preview.release_cached_images();
-            }
+            dialog::message_default("Preview is only available for Markdown files (.md, .markdown, .mdown)");
             return;
         }
 
@@ -777,82 +746,20 @@ impl AppState {
             }
         };
 
+        // Render markdown to HTML
         let raw_html = PreviewController::render_markdown(&text);
 
-        // Phase 1: extract resize tasks and show preview immediately (images at native size)
-        if let Some(ref md_path) = file_path {
-            let md_dir = std::path::Path::new(md_path)
-                .parent()
-                .unwrap_or(std::path::Path::new("."))
-                .to_path_buf();
+        // Get base directory for resolving relative paths (images, links)
+        let base_dir = file_path.as_ref()
+            .and_then(|p| std::path::Path::new(p).parent())
+            .map(|p| p.to_path_buf());
 
-            let (phase1_html, tasks) = extract_resize_tasks(&raw_html, &md_dir);
+        // Wrap HTML with styling
+        let wrapped = wrap_html_for_preview(&raw_html, self.dark_mode, base_dir.as_deref());
 
-            // Show phase-1 HTML immediately
-            let wrapped = wrap_html_for_helpview(&phase1_html);
-            if let Some(temp_path) = PreviewController::write_preview_file(&wrapped) {
-                // Release old cached images before loading new content.
-                // HelpView's load() replaces content, releasing old refs first.
-                self.preview.release_cached_images();
-                self.preview.track_images_in_html(&phase1_html);
-                self.editor_container.show_preview();
-                self.editor_container.load_preview_file(&temp_path);
-            }
-
-            // Start async image resize if there are tasks.
-            // Pass the original raw HTML so rewrite_img_sources can match src attrs.
-            if self.preview.start_image_resize(raw_html, tasks, md_dir) {
-                // Show banner
-                self.update_banner_frame.set_label("  Resizing images... (0/?)");
-                self.update_banner_frame.show();
-                self.flex.fixed(&self.update_banner_frame, 30);
-                self.window.redraw();
-
-                // Schedule first chunk
-                let s = self.sender;
-                fltk::app::add_timeout3(0.0, move |_| {
-                    s.send(Message::ContinueImageResize);
-                });
-            }
-        } else {
-            // Fallback: no file path, just show raw HTML
-            let wrapped = wrap_html_for_helpview(&raw_html);
-            self.editor_container.show_preview();
-            self.editor_container.load_preview_fallback(&wrapped);
-        }
-    }
-
-    pub fn continue_image_resize(&mut self) {
-        match self.preview.process_next_image() {
-            Some(ImageResizeProgress::InProgress(done, total)) => {
-                self.update_banner_frame.set_label(
-                    &format!("  Resizing images... ({}/{})", done, total)
-                );
-                self.window.redraw();
-
-                let s = self.sender;
-                fltk::app::add_timeout3(0.0, move |_| {
-                    s.send(Message::ContinueImageResize);
-                });
-            }
-            Some(ImageResizeProgress::Done(final_html)) => {
-                let wrapped = wrap_html_for_helpview(&final_html);
-                if let Some(temp_path) = PreviewController::write_preview_file(&wrapped) {
-                    // Release phase-1 cached images, track phase-3 images.
-                    // load_preview_file replaces content, releasing old HelpView refs.
-                    self.preview.release_cached_images();
-                    self.preview.track_images_in_html(&final_html);
-                    self.editor_container.load_preview_file(&temp_path);
-                }
-
-                // Hide banner
-                self.update_banner_frame.hide();
-                self.flex.fixed(&self.update_banner_frame, 0);
-                self.window.redraw();
-            }
-            None => {
-                // No resize in progress — orphan message, ignore
-            }
+        // Open in browser
+        if let Err(e) = self.preview.open_in_browser(file_path.as_deref(), doc_id, &wrapped) {
+            dialog::alert_default(&e);
         }
     }
 
@@ -948,11 +855,6 @@ impl AppState {
         self.highlight.highlighting_enabled = new_settings.highlighting_enabled;
         self.update_menu_checkbox("View/Toggle Syntax Highlighting", self.highlight.highlighting_enabled);
 
-        // Preview setting
-        let preview_changed = self.preview.enabled != new_settings.preview_enabled;
-        self.preview.enabled = new_settings.preview_enabled;
-        self.update_menu_checkbox("View/Toggle Markdown Preview", self.preview.enabled);
-
         self.editor.redraw();
 
         *self.settings.borrow_mut() = new_settings;
@@ -971,10 +873,6 @@ impl AppState {
         } else if self.highlight.highlighting_enabled {
             self.highlight.rehighlight_all_documents(&mut self.tab_manager, &self.sender);
             self.bind_active_buffer();
-        }
-
-        if preview_changed {
-            self.update_preview();
         }
     }
 
