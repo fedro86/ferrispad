@@ -25,8 +25,8 @@ pub fn build_menu(
     menu.add("File/Save As...", Shortcut::Ctrl | Shortcut::Shift | 's', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::FileSaveAs) });
     if tabs_enabled {
         menu.add("File/Close Tab", Shortcut::Ctrl | 'w', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TabCloseActive) });
-        menu.add("File/Next Tab", Shortcut::Ctrl | Key::PageDown, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TabNext) });
-        menu.add("File/Previous Tab", Shortcut::Ctrl | Key::PageUp, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TabPrevious) });
+        menu.add("File/Next Tab", Shortcut::Ctrl | Key::Tab, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TabNext) });
+        menu.add("File/Previous Tab", Shortcut::Ctrl | Shortcut::Shift | Key::Tab, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TabPrevious) });
     }
     menu.add("File/Settings...", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::OpenSettings) });
     menu.add("File/Quit", Shortcut::Ctrl | 'q', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::FileQuit) });
