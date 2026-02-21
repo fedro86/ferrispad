@@ -123,6 +123,10 @@ pub struct AppSettings {
     /// Syntax theme for dark mode
     #[serde(default = "default_syntax_theme_dark")]
     pub syntax_theme_dark: SyntaxTheme,
+
+    /// Tab size in spaces (default 4)
+    #[serde(default = "default_tab_size")]
+    pub tab_size: u32,
 }
 
 fn default_line_numbers() -> bool {
@@ -165,6 +169,10 @@ fn default_syntax_theme_dark() -> SyntaxTheme {
     SyntaxTheme::Base16OceanDark
 }
 
+fn default_tab_size() -> u32 {
+    4
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -183,6 +191,7 @@ impl Default for AppSettings {
             preview_enabled: false,
             syntax_theme_light: default_syntax_theme_light(),
             syntax_theme_dark: default_syntax_theme_dark(),
+            tab_size: default_tab_size(),
         }
     }
 }
@@ -262,6 +271,7 @@ mod tests {
         assert_eq!(settings.update_channel, UpdateChannel::Stable);
         assert_eq!(settings.last_update_check, 0);
         assert!(settings.skipped_versions.is_empty());
+        assert_eq!(settings.tab_size, 4);
     }
 
     #[test]

@@ -423,6 +423,13 @@ impl TabManager {
         }
         ids
     }
+
+    /// Set tab distance (in characters) for all document buffers.
+    pub fn set_all_tab_distance(&mut self, distance: i32) {
+        for doc in &mut self.documents {
+            doc.buffer.set_tab_distance(distance);
+        }
+    }
 }
 
 // Note: TabManager tests require FLTK initialization which doesn't work well

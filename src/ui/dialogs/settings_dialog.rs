@@ -13,6 +13,16 @@ use std::rc::Rc;
 
 use crate::app::{AppSettings, FontChoice, Message, SessionRestore, SyntaxTheme, ThemeMode, UpdateChannel};
 
+// Layout constants
+const DIALOG_WIDTH: i32 = 620;
+const DIALOG_HEIGHT: i32 = 580;
+const COL_WIDTH: i32 = 280;
+const LEFT_COL: i32 = 15;
+const RIGHT_COL: i32 = 320;
+const LABEL_HEIGHT: i32 = 20;
+const ITEM_HEIGHT: i32 = 22;
+const SECTION_GAP: i32 = 15;
+
 /// Show settings dialog and return updated settings if user clicked Save.
 /// The sender is used to send live preview messages for theme changes.
 pub fn show_settings_dialog(
@@ -21,22 +31,30 @@ pub fn show_settings_dialog(
     is_dark: bool,
 ) -> Option<AppSettings> {
     let mut dialog = Window::default()
-        .with_size(350, 890)
+        .with_size(DIALOG_WIDTH, DIALOG_HEIGHT)
         .with_label("Settings")
         .center_screen();
     dialog.make_modal(true);
 
     let vpack = Group::default()
-        .with_size(320, 800)
-        .with_pos(15, 15);
+        .with_size(DIALOG_WIDTH - 20, DIALOG_HEIGHT - 60)
+        .with_pos(10, 10);
+
+    // ============ LEFT COLUMN - Appearance ============
+    let mut y = 15;
 
     // Theme section
-    Frame::default().with_pos(15, 15).with_size(320, 25).with_label("Theme:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
-    let theme_group = Group::default().with_pos(30, 45).with_size(280, 75);
-    let mut theme_light = RadioRoundButton::default().with_pos(30, 45).with_size(280, 25).with_label("Light");
-    let mut theme_dark = RadioRoundButton::default().with_pos(30, 70).with_size(280, 25).with_label("Dark");
-    let mut theme_system = RadioRoundButton::default().with_pos(30, 95).with_size(280, 25).with_label("System Default");
+    Frame::default().with_pos(LEFT_COL, y).with_size(COL_WIDTH, LABEL_HEIGHT)
+        .with_label("Theme:")
+        .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    y += LABEL_HEIGHT + 5;
+
+    let theme_group = Group::default().with_pos(LEFT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT * 3);
+    let mut theme_light = RadioRoundButton::default().with_pos(LEFT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Light");
+    let mut theme_dark = RadioRoundButton::default().with_pos(LEFT_COL + 10, y + ITEM_HEIGHT).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Dark");
+    let mut theme_system = RadioRoundButton::default().with_pos(LEFT_COL + 10, y + ITEM_HEIGHT * 2).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("System Default");
     theme_group.end();
+    y += ITEM_HEIGHT * 3 + SECTION_GAP;
 
     match current_settings.theme_mode {
         ThemeMode::Light => theme_light.set_value(true),
@@ -44,20 +62,31 @@ pub fn show_settings_dialog(
         ThemeMode::SystemDefault => theme_system.set_value(true),
     }
 
-    // Syntax Theme section
-    Frame::default().with_pos(15, 130).with_size(320, 25).with_label("Syntax Theme (Light Mode):").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
-    let mut theme_light_choice = Choice::default().with_pos(30, 155).with_size(280, 25);
+    // Syntax Theme (Light)
+    Frame::default().with_pos(LEFT_COL, y).with_size(COL_WIDTH, LABEL_HEIGHT)
+        .with_label("Syntax Theme (Light):")
+        .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    y += LABEL_HEIGHT + 3;
+
+    let mut theme_light_choice = Choice::default().with_pos(LEFT_COL + 10, y).with_size(COL_WIDTH - 20, 25);
     for theme in SyntaxTheme::all() {
         theme_light_choice.add_choice(theme.display_name());
     }
     theme_light_choice.set_value(theme_index(current_settings.syntax_theme_light));
+    y += 30;
 
-    Frame::default().with_pos(15, 185).with_size(320, 25).with_label("Syntax Theme (Dark Mode):").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
-    let mut theme_dark_choice = Choice::default().with_pos(30, 210).with_size(280, 25);
+    // Syntax Theme (Dark)
+    Frame::default().with_pos(LEFT_COL, y).with_size(COL_WIDTH, LABEL_HEIGHT)
+        .with_label("Syntax Theme (Dark):")
+        .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    y += LABEL_HEIGHT + 3;
+
+    let mut theme_dark_choice = Choice::default().with_pos(LEFT_COL + 10, y).with_size(COL_WIDTH - 20, 25);
     for theme in SyntaxTheme::all() {
         theme_dark_choice.add_choice(theme.display_name());
     }
     theme_dark_choice.set_value(theme_index(current_settings.syntax_theme_dark));
+    y += 30 + SECTION_GAP;
 
     // Live preview callbacks for theme changes
     let sender_light = *sender;
@@ -81,12 +110,17 @@ pub fn show_settings_dialog(
     });
 
     // Font section
-    Frame::default().with_pos(15, 245).with_size(320, 25).with_label("Font:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
-    let font_group = Group::default().with_pos(30, 275).with_size(280, 75);
-    let mut font_screenbold = RadioRoundButton::default().with_pos(30, 275).with_size(280, 25).with_label("Screen (Bold)");
-    let mut font_courier = RadioRoundButton::default().with_pos(30, 300).with_size(280, 25).with_label("Courier");
-    let mut font_helvetica = RadioRoundButton::default().with_pos(30, 325).with_size(280, 25).with_label("Helvetica Mono");
+    Frame::default().with_pos(LEFT_COL, y).with_size(COL_WIDTH, LABEL_HEIGHT)
+        .with_label("Font:")
+        .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    y += LABEL_HEIGHT + 5;
+
+    let font_group = Group::default().with_pos(LEFT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT * 3);
+    let mut font_screenbold = RadioRoundButton::default().with_pos(LEFT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Screen (Bold)");
+    let mut font_courier = RadioRoundButton::default().with_pos(LEFT_COL + 10, y + ITEM_HEIGHT).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Courier");
+    let mut font_helvetica = RadioRoundButton::default().with_pos(LEFT_COL + 10, y + ITEM_HEIGHT * 2).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Helvetica Mono");
     font_group.end();
+    y += ITEM_HEIGHT * 3 + SECTION_GAP;
 
     match current_settings.font {
         FontChoice::ScreenBold => font_screenbold.set_value(true),
@@ -95,12 +129,17 @@ pub fn show_settings_dialog(
     }
 
     // Font size section
-    Frame::default().with_pos(15, 360).with_size(320, 25).with_label("Font Size:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
-    let size_group = Group::default().with_pos(30, 390).with_size(280, 75);
-    let mut size_12 = RadioRoundButton::default().with_pos(30, 390).with_size(280, 25).with_label("Small (12)");
-    let mut size_16 = RadioRoundButton::default().with_pos(30, 415).with_size(280, 25).with_label("Medium (16)");
-    let mut size_20 = RadioRoundButton::default().with_pos(30, 440).with_size(280, 25).with_label("Large (20)");
+    Frame::default().with_pos(LEFT_COL, y).with_size(COL_WIDTH, LABEL_HEIGHT)
+        .with_label("Font Size:")
+        .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    y += LABEL_HEIGHT + 5;
+
+    let size_group = Group::default().with_pos(LEFT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT * 3);
+    let mut size_12 = RadioRoundButton::default().with_pos(LEFT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Small (12)");
+    let mut size_16 = RadioRoundButton::default().with_pos(LEFT_COL + 10, y + ITEM_HEIGHT).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Medium (16)");
+    let mut size_20 = RadioRoundButton::default().with_pos(LEFT_COL + 10, y + ITEM_HEIGHT * 2).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Large (20)");
     size_group.end();
+    y += ITEM_HEIGHT * 3 + SECTION_GAP;
 
     match current_settings.font_size {
         12 => size_12.set_value(true),
@@ -109,27 +148,61 @@ pub fn show_settings_dialog(
         _ => size_16.set_value(true),
     }
 
+    // Tab size section
+    Frame::default().with_pos(LEFT_COL, y).with_size(COL_WIDTH, LABEL_HEIGHT)
+        .with_label("Tab Size:")
+        .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    y += LABEL_HEIGHT + 5;
+
+    let tab_group = Group::default().with_pos(LEFT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT * 3);
+    let mut tab_2 = RadioRoundButton::default().with_pos(LEFT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("2 spaces");
+    let mut tab_4 = RadioRoundButton::default().with_pos(LEFT_COL + 10, y + ITEM_HEIGHT).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("4 spaces");
+    let mut tab_8 = RadioRoundButton::default().with_pos(LEFT_COL + 10, y + ITEM_HEIGHT * 2).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("8 spaces");
+    tab_group.end();
+
+    match current_settings.tab_size {
+        2 => tab_2.set_value(true),
+        8 => tab_8.set_value(true),
+        _ => tab_4.set_value(true),
+    }
+
+    // ============ RIGHT COLUMN - Behavior ============
+    let mut y = 15;
+
     // View options section
-    Frame::default().with_pos(15, 475).with_size(320, 25).with_label("View Options:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
-    let mut check_line_numbers = CheckButton::default().with_pos(30, 505).with_size(280, 25).with_label("Show Line Numbers");
-    let mut check_word_wrap = CheckButton::default().with_pos(30, 530).with_size(280, 25).with_label("Word Wrap");
+    Frame::default().with_pos(RIGHT_COL, y).with_size(COL_WIDTH, LABEL_HEIGHT)
+        .with_label("View Options:")
+        .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    y += LABEL_HEIGHT + 5;
 
-    let mut check_highlighting = CheckButton::default().with_pos(30, 555).with_size(280, 25).with_label("Syntax Highlighting");
-    check_highlighting.set_value(current_settings.highlighting_enabled);
-
-    let mut check_tabs_enabled = CheckButton::default().with_pos(30, 580).with_size(280, 25).with_label("Enable tabbed editing (requires restart)");
-    check_tabs_enabled.set_value(current_settings.tabs_enabled);
-
+    let mut check_line_numbers = CheckButton::default().with_pos(RIGHT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Show Line Numbers");
     check_line_numbers.set_value(current_settings.line_numbers_enabled);
+    y += ITEM_HEIGHT;
+
+    let mut check_word_wrap = CheckButton::default().with_pos(RIGHT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Word Wrap");
     check_word_wrap.set_value(current_settings.word_wrap_enabled);
+    y += ITEM_HEIGHT;
+
+    let mut check_highlighting = CheckButton::default().with_pos(RIGHT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Syntax Highlighting");
+    check_highlighting.set_value(current_settings.highlighting_enabled);
+    y += ITEM_HEIGHT;
+
+    let mut check_tabs_enabled = CheckButton::default().with_pos(RIGHT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Tabbed editing (restart)");
+    check_tabs_enabled.set_value(current_settings.tabs_enabled);
+    y += ITEM_HEIGHT + SECTION_GAP;
 
     // Session restore section
-    Frame::default().with_pos(15, 615).with_size(320, 25).with_label("Session Restore:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
-    let session_group = Group::default().with_pos(30, 645).with_size(280, 75);
-    let mut session_off = RadioRoundButton::default().with_pos(30, 645).with_size(280, 25).with_label("Off");
-    let mut session_saved = RadioRoundButton::default().with_pos(30, 670).with_size(280, 25).with_label("Saved Files Only");
-    let mut session_full = RadioRoundButton::default().with_pos(30, 695).with_size(280, 25).with_label("Full (including unsaved)");
+    Frame::default().with_pos(RIGHT_COL, y).with_size(COL_WIDTH, LABEL_HEIGHT)
+        .with_label("Session Restore:")
+        .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    y += LABEL_HEIGHT + 5;
+
+    let session_group = Group::default().with_pos(RIGHT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT * 3);
+    let mut session_off = RadioRoundButton::default().with_pos(RIGHT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Off");
+    let mut session_saved = RadioRoundButton::default().with_pos(RIGHT_COL + 10, y + ITEM_HEIGHT).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Saved Files Only");
+    let mut session_full = RadioRoundButton::default().with_pos(RIGHT_COL + 10, y + ITEM_HEIGHT * 2).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Full (including unsaved)");
     session_group.end();
+    y += ITEM_HEIGHT * 3 + SECTION_GAP;
 
     match current_settings.session_restore {
         SessionRestore::Off => session_off.set_value(true),
@@ -138,16 +211,22 @@ pub fn show_settings_dialog(
     }
 
     // Updates section
-    Frame::default().with_pos(15, 730).with_size(320, 25).with_label("Updates:").with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
-    let mut check_auto_update = CheckButton::default().with_pos(30, 760).with_size(280, 25).with_label("Automatically check for updates");
-    check_auto_update.set_value(current_settings.auto_check_updates);
+    Frame::default().with_pos(RIGHT_COL, y).with_size(COL_WIDTH, LABEL_HEIGHT)
+        .with_label("Updates:")
+        .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    y += LABEL_HEIGHT + 5;
 
-    let mut check_prerelease = CheckButton::default().with_pos(30, 785).with_size(280, 25).with_label("Include pre-releases (beta/rc)");
+    let mut check_auto_update = CheckButton::default().with_pos(RIGHT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Auto-check for updates");
+    check_auto_update.set_value(current_settings.auto_check_updates);
+    y += ITEM_HEIGHT;
+
+    let mut check_prerelease = CheckButton::default().with_pos(RIGHT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Include pre-releases");
     check_prerelease.set_value(current_settings.update_channel == UpdateChannel::Beta);
+    y += ITEM_HEIGHT + 10;
 
     // Info text
-    let mut info_frame = Frame::default().with_pos(30, 815).with_size(290, 35);
-    info_frame.set_label("FerrisPad checks GitHub once per day.\nNo personal data is sent.");
+    let mut info_frame = Frame::default().with_pos(RIGHT_COL + 10, y).with_size(COL_WIDTH - 20, 35);
+    info_frame.set_label("Checks GitHub once per day.\nNo personal data is sent.");
     info_frame.set_label_size(11);
     info_frame.set_label_color(Color::from_rgb(100, 100, 100));
     info_frame.set_align(fltk::enums::Align::Left | fltk::enums::Align::Inside | fltk::enums::Align::Wrap);
@@ -155,8 +234,9 @@ pub fn show_settings_dialog(
     vpack.end();
 
     // Buttons at bottom
-    let mut save_btn = Button::default().with_pos(150, 855).with_size(90, 30).with_label("Save");
-    let mut cancel_btn = Button::default().with_pos(250, 855).with_size(90, 30).with_label("Cancel");
+    let btn_y = DIALOG_HEIGHT - 45;
+    let mut save_btn = Button::default().with_pos(DIALOG_WIDTH - 200, btn_y).with_size(90, 30).with_label("Save");
+    let mut cancel_btn = Button::default().with_pos(DIALOG_WIDTH - 100, btn_y).with_size(90, 30).with_label("Cancel");
 
     dialog.end();
     dialog.show();
@@ -216,6 +296,13 @@ pub fn show_settings_dialog(
             preview_enabled: current.preview_enabled,
             syntax_theme_light: index_to_theme(theme_light_choice.value()).unwrap_or(current.syntax_theme_light),
             syntax_theme_dark: index_to_theme(theme_dark_choice.value()).unwrap_or(current.syntax_theme_dark),
+            tab_size: if tab_2.value() {
+                2
+            } else if tab_8.value() {
+                8
+            } else {
+                4
+            },
         };
 
         *result_save.borrow_mut() = Some(new_settings);

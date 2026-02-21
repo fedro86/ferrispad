@@ -162,7 +162,11 @@ impl AppState {
         self.tab_manager.set_active(id);
 
         // Bind new buffer and restore state
-        if let Some(doc) = self.tab_manager.active_doc() {
+        if let Some(doc) = self.tab_manager.active_doc_mut() {
+            // Ensure tab distance is set (for newly created docs)
+            let tab_size = self.settings.borrow().tab_size as i32;
+            doc.buffer.set_tab_distance(tab_size);
+
             let buffer = doc.buffer.clone();
             let cursor = doc.cursor_position;
             let style_buf = doc.style_buffer.clone();
@@ -848,6 +852,9 @@ impl AppState {
             self.editor.wrap_mode(WrapMode::None, 0);
         }
         self.update_menu_checkbox("View/Toggle Word Wrap", self.word_wrap);
+
+        // Apply tab size to all document buffers
+        self.tab_manager.set_all_tab_distance(new_settings.tab_size as i32);
 
         let highlighting_changed = self.highlight.highlighting_enabled != new_settings.highlighting_enabled;
         self.highlight.highlighting_enabled = new_settings.highlighting_enabled;
