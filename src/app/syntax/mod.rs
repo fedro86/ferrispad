@@ -152,10 +152,10 @@ impl SyntaxHighlighter {
 
     /// Get the background color of the current theme as RGB tuple.
     pub fn theme_background(&self) -> (u8, u8, u8) {
-        if let Some(theme) = self.theme_set.themes.get(&self.theme_name) {
-            if let Some(bg) = theme.settings.background {
-                return (bg.r, bg.g, bg.b);
-            }
+        if let Some(theme) = self.theme_set.themes.get(&self.theme_name)
+            && let Some(bg) = theme.settings.background
+        {
+            return (bg.r, bg.g, bg.b);
         }
         // Fallback to white
         (255, 255, 255)
@@ -163,10 +163,10 @@ impl SyntaxHighlighter {
 
     /// Get the foreground color of the current theme as RGB tuple.
     pub fn theme_foreground(&self) -> (u8, u8, u8) {
-        if let Some(theme) = self.theme_set.themes.get(&self.theme_name) {
-            if let Some(fg) = theme.settings.foreground {
-                return (fg.r, fg.g, fg.b);
-            }
+        if let Some(theme) = self.theme_set.themes.get(&self.theme_name)
+            && let Some(fg) = theme.settings.foreground
+        {
+            return (fg.r, fg.g, fg.b);
         }
         // Fallback to black
         (0, 0, 0)

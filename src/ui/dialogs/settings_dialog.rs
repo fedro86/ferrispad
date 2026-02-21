@@ -63,23 +63,23 @@ pub fn show_settings_dialog(
     theme_dark_choice.set_value(theme_index(current_settings.syntax_theme_dark));
 
     // Live preview callbacks for theme changes
-    let sender_light = sender.clone();
+    let sender_light = *sender;
     let is_dark_for_light = is_dark;
     theme_light_choice.set_callback(move |c| {
-        if !is_dark_for_light {
-            if let Some(theme) = index_to_theme(c.value()) {
-                sender_light.send(Message::PreviewSyntaxTheme(theme));
-            }
+        if !is_dark_for_light
+            && let Some(theme) = index_to_theme(c.value())
+        {
+            sender_light.send(Message::PreviewSyntaxTheme(theme));
         }
     });
 
-    let sender_dark = sender.clone();
+    let sender_dark = *sender;
     let is_dark_for_dark = is_dark;
     theme_dark_choice.set_callback(move |c| {
-        if is_dark_for_dark {
-            if let Some(theme) = index_to_theme(c.value()) {
-                sender_dark.send(Message::PreviewSyntaxTheme(theme));
-            }
+        if is_dark_for_dark
+            && let Some(theme) = index_to_theme(c.value())
+        {
+            sender_dark.send(Message::PreviewSyntaxTheme(theme));
         }
     });
 
@@ -170,7 +170,7 @@ pub fn show_settings_dialog(
 
     // Store original theme for reverting on cancel
     let original_theme = current_settings.current_syntax_theme(is_dark);
-    let sender_cancel = sender.clone();
+    let sender_cancel = *sender;
 
     let dialog_save = dialog.clone();
     let current = current_settings.clone();
@@ -234,7 +234,7 @@ pub fn show_settings_dialog(
     });
 
     let result_close = result.clone();
-    let sender_close = sender.clone();
+    let sender_close = *sender;
     dialog.set_callback(move |w| {
         // Revert to original theme on close (X button)
         sender_close.send(Message::PreviewSyntaxTheme(original_theme));
