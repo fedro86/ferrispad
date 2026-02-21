@@ -1,6 +1,7 @@
 use fltk::enums::Font;
 
 use super::document::DocumentId;
+use super::settings::SyntaxTheme;
 use super::tab_manager::{GroupColor, GroupId};
 use super::updater::ReleaseInfo;
 
@@ -73,4 +74,7 @@ pub enum Message {
     BackgroundUpdateResult(Option<ReleaseInfo>),
     ShowBannerUpdate,
     DismissBanner,
+
+    // Live preview from settings dialog
+    PreviewSyntaxTheme(SyntaxTheme),
 }

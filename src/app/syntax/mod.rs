@@ -14,9 +14,7 @@ use highlighter::LinesWithEndings;
 use style_map::StyleMap;
 
 use super::document::DocumentId;
-
-const DARK_THEME: &str = "base16-ocean.dark";
-const LIGHT_THEME: &str = "base16-ocean.light";
+use super::settings::SyntaxTheme;
 
 const CHUNK_SIZE: usize = 2000;
 
@@ -61,10 +59,10 @@ pub struct IncrementalHighlightResult {
 }
 
 impl SyntaxHighlighter {
-    pub fn new(is_dark: bool, font: Font, font_size: i32) -> Self {
+    pub fn new(theme: SyntaxTheme, font: Font, font_size: i32) -> Self {
         let syntax_set = SyntaxSet::load_defaults_newlines();
         let theme_set = ThemeSet::load_defaults();
-        let theme_name = if is_dark { DARK_THEME } else { LIGHT_THEME }.to_string();
+        let theme_name = theme.theme_key().to_string();
         let style_map = StyleMap::new(font, font_size);
 
         Self {
@@ -146,10 +144,32 @@ impl SyntaxHighlighter {
         }
     }
 
-    /// Switch theme for dark/light mode. Clears the style map.
-    pub fn set_dark_mode(&mut self, is_dark: bool) {
-        self.theme_name = if is_dark { DARK_THEME } else { LIGHT_THEME }.to_string();
+    /// Switch to a specific theme. Clears the style map.
+    pub fn set_theme(&mut self, theme: SyntaxTheme) {
+        self.theme_name = theme.theme_key().to_string();
         self.style_map.clear();
+    }
+
+    /// Get the background color of the current theme as RGB tuple.
+    pub fn theme_background(&self) -> (u8, u8, u8) {
+        if let Some(theme) = self.theme_set.themes.get(&self.theme_name) {
+            if let Some(bg) = theme.settings.background {
+                return (bg.r, bg.g, bg.b);
+            }
+        }
+        // Fallback to white
+        (255, 255, 255)
+    }
+
+    /// Get the foreground color of the current theme as RGB tuple.
+    pub fn theme_foreground(&self) -> (u8, u8, u8) {
+        if let Some(theme) = self.theme_set.themes.get(&self.theme_name) {
+            if let Some(fg) = theme.settings.foreground {
+                return (fg.r, fg.g, fg.b);
+            }
+        }
+        // Fallback to black
+        (0, 0, 0)
     }
 
     /// Update the font used in style table entries.

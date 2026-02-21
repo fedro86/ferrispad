@@ -24,13 +24,13 @@ use super::session::{self, SessionRestore};
 use super::tab_manager::{GroupColor, GroupId, TabManager};
 use super::platform::detect_system_dark_mode;
 use super::messages::Message;
-use super::settings::{AppSettings, FontChoice, ThemeMode};
+use super::settings::{AppSettings, FontChoice, SyntaxTheme, ThemeMode};
 use super::update_controller::UpdateController;
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::editor_container::EditorContainer;
 use crate::ui::file_dialogs::{native_open_dialog, native_open_multi_dialog, native_save_dialog};
 use crate::ui::tab_bar::TabBar;
-use crate::ui::theme::apply_theme;
+use crate::ui::theme::{apply_theme, apply_syntax_theme_colors};
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
 
@@ -88,7 +88,8 @@ impl AppState {
         };
         let font_size = settings.borrow().font_size as i32;
         let highlighting_enabled = settings.borrow().highlighting_enabled;
-        let highlight = HighlightController::new(dark_mode, font, font_size, highlighting_enabled);
+        let syntax_theme = settings.borrow().current_syntax_theme(dark_mode);
+        let highlight = HighlightController::new(syntax_theme, font, font_size, highlighting_enabled);
 
         let preview_enabled = settings.borrow().preview_enabled;
         let preview = PreviewController::new(preview_enabled);
@@ -676,7 +677,14 @@ impl AppState {
         #[cfg(target_os = "windows")]
         set_windows_titlebar_theme(&self.window, self.dark_mode);
 
-        self.highlight.set_dark_mode(self.dark_mode);
+        let theme = self.settings.borrow().current_syntax_theme(self.dark_mode);
+        self.highlight.set_theme(theme);
+
+        // Apply syntax theme colors to editor
+        let bg = self.highlight.highlighter().theme_background();
+        let fg = self.highlight.highlighter().theme_foreground();
+        apply_syntax_theme_colors(&mut self.editor, bg, fg);
+
         self.highlight.rehighlight_all_documents(&mut self.tab_manager, &self.sender);
         self.bind_active_buffer();
     }
@@ -864,13 +872,26 @@ impl AppState {
 
     pub fn open_settings(&mut self) {
         let current = self.settings.borrow().clone();
-        if let Some(new_settings) = show_settings_dialog(&current) {
+        if let Some(new_settings) = show_settings_dialog(&current, &self.sender, self.dark_mode) {
             if let Err(e) = new_settings.save() {
                 dialog::alert_default(&format!("Failed to save settings: {}", e));
                 return;
             }
             self.apply_settings(new_settings);
         }
+    }
+
+    /// Preview a syntax theme (called from settings dialog for live preview)
+    pub fn preview_syntax_theme(&mut self, theme: SyntaxTheme) {
+        self.highlight.set_theme(theme);
+
+        // Apply theme background/foreground colors to editor
+        let bg = self.highlight.highlighter().theme_background();
+        let fg = self.highlight.highlighter().theme_foreground();
+        apply_syntax_theme_colors(&mut self.editor, bg, fg);
+
+        self.highlight.rehighlight_all_documents(&mut self.tab_manager, &self.sender);
+        self.bind_active_buffer();
     }
 
     pub fn apply_settings(&mut self, new_settings: AppSettings) {
@@ -902,8 +923,14 @@ impl AppState {
         self.editor.set_text_font(font);
         self.editor.set_text_size(new_settings.font_size as i32);
 
-        self.highlight.set_dark_mode(is_dark);
+        let syntax_theme = new_settings.current_syntax_theme(is_dark);
+        self.highlight.set_theme(syntax_theme);
         self.highlight.set_font(font, new_settings.font_size as i32);
+
+        // Apply syntax theme colors to editor (overrides apply_theme's default colors)
+        let bg = self.highlight.highlighter().theme_background();
+        let fg = self.highlight.highlighter().theme_foreground();
+        apply_syntax_theme_colors(&mut self.editor, bg, fg);
 
         self.show_linenumbers = new_settings.line_numbers_enabled;
         self.update_linenumber_width();

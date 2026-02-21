@@ -20,6 +20,61 @@ pub enum FontChoice {
     HelveticaMono,
 }
 
+/// Available syntax highlighting themes from syntect
+/// Each theme has a display name and the internal syntect theme key
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum SyntaxTheme {
+    #[default]
+    Base16OceanDark,
+    Base16OceanLight,
+    Base16EightiesDark,
+    Base16MochaDark,
+    SolarizedDark,
+    SolarizedLight,
+    InspiredGitHub,
+}
+
+impl SyntaxTheme {
+    /// Get the syntect theme key for this theme
+    pub fn theme_key(&self) -> &'static str {
+        match self {
+            Self::Base16OceanDark => "base16-ocean.dark",
+            Self::Base16OceanLight => "base16-ocean.light",
+            Self::Base16EightiesDark => "base16-eighties.dark",
+            Self::Base16MochaDark => "base16-mocha.dark",
+            Self::SolarizedDark => "Solarized (dark)",
+            Self::SolarizedLight => "Solarized (light)",
+            Self::InspiredGitHub => "InspiredGitHub",
+        }
+    }
+
+    /// Get the display name for this theme
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Base16OceanDark => "Base16 Ocean Dark",
+            Self::Base16OceanLight => "Base16 Ocean Light",
+            Self::Base16EightiesDark => "Base16 Eighties Dark",
+            Self::Base16MochaDark => "Base16 Mocha Dark",
+            Self::SolarizedDark => "Solarized Dark",
+            Self::SolarizedLight => "Solarized Light",
+            Self::InspiredGitHub => "Inspired GitHub",
+        }
+    }
+
+    /// Get all available themes
+    pub fn all() -> &'static [SyntaxTheme] {
+        &[
+            Self::Base16OceanDark,
+            Self::Base16OceanLight,
+            Self::Base16EightiesDark,
+            Self::Base16MochaDark,
+            Self::SolarizedDark,
+            Self::SolarizedLight,
+            Self::InspiredGitHub,
+        ]
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppSettings {
     #[serde(default = "default_line_numbers")]
@@ -60,6 +115,14 @@ pub struct AppSettings {
 
     #[serde(default)]
     pub preview_enabled: bool,
+
+    /// Syntax theme for light mode
+    #[serde(default = "default_syntax_theme_light")]
+    pub syntax_theme_light: SyntaxTheme,
+
+    /// Syntax theme for dark mode
+    #[serde(default = "default_syntax_theme_dark")]
+    pub syntax_theme_dark: SyntaxTheme,
 }
 
 fn default_line_numbers() -> bool {
@@ -94,6 +157,14 @@ fn default_update_channel() -> UpdateChannel {
     UpdateChannel::Stable
 }
 
+fn default_syntax_theme_light() -> SyntaxTheme {
+    SyntaxTheme::Base16OceanLight
+}
+
+fn default_syntax_theme_dark() -> SyntaxTheme {
+    SyntaxTheme::Base16OceanDark
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -110,11 +181,22 @@ impl Default for AppSettings {
             tabs_enabled: true,
             session_restore: SessionRestore::Off,
             preview_enabled: false,
+            syntax_theme_light: default_syntax_theme_light(),
+            syntax_theme_dark: default_syntax_theme_dark(),
         }
     }
 }
 
 impl AppSettings {
+    /// Get the syntax theme for the current mode
+    pub fn current_syntax_theme(&self, is_dark: bool) -> SyntaxTheme {
+        if is_dark {
+            self.syntax_theme_dark
+        } else {
+            self.syntax_theme_light
+        }
+    }
+
     /// Load settings from disk, or create default if not exists
     pub fn load() -> Self {
         let config_path = Self::get_config_path();

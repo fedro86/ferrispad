@@ -329,6 +329,8 @@ fn main() {
                         window: &mut state.window,
                     });
                 }
+
+                Message::PreviewSyntaxTheme(theme) => state.preview_syntax_theme(theme),
             }
         }
         state.auto_save_session_if_needed();

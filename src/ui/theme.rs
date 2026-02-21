@@ -7,6 +7,41 @@ use fltk::{
     window::Window,
 };
 
+/// Apply syntax theme colors (background/foreground) to the editor.
+/// Used for live preview when changing syntax themes in settings.
+pub fn apply_syntax_theme_colors(
+    editor: &mut TextEditor,
+    background: (u8, u8, u8),
+    foreground: (u8, u8, u8),
+) {
+    editor.set_color(Color::from_rgb(background.0, background.1, background.2));
+    editor.set_text_color(Color::from_rgb(foreground.0, foreground.1, foreground.2));
+
+    // Adjust cursor color for visibility based on background brightness
+    let brightness = (background.0 as u32 + background.1 as u32 + background.2 as u32) / 3;
+    if brightness < 128 {
+        // Dark background: light cursor
+        editor.set_cursor_color(Color::from_rgb(255, 255, 255));
+        editor.set_linenumber_bgcolor(Color::from_rgb(
+            background.0.saturating_add(15),
+            background.1.saturating_add(15),
+            background.2.saturating_add(15),
+        ));
+        editor.set_linenumber_fgcolor(Color::from_rgb(150, 150, 150));
+    } else {
+        // Light background: dark cursor
+        editor.set_cursor_color(Color::from_rgb(0, 0, 0));
+        editor.set_linenumber_bgcolor(Color::from_rgb(
+            background.0.saturating_sub(15),
+            background.1.saturating_sub(15),
+            background.2.saturating_sub(15),
+        ));
+        editor.set_linenumber_fgcolor(Color::from_rgb(100, 100, 100));
+    }
+
+    editor.redraw();
+}
+
 pub fn apply_theme(
     editor: &mut TextEditor,
     window: &mut Window,

@@ -11,6 +11,7 @@ use fltk::{
 use super::document::DocumentId;
 use super::messages::Message;
 use super::buffer_utils::buffer_text_no_leak;
+use super::settings::SyntaxTheme;
 use super::syntax::SyntaxHighlighter;
 use super::tab_manager::TabManager;
 
@@ -33,9 +34,9 @@ pub struct HighlightController {
 }
 
 impl HighlightController {
-    pub fn new(is_dark: bool, font: Font, font_size: i32, highlighting_enabled: bool) -> Self {
+    pub fn new(theme: SyntaxTheme, font: Font, font_size: i32, highlighting_enabled: bool) -> Self {
         Self {
-            highlighter: SyntaxHighlighter::new(is_dark, font, font_size),
+            highlighter: SyntaxHighlighter::new(theme, font, font_size),
             pending_rehighlight: None,
             rehighlight_timer_active: false,
             highlight_queue: Vec::new(),
@@ -45,12 +46,17 @@ impl HighlightController {
 
     // --- Thin delegators wrapping SyntaxHighlighter ---
 
+    /// Get a reference to the underlying highlighter for theme color access.
+    pub fn highlighter(&self) -> &SyntaxHighlighter {
+        &self.highlighter
+    }
+
     pub fn style_table(&self) -> Vec<StyleTableEntry> {
         self.highlighter.style_table()
     }
 
-    pub fn set_dark_mode(&mut self, is_dark: bool) {
-        self.highlighter.set_dark_mode(is_dark);
+    pub fn set_theme(&mut self, theme: SyntaxTheme) {
+        self.highlighter.set_theme(theme);
     }
 
     pub fn set_font(&mut self, font: Font, size: i32) {
