@@ -11,6 +11,7 @@
 pub mod controllers;
 pub mod domain;
 pub mod infrastructure;
+pub mod plugins;
 pub mod services;
 pub mod state;
 
@@ -21,3 +22,7 @@ pub use infrastructure::buffer::buffer_text_no_leak;
 pub use infrastructure::platform::detect_system_dark_mode;
 pub use services::session::SessionRestore;
 pub use services::updater::UpdateChannel;
+
+// Plugin re-exports (used internally by state.rs)
+#[allow(unused_imports)]
+pub use plugins::{PluginManager, PluginHook, get_plugin_dir};

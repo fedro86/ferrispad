@@ -303,6 +303,9 @@ pub fn show_settings_dialog(
             } else {
                 4
             },
+            // Preserve plugin settings (not editable in this dialog)
+            plugins_enabled: current.plugins_enabled,
+            disabled_plugins: current.disabled_plugins.clone(),
         };
 
         *result_save.borrow_mut() = Some(new_settings);

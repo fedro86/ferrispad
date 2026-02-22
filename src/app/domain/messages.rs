@@ -3,6 +3,7 @@ use fltk::enums::Font;
 use super::document::DocumentId;
 use super::settings::SyntaxTheme;
 use crate::app::controllers::tabs::{GroupColor, GroupId};
+use crate::app::plugins::Diagnostic;
 use crate::app::services::updater::ReleaseInfo;
 
 /// All messages that can be sent through the FLTK channel.
@@ -76,4 +77,15 @@ pub enum Message {
 
     // Live preview from settings dialog
     PreviewSyntaxTheme(SyntaxTheme),
+
+    // Plugin system
+    PluginsToggleGlobal,
+    PluginToggle(String),
+    PluginsReloadAll,
+
+    // Diagnostics
+    DiagnosticsUpdate(Vec<Diagnostic>),
+    #[allow(dead_code)]  // Reserved for explicit clear from UI
+    DiagnosticsClear,
+    DiagnosticGoto(u32),  // Go to line number
 }

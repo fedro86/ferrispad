@@ -152,6 +152,17 @@ fn main() {
     // Start deferred highlighting for session-restored documents
     state.start_queued_highlights();
 
+    // Set up diagnostic panel click handlers
+    w.diagnostic_panel.setup_click_handler();
+
+    // Populate plugins menu with loaded plugins
+    ui::menu::rebuild_plugins_menu(
+        &mut state.menu,
+        &state.sender,
+        &state.settings.borrow(),
+        &state.plugins,
+    );
+
     // Background update check via channel
     {
         let settings_lock = app_settings.borrow();
@@ -312,6 +323,33 @@ fn main() {
                 }
 
                 Message::PreviewSyntaxTheme(theme) => state.preview_syntax_theme(theme),
+
+                // Plugin system
+                Message::PluginsToggleGlobal => state.handle_plugins_toggle_global(),
+                Message::PluginToggle(name) => state.handle_plugin_toggle(name),
+                Message::PluginsReloadAll => state.handle_plugins_reload(),
+
+                // Diagnostics
+                Message::DiagnosticsUpdate(diagnostics) => {
+                    w.diagnostic_panel.update_diagnostics(diagnostics);
+                    let height = w.diagnostic_panel.current_height();
+                    w.flex.fixed(w.diagnostic_panel.widget(), height);
+                    w.flex.recalc();
+                    w.wind.redraw();
+                }
+                Message::DiagnosticsClear => {
+                    w.diagnostic_panel.clear();
+                    let height = w.diagnostic_panel.current_height();
+                    w.flex.fixed(w.diagnostic_panel.widget(), height);
+                    w.flex.recalc();
+                    w.wind.redraw();
+                }
+                Message::DiagnosticGoto(_idx) => {
+                    // idx is 1-based browser index, get line from diagnostics
+                    if let Some(line) = w.diagnostic_panel.selected_line() {
+                        state.goto_line(line);
+                    }
+                }
             }
         }
         state.auto_save_session_if_needed();

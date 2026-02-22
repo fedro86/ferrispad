@@ -25,6 +25,7 @@ use super::domain::settings::{AppSettings, FontChoice, SyntaxTheme, ThemeMode};
 use super::infrastructure::buffer::buffer_text_no_leak;
 use super::infrastructure::platform::detect_system_dark_mode;
 use super::services::session::{self, SessionRestore};
+use super::plugins::{PluginManager, PluginHook, get_plugin_dir};
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::editor_container::EditorContainer;
 use crate::ui::file_dialogs::{native_open_dialog, native_open_multi_dialog, native_save_dialog};
@@ -52,6 +53,7 @@ pub struct AppState {
     pub update: UpdateController,
     pub highlight: HighlightController,
     pub preview: PreviewController,
+    pub plugins: PluginManager,
     /// Last directory used in a file open/save dialog.
     pub last_open_directory: Option<String>,
     /// Tracks when the session was last auto-saved.
@@ -93,6 +95,19 @@ impl AppState {
 
         let preview = PreviewController::new();
 
+        // Initialize plugin system
+        let plugins_enabled = settings.borrow().plugins_enabled;
+        let disabled_plugins = settings.borrow().disabled_plugins.clone();
+        let mut plugins = PluginManager::new(plugins_enabled);
+        if plugins_enabled {
+            plugins.load_plugins(&get_plugin_dir());
+            // Apply disabled list from settings
+            for name in &disabled_plugins {
+                plugins.toggle_plugin(name, false);
+            }
+            plugins.call_hook(PluginHook::Init);
+        }
+
         let editor = editor_container.editor().clone();
 
         Self {
@@ -113,6 +128,7 @@ impl AppState {
             update: UpdateController::new(),
             highlight,
             preview,
+            plugins,
             last_open_directory: None,
             last_auto_save: Instant::now(),
             session_dirty: false,
@@ -229,6 +245,10 @@ impl AppState {
                 }
             }
 
+        // Call plugin hook before closing
+        let close_path = self.tab_manager.doc_by_id(id).and_then(|d| d.file_path.clone());
+        self.plugins.call_hook(PluginHook::OnDocumentClose { path: close_path });
+
         self.tab_manager.remove(id);
 
         if self.tab_manager.count() == 0 {
@@ -294,6 +314,11 @@ impl AppState {
                     self.detect_and_highlight(id, &path);
                     self.switch_to_document(id);
                     self.rebuild_tab_bar();
+
+                    // Call plugin hook after document is loaded
+                    self.plugins.call_hook(PluginHook::OnDocumentOpen {
+                        path: Some(path),
+                    });
                 } else {
                     if let Some(doc) = self.tab_manager.active_doc_mut() {
                         doc.buffer.set_text(&content);
@@ -305,6 +330,11 @@ impl AppState {
                         self.detect_and_highlight(id, &path);
                     }
                     self.update_window_title();
+
+                    // Call plugin hook after document is loaded
+                    self.plugins.call_hook(PluginHook::OnDocumentOpen {
+                        path: Some(path),
+                    });
                 }
             }
             Err(e) => dialog::alert_default(&format!("Error opening file: {}", e)),
@@ -352,14 +382,28 @@ impl AppState {
         };
 
         if let Some(ref path) = file_path {
-            match fs::write(path, &text) {
+            // Call plugin hook - plugins can modify content before save
+            let hook_result = self.plugins.call_hook(PluginHook::OnDocumentSave {
+                path: path.clone(),
+                content: text.clone(),
+            });
+            let text_to_save = hook_result.modified_content.unwrap_or(text.clone());
+
+            match fs::write(path, &text_to_save) {
                 Ok(_) => {
                     if let Some(doc) = self.tab_manager.active_doc_mut() {
                         doc.mark_clean();
                     }
                     self.update_window_title();
                     self.rebuild_tab_bar();
-                    self.update_preview_file(doc_id, path, &text);
+                    self.update_preview_file(doc_id, path, &text_to_save);
+
+                    // Call lint hook after successful save
+                    let lint_result = self.plugins.call_hook(PluginHook::OnDocumentLint {
+                        path: path.clone(),
+                        content: text_to_save,
+                    });
+                    self.sender.send(Message::DiagnosticsUpdate(lint_result.diagnostics));
                 }
                 Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
             }
@@ -404,6 +448,13 @@ impl AppState {
                     }
                     self.update_window_title();
                     self.rebuild_tab_bar();
+
+                    // Call lint hook after successful save
+                    let lint_result = self.plugins.call_hook(PluginHook::OnDocumentLint {
+                        path: path.clone(),
+                        content: text,
+                    });
+                    self.sender.send(Message::DiagnosticsUpdate(lint_result.diagnostics));
                 }
                 Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
             }
@@ -595,6 +646,9 @@ impl AppState {
         };
 
         if should_quit {
+            // Call plugin shutdown hook
+            self.plugins.call_hook(PluginHook::Shutdown);
+
             let _ = session::save_session(&self.tab_manager, session_mode, self.last_open_directory.as_deref())
                 .inspect_err(|e| eprintln!("Failed to save session: {}", e));
         }
@@ -698,6 +752,9 @@ impl AppState {
 
         self.highlight.rehighlight_all_documents(&mut self.tab_manager, &self.sender);
         self.bind_active_buffer();
+
+        // Call plugin hook
+        self.plugins.call_hook(PluginHook::OnThemeChanged { is_dark: self.dark_mode });
     }
 
     pub fn toggle_highlighting(&mut self) {
@@ -1027,4 +1084,107 @@ impl AppState {
         );
     }
 
+    // --- Plugin handlers ---
+
+    /// Toggle the global plugin system on/off
+    pub fn handle_plugins_toggle_global(&mut self) {
+        let currently_enabled = self.settings.borrow().plugins_enabled;
+        let new_enabled = !currently_enabled;
+
+        {
+            let mut settings = self.settings.borrow_mut();
+            settings.plugins_enabled = new_enabled;
+            let _ = settings.save();
+        }
+
+        self.plugins.set_enabled(new_enabled);
+        if new_enabled {
+            // Load plugins if enabling
+            self.plugins.reload_all(&get_plugin_dir());
+            // Apply disabled list
+            let disabled = self.settings.borrow().disabled_plugins.clone();
+            for name in &disabled {
+                self.plugins.toggle_plugin(name, false);
+            }
+        }
+
+        // Rebuild plugins menu to reflect changes
+        crate::ui::menu::rebuild_plugins_menu(
+            &mut self.menu,
+            &self.sender,
+            &self.settings.borrow(),
+            &self.plugins,
+        );
+    }
+
+    /// Toggle a specific plugin on/off
+    pub fn handle_plugin_toggle(&mut self, name: String) {
+        // Find current state and toggle
+        let was_enabled = self.plugins.list_plugins()
+            .iter()
+            .find(|p| p.name == name)
+            .map(|p| p.enabled)
+            .unwrap_or(false);
+
+        self.plugins.toggle_plugin(&name, !was_enabled);
+
+        // Update settings
+        {
+            let mut settings = self.settings.borrow_mut();
+            let disabled = self.plugins.disabled_plugin_names();
+            settings.disabled_plugins = disabled;
+            let _ = settings.save();
+        }
+
+        // Rebuild plugins menu
+        crate::ui::menu::rebuild_plugins_menu(
+            &mut self.menu,
+            &self.sender,
+            &self.settings.borrow(),
+            &self.plugins,
+        );
+    }
+
+    /// Reload all plugins from disk
+    pub fn handle_plugins_reload(&mut self) {
+        self.plugins.reload_all(&get_plugin_dir());
+
+        // Apply disabled list
+        let disabled = self.settings.borrow().disabled_plugins.clone();
+        for name in &disabled {
+            self.plugins.toggle_plugin(name, false);
+        }
+
+        // Rebuild plugins menu
+        crate::ui::menu::rebuild_plugins_menu(
+            &mut self.menu,
+            &self.sender,
+            &self.settings.borrow(),
+            &self.plugins,
+        );
+    }
+
+    /// Navigate to a specific line number (1-indexed)
+    pub fn goto_line(&mut self, line: u32) {
+        let buf = self.active_buffer();
+        let line_count = buf.count_lines(0, buf.length());
+
+        // Clamp line to valid range
+        let target_line = (line as i32).min(line_count).max(1);
+
+        // Find position of the line
+        let mut pos = 0;
+        for _ in 1..target_line {
+            if let Some(next_pos) = buf.find_char_forward(pos, '\n') {
+                pos = next_pos + 1;
+            } else {
+                break;
+            }
+        }
+
+        // Set cursor position and scroll to it
+        self.editor.set_insert_position(pos);
+        self.editor.show_insert_position();
+        self.editor.take_focus().ok();
+    }
 }

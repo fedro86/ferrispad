@@ -10,6 +10,7 @@ use fltk::{
 };
 
 use crate::app::Message;
+use super::diagnostic_panel::DiagnosticPanel;
 use super::editor_container::EditorContainer;
 use super::tab_bar::{TabBar, TAB_BAR_HEIGHT};
 
@@ -20,6 +21,7 @@ pub struct MainWidgets {
     pub tab_bar: Option<TabBar>,
     pub update_banner_frame: Frame,
     pub editor_container: EditorContainer,
+    pub diagnostic_panel: DiagnosticPanel,
 }
 
 pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWidgets {
@@ -61,6 +63,11 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWi
     // Editor container — the TextEditor is added directly to flex (no wrapper)
     let editor_container = EditorContainer::new(&flex);
 
+    // Diagnostic panel (below editor, initially hidden)
+    let mut diagnostic_panel = DiagnosticPanel::new(*sender);
+    diagnostic_panel.hide();
+    flex.fixed(diagnostic_panel.widget(), 0);
+
     flex.end();
     wind.resizable(&flex);
 
@@ -71,5 +78,6 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWi
         tab_bar,
         update_banner_frame,
         editor_container,
+        diagnostic_panel,
     }
 }

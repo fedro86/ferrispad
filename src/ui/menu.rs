@@ -5,6 +5,7 @@ use fltk::{
     prelude::*,
 };
 
+use crate::app::plugins::PluginManager;
 use crate::app::{AppSettings, Message};
 
 pub fn build_menu(
@@ -60,7 +61,117 @@ pub fn build_menu(
     menu.add("Format/Font Size/Medium (16)", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::SetFontSize(16)) });
     menu.add("Format/Font Size/Large (20)", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::SetFontSize(20)) });
 
+    // Plugins - static menu, will be rebuilt when plugins change
+    let plugins_flag = if settings.plugins_enabled {
+        MenuFlag::Toggle | MenuFlag::Value
+    } else {
+        MenuFlag::Toggle
+    };
+    menu.add(
+        "Plugins/Enable Plugins",
+        Shortcut::None,
+        plugins_flag,
+        {
+            let s = *s;
+            move |_| s.send(Message::PluginsToggleGlobal)
+        },
+    );
+    menu.add(
+        "Plugins/Reload All",
+        Shortcut::None,
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::PluginsReloadAll)
+        },
+    );
+
     // Help
     menu.add("Help/About FerrisPad", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::ShowAbout) });
     menu.add("Help/Check for Updates...", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::CheckForUpdates) });
+}
+
+/// Rebuild the plugins submenu with the current list of plugins
+pub fn rebuild_plugins_menu(
+    menu: &mut MenuBar,
+    sender: &Sender<Message>,
+    settings: &AppSettings,
+    plugins: &PluginManager,
+) {
+    // Find and remove old plugin entries (except Enable Plugins and Reload All)
+    // This is a bit hacky but FLTK doesn't have great dynamic menu support
+    // FLTK's find_index returns -1 if not found, not Option
+
+    // Clear all Plugins/* separator entries
+    loop {
+        let idx = menu.find_index("Plugins/---");
+        if idx < 0 {
+            break;
+        }
+        menu.remove(idx);
+    }
+
+    // Remove individual plugin entries (they start after the separator)
+    let plugin_names: Vec<String> = plugins
+        .list_plugins()
+        .iter()
+        .map(|p| format!("Plugins/{}", p.name))
+        .collect();
+
+    for name in &plugin_names {
+        let idx = menu.find_index(name);
+        if idx >= 0 {
+            menu.remove(idx);
+        }
+    }
+
+    // Add separator if there are plugins
+    let plugin_list = plugins.list_plugins();
+    if !plugin_list.is_empty() {
+        // Find position after "Reload All" to insert separator
+        let reload_idx = menu.find_index("Plugins/Reload All");
+        if reload_idx >= 0 {
+            menu.insert(
+                reload_idx + 1,
+                "---",
+                Shortcut::None,
+                MenuFlag::Normal,
+                |_| {},
+            );
+
+            // Add each plugin with a toggle
+            for (i, plugin) in plugin_list.iter().enumerate() {
+                let flag = if plugin.enabled {
+                    MenuFlag::Toggle | MenuFlag::Value
+                } else {
+                    MenuFlag::Toggle
+                };
+
+                let label = format!("Plugins/{}", plugin.name);
+
+                let plugin_name = plugin.name.clone();
+                let s = *sender;
+
+                menu.insert(
+                    reload_idx + 2 + i as i32,
+                    &label,
+                    Shortcut::None,
+                    flag,
+                    move |_| s.send(Message::PluginToggle(plugin_name.clone())),
+                );
+            }
+        }
+    }
+
+    // Update the global enable checkbox
+    let idx = menu.find_index("Plugins/Enable Plugins");
+    if idx >= 0
+        && let Some(mut item) = menu.at(idx)
+    {
+        if settings.plugins_enabled {
+            item.set();
+        } else {
+            item.clear();
+        }
+    }
 }

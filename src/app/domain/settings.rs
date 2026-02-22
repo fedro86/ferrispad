@@ -127,6 +127,14 @@ pub struct AppSettings {
     /// Tab size in spaces (default 4)
     #[serde(default = "default_tab_size")]
     pub tab_size: u32,
+
+    /// Whether the plugin system is enabled
+    #[serde(default = "default_plugins_enabled")]
+    pub plugins_enabled: bool,
+
+    /// Names of explicitly disabled plugins
+    #[serde(default)]
+    pub disabled_plugins: Vec<String>,
 }
 
 fn default_line_numbers() -> bool {
@@ -173,6 +181,10 @@ fn default_tab_size() -> u32 {
     4
 }
 
+fn default_plugins_enabled() -> bool {
+    true
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -192,6 +204,8 @@ impl Default for AppSettings {
             syntax_theme_light: default_syntax_theme_light(),
             syntax_theme_dark: default_syntax_theme_dark(),
             tab_size: default_tab_size(),
+            plugins_enabled: default_plugins_enabled(),
+            disabled_plugins: Vec::new(),
         }
     }
 }
