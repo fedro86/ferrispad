@@ -22,7 +22,7 @@ use mlua::Table;
 
 pub use annotations::{AnnotationColor, GutterMark, InlineHighlight, LineAnnotation};
 pub use api::EditorApi;
-pub use hooks::{Diagnostic, DiagnosticLevel, HookResult, PluginHook};
+pub use hooks::{Diagnostic, DiagnosticLevel, HookResult, PluginHook, StatusMessage};
 pub use loader::get_plugin_dir;
 
 use loader::{discover_plugins, load_plugin_toml};
@@ -235,6 +235,10 @@ impl PluginManager {
                     result.diagnostics.extend(hook_output.diagnostics);
                     // Collect line annotations from all plugins
                     result.line_annotations.extend(hook_output.line_annotations);
+                    // Use the last plugin's status message (or first non-None)
+                    if hook_output.status_message.is_some() {
+                        result.status_message = hook_output.status_message;
+                    }
                 }
                 Err(e) => {
                     eprintln!("[plugins] {} hook error: {}", plugin.name, e);
@@ -368,13 +372,14 @@ impl PluginManager {
     /// Parse lint/highlight result from Lua table.
     /// Supports both old format (array of diagnostics) and new extended format:
     /// - Old: { {line=1, message="..."}, ... }
-    /// - New: { diagnostics = {...}, highlights = {...} }
+    /// - New: { diagnostics = {...}, highlights = {...}, status_message = {...} }
     fn parse_lint_result(&self, table: &mlua::Table, plugin_name: &str, result: &mut HookResult) {
         // Check if this is the new extended format (has 'diagnostics' or 'highlights' key)
         let has_diagnostics_key: bool = table.contains_key("diagnostics").unwrap_or(false);
         let has_highlights_key: bool = table.contains_key("highlights").unwrap_or(false);
+        let has_status_key: bool = table.contains_key("status_message").unwrap_or(false);
 
-        if has_diagnostics_key || has_highlights_key {
+        if has_diagnostics_key || has_highlights_key || has_status_key {
             // New extended format
             if let Ok(mlua::Value::Table(diags_table)) = table.get::<mlua::Value>("diagnostics") {
                 result.diagnostics.extend(self.parse_diagnostics(&diags_table, plugin_name));
@@ -382,10 +387,34 @@ impl PluginManager {
             if let Ok(mlua::Value::Table(highlights_table)) = table.get::<mlua::Value>("highlights") {
                 result.line_annotations.extend(self.parse_line_annotations(&highlights_table, plugin_name));
             }
+            // Parse optional status message for toast notification
+            if let Ok(mlua::Value::Table(status_table)) = table.get::<mlua::Value>("status_message") {
+                result.status_message = self.parse_status_message(&status_table);
+            }
         } else {
             // Old format: array of diagnostics directly
             result.diagnostics.extend(self.parse_diagnostics(table, plugin_name));
         }
+    }
+
+    /// Parse a status message from a Lua table
+    fn parse_status_message(&self, table: &mlua::Table) -> Option<StatusMessage> {
+        use crate::ui::toast::ToastLevel;
+
+        // Required: text
+        let text: String = table.get("text").ok()?;
+
+        // Optional: level (defaults to "info")
+        let level_str: String = table.get("level").unwrap_or_else(|_| "info".to_string());
+        let level = match level_str.to_lowercase().as_str() {
+            "success" => ToastLevel::Success,
+            "info" => ToastLevel::Info,
+            "warning" | "warn" => ToastLevel::Warning,
+            "error" => ToastLevel::Error,
+            _ => ToastLevel::Info,
+        };
+
+        Some(StatusMessage { level, text })
     }
 
     /// Parse a Lua table of line annotations

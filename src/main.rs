@@ -363,6 +363,21 @@ fn main() {
                 Message::ManualHighlight => {
                     state.request_manual_highlight();
                 }
+
+                // Toast notifications
+                Message::ToastShow(level, msg) => {
+                    w.toast.show(level, &msg);
+                    let height = w.toast.current_height();
+                    w.flex.fixed(w.toast.widget(), height);
+                    w.flex.recalc();
+                    w.wind.redraw();
+                }
+                Message::ToastHide => {
+                    w.toast.hide();
+                    w.flex.fixed(w.toast.widget(), 0);
+                    w.flex.recalc();
+                    w.wind.redraw();
+                }
             }
         }
         state.auto_save_session_if_needed();

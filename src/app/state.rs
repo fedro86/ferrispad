@@ -188,12 +188,13 @@ impl AppState {
 
         // Bind new buffer and restore state
         if let Some(doc) = self.tab_manager.active_doc_mut() {
+            // IMPORTANT: Save dirty state FIRST, before any operations that might trigger
+            // the modify callback (set_tab_distance, set_buffer, etc.)
+            let was_dirty = doc.is_dirty();
+
             // Ensure tab distance is set (for newly created docs)
             let tab_size = self.settings.borrow().tab_size as i32;
             doc.buffer.set_tab_distance(tab_size);
-
-            // Save dirty state before rebinding (set_buffer may trigger modify callback)
-            let was_dirty = doc.is_dirty();
 
             let buffer = doc.buffer.clone();
             let cursor = doc.cursor_position;
@@ -350,12 +351,7 @@ impl AppState {
                         path,
                         content,
                     });
-                    if !lint_result.diagnostics.is_empty() {
-                        self.sender.send(Message::DiagnosticsUpdate(lint_result.diagnostics));
-                    }
-                    if !lint_result.line_annotations.is_empty() {
-                        self.update_annotations(lint_result.line_annotations);
-                    }
+                    self.process_lint_result(lint_result);
                 } else {
                     if let Some(doc) = self.tab_manager.active_doc_mut() {
                         doc.buffer.set_text(&content);
@@ -378,12 +374,7 @@ impl AppState {
                         path,
                         content,
                     });
-                    if !lint_result.diagnostics.is_empty() {
-                        self.sender.send(Message::DiagnosticsUpdate(lint_result.diagnostics));
-                    }
-                    if !lint_result.line_annotations.is_empty() {
-                        self.update_annotations(lint_result.line_annotations);
-                    }
+                    self.process_lint_result(lint_result);
                 }
             }
             Err(e) => dialog::alert_default(&format!("Error opening file: {}", e)),
@@ -452,12 +443,7 @@ impl AppState {
                         path: path.clone(),
                         content: text_to_save,
                     });
-                    self.sender.send(Message::DiagnosticsUpdate(lint_result.diagnostics));
-
-                    // Update line annotations
-                    if !lint_result.line_annotations.is_empty() {
-                        self.update_annotations(lint_result.line_annotations);
-                    }
+                    self.process_lint_result(lint_result);
                 }
                 Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
             }
@@ -508,12 +494,7 @@ impl AppState {
                         path: path.clone(),
                         content: text,
                     });
-                    self.sender.send(Message::DiagnosticsUpdate(lint_result.diagnostics));
-
-                    // Update line annotations if any
-                    if !lint_result.line_annotations.is_empty() {
-                        self.sender.send(Message::AnnotationsUpdate(lint_result.line_annotations));
-                    }
+                    self.process_lint_result(lint_result);
                 }
                 Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
             }
@@ -1406,15 +1387,8 @@ impl AppState {
             content,
         });
 
-        // Update annotations if any were returned
-        if !result.line_annotations.is_empty() {
-            self.update_annotations(result.line_annotations);
-        }
-
-        // Also update diagnostics if any
-        if !result.diagnostics.is_empty() {
-            self.sender.send(Message::DiagnosticsUpdate(result.diagnostics));
-        }
+        // Process results (diagnostics, annotations, and toast)
+        self.process_lint_result(result);
     }
 
     /// Store diagnostics in the active document for persistence across tab switches
@@ -1434,5 +1408,17 @@ impl AppState {
                 None
             }
         })
+    }
+
+    /// Process lint result from plugin hook: send diagnostics, annotations, and toast
+    fn process_lint_result(&mut self, result: super::plugins::HookResult) {
+        // Always send diagnostics (even empty) to update or clear the panel
+        self.sender.send(Message::DiagnosticsUpdate(result.diagnostics));
+        if !result.line_annotations.is_empty() {
+            self.update_annotations(result.line_annotations);
+        }
+        if let Some(status) = result.status_message {
+            self.sender.send(Message::ToastShow(status.level, status.text));
+        }
     }
 }

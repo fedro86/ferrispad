@@ -4,6 +4,7 @@
 //! No async, no background threads. This ensures 0% CPU when idle.
 
 use super::annotations::LineAnnotation;
+use crate::ui::toast::ToastLevel;
 
 /// Diagnostic severity level
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -117,6 +118,15 @@ impl PluginHook {
     }
 }
 
+/// A status message to display to the user
+#[derive(Debug, Clone)]
+pub struct StatusMessage {
+    /// Toast level (determines color)
+    pub level: ToastLevel,
+    /// Message text
+    pub text: String,
+}
+
 /// Result from calling plugin hooks
 #[derive(Debug, Default)]
 pub struct HookResult {
@@ -126,6 +136,8 @@ pub struct HookResult {
     pub diagnostics: Vec<Diagnostic>,
     /// Line annotations for gutter/inline highlighting
     pub line_annotations: Vec<LineAnnotation>,
+    /// Status message to show in toast
+    pub status_message: Option<StatusMessage>,
 }
 
 #[cfg(test)]

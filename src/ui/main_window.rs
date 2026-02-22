@@ -13,12 +13,14 @@ use crate::app::Message;
 use super::diagnostic_panel::DiagnosticPanel;
 use super::editor_container::EditorContainer;
 use super::tab_bar::{TabBar, TAB_BAR_HEIGHT};
+use super::toast::Toast;
 
 pub struct MainWidgets {
     pub wind: Window,
     pub flex: Flex,
     pub menu: MenuBar,
     pub tab_bar: Option<TabBar>,
+    pub toast: Toast,
     pub update_banner_frame: Frame,
     pub editor_container: EditorContainer,
     pub diagnostic_panel: DiagnosticPanel,
@@ -51,6 +53,10 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWi
         None
     };
 
+    // Toast notification bar (initially hidden, auto-hides after 4 seconds)
+    let toast = Toast::new(*sender);
+    flex.fixed(toast.widget(), 0);
+
     // Update notification banner (initially hidden)
     let mut update_banner_frame = Frame::default().with_size(0, 0);
     update_banner_frame.set_frame(fltk::enums::FrameType::FlatBox);
@@ -76,6 +82,7 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWi
         flex,
         menu,
         tab_bar,
+        toast,
         update_banner_frame,
         editor_container,
         diagnostic_panel,

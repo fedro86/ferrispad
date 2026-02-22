@@ -5,6 +5,7 @@ use super::settings::SyntaxTheme;
 use crate::app::controllers::tabs::{GroupColor, GroupId};
 use crate::app::plugins::{Diagnostic, LineAnnotation};
 use crate::app::services::updater::ReleaseInfo;
+use crate::ui::toast::ToastLevel;
 
 /// All messages that can be sent through the FLTK channel.
 /// Each menu callback sends one of these; the dispatch loop in main handles them.
@@ -90,8 +91,13 @@ pub enum Message {
     DiagnosticGoto(u32),  // Go to line number
 
     // Line annotations (gutter + inline highlights)
+    #[allow(dead_code)]  // Reserved for future batch annotation updates
     AnnotationsUpdate(Vec<LineAnnotation>),
     #[allow(dead_code)]  // Reserved for explicit clear from UI
     AnnotationsClear,
     ManualHighlight,  // Triggered by Ctrl+Shift+L
+
+    // Toast notifications
+    ToastShow(ToastLevel, String),
+    ToastHide,
 }

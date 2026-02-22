@@ -6,3 +6,4 @@ pub mod editor_container;
 pub mod main_window;
 pub mod menu;
 pub mod tab_bar;
+pub mod toast;

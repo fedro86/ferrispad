@@ -273,7 +273,7 @@ mod tests {
     #[test]
     fn test_should_check_now_no() {
         // 1 hour ago
-        let one_hour_ago = current_timestamp() - (1 * 60 * 60);
+        let one_hour_ago = current_timestamp() - (60 * 60);
         assert!(!should_check_now(one_hour_ago));
     }
 
