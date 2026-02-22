@@ -1,7 +1,7 @@
 //! Line annotation types for plugin highlighting API.
 //!
 //! Plugins can return line annotations to highlight lines in the editor:
-//! - Gutter marks: colored bars/symbols in the left margin
+//! - Gutter marks: full-line background colors
 //! - Inline highlights: background colors for specific text ranges
 
 /// Semantic colors that adapt to light/dark theme
@@ -41,18 +41,15 @@ impl AnnotationColor {
     }
 }
 
-/// Gutter mark - colored indicator in the left margin
+/// Gutter mark - full-line background color
 #[derive(Debug, Clone)]
 pub struct GutterMark {
-    /// Color of the gutter indicator
+    /// Color for the full line background
     pub color: AnnotationColor,
-    /// Optional symbol to display (e.g., '+', '~', '!', '•')
-    pub symbol: Option<char>,
 }
 
 /// Inline highlight - background color for a character range
 #[derive(Debug, Clone)]
-#[allow(dead_code)]  // Fields reserved for inline overlay implementation
 pub struct InlineHighlight {
     /// Start column (1-indexed, inclusive)
     pub start_col: u32,
@@ -64,7 +61,6 @@ pub struct InlineHighlight {
 
 /// A line annotation combining gutter and inline highlights
 #[derive(Debug, Clone)]
-#[allow(dead_code)]  // Some fields reserved for inline overlay implementation
 pub struct LineAnnotation {
     /// Line number (1-indexed)
     pub line: u32,
@@ -99,10 +95,8 @@ mod tests {
     fn test_gutter_mark_creation() {
         let mark = GutterMark {
             color: AnnotationColor::Added,
-            symbol: Some('+'),
         };
         assert_eq!(mark.color, AnnotationColor::Added);
-        assert_eq!(mark.symbol, Some('+'));
     }
 
     #[test]
@@ -123,7 +117,6 @@ mod tests {
             line: 42,
             gutter: Some(GutterMark {
                 color: AnnotationColor::Warning,
-                symbol: Some('!'),
             }),
             inline: vec![InlineHighlight {
                 start_col: 1,

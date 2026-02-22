@@ -192,6 +192,12 @@ impl SyntaxHighlighter {
         self.style_map.reset_changed();
     }
 
+    /// Get or insert a marker style for an RGB color.
+    /// Returns the style character for the bgcolor marker.
+    pub fn get_or_insert_marker_rgb(&mut self, r: u8, g: u8, b: u8) -> char {
+        self.style_map.get_or_insert_marker_rgb(r, g, b)
+    }
+
     /// Begin chunked highlighting for a large file.
     /// Takes ownership of the text to avoid re-copying it on every chunk.
     pub fn start_chunked(&mut self, doc_id: DocumentId, text: String, syntax_name: &str) {

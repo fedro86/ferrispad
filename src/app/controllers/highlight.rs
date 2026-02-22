@@ -63,6 +63,11 @@ impl HighlightController {
         self.highlighter.set_font(font, size);
     }
 
+    /// Get or insert a marker style for an RGB color.
+    pub fn get_or_insert_marker_rgb(&mut self, r: u8, g: u8, b: u8) -> char {
+        self.highlighter.get_or_insert_marker_rgb(r, g, b)
+    }
+
     // --- Highlight methods ---
 
     fn hide_highlight_banner(&self, widgets: &mut HighlightWidgets) {

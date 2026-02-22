@@ -1206,7 +1206,14 @@ impl AppState {
 
     /// Update line annotations by applying bgcolor markers to the style buffer.
     /// This creates VS Code-like line highlighting for errors, warnings, git changes, etc.
+    ///
+    /// Supports two modes:
+    /// - **Gutter marks**: Highlight the entire line with a background color
+    /// - **Inline highlights**: Highlight specific column ranges within a line
+    ///
+    /// Also supports custom RGB colors (up to ~10 unique colors).
     pub fn update_annotations(&mut self, annotations: Vec<super::plugins::LineAnnotation>) {
+        use crate::app::plugins::AnnotationColor;
         use crate::app::services::syntax::style_map::StyleMap;
 
         let Some(doc) = self.tab_manager.active_doc() else {
@@ -1215,16 +1222,15 @@ impl AppState {
         let mut style_buf = doc.style_buffer.clone();
         let buf = doc.buffer.clone();
 
+        // Helper closure to get marker char, handling RGB colors
+        let get_marker_char = |highlight: &mut crate::app::controllers::highlight::HighlightController, color: &AnnotationColor| -> char {
+            match color {
+                AnnotationColor::Rgb(r, g, b) => highlight.get_or_insert_marker_rgb(*r, *g, *b),
+                _ => StyleMap::marker_style_char(color),
+            }
+        };
+
         for ann in &annotations {
-            let color = ann.gutter.as_ref()
-                .map(|g| &g.color)
-                .or_else(|| ann.inline.first().map(|i| &i.color));
-
-            let Some(color) = color else {
-                continue;
-            };
-
-            let marker_char = StyleMap::marker_style_char(color);
             let target_line = ann.line.saturating_sub(1) as i32;
 
             // Find line start position
@@ -1237,18 +1243,47 @@ impl AppState {
                 }
             }
 
-            // Find line end
-            let line_end = buf.find_char_forward(line_start, '\n')
+            // Find line end (excluding newline for column calculations)
+            let line_end_with_newline = buf.find_char_forward(line_start, '\n')
                 .map(|p| p + 1)
+                .unwrap_or(buf.length());
+            let line_end = buf.find_char_forward(line_start, '\n')
                 .unwrap_or(buf.length());
 
             let line_len = line_end - line_start;
-            if line_len <= 0 {
-                continue;
+
+            // Handle gutter mark (full line highlight)
+            if let Some(ref gutter) = ann.gutter {
+                if line_len > 0 {
+                    let marker_char = get_marker_char(&mut self.highlight, &gutter.color);
+                    let marker_str: String = std::iter::repeat_n(marker_char, (line_end_with_newline - line_start) as usize).collect();
+                    style_buf.replace(line_start, line_end_with_newline, &marker_str);
+                }
             }
 
-            let marker_str: String = std::iter::repeat_n(marker_char, line_len as usize).collect();
-            style_buf.replace(line_start, line_end, &marker_str);
+            // Handle inline highlights (partial line highlight)
+            for inline in &ann.inline {
+                let marker_char = get_marker_char(&mut self.highlight, &inline.color);
+
+                // Convert 1-indexed columns to 0-indexed buffer positions
+                let start_col = (inline.start_col.saturating_sub(1) as i32).min(line_len);
+                let end_col = inline.end_col
+                    .map(|c| (c.saturating_sub(1) as i32).min(line_len))
+                    .unwrap_or(line_len);
+
+                if start_col >= end_col {
+                    continue;
+                }
+
+                let highlight_start = line_start + start_col;
+                let highlight_end = line_start + end_col;
+                let highlight_len = (highlight_end - highlight_start) as usize;
+
+                if highlight_len > 0 {
+                    let marker_str: String = std::iter::repeat_n(marker_char, highlight_len).collect();
+                    style_buf.replace(highlight_start, highlight_end, &marker_str);
+                }
+            }
         }
 
         // Re-apply style table to show updated highlights

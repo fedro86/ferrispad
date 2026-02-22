@@ -183,7 +183,7 @@ impl StyleMap {
         ch
     }
 
-    /// Get the style character for a marker type
+    /// Get the style character for a marker type (static, for semantic colors only)
     pub fn marker_style_char(color: &AnnotationColor) -> char {
         match color {
             AnnotationColor::Added => MARKER_STYLE_ADDED,
@@ -192,8 +192,53 @@ impl StyleMap {
             AnnotationColor::Error => MARKER_STYLE_ERROR,
             AnnotationColor::Warning => MARKER_STYLE_WARNING,
             AnnotationColor::Info | AnnotationColor::Hint => MARKER_STYLE_INFO,
-            AnnotationColor::Rgb(_, _, _) => MARKER_STYLE_INFO, // Fallback
+            AnnotationColor::Rgb(_, _, _) => MARKER_STYLE_INFO, // Use get_or_insert_marker_rgb for actual RGB
         }
+    }
+
+    /// Get or insert a marker style for an RGB color.
+    /// Returns the style character for the bgcolor marker.
+    /// Limited to ~10 custom colors to avoid exhausting the style table.
+    pub fn get_or_insert_marker_rgb(&mut self, r: u8, g: u8, b: u8) -> char {
+        // Check if we already have this RGB as a bgcolor marker
+        // We search through existing entries for a matching bgcolor
+
+        // Check existing entries for this bgcolor (after the semantic markers)
+        // We start checking from entry 7 (after A and B-G markers)
+        for (idx, entry) in self.entries.iter().enumerate().skip(7) {
+            if entry.attr == TextAttr::BgColor {
+                // Extract RGB from the Color
+                let (cr, cg, cb) = self.color_to_rgb(entry.bgcolor);
+                if cr == r && cg == g && cb == b {
+                    return (b'A' + idx as u8) as char;
+                }
+            }
+        }
+
+        // Need to insert a new entry
+        let idx = self.entries.len();
+        if idx >= 26 {
+            // Out of style slots, fallback to Info
+            return MARKER_STYLE_INFO;
+        }
+
+        let ch = (b'A' + idx as u8) as char;
+        self.entries.push(StyleTableEntryExt {
+            color: self.theme_fgcolor,
+            font: self.font,
+            size: self.font_size,
+            attr: TextAttr::BgColor,
+            bgcolor: Color::from_rgb(r, g, b),
+        });
+
+        // We don't add to color_to_char since that's for syntax colors
+        ch
+    }
+
+    /// Extract RGB values from an FLTK Color
+    fn color_to_rgb(&self, color: Color) -> (u8, u8, u8) {
+        let (r, g, b) = color.to_rgb();
+        (r, g, b)
     }
 
     /// Get the style table entries for FLTK's set_highlight_data_ext.

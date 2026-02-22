@@ -440,15 +440,7 @@ impl PluginManager {
     fn parse_gutter_mark(&self, table: &mlua::Table) -> Option<GutterMark> {
         // Parse color - required
         let color = self.parse_annotation_color(table)?;
-
-        // Optional: symbol (single character)
-        let symbol = if let Ok(s) = table.get::<String>("symbol") {
-            s.chars().next()
-        } else {
-            None
-        };
-
-        Some(GutterMark { color, symbol })
+        Some(GutterMark { color })
     }
 
     /// Parse inline highlights array from a Lua table
