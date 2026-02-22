@@ -39,6 +39,18 @@ impl AnnotationColor {
             _ => None,
         }
     }
+
+    /// Get priority for this color (lower = higher priority, shown on top)
+    /// Error/Deleted are highest priority, then Warning/Modified, then Info/Added, then Hint
+    pub fn priority(&self) -> u8 {
+        match self {
+            Self::Error | Self::Deleted => 0,
+            Self::Warning | Self::Modified => 1,
+            Self::Info | Self::Added => 2,
+            Self::Hint => 3,
+            Self::Rgb(_, _, _) => 4, // Custom colors have lowest priority
+        }
+    }
 }
 
 /// Gutter mark - full-line background color

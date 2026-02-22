@@ -331,6 +331,8 @@ fn main() {
 
                 // Diagnostics
                 Message::DiagnosticsUpdate(diagnostics) => {
+                    // Store diagnostics in the active document for persistence
+                    state.store_diagnostics(diagnostics.clone());
                     w.diagnostic_panel.update_diagnostics(diagnostics);
                     let height = w.diagnostic_panel.current_height();
                     w.flex.fixed(w.diagnostic_panel.widget(), height);

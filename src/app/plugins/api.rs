@@ -2,8 +2,11 @@
 //!
 //! This module provides a read-only API for plugins to access
 //! document information and perform logging.
+//!
+//! Also provides controlled access to external commands for linting.
 
 use mlua::{Lua, Result as LuaResult, UserData, UserDataMethods};
+use std::process::Command;
 
 /// Editor state passed to plugin hooks.
 /// This is a snapshot of the current document state.
@@ -125,6 +128,54 @@ impl UserData for EditorApi {
         methods.add_method("log", |_, _this, msg: String| {
             eprintln!("[plugin] {}", msg);
             Ok(())
+        });
+
+        // Run an external command and return its output
+        // Returns: { stdout = "...", stderr = "...", success = true/false }
+        // This allows plugins to run linters like ruff, mypy, etc.
+        methods.add_method("run_command", |lua, _this, args: mlua::Variadic<String>| {
+            let args: Vec<String> = args.into_iter().collect();
+            if args.is_empty() {
+                return Err(mlua::Error::RuntimeError(
+                    "run_command requires at least one argument (the command)".to_string(),
+                ));
+            }
+
+            let cmd = &args[0];
+            let cmd_args = &args[1..];
+
+            match Command::new(cmd).args(cmd_args).output() {
+                Ok(output) => {
+                    let result = lua.create_table()?;
+                    result.set("stdout", String::from_utf8_lossy(&output.stdout).to_string())?;
+                    result.set("stderr", String::from_utf8_lossy(&output.stderr).to_string())?;
+                    result.set("success", output.status.success())?;
+                    Ok(mlua::Value::Table(result))
+                }
+                Err(e) => {
+                    // Command not found or failed to execute
+                    let result = lua.create_table()?;
+                    result.set("stdout", "")?;
+                    result.set("stderr", format!("Command failed: {}", e))?;
+                    result.set("success", false)?;
+                    Ok(mlua::Value::Table(result))
+                }
+            }
+        });
+
+        // Check if a command exists in PATH
+        // Returns true if the command is found, false otherwise
+        methods.add_method("command_exists", |_, _this, cmd: String| {
+            // Use `which` on Unix or `where` on Windows
+            #[cfg(unix)]
+            let check = Command::new("which").arg(&cmd).output();
+            #[cfg(windows)]
+            let check = Command::new("where").arg(&cmd).output();
+
+            match check {
+                Ok(output) => Ok(output.status.success()),
+                Err(_) => Ok(false),
+            }
         });
     }
 }

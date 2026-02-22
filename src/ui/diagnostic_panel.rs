@@ -87,10 +87,12 @@ impl DiagnosticPanel {
         self.refresh_display();
     }
 
-    /// Clear all diagnostics (show success state)
+    /// Clear all diagnostics and hide the panel (for documents not yet linted)
     pub fn clear(&mut self) {
         self.diagnostics.clear();
-        self.refresh_display();
+        self.browser.clear();
+        self.container.hide();
+        self.expanded = false;
     }
 
     /// Refresh the visual display based on current diagnostics

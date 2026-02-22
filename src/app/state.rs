@@ -146,10 +146,18 @@ impl AppState {
     /// Bind the active document's buffer to the editor
     pub fn bind_active_buffer(&mut self) {
         if let Some(doc) = self.tab_manager.active_doc() {
+            // Save dirty state before rebinding (set_buffer may trigger modify callback)
+            let was_dirty = doc.is_dirty();
+
             self.editor.set_buffer(doc.buffer.clone());
             let style_buf = doc.style_buffer.clone();
             let table = self.highlight.style_table();
             self.editor.set_highlight_data_ext(style_buf, table);
+
+            // Restore dirty state (binding shouldn't mark document dirty)
+            if !was_dirty {
+                doc.mark_clean();
+            }
         }
         self.update_linenumber_width();
     }
@@ -184,6 +192,9 @@ impl AppState {
             let tab_size = self.settings.borrow().tab_size as i32;
             doc.buffer.set_tab_distance(tab_size);
 
+            // Save dirty state before rebinding (set_buffer may trigger modify callback)
+            let was_dirty = doc.is_dirty();
+
             let buffer = doc.buffer.clone();
             let cursor = doc.cursor_position;
             let style_buf = doc.style_buffer.clone();
@@ -192,10 +203,23 @@ impl AppState {
             self.editor.set_highlight_data_ext(style_buf, table);
             self.editor.set_insert_position(cursor);
             self.editor.show_insert_position();
+
+            // Restore dirty state (binding shouldn't mark document dirty)
+            if !was_dirty {
+                doc.mark_clean();
+            }
         }
 
         self.update_linenumber_width();
         self.update_window_title();
+
+        // Restore diagnostics for the new active document (or hide panel if never linted)
+        if let Some(diagnostics) = self.get_active_diagnostics() {
+            self.sender.send(Message::DiagnosticsUpdate(diagnostics));
+        } else {
+            // Document has never been linted - hide the panel entirely
+            self.sender.send(Message::DiagnosticsClear);
+        }
     }
 
     /// Rebuild the tab bar UI from current documents
@@ -1236,10 +1260,14 @@ impl AppState {
     /// - **Gutter marks**: Highlight the entire line with a background color
     /// - **Inline highlights**: Highlight specific column ranges within a line
     ///
+    /// When multiple annotations target the same line, the highest-priority color wins
+    /// (Error > Warning > Info > Hint). Inline highlights are applied on top of gutter marks.
+    ///
     /// Also supports custom RGB colors (up to ~10 unique colors).
     pub fn update_annotations(&mut self, annotations: Vec<super::plugins::LineAnnotation>) {
         use crate::app::plugins::AnnotationColor;
         use crate::app::services::syntax::style_map::StyleMap;
+        use std::collections::BTreeMap;
 
         let Some(doc) = self.tab_manager.active_doc() else {
             return;
@@ -1255,8 +1283,31 @@ impl AppState {
             }
         };
 
-        for ann in &annotations {
-            let target_line = ann.line.saturating_sub(1) as i32;
+        // Merge annotations by line, keeping highest-priority gutter and all inlines
+        let mut merged: BTreeMap<u32, (Option<super::plugins::GutterMark>, Vec<super::plugins::InlineHighlight>)> = BTreeMap::new();
+
+        for ann in annotations {
+            let entry = merged.entry(ann.line).or_insert((None, Vec::new()));
+
+            // For gutter: keep the highest priority (lowest priority number)
+            if let Some(new_gutter) = ann.gutter {
+                match &entry.0 {
+                    None => entry.0 = Some(new_gutter),
+                    Some(existing) => {
+                        if new_gutter.color.priority() < existing.color.priority() {
+                            entry.0 = Some(new_gutter);
+                        }
+                    }
+                }
+            }
+
+            // For inline: collect all (they apply to different column ranges)
+            entry.1.extend(ann.inline);
+        }
+
+        // Now apply merged annotations
+        for (line_num, (gutter, inlines)) in merged {
+            let target_line = line_num.saturating_sub(1) as i32;
 
             // Find line start position
             let mut line_start = 0;
@@ -1277,17 +1328,21 @@ impl AppState {
 
             let line_len = line_end - line_start;
 
-            // Handle gutter mark (full line highlight)
-            if let Some(ref gutter) = ann.gutter
-                && line_len > 0
-            {
-                let marker_char = get_marker_char(&mut self.highlight, &gutter.color);
-                let marker_str: String = std::iter::repeat_n(marker_char, (line_end_with_newline - line_start) as usize).collect();
-                style_buf.replace(line_start, line_end_with_newline, &marker_str);
+            // Handle gutter mark (full line highlight) - apply first as base
+            if let Some(ref gutter_mark) = gutter {
+                if line_len > 0 {
+                    let marker_char = get_marker_char(&mut self.highlight, &gutter_mark.color);
+                    let marker_str: String = std::iter::repeat_n(marker_char, (line_end_with_newline - line_start) as usize).collect();
+                    style_buf.replace(line_start, line_end_with_newline, &marker_str);
+                }
             }
 
-            // Handle inline highlights (partial line highlight)
-            for inline in &ann.inline {
+            // Sort inlines by priority (highest priority = lowest number, applied last to win)
+            let mut sorted_inlines = inlines;
+            sorted_inlines.sort_by(|a, b| b.color.priority().cmp(&a.color.priority()));
+
+            // Handle inline highlights (partial line highlight) - apply on top
+            for inline in sorted_inlines {
                 let marker_char = get_marker_char(&mut self.highlight, &inline.color);
 
                 // Convert 1-indexed columns to 0-indexed buffer positions
@@ -1360,5 +1415,24 @@ impl AppState {
         if !result.diagnostics.is_empty() {
             self.sender.send(Message::DiagnosticsUpdate(result.diagnostics));
         }
+    }
+
+    /// Store diagnostics in the active document for persistence across tab switches
+    pub fn store_diagnostics(&mut self, diagnostics: Vec<super::plugins::Diagnostic>) {
+        if let Some(doc) = self.tab_manager.active_doc_mut() {
+            doc.diagnostics = diagnostics;
+            doc.has_been_linted = true;
+        }
+    }
+
+    /// Get stored diagnostics for the active document (None if never linted)
+    pub fn get_active_diagnostics(&self) -> Option<Vec<super::plugins::Diagnostic>> {
+        self.tab_manager.active_doc().and_then(|d| {
+            if d.has_been_linted {
+                Some(d.diagnostics.clone())
+            } else {
+                None
+            }
+        })
     }
 }

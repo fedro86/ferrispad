@@ -78,21 +78,16 @@ pub fn fetch_latest_release(
         }
     };
 
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("FerrisPad")
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| AppError::Update(format!("Failed to create HTTP client: {}", e)))?;
-
-    let response = client
-        .get(&url)
+    let response = minreq::get(&url)
+        .with_header("User-Agent", "FerrisPad")
+        .with_timeout(10)
         .send()
         .map_err(|e| AppError::Update(format!("Failed to connect to update server: {}", e)))?;
 
-    if !response.status().is_success() {
+    if response.status_code < 200 || response.status_code >= 300 {
         return Err(AppError::Update(format!(
             "Update server returned error: {}",
-            response.status()
+            response.status_code
         )));
     }
 
@@ -159,50 +154,28 @@ pub fn download_file<F>(url: &str, dest_path: &std::path::Path, mut progress_cb:
 where
     F: FnMut(f32),
 {
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("FerrisPad")
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-        .map_err(|e| AppError::Update(format!("Failed to create HTTP client: {}", e)))?;
-
-    let mut response = client
-        .get(url)
+    let response = minreq::get(url)
+        .with_header("User-Agent", "FerrisPad")
+        .with_timeout(60)
         .send()
         .map_err(|e| AppError::Update(format!("Failed to download update: {}", e)))?;
 
-    if !response.status().is_success() {
-        return Err(AppError::Update(format!("Download failed with status: {}", response.status())));
+    if response.status_code < 200 || response.status_code >= 300 {
+        return Err(AppError::Update(format!("Download failed with status: {}", response.status_code)));
     }
 
-    let total_size = response
-        .content_length()
-        .ok_or_else(|| AppError::Update("Failed to get content length".to_string()))?;
+    // minreq loads the entire response into memory, so we write it all at once
+    // For large files, this isn't ideal, but update binaries are typically small (~10MB)
+    let bytes = response.as_bytes();
+    let total_size = bytes.len();
 
-    let mut file = std::fs::File::create(dest_path)?;
+    progress_cb(0.0);
+    std::fs::write(dest_path, bytes)?;
+    progress_cb(1.0);
 
-    let mut downloaded: u64 = 0;
-    let mut buffer = [0; 8192];
-
-    let mut last_progress: f32 = -1.0;
-    loop {
-        let n = std::io::Read::read(&mut response, &mut buffer)?;
-
-        if n == 0 { break; }
-
-        std::io::Write::write_all(&mut file, &buffer[..n])?;
-        downloaded += n as u64;
-
-        let current_progress = (downloaded as f32 / total_size as f32 * 100.0).floor() / 100.0;
-        if current_progress > last_progress {
-            progress_cb(current_progress);
-            last_progress = current_progress;
-        }
-    }
-
-    std::io::Write::flush(&mut file)?;
-
-    if last_progress < 1.0 {
-        progress_cb(1.0);
+    // Log size for debugging
+    if total_size > 0 {
+        eprintln!("[update] Downloaded {} bytes", total_size);
     }
 
     Ok(())

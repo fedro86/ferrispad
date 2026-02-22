@@ -7,6 +7,7 @@ use fltk::text::TextBuffer;
 
 use super::messages::Message;
 use crate::app::controllers::tabs::GroupId;
+use crate::app::plugins::Diagnostic;
 use crate::app::services::syntax::checkpoint::SparseCheckpoints;
 use crate::app::services::text_ops::extract_filename;
 
@@ -143,6 +144,10 @@ pub struct Document {
     pub checkpoints: SparseCheckpoints,
     pub syntax_name: Option<String>,
     pub group_id: Option<GroupId>,
+    /// Diagnostics from the last lint run (persisted across tab switches)
+    pub diagnostics: Vec<Diagnostic>,
+    /// Whether this document has been linted at least once
+    pub has_been_linted: bool,
     /// Pointer to the heap-allocated closure passed to FLTK's modify callback.
     /// Must be freed in cleanup() after removing the callback.
     modify_cb_data: *mut c_void,
@@ -174,6 +179,8 @@ impl Document {
             checkpoints: SparseCheckpoints::new(),
             syntax_name: None,
             group_id: None,
+            diagnostics: Vec::new(),
+            has_been_linted: false,
             modify_cb_data,
         }
     }
@@ -205,6 +212,8 @@ impl Document {
             checkpoints: SparseCheckpoints::new(),
             syntax_name: None,
             group_id: None,
+            diagnostics: Vec::new(),
+            has_been_linted: false,
             modify_cb_data,
         }
     }
