@@ -1414,9 +1414,15 @@ impl AppState {
     fn process_lint_result(&mut self, result: super::plugins::HookResult) {
         // Always send diagnostics (even empty) to update or clear the panel
         self.sender.send(Message::DiagnosticsUpdate(result.diagnostics));
+
+        // Update or clear annotations
         if !result.line_annotations.is_empty() {
             self.update_annotations(result.line_annotations);
+        } else {
+            // Clear any existing annotations when no issues found
+            self.clear_annotations();
         }
+
         if let Some(status) = result.status_message {
             self.sender.send(Message::ToastShow(status.level, status.text));
         }

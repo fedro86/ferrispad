@@ -177,6 +177,27 @@ impl UserData for EditorApi {
                 Err(_) => Ok(false),
             }
         });
+
+        // Check if a file exists at the given path
+        // Returns true if the file exists, false otherwise
+        // Useful for checking venv executables like "./venv/bin/ruff"
+        methods.add_method("file_exists", |_, _this, path: String| {
+            Ok(std::path::Path::new(&path).exists())
+        });
+
+        // Get the directory containing the current file
+        // Returns nil for untitled documents
+        // Useful for finding project root or venv directories
+        methods.add_method("get_file_dir", |_, this, ()| {
+            let Some(ref path) = this.file_path else {
+                return Ok(None);
+            };
+            let dir = std::path::Path::new(path)
+                .parent()
+                .and_then(|p| p.to_str())
+                .map(|s| s.to_string());
+            Ok(dir)
+        });
     }
 }
 
