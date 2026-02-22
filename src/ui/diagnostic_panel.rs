@@ -205,18 +205,19 @@ impl DiagnosticPanel {
         }
     }
 
-    /// Set up click handler for browser
-    pub fn setup_click_handler(&mut self) {
-        let sender = self.sender;
-        self.browser.set_callback(move |b| {
-            let idx = b.value();
-            if idx > 0 {
-                // We need to get the line from the diagnostic
-                // For now, just send a message to handle it in state
-                sender.send(Message::DiagnosticGoto(idx as u32));
-            }
-        });
+    /// Get the selected diagnostic's documentation URL (for double-click)
+    pub fn selected_url(&self) -> Option<String> {
+        let idx = self.browser.value();
+        if idx > 0 && (idx as usize) <= self.diagnostics.len() {
+            self.diagnostics[idx as usize - 1].url.clone()
+        } else {
+            None
+        }
+    }
 
+    /// Set up click and hover handlers for browser
+    /// Single click = go to line, Double click = open docs URL, Hover = tooltip
+    pub fn setup_click_handler(&mut self) {
         // Header click to toggle expand/collapse
         let mut browser = self.browser.clone();
         self.header.set_callback(move |_| {
@@ -228,7 +229,8 @@ impl DiagnosticPanel {
         });
     }
 
-    /// Set up hover handler for dynamic tooltips
+    /// Set up hover handler for dynamic tooltips AND click handlers
+    /// Must be called after setup_click_handler (combines all browser event handling)
     pub fn setup_hover_handler(&mut self) {
         // Enable tooltips and set a short delay
         Tooltip::enable(true);
@@ -243,21 +245,22 @@ impl DiagnosticPanel {
 
         let diags = Rc::clone(&diagnostics);
         let last = Rc::clone(&last_item);
+        let sender = self.sender;
+
+        // Combined handler for hover (tooltip) and click (goto/open docs)
         self.browser.handle(move |b, ev| {
             match ev {
                 Event::Enter | Event::Move => {
-                    // Get the item under the mouse
+                    // Hover: update tooltip
                     let y = fltk::app::event_y();
                     let browser_y = b.y();
-                    let item_height = b.text_size() + 6; // Approximate item height with padding
-                    let scroll_pixels = b.position(); // Vertical scroll in pixels
+                    let item_height = b.text_size() + 6;
+                    let scroll_pixels = b.position();
 
                     if y >= browser_y {
-                        // Calculate which item the mouse is over
                         let relative_y = y - browser_y + scroll_pixels;
-                        let item_idx = relative_y / item_height; // 0-indexed
+                        let item_idx = relative_y / item_height;
 
-                        // Only update if item changed
                         let mut last_val = last.borrow_mut();
                         if item_idx != *last_val {
                             *last_val = item_idx;
@@ -265,20 +268,15 @@ impl DiagnosticPanel {
                             let borrowed = diags.borrow();
                             if item_idx >= 0 && (item_idx as usize) < borrowed.len() {
                                 let diag = &borrowed[item_idx as usize];
-                                // Build a detailed tooltip with extra info
                                 let mut tooltip = format!(
                                     "Line {}: {}\nSource: {}",
-                                    diag.line,
-                                    diag.message,
-                                    diag.source
+                                    diag.line, diag.message, diag.source
                                 );
-                                // Add fix suggestion if available
                                 if let Some(ref fix) = diag.fix_message {
                                     tooltip.push_str(&format!("\n\nFix: {}", fix));
                                 }
-                                // Add documentation URL if available
                                 if let Some(ref url) = diag.url {
-                                    tooltip.push_str(&format!("\nDocs: {}", url));
+                                    tooltip.push_str(&format!("\nDocs: {}  (double-click to open)", url));
                                 }
                                 b.set_tooltip(&tooltip);
                             } else {
@@ -286,12 +284,32 @@ impl DiagnosticPanel {
                             }
                         }
                     }
-                    false // Don't consume the event
+                    false
                 }
                 Event::Leave => {
                     *last.borrow_mut() = -1;
                     b.set_tooltip("");
                     false
+                }
+                Event::Released => {
+                    // Single click - go to line
+                    let idx = b.value();
+                    if idx > 0 {
+                        sender.send(Message::DiagnosticGoto(idx as u32));
+                    }
+                    true
+                }
+                Event::Push => {
+                    // Double click - open docs
+                    if fltk::app::event_clicks() {
+                        let idx = b.value();
+                        if idx > 0 {
+                            sender.send(Message::DiagnosticOpenDocs(idx as u32));
+                        }
+                        true
+                    } else {
+                        false
+                    }
                 }
                 _ => false,
             }

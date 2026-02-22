@@ -353,6 +353,14 @@ fn main() {
                         state.goto_line(line);
                     }
                 }
+                Message::DiagnosticOpenDocs(_idx) => {
+                    // Double-click: open documentation URL in browser
+                    if let Some(url) = w.diagnostic_panel.selected_url() {
+                        if let Err(e) = open::that(&url) {
+                            eprintln!("[diagnostic] Failed to open URL: {}", e);
+                        }
+                    }
+                }
 
                 // Line annotations (gutter + inline highlights)
                 Message::AnnotationsUpdate(annotations) => {
