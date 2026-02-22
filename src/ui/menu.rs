@@ -85,6 +85,15 @@ pub fn build_menu(
             move |_| s.send(Message::PluginsReloadAll)
         },
     );
+    menu.add(
+        "Plugins/Run Checks",
+        Shortcut::Ctrl | Shortcut::Shift | 'l',
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::ManualHighlight)
+        },
+    );
 
     // Help
     menu.add("Help/About FerrisPad", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::ShowAbout) });

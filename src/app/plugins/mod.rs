@@ -10,6 +10,7 @@
 //! - **Single binary**: Lua is statically linked via mlua vendored feature
 //! - **Passive aids**: Format on save OK; background indexing NOT OK
 
+pub mod annotations;
 pub mod api;
 pub mod hooks;
 pub mod loader;
@@ -19,6 +20,7 @@ use std::path::PathBuf;
 
 use mlua::Table;
 
+pub use annotations::{AnnotationColor, GutterMark, InlineHighlight, LineAnnotation};
 pub use api::EditorApi;
 pub use hooks::{Diagnostic, DiagnosticLevel, HookResult, PluginHook};
 pub use loader::get_plugin_dir;
@@ -231,6 +233,8 @@ impl PluginManager {
                     }
                     // Collect diagnostics from all plugins
                     result.diagnostics.extend(hook_output.diagnostics);
+                    // Collect line annotations from all plugins
+                    result.line_annotations.extend(hook_output.line_annotations);
                 }
                 Err(e) => {
                     eprintln!("[plugins] {} hook error: {}", plugin.name, e);
@@ -240,6 +244,9 @@ impl PluginManager {
 
         // Sort diagnostics by severity (errors first)
         result.diagnostics.sort_by(|a, b| a.level.cmp(&b.level));
+
+        // Sort line annotations by line number
+        result.line_annotations.sort_by_key(|a| a.line);
 
         result
     }
@@ -300,9 +307,20 @@ impl PluginManager {
                 let value =
                     runtime.call_hook(&plugin.table, hook_name, (api, path.clone(), content.clone()))?;
 
-                // Parse diagnostics from the returned table
-                if let mlua::Value::Table(diags_table) = value {
-                    result.diagnostics = self.parse_diagnostics(&diags_table, &plugin.name);
+                // Parse diagnostics and highlights from the returned table
+                if let mlua::Value::Table(return_table) = value {
+                    self.parse_lint_result(&return_table, &plugin.name, &mut result);
+                }
+                return Ok(result);
+            }
+
+            PluginHook::OnHighlightRequest { path, content } => {
+                let value =
+                    runtime.call_hook(&plugin.table, hook_name, (api, path.clone(), content.clone()))?;
+
+                // Parse highlights from the returned table
+                if let mlua::Value::Table(return_table) = value {
+                    self.parse_lint_result(&return_table, &plugin.name, &mut result);
                 }
                 return Ok(result);
             }
@@ -353,6 +371,134 @@ impl PluginManager {
         })
     }
 
+    /// Parse lint/highlight result from Lua table.
+    /// Supports both old format (array of diagnostics) and new extended format:
+    /// - Old: { {line=1, message="..."}, ... }
+    /// - New: { diagnostics = {...}, highlights = {...} }
+    fn parse_lint_result(&self, table: &mlua::Table, plugin_name: &str, result: &mut HookResult) {
+        // Check if this is the new extended format (has 'diagnostics' or 'highlights' key)
+        let has_diagnostics_key: bool = table.contains_key("diagnostics").unwrap_or(false);
+        let has_highlights_key: bool = table.contains_key("highlights").unwrap_or(false);
+
+        if has_diagnostics_key || has_highlights_key {
+            // New extended format
+            if let Ok(mlua::Value::Table(diags_table)) = table.get::<mlua::Value>("diagnostics") {
+                result.diagnostics.extend(self.parse_diagnostics(&diags_table, plugin_name));
+            }
+            if let Ok(mlua::Value::Table(highlights_table)) = table.get::<mlua::Value>("highlights") {
+                result.line_annotations.extend(self.parse_line_annotations(&highlights_table, plugin_name));
+            }
+        } else {
+            // Old format: array of diagnostics directly
+            result.diagnostics.extend(self.parse_diagnostics(table, plugin_name));
+        }
+    }
+
+    /// Parse a Lua table of line annotations
+    fn parse_line_annotations(&self, table: &mlua::Table, plugin_name: &str) -> Vec<LineAnnotation> {
+        table
+            .clone()
+            .pairs::<i32, mlua::Table>()
+            .flatten()
+            .filter_map(|(_, ann_table)| self.parse_single_annotation(&ann_table, plugin_name))
+            .collect()
+    }
+
+    /// Parse a single line annotation from a Lua table
+    fn parse_single_annotation(&self, table: &mlua::Table, plugin_name: &str) -> Option<LineAnnotation> {
+        // Required: line number
+        let line: u32 = table.get("line").ok()?;
+
+        // Optional: gutter mark
+        let gutter = if let Ok(mlua::Value::Table(gutter_table)) = table.get::<mlua::Value>("gutter") {
+            self.parse_gutter_mark(&gutter_table)
+        } else {
+            None
+        };
+
+        // Optional: inline highlights (array)
+        let inline = if let Ok(mlua::Value::Table(inline_table)) = table.get::<mlua::Value>("inline") {
+            self.parse_inline_highlights(&inline_table)
+        } else {
+            Vec::new()
+        };
+
+        // Only return if we have at least gutter or inline
+        if gutter.is_some() || !inline.is_empty() {
+            Some(LineAnnotation {
+                line,
+                gutter,
+                inline,
+                source: plugin_name.to_string(),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Parse a gutter mark from a Lua table
+    fn parse_gutter_mark(&self, table: &mlua::Table) -> Option<GutterMark> {
+        // Parse color - required
+        let color = self.parse_annotation_color(table)?;
+
+        // Optional: symbol (single character)
+        let symbol = if let Ok(s) = table.get::<String>("symbol") {
+            s.chars().next()
+        } else {
+            None
+        };
+
+        Some(GutterMark { color, symbol })
+    }
+
+    /// Parse inline highlights array from a Lua table
+    fn parse_inline_highlights(&self, table: &mlua::Table) -> Vec<InlineHighlight> {
+        table
+            .clone()
+            .pairs::<i32, mlua::Table>()
+            .flatten()
+            .filter_map(|(_, hl_table)| self.parse_single_inline_highlight(&hl_table))
+            .collect()
+    }
+
+    /// Parse a single inline highlight from a Lua table
+    fn parse_single_inline_highlight(&self, table: &mlua::Table) -> Option<InlineHighlight> {
+        // Required: start_col
+        let start_col: u32 = table.get("start_col").ok()?;
+
+        // Optional: end_col (None means end of line)
+        let end_col: Option<u32> = table.get("end_col").ok();
+
+        // Required: color
+        let color = self.parse_annotation_color(table)?;
+
+        Some(InlineHighlight {
+            start_col,
+            end_col,
+            color,
+        })
+    }
+
+    /// Parse an annotation color from a Lua table
+    fn parse_annotation_color(&self, table: &mlua::Table) -> Option<AnnotationColor> {
+        // Try string color name first
+        if let Ok(color_str) = table.get::<String>("color") {
+            if let Some(color) = AnnotationColor::from_str(&color_str) {
+                return Some(color);
+            }
+        }
+
+        // Try RGB table: color = { r = 255, g = 0, b = 0 }
+        if let Ok(mlua::Value::Table(color_table)) = table.get::<mlua::Value>("color") {
+            let r: u8 = color_table.get("r").unwrap_or(0);
+            let g: u8 = color_table.get("g").unwrap_or(0);
+            let b: u8 = color_table.get("b").unwrap_or(0);
+            return Some(AnnotationColor::Rgb(r, g, b));
+        }
+
+        None
+    }
+
     /// Create an EditorApi instance for a specific hook
     fn create_api_for_hook(&self, hook: &PluginHook) -> EditorApi {
         match hook {
@@ -376,6 +522,10 @@ impl PluginManager {
 
             PluginHook::OnDocumentLint { path, content } => {
                 EditorApi::with_content(path.clone(), content.clone())
+            }
+
+            PluginHook::OnHighlightRequest { path, content } => {
+                EditorApi::with_path_and_content(path.clone(), content.clone())
             }
         }
     }

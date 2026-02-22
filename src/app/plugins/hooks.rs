@@ -3,6 +3,8 @@
 //! All hooks are synchronous and blocking - they fire, execute, and return.
 //! No async, no background threads. This ensures 0% CPU when idle.
 
+use super::annotations::LineAnnotation;
+
 /// Diagnostic severity level
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DiagnosticLevel {
@@ -84,9 +86,16 @@ pub enum PluginHook {
     },
 
     /// Called after save to lint/check the document.
-    /// Plugins return a list of diagnostics.
+    /// Plugins return a list of diagnostics and optional line annotations.
     OnDocumentLint {
         path: String,
+        content: String,
+    },
+
+    /// Called on manual highlight request (Ctrl+Shift+L).
+    /// Plugins return line annotations for highlighting.
+    OnHighlightRequest {
+        path: Option<String>,
         content: String,
     },
 }
@@ -103,6 +112,7 @@ impl PluginHook {
             Self::OnTextChanged { .. } => "on_text_changed",
             Self::OnThemeChanged { .. } => "on_theme_changed",
             Self::OnDocumentLint { .. } => "on_document_lint",
+            Self::OnHighlightRequest { .. } => "on_highlight_request",
         }
     }
 }
@@ -114,6 +124,8 @@ pub struct HookResult {
     pub modified_content: Option<String>,
     /// Diagnostics from lint hooks
     pub diagnostics: Vec<Diagnostic>,
+    /// Line annotations for gutter/inline highlighting
+    pub line_annotations: Vec<LineAnnotation>,
 }
 
 #[cfg(test)]

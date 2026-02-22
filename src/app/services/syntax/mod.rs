@@ -1,11 +1,11 @@
 pub mod checkpoint;
 mod highlighter;
-mod style_map;
+pub mod style_map;
 
 use std::path::Path;
 
 use fltk::enums::Font;
-use fltk::text::StyleTableEntry;
+use fltk::text::StyleTableEntryExt;
 use syntect::highlighting::{HighlightState, Highlighter, HighlightIterator, ThemeSet};
 use syntect::parsing::{ParseState, ScopeStack, SyntaxSet};
 
@@ -177,8 +177,8 @@ impl SyntaxHighlighter {
         self.style_map.update_font(font, size);
     }
 
-    /// Get the style table for FLTK's set_highlight_data.
-    pub fn style_table(&self) -> Vec<StyleTableEntry> {
+    /// Get the style table for FLTK's set_highlight_data_ext.
+    pub fn style_table(&self) -> Vec<StyleTableEntryExt> {
         self.style_map.entries().to_vec()
     }
 

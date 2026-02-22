@@ -3,7 +3,7 @@ use fltk::enums::Font;
 use super::document::DocumentId;
 use super::settings::SyntaxTheme;
 use crate::app::controllers::tabs::{GroupColor, GroupId};
-use crate::app::plugins::Diagnostic;
+use crate::app::plugins::{Diagnostic, LineAnnotation};
 use crate::app::services::updater::ReleaseInfo;
 
 /// All messages that can be sent through the FLTK channel.
@@ -88,4 +88,10 @@ pub enum Message {
     #[allow(dead_code)]  // Reserved for explicit clear from UI
     DiagnosticsClear,
     DiagnosticGoto(u32),  // Go to line number
+
+    // Line annotations (gutter + inline highlights)
+    AnnotationsUpdate(Vec<LineAnnotation>),
+    #[allow(dead_code)]  // Reserved for explicit clear from UI
+    AnnotationsClear,
+    ManualHighlight,  // Triggered by Ctrl+Shift+L
 }

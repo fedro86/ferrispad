@@ -148,7 +148,7 @@ impl AppState {
             self.editor.set_buffer(doc.buffer.clone());
             let style_buf = doc.style_buffer.clone();
             let table = self.highlight.style_table();
-            self.editor.set_highlight_data(style_buf, table);
+            self.editor.set_highlight_data_ext(style_buf, table);
         }
         self.update_linenumber_width();
     }
@@ -188,7 +188,7 @@ impl AppState {
             let style_buf = doc.style_buffer.clone();
             self.editor.set_buffer(buffer);
             let table = self.highlight.style_table();
-            self.editor.set_highlight_data(style_buf, table);
+            self.editor.set_highlight_data_ext(style_buf, table);
             self.editor.set_insert_position(cursor);
             self.editor.show_insert_position();
         }
@@ -404,6 +404,11 @@ impl AppState {
                         content: text_to_save,
                     });
                     self.sender.send(Message::DiagnosticsUpdate(lint_result.diagnostics));
+
+                    // Update line annotations
+                    if !lint_result.line_annotations.is_empty() {
+                        self.update_annotations(lint_result.line_annotations);
+                    }
                 }
                 Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
             }
@@ -442,7 +447,7 @@ impl AppState {
                         if let Some(doc) = self.tab_manager.doc_by_id(id) {
                             let style_buf = doc.style_buffer.clone();
                             let table = self.highlight.style_table();
-                            self.editor.set_highlight_data(style_buf, table);
+                            self.editor.set_highlight_data_ext(style_buf, table);
                         }
                         self.update_preview_file(id.0, &path, &text);
                     }
@@ -455,6 +460,11 @@ impl AppState {
                         content: text,
                     });
                     self.sender.send(Message::DiagnosticsUpdate(lint_result.diagnostics));
+
+                    // Update line annotations if any
+                    if !lint_result.line_annotations.is_empty() {
+                        self.sender.send(Message::AnnotationsUpdate(lint_result.line_annotations));
+                    }
                 }
                 Err(e) => dialog::alert_default(&format!("Error saving file: {}", e)),
             }
@@ -701,6 +711,7 @@ impl AppState {
     // --- View toggles ---
 
     pub fn update_linenumber_width(&mut self) {
+        // Use FLTK's native line numbers
         if !self.show_linenumbers {
             self.editor.set_linenumber_width(0);
             return;
@@ -739,6 +750,7 @@ impl AppState {
         if let Some(ref mut tab_bar) = self.tab_bar {
             tab_bar.apply_theme(self.dark_mode);
         }
+
         #[cfg(target_os = "windows")]
         set_windows_titlebar_theme(&self.window, self.dark_mode);
 
@@ -1186,5 +1198,92 @@ impl AppState {
         self.editor.set_insert_position(pos);
         self.editor.show_insert_position();
         self.editor.take_focus().ok();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Line Annotations (gutter + inline highlights)
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /// Update line annotations by applying bgcolor markers to the style buffer.
+    /// This creates VS Code-like line highlighting for errors, warnings, git changes, etc.
+    pub fn update_annotations(&mut self, annotations: Vec<super::plugins::LineAnnotation>) {
+        use crate::app::services::syntax::style_map::StyleMap;
+
+        let Some(doc) = self.tab_manager.active_doc() else {
+            return;
+        };
+        let mut style_buf = doc.style_buffer.clone();
+        let buf = doc.buffer.clone();
+
+        for ann in &annotations {
+            let color = ann.gutter.as_ref()
+                .map(|g| &g.color)
+                .or_else(|| ann.inline.first().map(|i| &i.color));
+
+            let Some(color) = color else {
+                continue;
+            };
+
+            let marker_char = StyleMap::marker_style_char(color);
+            let target_line = ann.line.saturating_sub(1) as i32;
+
+            // Find line start position
+            let mut line_start = 0;
+            for _ in 0..target_line {
+                if let Some(next_pos) = buf.find_char_forward(line_start, '\n') {
+                    line_start = next_pos + 1;
+                } else {
+                    break;
+                }
+            }
+
+            // Find line end
+            let line_end = buf.find_char_forward(line_start, '\n')
+                .map(|p| p + 1)
+                .unwrap_or(buf.length());
+
+            let line_len = line_end - line_start;
+            if line_len <= 0 {
+                continue;
+            }
+
+            let marker_str: String = std::iter::repeat_n(marker_char, line_len as usize).collect();
+            style_buf.replace(line_start, line_end, &marker_str);
+        }
+
+        // Re-apply style table to show updated highlights
+        let table = self.highlight.style_table();
+        self.editor.set_highlight_data_ext(style_buf, table);
+        self.editor.redraw();
+    }
+
+    /// Clear all line annotations by re-highlighting the document
+    pub fn clear_annotations(&mut self) {
+        self.highlight.rehighlight_all_documents(&mut self.tab_manager, &self.sender);
+        self.bind_active_buffer();
+    }
+
+    /// Request manual highlight from plugins (Ctrl+Shift+L)
+    pub fn request_manual_highlight(&mut self) {
+        // Get current document info
+        let doc = self.tab_manager.active_doc();
+        let path = doc.as_ref().and_then(|d| d.file_path.clone());
+        let content = buffer_text_no_leak(&self.editor.buffer().unwrap_or_default());
+
+        // Call the highlight request hook
+        let result = self.plugins.call_hook(PluginHook::OnHighlightRequest {
+            path,
+            content,
+        });
+
+        // Update annotations if any were returned
+        if !result.line_annotations.is_empty() {
+            self.update_annotations(result.line_annotations);
+        }
+
+        // Also update diagnostics if any
+        if !result.diagnostics.is_empty() {
+            self.sender.send(Message::DiagnosticsUpdate(result.diagnostics));
+        }
     }
 }

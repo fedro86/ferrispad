@@ -4,7 +4,7 @@ use fltk::{
     frame::Frame,
     group::Flex,
     prelude::*,
-    text::{StyleTableEntry, TextEditor},
+    text::{StyleTableEntryExt, TextEditor},
     window::Window,
 };
 
@@ -51,7 +51,7 @@ impl HighlightController {
         &self.highlighter
     }
 
-    pub fn style_table(&self) -> Vec<StyleTableEntry> {
+    pub fn style_table(&self) -> Vec<StyleTableEntryExt> {
         self.highlighter.style_table()
     }
 
@@ -233,7 +233,7 @@ impl HighlightController {
                 if let Some(doc) = tab_manager.doc_by_id(id) {
                     let style_buf = doc.style_buffer.clone();
                     let table = self.highlighter.style_table();
-                    widgets.editor.set_highlight_data(style_buf, table);
+                    widgets.editor.set_highlight_data_ext(style_buf, table);
                 }
                 self.highlighter.reset_style_table_changed();
             }
@@ -325,7 +325,7 @@ impl HighlightController {
                 if let Some(doc) = tab_manager.doc_by_id(doc_id) {
                     let style_buf = doc.style_buffer.clone();
                     let table = self.highlighter.style_table();
-                    widgets.editor.set_highlight_data(style_buf, table);
+                    widgets.editor.set_highlight_data_ext(style_buf, table);
                 }
                 widgets.editor.redraw();
             }
@@ -378,7 +378,7 @@ impl HighlightController {
                     if let Some(doc) = tab_manager.doc_by_id(id) {
                         let style_buf = doc.style_buffer.clone();
                         let table = self.highlighter.style_table();
-                        widgets.editor.set_highlight_data(style_buf, table);
+                        widgets.editor.set_highlight_data_ext(style_buf, table);
                     }
                     widgets.editor.redraw();
                 }

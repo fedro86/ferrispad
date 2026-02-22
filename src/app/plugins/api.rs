@@ -47,6 +47,15 @@ impl EditorApi {
         }
     }
 
+    /// Create an EditorApi with optional path and content for highlight request hooks
+    pub fn with_path_and_content(path: Option<String>, content: String) -> Self {
+        Self {
+            text: Some(content),
+            file_path: path,
+            ..Default::default()
+        }
+    }
+
     /// Create an EditorApi for text change hooks
     pub fn for_text_change(
         position: i32,

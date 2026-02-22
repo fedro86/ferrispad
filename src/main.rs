@@ -350,6 +350,17 @@ fn main() {
                         state.goto_line(line);
                     }
                 }
+
+                // Line annotations (gutter + inline highlights)
+                Message::AnnotationsUpdate(annotations) => {
+                    state.update_annotations(annotations);
+                }
+                Message::AnnotationsClear => {
+                    state.clear_annotations();
+                }
+                Message::ManualHighlight => {
+                    state.request_manual_highlight();
+                }
             }
         }
         state.auto_save_session_if_needed();
