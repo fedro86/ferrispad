@@ -63,6 +63,7 @@ pub struct AppState {
 }
 
 impl AppState {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         editor_container: EditorContainer,
         window: Window,
@@ -315,10 +316,22 @@ impl AppState {
                     self.switch_to_document(id);
                     self.rebuild_tab_bar();
 
-                    // Call plugin hook after document is loaded
+                    // Call plugin hooks after document is loaded
                     self.plugins.call_hook(PluginHook::OnDocumentOpen {
-                        path: Some(path),
+                        path: Some(path.clone()),
                     });
+
+                    // Run lint hook for immediate feedback on open
+                    let lint_result = self.plugins.call_hook(PluginHook::OnDocumentLint {
+                        path,
+                        content,
+                    });
+                    if !lint_result.diagnostics.is_empty() {
+                        self.sender.send(Message::DiagnosticsUpdate(lint_result.diagnostics));
+                    }
+                    if !lint_result.line_annotations.is_empty() {
+                        self.update_annotations(lint_result.line_annotations);
+                    }
                 } else {
                     if let Some(doc) = self.tab_manager.active_doc_mut() {
                         doc.buffer.set_text(&content);
@@ -331,10 +344,22 @@ impl AppState {
                     }
                     self.update_window_title();
 
-                    // Call plugin hook after document is loaded
+                    // Call plugin hooks after document is loaded
                     self.plugins.call_hook(PluginHook::OnDocumentOpen {
-                        path: Some(path),
+                        path: Some(path.clone()),
                     });
+
+                    // Run lint hook for immediate feedback on open
+                    let lint_result = self.plugins.call_hook(PluginHook::OnDocumentLint {
+                        path,
+                        content,
+                    });
+                    if !lint_result.diagnostics.is_empty() {
+                        self.sender.send(Message::DiagnosticsUpdate(lint_result.diagnostics));
+                    }
+                    if !lint_result.line_annotations.is_empty() {
+                        self.update_annotations(lint_result.line_annotations);
+                    }
                 }
             }
             Err(e) => dialog::alert_default(&format!("Error opening file: {}", e)),
@@ -1253,12 +1278,12 @@ impl AppState {
             let line_len = line_end - line_start;
 
             // Handle gutter mark (full line highlight)
-            if let Some(ref gutter) = ann.gutter {
-                if line_len > 0 {
-                    let marker_char = get_marker_char(&mut self.highlight, &gutter.color);
-                    let marker_str: String = std::iter::repeat_n(marker_char, (line_end_with_newline - line_start) as usize).collect();
-                    style_buf.replace(line_start, line_end_with_newline, &marker_str);
-                }
+            if let Some(ref gutter) = ann.gutter
+                && line_len > 0
+            {
+                let marker_char = get_marker_char(&mut self.highlight, &gutter.color);
+                let marker_str: String = std::iter::repeat_n(marker_char, (line_end_with_newline - line_start) as usize).collect();
+                style_buf.replace(line_start, line_end_with_newline, &marker_str);
             }
 
             // Handle inline highlights (partial line highlight)
@@ -1292,9 +1317,24 @@ impl AppState {
         self.editor.redraw();
     }
 
-    /// Clear all line annotations by re-highlighting the document
+    /// Clear line annotations by re-highlighting the active document only.
+    /// This restores the original syntax highlighting without annotation overlays.
     pub fn clear_annotations(&mut self) {
-        self.highlight.rehighlight_all_documents(&mut self.tab_manager, &self.sender);
+        // Get active document info
+        let Some(doc) = self.tab_manager.active_doc() else { return };
+        let Some(syntax_name) = doc.syntax_name.clone() else { return };
+        let text = buffer_text_no_leak(&doc.buffer);
+
+        // Re-run syntax highlighting (clears annotation overlays)
+        let result = self.highlight.highlight_full(&text, &syntax_name);
+
+        // Update style buffer
+        if let Some(doc) = self.tab_manager.active_doc_mut() {
+            doc.style_buffer.set_text(&result.style_string);
+            doc.checkpoints = result.checkpoints;
+        }
+
+        // Rebind to editor
         self.bind_active_buffer();
     }
 

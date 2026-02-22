@@ -55,6 +55,7 @@ pub fn highlight_full(
 /// Incremental re-highlight starting from `edit_line` (0-indexed).
 /// Modifies `checkpoints` in place and returns only the changed style chars region.
 /// Uses an iterator over lines (no Vec collection) to minimize allocations.
+#[allow(clippy::too_many_arguments)]
 pub fn highlight_incremental(
     text: &str,
     edit_line: usize,

@@ -68,6 +68,15 @@ impl HighlightController {
         self.highlighter.get_or_insert_marker_rgb(r, g, b)
     }
 
+    /// Perform a full syntax highlight on text.
+    pub fn highlight_full(
+        &mut self,
+        text: &str,
+        syntax_name: &str,
+    ) -> crate::app::services::syntax::FullHighlightResult {
+        self.highlighter.highlight_full(text, syntax_name)
+    }
+
     // --- Highlight methods ---
 
     fn hide_highlight_banner(&self, widgets: &mut HighlightWidgets) {

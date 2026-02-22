@@ -333,18 +333,12 @@ impl PluginManager {
 
     /// Parse a Lua table of diagnostics into Rust Diagnostic structs
     fn parse_diagnostics(&self, table: &mlua::Table, plugin_name: &str) -> Vec<Diagnostic> {
-        let mut diagnostics = Vec::new();
-
-        // Iterate over the table (array-style)
-        for pair in table.clone().pairs::<i32, mlua::Table>() {
-            if let Ok((_, diag_table)) = pair {
-                if let Some(diag) = self.parse_single_diagnostic(&diag_table, plugin_name) {
-                    diagnostics.push(diag);
-                }
-            }
-        }
-
-        diagnostics
+        table
+            .clone()
+            .pairs::<i32, mlua::Table>()
+            .flatten()
+            .filter_map(|(_, diag_table)| self.parse_single_diagnostic(&diag_table, plugin_name))
+            .collect()
     }
 
     /// Parse a single diagnostic from a Lua table
@@ -405,7 +399,7 @@ impl PluginManager {
     }
 
     /// Parse a single line annotation from a Lua table
-    fn parse_single_annotation(&self, table: &mlua::Table, plugin_name: &str) -> Option<LineAnnotation> {
+    fn parse_single_annotation(&self, table: &mlua::Table, _plugin_name: &str) -> Option<LineAnnotation> {
         // Required: line number
         let line: u32 = table.get("line").ok()?;
 
@@ -429,7 +423,6 @@ impl PluginManager {
                 line,
                 gutter,
                 inline,
-                source: plugin_name.to_string(),
             })
         } else {
             None
@@ -474,10 +467,10 @@ impl PluginManager {
     /// Parse an annotation color from a Lua table
     fn parse_annotation_color(&self, table: &mlua::Table) -> Option<AnnotationColor> {
         // Try string color name first
-        if let Ok(color_str) = table.get::<String>("color") {
-            if let Some(color) = AnnotationColor::from_str(&color_str) {
-                return Some(color);
-            }
+        if let Ok(color_str) = table.get::<String>("color")
+            && let Some(color) = AnnotationColor::from_str(&color_str)
+        {
+            return Some(color);
         }
 
         // Try RGB table: color = { r = 255, g = 0, b = 0 }

@@ -93,6 +93,33 @@ impl UserData for EditorApi {
         // Get selected text
         methods.add_method("get_selection", |_, this, ()| Ok(this.selection.clone()));
 
+        // Get a specific line by number (1-indexed)
+        // Returns nil if line doesn't exist
+        methods.add_method("get_line", |_, this, line_num: i32| {
+            if line_num < 1 {
+                return Ok(None);
+            }
+            let Some(ref text) = this.text else {
+                return Ok(None);
+            };
+            // Get the line at 1-indexed position
+            let line = text.lines().nth((line_num - 1) as usize);
+            Ok(line.map(|s| s.to_string()))
+        });
+
+        // Get the file extension (without the dot)
+        // Returns nil for files without extension or untitled documents
+        methods.add_method("get_file_extension", |_, this, ()| {
+            let Some(ref path) = this.file_path else {
+                return Ok(None);
+            };
+            let ext = std::path::Path::new(path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|s| s.to_string());
+            Ok(ext)
+        });
+
         // Log a message to stderr (for debugging)
         // Uses add_method so it can be called as api:log("msg") in Lua
         methods.add_method("log", |_, _this, msg: String| {

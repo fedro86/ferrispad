@@ -64,12 +64,10 @@ pub struct InlineHighlight {
 pub struct LineAnnotation {
     /// Line number (1-indexed)
     pub line: u32,
-    /// Optional gutter mark for this line
+    /// Optional gutter mark for this line (full-line background)
     pub gutter: Option<GutterMark>,
     /// Inline highlights for this line (can have multiple)
     pub inline: Vec<InlineHighlight>,
-    /// Source plugin name
-    pub source: String,
 }
 
 #[cfg(test)]
@@ -123,11 +121,9 @@ mod tests {
                 end_col: Some(15),
                 color: AnnotationColor::Warning,
             }],
-            source: "test-plugin".to_string(),
         };
         assert_eq!(annotation.line, 42);
         assert!(annotation.gutter.is_some());
         assert_eq!(annotation.inline.len(), 1);
-        assert_eq!(annotation.source, "test-plugin");
     }
 }
