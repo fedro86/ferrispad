@@ -247,11 +247,32 @@ impl DiagnosticPanel {
         let last = Rc::clone(&last_item);
         let sender = self.sender;
 
+        // Helper to update tooltip for a given item index
+        let update_tooltip = |b: &mut HoldBrowser, diags: &Rc<RefCell<Vec<Diagnostic>>>, item_idx: i32| {
+            let borrowed = diags.borrow();
+            if item_idx >= 0 && (item_idx as usize) < borrowed.len() {
+                let diag = &borrowed[item_idx as usize];
+                let mut tooltip = format!(
+                    "Line {}: {}\nSource: {}",
+                    diag.line, diag.message, diag.source
+                );
+                if let Some(ref fix) = diag.fix_message {
+                    tooltip.push_str(&format!("\n\nFix: {}", fix));
+                }
+                if let Some(ref url) = diag.url {
+                    tooltip.push_str(&format!("\nDocs: {}  (double-click to open)", url));
+                }
+                b.set_tooltip(&tooltip);
+            } else {
+                b.set_tooltip("");
+            }
+        };
+
         // Combined handler for hover (tooltip) and click (goto/open docs)
         self.browser.handle(move |b, ev| {
             match ev {
                 Event::Enter | Event::Move => {
-                    // Hover: update tooltip
+                    // Hover: update tooltip based on mouse position
                     let y = fltk::app::event_y();
                     let browser_y = b.y();
                     let item_height = b.text_size() + 6;
@@ -264,24 +285,7 @@ impl DiagnosticPanel {
                         let mut last_val = last.borrow_mut();
                         if item_idx != *last_val {
                             *last_val = item_idx;
-
-                            let borrowed = diags.borrow();
-                            if item_idx >= 0 && (item_idx as usize) < borrowed.len() {
-                                let diag = &borrowed[item_idx as usize];
-                                let mut tooltip = format!(
-                                    "Line {}: {}\nSource: {}",
-                                    diag.line, diag.message, diag.source
-                                );
-                                if let Some(ref fix) = diag.fix_message {
-                                    tooltip.push_str(&format!("\n\nFix: {}", fix));
-                                }
-                                if let Some(ref url) = diag.url {
-                                    tooltip.push_str(&format!("\nDocs: {}  (double-click to open)", url));
-                                }
-                                b.set_tooltip(&tooltip);
-                            } else {
-                                b.set_tooltip("");
-                            }
+                            update_tooltip(b, &diags, item_idx);
                         }
                     }
                     false
@@ -296,8 +300,11 @@ impl DiagnosticPanel {
                     let idx = b.value();
                     if idx > 0 {
                         sender.send(Message::DiagnosticGoto(idx as u32));
+                        // Update tooltip for clicked item (0-indexed)
+                        *last.borrow_mut() = idx - 1;
+                        update_tooltip(b, &diags, idx - 1);
                     }
-                    true
+                    false  // Don't consume - let FLTK handle selection
                 }
                 Event::Push => {
                     // Double click - open docs
