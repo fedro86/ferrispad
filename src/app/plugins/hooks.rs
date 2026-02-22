@@ -45,6 +45,10 @@ pub struct Diagnostic {
     pub level: DiagnosticLevel,
     /// Source plugin name
     pub source: String,
+    /// Optional fix suggestion (e.g., "Organize imports")
+    pub fix_message: Option<String>,
+    /// Optional documentation URL
+    pub url: Option<String>,
 }
 
 /// Plugin hooks that can be registered and called.

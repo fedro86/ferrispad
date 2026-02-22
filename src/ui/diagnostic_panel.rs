@@ -6,11 +6,14 @@
 use fltk::{
     app::Sender,
     browser::HoldBrowser,
-    enums::{Align, Color, Font, FrameType},
+    enums::{Align, Color, Event, Font, FrameType},
     frame::Frame,
     group::Flex,
+    misc::Tooltip,
     prelude::*,
 };
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use crate::app::plugins::{Diagnostic, DiagnosticLevel};
 use crate::app::Message;
@@ -35,6 +38,8 @@ pub struct DiagnosticPanel {
     expanded: bool,
     /// Message sender
     sender: Sender<Message>,
+    /// Shared diagnostics for hover handler
+    shared_diagnostics: Option<Rc<RefCell<Vec<Diagnostic>>>>,
 }
 
 impl DiagnosticPanel {
@@ -73,6 +78,7 @@ impl DiagnosticPanel {
             diagnostics: Vec::new(),
             expanded: false,
             sender,
+            shared_diagnostics: None,
         }
     }
 
@@ -84,6 +90,7 @@ impl DiagnosticPanel {
     /// Update the panel with new diagnostics
     pub fn update_diagnostics(&mut self, diagnostics: Vec<Diagnostic>) {
         self.diagnostics = diagnostics;
+        self.sync_shared_diagnostics();
         self.refresh_display();
     }
 
@@ -219,6 +226,83 @@ impl DiagnosticPanel {
                 browser.show();
             }
         });
+    }
+
+    /// Set up hover handler for dynamic tooltips
+    pub fn setup_hover_handler(&mut self) {
+        // Enable tooltips and set a short delay
+        Tooltip::enable(true);
+        Tooltip::set_delay(0.5);  // 500ms delay before showing
+
+        // Share diagnostics with the event handler
+        let diagnostics: Rc<RefCell<Vec<Diagnostic>>> = Rc::new(RefCell::new(Vec::new()));
+        self.shared_diagnostics = Some(Rc::clone(&diagnostics));
+
+        // Track last item to avoid resetting tooltip unnecessarily
+        let last_item: Rc<RefCell<i32>> = Rc::new(RefCell::new(-1));
+
+        let diags = Rc::clone(&diagnostics);
+        let last = Rc::clone(&last_item);
+        self.browser.handle(move |b, ev| {
+            match ev {
+                Event::Enter | Event::Move => {
+                    // Get the item under the mouse
+                    let y = fltk::app::event_y();
+                    let browser_y = b.y();
+                    let item_height = b.text_size() + 6; // Approximate item height with padding
+                    let scroll_pixels = b.position(); // Vertical scroll in pixels
+
+                    if y >= browser_y {
+                        // Calculate which item the mouse is over
+                        let relative_y = y - browser_y + scroll_pixels;
+                        let item_idx = relative_y / item_height; // 0-indexed
+
+                        // Only update if item changed
+                        let mut last_val = last.borrow_mut();
+                        if item_idx != *last_val {
+                            *last_val = item_idx;
+
+                            let borrowed = diags.borrow();
+                            if item_idx >= 0 && (item_idx as usize) < borrowed.len() {
+                                let diag = &borrowed[item_idx as usize];
+                                // Build a detailed tooltip with extra info
+                                let mut tooltip = format!(
+                                    "Line {}: {}\nSource: {}",
+                                    diag.line,
+                                    diag.message,
+                                    diag.source
+                                );
+                                // Add fix suggestion if available
+                                if let Some(ref fix) = diag.fix_message {
+                                    tooltip.push_str(&format!("\n\nFix: {}", fix));
+                                }
+                                // Add documentation URL if available
+                                if let Some(ref url) = diag.url {
+                                    tooltip.push_str(&format!("\nDocs: {}", url));
+                                }
+                                b.set_tooltip(&tooltip);
+                            } else {
+                                b.set_tooltip("");
+                            }
+                        }
+                    }
+                    false // Don't consume the event
+                }
+                Event::Leave => {
+                    *last.borrow_mut() = -1;
+                    b.set_tooltip("");
+                    false
+                }
+                _ => false,
+            }
+        });
+    }
+
+    /// Update shared diagnostics for hover handler
+    pub fn sync_shared_diagnostics(&mut self) {
+        if let Some(ref shared) = self.shared_diagnostics {
+            *shared.borrow_mut() = self.diagnostics.clone();
+        }
     }
 
     /// Get current panel height for flex layout

@@ -152,8 +152,9 @@ fn main() {
     // Start deferred highlighting for session-restored documents
     state.start_queued_highlights();
 
-    // Set up diagnostic panel click handlers
+    // Set up diagnostic panel click and hover handlers
     w.diagnostic_panel.setup_click_handler();
+    w.diagnostic_panel.setup_hover_handler();
 
     // Populate plugins menu with loaded plugins
     ui::menu::rebuild_plugins_menu(

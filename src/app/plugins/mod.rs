@@ -360,12 +360,20 @@ impl PluginManager {
         let level_str: String = table.get("level").unwrap_or_else(|_| "info".to_string());
         let level = DiagnosticLevel::from_str(&level_str);
 
+        // Optional: fix message (e.g., "Organize imports")
+        let fix_message: Option<String> = table.get("fix_message").ok();
+
+        // Optional: documentation URL
+        let url: Option<String> = table.get("url").ok();
+
         Some(Diagnostic {
             line,
             column,
             message,
             level,
             source: plugin_name.to_string(),
+            fix_message,
+            url,
         })
     }
 
