@@ -6,6 +6,7 @@
 //! - Text operations
 //! - Syntax highlighting
 
+pub mod file_size;
 pub mod session;
 pub mod syntax;
 pub mod text_ops;

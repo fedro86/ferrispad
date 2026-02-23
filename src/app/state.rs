@@ -24,8 +24,10 @@ use super::domain::messages::Message;
 use super::domain::settings::{AppSettings, FontChoice, SyntaxTheme, ThemeMode};
 use super::infrastructure::buffer::buffer_text_no_leak;
 use super::infrastructure::platform::detect_system_dark_mode;
+use super::services::file_size::{check_file_size, format_size, FileSizeCheck};
 use super::services::session::{self, SessionRestore};
 use super::plugins::{PluginManager, PluginHook, get_plugin_dir};
+use crate::ui::dialogs::large_file::{show_file_too_large_error, show_large_file_warning};
 use crate::ui::dialogs::plugin_permissions::{show_permission_dialog, ApprovalResult, PermissionRequest};
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::editor_container::EditorContainer;
@@ -465,9 +467,32 @@ impl AppState {
 
     pub fn open_file(&mut self, path: String) {
         // Remember the parent directory for future open/save dialogs
-        if let Some(parent) = std::path::Path::new(&path).parent() {
+        let path_ref = std::path::Path::new(&path);
+        if let Some(parent) = path_ref.parent() {
             self.last_open_directory = Some(parent.to_string_lossy().to_string());
         }
+
+        // Pre-flight size check to prevent crashes on huge files
+        match check_file_size(path_ref) {
+            Ok(FileSizeCheck::TooLarge(size)) => {
+                show_file_too_large_error(path_ref, size);
+                return;
+            }
+            Ok(FileSizeCheck::Large(size)) => {
+                if !show_large_file_warning(path_ref, size) {
+                    return; // User cancelled
+                }
+                // User chose to proceed - continue loading
+            }
+            Ok(FileSizeCheck::Normal(_)) => {
+                // Normal file, proceed
+            }
+            Err(e) => {
+                // Can't read metadata - let the actual read fail with better error
+                eprintln!("[file] Warning: could not check file size: {}", e);
+            }
+        }
+
         match fs::read_to_string(&path) {
             Ok(content) => {
                 if self.tabs_enabled {
@@ -712,6 +737,17 @@ impl AppState {
             let group_id = doc_session.group_index.and_then(|idx| group_ids.get(idx).copied());
 
             if let Some(ref path) = doc_session.file_path {
+                // Skip files that are too large (don't show dialogs at startup)
+                let path_ref = std::path::Path::new(path);
+                if let Ok(FileSizeCheck::TooLarge(size)) = check_file_size(path_ref) {
+                    eprintln!(
+                        "[session] Skipping '{}' ({}) - exceeds size limit",
+                        path,
+                        format_size(size)
+                    );
+                    continue;
+                }
+
                 if let Ok(content) = fs::read_to_string(path) {
                     let id = self.tab_manager.add_from_file(path.clone(), &content);
                     if first_id.is_none() {

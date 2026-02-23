@@ -1,9 +1,10 @@
+pub mod about;
 pub mod find;
 pub mod goto_line;
-pub mod settings_dialog;
-pub mod about;
-pub mod update;
+pub mod large_file;
 pub mod plugin_permissions;
+pub mod settings_dialog;
+pub mod update;
 
 use fltk::{app, prelude::*, window::Window};
 
