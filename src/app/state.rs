@@ -477,6 +477,11 @@ impl AppState {
             Ok(FileSizeCheck::TooLarge(size)) => {
                 match show_file_too_large_dialog(path_ref, size) {
                     TooLargeAction::Cancel => return,
+                    TooLargeAction::ViewReadOnly => {
+                        // Open read-only viewer (memory-mapped, no editing)
+                        crate::ui::dialogs::readonly_viewer::show_readonly_viewer(path_ref);
+                        return;
+                    }
                     TooLargeAction::OpenTail => {
                         // Read tail and open as special document
                         let filename = path_ref

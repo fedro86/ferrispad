@@ -49,9 +49,11 @@ pub enum TooLargeAction {
     Cancel,
     /// Open the last N lines of the file
     OpenTail,
+    /// Open in read-only viewer mode
+    ViewReadOnly,
 }
 
-/// Show dialog for file that exceeds FLTK limit, offering tail option
+/// Show dialog for file that exceeds FLTK limit, offering view and tail options
 pub fn show_file_too_large_dialog(path: &Path, size: u64) -> TooLargeAction {
     let filename = path
         .file_name()
@@ -62,14 +64,17 @@ pub fn show_file_too_large_dialog(path: &Path, size: u64) -> TooLargeAction {
         "File Too Large\n\n\
         \"{}\" is {} which exceeds the maximum \
         editable file size (~1.8 GB).\n\n\
-        Would you like to open the last 10,000 lines instead?\n\
-        This is useful for viewing the end of log files.",
+        Choose an option:\n\
+        - View Read-Only: Browse the entire file (no editing)\n\
+        - Open Tail: Load the last 10,000 lines (editable)",
         filename,
         format_size(size)
     );
 
-    match dialog::choice2_default(&msg, "Open Tail", "Cancel", "") {
-        Some(0) => TooLargeAction::OpenTail,
+    // choice2_default: Some(0) = first, Some(1) = second, Some(2) = third
+    match dialog::choice2_default(&msg, "View Read-Only", "Open Tail", "Cancel") {
+        Some(0) => TooLargeAction::ViewReadOnly,
+        Some(1) => TooLargeAction::OpenTail,
         _ => TooLargeAction::Cancel,
     }
 }

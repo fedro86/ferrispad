@@ -28,6 +28,7 @@ pulldown-cmark = "0.12"
 regex-lite = "0.1"
 mlua = { version = "0.10", features = ["lua54", "vendored"] }
 toml = "0.8"
+memmap2 = "0.9"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 tikv-jemallocator = "0.6"
