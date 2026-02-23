@@ -652,19 +652,64 @@ impl PluginManager {
             .collect()
     }
 
+    /// Get current Lua memory usage in bytes.
+    /// Returns 0 if the plugin system is disabled.
+    pub fn lua_memory_usage(&self) -> usize {
+        self.runtime.as_ref().map(|r| r.used_memory()).unwrap_or(0)
+    }
+
+    /// Clear all plugins and trigger Lua garbage collection.
+    /// This ensures memory is properly reclaimed when plugins are unloaded.
+    fn clear_plugins(&mut self) {
+        // Drop all Table references first
+        self.plugins.clear();
+
+        // Trigger Lua GC to reclaim memory from dropped Tables
+        if let Some(ref runtime) = self.runtime {
+            runtime.collect_garbage();
+        }
+    }
+
     /// Reload all plugins from disk
     pub fn reload_all(&mut self, dir: &std::path::Path) {
         // Remember which plugins were disabled
         let disabled: Vec<String> = self.disabled_plugin_names();
+        // Remember approved commands for each plugin
+        let approved: Vec<(String, Vec<String>)> = self
+            .plugins
+            .iter()
+            .map(|p| (p.name.clone(), p.approved_commands.clone()))
+            .collect();
 
-        // Clear and reload
-        self.plugins.clear();
+        // Log memory before reload (debug aid)
+        let mem_before = self.lua_memory_usage();
+
+        // Clear with explicit GC to reclaim memory
+        self.clear_plugins();
         self.load_plugins(dir);
 
         // Restore disabled state
         for name in disabled {
             self.toggle_plugin(&name, false);
         }
+
+        // Restore approved commands
+        for (name, commands) in approved {
+            for plugin in &mut self.plugins {
+                if plugin.name == name {
+                    plugin.approved_commands = commands;
+                    break;
+                }
+            }
+        }
+
+        // Log memory after reload
+        let mem_after = self.lua_memory_usage();
+        eprintln!(
+            "[plugins] Reloaded. Memory: {} KB -> {} KB",
+            mem_before / 1024,
+            mem_after / 1024
+        );
 
         // Call init hook on all enabled plugins
         self.call_hook(PluginHook::Init);
@@ -708,5 +753,82 @@ mod tests {
         let pm = PluginManager::new(true);
         let result = pm.call_hook(PluginHook::Init);
         assert!(result.modified_content.is_none());
+    }
+
+    #[test]
+    fn test_lua_memory_usage() {
+        let pm = PluginManager::new(true);
+        let mem = pm.lua_memory_usage();
+        // Should have some baseline memory from Lua runtime
+        assert!(mem > 0, "Expected non-zero memory usage, got {}", mem);
+    }
+
+    #[test]
+    fn test_reload_does_not_leak_memory() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        // Create a test plugin that allocates some memory
+        let plugin_dir = dir.path().join("test-plugin");
+        std::fs::create_dir(&plugin_dir).unwrap();
+        std::fs::write(
+            plugin_dir.join("init.lua"),
+            r#"
+            local M = {
+                name = "memory-test",
+                version = "1.0.0",
+                -- Allocate some data to make memory changes visible
+                data = {}
+            }
+            for i = 1, 1000 do
+                M.data[i] = "item_" .. i
+            end
+            return M
+            "#,
+        )
+        .unwrap();
+
+        let mut pm = PluginManager::new(true);
+        pm.load_plugins(dir.path());
+
+        // Let initial allocation settle
+        let initial = pm.lua_memory_usage();
+
+        // Reload multiple times
+        for _ in 0..10 {
+            pm.reload_all(dir.path());
+        }
+
+        let final_mem = pm.lua_memory_usage();
+
+        // Memory should not grow significantly (allow 50% variance for GC timing)
+        // The key is that it doesn't grow unboundedly
+        assert!(
+            final_mem < initial * 3 / 2,
+            "Potential memory leak: initial={} bytes, final={} bytes ({}% growth)",
+            initial,
+            final_mem,
+            (final_mem as f64 / initial as f64 * 100.0 - 100.0) as i32
+        );
+    }
+
+    #[test]
+    fn test_clear_plugins_triggers_gc() {
+        let mut pm = PluginManager::new(true);
+
+        // Memory before any plugins
+        let before = pm.lua_memory_usage();
+
+        // Clear (even with no plugins) should not panic
+        pm.clear_plugins();
+
+        // Memory should be similar (no crash, no leak)
+        let after = pm.lua_memory_usage();
+        assert!(
+            after <= before + 1024, // Allow small variance
+            "Memory increased unexpectedly: {} -> {}",
+            before,
+            after
+        );
     }
 }

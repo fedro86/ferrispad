@@ -158,9 +158,15 @@ impl LuaRuntime {
     }
 
     /// Get current memory usage in bytes.
-    #[allow(dead_code)] // Useful for monitoring/debugging
     pub fn used_memory(&self) -> usize {
         self.lua.used_memory()
+    }
+
+    /// Trigger Lua garbage collection (full cycle).
+    /// Call this after clearing plugin references to reclaim memory.
+    pub fn collect_garbage(&self) {
+        // gc_collect() triggers a full GC cycle
+        let _ = self.lua.gc_collect();
     }
 
     /// Load a plugin script from init.lua and return the plugin table.
