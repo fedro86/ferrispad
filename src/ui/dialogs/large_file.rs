@@ -27,8 +27,17 @@ pub fn show_large_file_warning(path: &Path, size: u64) -> bool {
     dialog::choice2_default(&msg, "Open", "Cancel", "") == Some(0)
 }
 
-/// Show error for file that exceeds FLTK limit
-pub fn show_file_too_large_error(path: &Path, size: u64) {
+/// Result of the "file too large" dialog
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TooLargeAction {
+    /// User cancelled - don't open the file
+    Cancel,
+    /// Open the last N lines of the file
+    OpenTail,
+}
+
+/// Show dialog for file that exceeds FLTK limit, offering tail option
+pub fn show_file_too_large_dialog(path: &Path, size: u64) -> TooLargeAction {
     let filename = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -38,12 +47,14 @@ pub fn show_file_too_large_error(path: &Path, size: u64) {
         "File Too Large\n\n\
         \"{}\" is {} which exceeds the maximum \
         editable file size (~1.8 GB).\n\n\
-        This is a limitation of the text buffer system.\n\
-        Consider using a specialized tool like 'less' or 'tail' \
-        for viewing large log files.",
+        Would you like to open the last 10,000 lines instead?\n\
+        This is useful for viewing the end of log files.",
         filename,
         format_size(size)
     );
 
-    dialog::alert_default(&msg);
+    match dialog::choice2_default(&msg, "Open Tail", "Cancel", "") {
+        Some(0) => TooLargeAction::OpenTail,
+        _ => TooLargeAction::Cancel,
+    }
 }

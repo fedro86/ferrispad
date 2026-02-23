@@ -24,10 +24,10 @@ use super::domain::messages::Message;
 use super::domain::settings::{AppSettings, FontChoice, SyntaxTheme, ThemeMode};
 use super::infrastructure::buffer::buffer_text_no_leak;
 use super::infrastructure::platform::detect_system_dark_mode;
-use super::services::file_size::{check_file_size, format_size, FileSizeCheck};
+use super::services::file_size::{check_file_size, format_size, read_tail, FileSizeCheck, TAIL_LINE_COUNT};
 use super::services::session::{self, SessionRestore};
 use super::plugins::{PluginManager, PluginHook, get_plugin_dir};
-use crate::ui::dialogs::large_file::{show_file_too_large_error, show_large_file_warning};
+use crate::ui::dialogs::large_file::{show_file_too_large_dialog, show_large_file_warning, TooLargeAction};
 use crate::ui::dialogs::plugin_permissions::{show_permission_dialog, ApprovalResult, PermissionRequest};
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::editor_container::EditorContainer;
@@ -475,8 +475,26 @@ impl AppState {
         // Pre-flight size check to prevent crashes on huge files
         match check_file_size(path_ref) {
             Ok(FileSizeCheck::TooLarge(size)) => {
-                show_file_too_large_error(path_ref, size);
-                return;
+                match show_file_too_large_dialog(path_ref, size) {
+                    TooLargeAction::Cancel => return,
+                    TooLargeAction::OpenTail => {
+                        // Read tail and open as special document
+                        let filename = path_ref
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("file")
+                            .to_string();
+                        match read_tail(path_ref, TAIL_LINE_COUNT) {
+                            Ok(content) => {
+                                self.open_tail_content(path, content, &filename);
+                            }
+                            Err(e) => {
+                                dialog::alert_default(&format!("Failed to read file tail: {}", e));
+                            }
+                        }
+                        return;
+                    }
+                }
             }
             Ok(FileSizeCheck::Large(size)) => {
                 if !show_large_file_warning(path_ref, size) {
@@ -564,6 +582,61 @@ impl AppState {
         }
     }
 
+    /// Open content from a file tail (last N lines) as a special document.
+    /// The document is marked with "(tail)" in its display name.
+    fn open_tail_content(&mut self, path: String, content: String, filename: &str) {
+        if self.tabs_enabled {
+            // Close empty Untitled tab if it's the only one
+            let empty_untitled = if self.tab_manager.count() == 1 {
+                self.tab_manager.active_doc().and_then(|doc| {
+                    if doc.file_path.is_none()
+                        && !doc.is_dirty()
+                        && doc.buffer.length() == 0
+                    {
+                        Some(doc.id)
+                    } else {
+                        None
+                    }
+                })
+            } else {
+                None
+            };
+
+            let id = self.tab_manager.add_from_file(path.clone(), &content);
+            if let Some(untitled_id) = empty_untitled {
+                self.tab_manager.remove(untitled_id);
+            }
+
+            // Mark as tail mode in display name
+            if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+                doc.display_name = format!("{} (tail)", filename);
+                // Don't mark as dirty - this is expected state
+                doc.has_unsaved_changes.set(false);
+            }
+
+            self.switch_to_document(id);
+            self.rebuild_tab_bar();
+
+            // Call plugin hooks
+            self.plugins.call_hook(PluginHook::OnDocumentOpen {
+                path: Some(path),
+            });
+        } else {
+            // Single document mode - just load the tail
+            if let Some(doc) = self.tab_manager.active_doc_mut() {
+                doc.buffer.set_text(&content);
+                doc.has_unsaved_changes.set(false);
+                doc.file_path = Some(path.clone());
+                doc.display_name = format!("{} (tail)", filename);
+            }
+            self.update_window_title();
+
+            self.plugins.call_hook(PluginHook::OnDocumentOpen {
+                path: Some(path),
+            });
+        }
+    }
+
     pub fn file_new(&mut self) {
         if self.tabs_enabled {
             let id = self.tab_manager.add_untitled();
@@ -596,13 +669,25 @@ impl AppState {
     }
 
     pub fn file_save(&mut self) {
-        let (file_path, text, doc_id) = {
+        let (file_path, text, doc_id, is_tail) = {
             if let Some(doc) = self.tab_manager.active_doc() {
-                (doc.file_path.clone(), buffer_text_no_leak(&doc.buffer), doc.id.0)
+                let is_tail = doc.display_name.contains("(tail)");
+                (doc.file_path.clone(), buffer_text_no_leak(&doc.buffer), doc.id.0, is_tail)
             } else {
                 return;
             }
         };
+
+        // Warn if saving a tail document - user might accidentally overwrite the full file
+        if is_tail {
+            let msg = "Warning: This is a tail view (last 10,000 lines).\n\n\
+                       Saving will overwrite the file with ONLY these lines.\n\
+                       The rest of the original file will be lost.\n\n\
+                       Continue?";
+            if dialog::choice2_default(msg, "Save", "Cancel", "") != Some(0) {
+                return;
+            }
+        }
 
         if let Some(ref path) = file_path {
             // Call plugin hook - plugins can modify content before save
