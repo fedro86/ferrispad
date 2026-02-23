@@ -27,7 +27,7 @@ use super::infrastructure::platform::detect_system_dark_mode;
 use super::services::file_size::{check_file_size, format_size, read_tail, FileSizeCheck, TAIL_LINE_COUNT};
 use super::services::session::{self, SessionRestore};
 use super::plugins::{PluginManager, PluginHook, get_plugin_dir};
-use crate::ui::dialogs::large_file::{show_file_too_large_dialog, show_large_file_warning, load_with_progress, LoadResult, TooLargeAction};
+use crate::ui::dialogs::large_file::{show_file_too_large_dialog, show_large_file_warning, load_to_buffer_with_progress, StreamLoadResult, TooLargeAction};
 use crate::ui::dialogs::plugin_permissions::{show_permission_dialog, ApprovalResult, PermissionRequest};
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::editor_container::EditorContainer;
@@ -500,16 +500,17 @@ impl AppState {
                 if !show_large_file_warning(path_ref, size) {
                     return; // User cancelled
                 }
-                // User chose to proceed - load with progress dialog
-                match load_with_progress(path_ref, size) {
-                    LoadResult::Success(content) => {
+                // User chose to proceed - load with streaming progress dialog
+                // This streams directly to TextBuffer, using ~1x memory instead of ~2x
+                match load_to_buffer_with_progress(path_ref, size) {
+                    StreamLoadResult::Success(buffer) => {
                         // For large files, skip plugins and syntax highlighting
-                        self.open_large_file_content(path, content);
+                        self.open_large_file_buffer(path, buffer);
                     }
-                    LoadResult::Cancelled => {
+                    StreamLoadResult::Cancelled => {
                         // User closed progress dialog
                     }
-                    LoadResult::Error(e) => {
+                    StreamLoadResult::Error(e) => {
                         dialog::alert_default(&format!("Error opening file: {}", e));
                     }
                 }
@@ -601,9 +602,12 @@ impl AppState {
         }
     }
 
-    /// Open large file content without plugins or syntax highlighting.
-    /// This is used for files > 100MB to avoid memory issues.
-    fn open_large_file_content(&mut self, path: String, content: String) {
+    /// Open large file from a pre-populated TextBuffer (memory-optimized).
+    ///
+    /// This is used for files > 100MB. The buffer was streamed directly
+    /// to avoid keeping two copies of the file in memory.
+    /// Skips plugins and syntax highlighting to avoid memory issues.
+    fn open_large_file_buffer(&mut self, path: String, buffer: fltk::text::TextBuffer) {
         if self.tabs_enabled {
             if let Some(existing_id) = self.tab_manager.find_by_path(&path) {
                 self.switch_to_document(existing_id);
@@ -625,7 +629,8 @@ impl AppState {
             } else {
                 None
             };
-            let id = self.tab_manager.add_from_file(path.clone(), &content);
+            // Use the pre-populated buffer directly, skip style buffer init for memory savings
+            let id = self.tab_manager.add_from_buffer(path.clone(), buffer, true);
             if let Some(untitled_id) = empty_untitled {
                 self.tab_manager.remove(untitled_id);
             }
@@ -634,7 +639,11 @@ impl AppState {
             self.switch_to_document(id);
             self.rebuild_tab_bar();
         } else {
+            // Single document mode: replace the current buffer's content
+            // Note: This path still copies the content, but single-doc mode is rare
             if let Some(doc) = self.tab_manager.active_doc_mut() {
+                // Get content from the pre-populated buffer
+                let content = crate::app::infrastructure::buffer::buffer_text_no_leak(&buffer);
                 doc.buffer.set_text(&content);
                 doc.has_unsaved_changes.set(false);
                 doc.file_path = Some(path.clone());

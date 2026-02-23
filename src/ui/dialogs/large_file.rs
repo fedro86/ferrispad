@@ -10,12 +10,13 @@ use fltk::{
     group::Flex,
     misc::Progress,
     prelude::*,
+    text::TextBuffer,
     window::Window,
 };
 use std::io::{self, Read};
 use std::path::Path;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, Ordering},
     mpsc, Arc,
 };
 
@@ -73,22 +74,36 @@ pub fn show_file_too_large_dialog(path: &Path, size: u64) -> TooLargeAction {
     }
 }
 
-/// Result of loading a large file with progress
-#[derive(Debug)]
-pub enum LoadResult {
-    /// File loaded successfully
-    Success(String),
+/// Result of streaming load directly to TextBuffer
+pub enum StreamLoadResult {
+    /// File loaded successfully into TextBuffer
+    Success(TextBuffer),
     /// User cancelled the loading
     Cancelled,
     /// Error reading file
     Error(io::Error),
 }
 
-/// Load a large file with a progress dialog.
+/// Message sent from reader thread to main thread
+/// Message sent from reader thread to main thread
+enum ChunkMessage {
+    /// A chunk of text data
+    Chunk(String),
+    /// Reading completed successfully
+    Done,
+    /// Error occurred
+    Error(io::Error),
+}
+
+/// Load a large file with progress, streaming directly to TextBuffer.
 ///
-/// Shows a modal dialog with progress bar while reading the file.
-/// User can cancel by closing the dialog window.
-pub fn load_with_progress(path: &Path, size: u64) -> LoadResult {
+/// This is a memory-optimized version that avoids keeping the full file
+/// content in memory twice. Chunks are read in a background thread and
+/// appended directly to the TextBuffer on the main thread.
+///
+/// Memory usage: ~1x file size (TextBuffer) + 1MB chunk buffer
+/// vs. old method: ~2x file size (String + TextBuffer copy)
+pub fn load_to_buffer_with_progress(path: &Path, size: u64) -> StreamLoadResult {
     let filename = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -103,20 +118,17 @@ pub fn load_with_progress(path: &Path, size: u64) -> LoadResult {
     flex.set_type(fltk::group::FlexType::Column);
     flex.set_spacing(10);
 
-    // Status label
     let label_text = format!("Loading \"{}\"...", filename);
     let mut status = Frame::default().with_label(&label_text);
     status.set_label_size(14);
     flex.fixed(&status, 25);
 
-    // Progress bar
     let mut progress = Progress::default();
     progress.set_minimum(0.0);
     progress.set_maximum(size as f64);
     progress.set_value(0.0);
     flex.fixed(&progress, 25);
 
-    // Size info
     let size_text = format!("0 / {}", format_size(size));
     let mut size_label = Frame::default().with_label(&size_text);
     size_label.set_label_size(11);
@@ -126,95 +138,121 @@ pub fn load_with_progress(path: &Path, size: u64) -> LoadResult {
     dialog.end();
     dialog.show();
 
-    // Process pending events to make sure dialog is visible
     app::flush();
     app::awake();
 
-    // Shared state for progress tracking
-    let bytes_read = Arc::new(AtomicU64::new(0));
+    // Create TextBuffer to receive content
+    let buffer = TextBuffer::default();
+
+    // Cancellation flag
     let cancelled = Arc::new(AtomicBool::new(false));
 
-    // Channel for receiving content from reader thread
-    let (tx, rx) = mpsc::channel::<Result<String, io::Error>>();
+    // Channel for receiving chunks from reader thread
+    let (tx, rx) = mpsc::channel::<ChunkMessage>();
 
-    // Clone for thread
     let path_owned = path.to_path_buf();
-    let bytes_read_thread = Arc::clone(&bytes_read);
     let cancelled_thread = Arc::clone(&cancelled);
 
-    // Spawn reader thread
+    // Spawn reader thread that sends chunks
     std::thread::spawn(move || {
-        let result = read_file_with_progress(&path_owned, &bytes_read_thread, &cancelled_thread);
-        let _ = tx.send(result);
+        read_file_in_chunks(&path_owned, &cancelled_thread, tx);
     });
 
-    // Clone widgets for event loop updates
     let mut progress_bar = progress.clone();
     let mut size_frame = size_label.clone();
     let total_size = size;
+    let mut bytes_loaded: u64 = 0;
+    let mut buf = buffer.clone();
 
-    // Event loop - process FLTK events while waiting for file
+    // Event loop - process chunks and FLTK events
     while dialog.shown() {
-        app::wait_for(0.05).ok(); // 50ms timeout
+        app::wait_for(0.01).ok(); // 10ms timeout for responsiveness
 
-        // Check if reader thread is done
-        if let Ok(result) = rx.try_recv() {
-            dialog.hide();
-            return match result {
-                Ok(content) => LoadResult::Success(content),
-                Err(e) => LoadResult::Error(e),
-            };
+        // Process all available chunks (don't block)
+        loop {
+            match rx.try_recv() {
+                Ok(ChunkMessage::Chunk(text)) => {
+                    bytes_loaded += text.len() as u64;
+                    buf.append(&text);
+
+                    // Update progress UI
+                    progress_bar.set_value(bytes_loaded as f64);
+                    size_frame.set_label(&format!(
+                        "{} / {}",
+                        format_size(bytes_loaded),
+                        format_size(total_size)
+                    ));
+                }
+                Ok(ChunkMessage::Done) => {
+                    dialog.hide();
+                    return StreamLoadResult::Success(buffer);
+                }
+                Ok(ChunkMessage::Error(e)) => {
+                    dialog.hide();
+                    return StreamLoadResult::Error(e);
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    dialog.hide();
+                    return StreamLoadResult::Error(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "Reader thread disconnected",
+                    ));
+                }
+            }
         }
-
-        // Update progress from shared state
-        let current_bytes = bytes_read.load(Ordering::Relaxed);
-        progress_bar.set_value(current_bytes as f64);
-        size_frame.set_label(&format!(
-            "{} / {}",
-            format_size(current_bytes),
-            format_size(total_size)
-        ));
     }
 
-    // Dialog was closed - signal cancellation to reader thread
+    // Dialog was closed - signal cancellation
     cancelled.store(true, Ordering::Relaxed);
-    LoadResult::Cancelled
+    StreamLoadResult::Cancelled
 }
 
-/// Read file in chunks, updating progress atomically
-fn read_file_with_progress(
+/// Read file in chunks and send each chunk to the channel.
+/// This runs in a background thread.
+fn read_file_in_chunks(
     path: &Path,
-    bytes_read: &AtomicU64,
     cancelled: &AtomicBool,
-) -> io::Result<String> {
-    let mut file = std::fs::File::open(path)?;
-    let metadata = file.metadata()?;
-    let size = metadata.len() as usize;
+    tx: mpsc::Sender<ChunkMessage>,
+) {
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            let _ = tx.send(ChunkMessage::Error(e));
+            return;
+        }
+    };
 
-    // Pre-allocate buffer
-    let mut content = Vec::with_capacity(size);
-
-    // Read in 1MB chunks for progress updates
-    let chunk_size = 1024 * 1024;
-    let mut buffer = vec![0u8; chunk_size];
-    let mut total_read: u64 = 0;
+    let mut reader = std::io::BufReader::with_capacity(1024 * 1024, file);
+    let mut buffer = vec![0u8; 1024 * 1024]; // 1MB chunks
 
     loop {
-        // Check for cancellation
         if cancelled.load(Ordering::Relaxed) {
-            return Err(io::Error::new(io::ErrorKind::Interrupted, "Cancelled"));
+            let _ = tx.send(ChunkMessage::Error(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "Cancelled",
+            )));
+            return;
         }
 
-        let n = file.read(&mut buffer)?;
+        let n = match reader.read(&mut buffer) {
+            Ok(n) => n,
+            Err(e) => {
+                let _ = tx.send(ChunkMessage::Error(e));
+                return;
+            }
+        };
+
         if n == 0 {
-            break;
+            let _ = tx.send(ChunkMessage::Done);
+            return;
         }
 
-        content.extend_from_slice(&buffer[..n]);
-        total_read += n as u64;
-        bytes_read.store(total_read, Ordering::Relaxed);
+        // Convert chunk to string (lossy for robustness)
+        let text = String::from_utf8_lossy(&buffer[..n]).into_owned();
+        if tx.send(ChunkMessage::Chunk(text)).is_err() {
+            // Receiver dropped, likely cancelled
+            return;
+        }
     }
-
-    // Convert to string
-    String::from_utf8(content).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }

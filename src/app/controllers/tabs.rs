@@ -132,6 +132,23 @@ impl TabManager {
         id
     }
 
+    /// Add a document from a pre-populated TextBuffer (memory-optimized path).
+    ///
+    /// Use this for large files where the buffer was streamed directly
+    /// to avoid a full copy of the content.
+    pub fn add_from_buffer(
+        &mut self,
+        path: String,
+        buffer: TextBuffer,
+        skip_style_init: bool,
+    ) -> DocumentId {
+        let id = self.next_document_id();
+        let doc = Document::new_from_buffer(id, path, buffer, self.sender, skip_style_init);
+        self.documents.push(doc);
+        self.active_id = Some(id);
+        id
+    }
+
     pub fn active_doc(&self) -> Option<&Document> {
         let active_id = self.active_id?;
         self.documents.iter().find(|d| d.id == active_id)
