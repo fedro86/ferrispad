@@ -27,7 +27,7 @@ use super::infrastructure::platform::detect_system_dark_mode;
 use super::services::file_size::{check_file_size, format_size, read_tail, FileSizeCheck, TAIL_LINE_COUNT};
 use super::services::session::{self, SessionRestore};
 use super::plugins::{PluginManager, PluginHook, get_plugin_dir};
-use crate::ui::dialogs::large_file::{show_file_too_large_dialog, show_large_file_warning, TooLargeAction};
+use crate::ui::dialogs::large_file::{show_file_too_large_dialog, show_large_file_warning, load_with_progress, LoadResult, TooLargeAction};
 use crate::ui::dialogs::plugin_permissions::{show_permission_dialog, ApprovalResult, PermissionRequest};
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::editor_container::EditorContainer;
@@ -500,10 +500,23 @@ impl AppState {
                 if !show_large_file_warning(path_ref, size) {
                     return; // User cancelled
                 }
-                // User chose to proceed - continue loading
+                // User chose to proceed - load with progress dialog
+                match load_with_progress(path_ref, size) {
+                    LoadResult::Success(content) => {
+                        // For large files, skip plugins and syntax highlighting
+                        self.open_large_file_content(path, content);
+                    }
+                    LoadResult::Cancelled => {
+                        // User closed progress dialog
+                    }
+                    LoadResult::Error(e) => {
+                        dialog::alert_default(&format!("Error opening file: {}", e));
+                    }
+                }
+                return;
             }
             Ok(FileSizeCheck::Normal(_)) => {
-                // Normal file, proceed
+                // Normal file, proceed with direct read
             }
             Err(e) => {
                 // Can't read metadata - let the actual read fail with better error
@@ -513,72 +526,122 @@ impl AppState {
 
         match fs::read_to_string(&path) {
             Ok(content) => {
-                if self.tabs_enabled {
-                    if let Some(existing_id) = self.tab_manager.find_by_path(&path) {
-                        self.switch_to_document(existing_id);
-                        self.rebuild_tab_bar();
-                        return;
-                    }
-                    // Close empty Untitled tab if it's the only one
-                    let empty_untitled = if self.tab_manager.count() == 1 {
-                        self.tab_manager.active_doc().and_then(|doc| {
-                            if doc.file_path.is_none()
-                                && !doc.is_dirty()
-                                && doc.buffer.length() == 0
-                            {
-                                Some(doc.id)
-                            } else {
-                                None
-                            }
-                        })
-                    } else {
-                        None
-                    };
-                    let id = self.tab_manager.add_from_file(path.clone(), &content);
-                    if let Some(untitled_id) = empty_untitled {
-                        self.tab_manager.remove(untitled_id);
-                    }
-                    self.detect_and_highlight(id, &path);
-                    self.switch_to_document(id);
-                    self.rebuild_tab_bar();
-
-                    // Call plugin hooks after document is loaded
-                    self.plugins.call_hook(PluginHook::OnDocumentOpen {
-                        path: Some(path.clone()),
-                    });
-
-                    // Run lint hook for immediate feedback on open
-                    let lint_result = self.plugins.call_hook(PluginHook::OnDocumentLint {
-                        path,
-                        content,
-                    });
-                    self.process_lint_result(lint_result);
-                } else {
-                    if let Some(doc) = self.tab_manager.active_doc_mut() {
-                        doc.buffer.set_text(&content);
-                        doc.has_unsaved_changes.set(false);
-                        doc.file_path = Some(path.clone());
-                        doc.update_display_name();
-                    }
-                    if let Some(id) = self.tab_manager.active_id() {
-                        self.detect_and_highlight(id, &path);
-                    }
-                    self.update_window_title();
-
-                    // Call plugin hooks after document is loaded
-                    self.plugins.call_hook(PluginHook::OnDocumentOpen {
-                        path: Some(path.clone()),
-                    });
-
-                    // Run lint hook for immediate feedback on open
-                    let lint_result = self.plugins.call_hook(PluginHook::OnDocumentLint {
-                        path,
-                        content,
-                    });
-                    self.process_lint_result(lint_result);
-                }
+                self.open_file_content(path, content);
             }
             Err(e) => dialog::alert_default(&format!("Error opening file: {}", e)),
+        }
+    }
+
+    /// Open file content that has already been read.
+    /// Handles both tabbed and single-document modes.
+    fn open_file_content(&mut self, path: String, content: String) {
+        if self.tabs_enabled {
+            if let Some(existing_id) = self.tab_manager.find_by_path(&path) {
+                self.switch_to_document(existing_id);
+                self.rebuild_tab_bar();
+                return;
+            }
+            // Close empty Untitled tab if it's the only one
+            let empty_untitled = if self.tab_manager.count() == 1 {
+                self.tab_manager.active_doc().and_then(|doc| {
+                    if doc.file_path.is_none()
+                        && !doc.is_dirty()
+                        && doc.buffer.length() == 0
+                    {
+                        Some(doc.id)
+                    } else {
+                        None
+                    }
+                })
+            } else {
+                None
+            };
+            let id = self.tab_manager.add_from_file(path.clone(), &content);
+            if let Some(untitled_id) = empty_untitled {
+                self.tab_manager.remove(untitled_id);
+            }
+            self.detect_and_highlight(id, &path);
+            self.switch_to_document(id);
+            self.rebuild_tab_bar();
+
+            // Call plugin hooks after document is loaded
+            self.plugins.call_hook(PluginHook::OnDocumentOpen {
+                path: Some(path.clone()),
+            });
+
+            // Run lint hook for immediate feedback on open
+            let lint_result = self.plugins.call_hook(PluginHook::OnDocumentLint {
+                path,
+                content,
+            });
+            self.process_lint_result(lint_result);
+        } else {
+            if let Some(doc) = self.tab_manager.active_doc_mut() {
+                doc.buffer.set_text(&content);
+                doc.has_unsaved_changes.set(false);
+                doc.file_path = Some(path.clone());
+                doc.update_display_name();
+            }
+            if let Some(id) = self.tab_manager.active_id() {
+                self.detect_and_highlight(id, &path);
+            }
+            self.update_window_title();
+
+            // Call plugin hooks after document is loaded
+            self.plugins.call_hook(PluginHook::OnDocumentOpen {
+                path: Some(path.clone()),
+            });
+
+            // Run lint hook for immediate feedback on open
+            let lint_result = self.plugins.call_hook(PluginHook::OnDocumentLint {
+                path,
+                content,
+            });
+            self.process_lint_result(lint_result);
+        }
+    }
+
+    /// Open large file content without plugins or syntax highlighting.
+    /// This is used for files > 100MB to avoid memory issues.
+    fn open_large_file_content(&mut self, path: String, content: String) {
+        if self.tabs_enabled {
+            if let Some(existing_id) = self.tab_manager.find_by_path(&path) {
+                self.switch_to_document(existing_id);
+                self.rebuild_tab_bar();
+                return;
+            }
+            // Close empty Untitled tab if it's the only one
+            let empty_untitled = if self.tab_manager.count() == 1 {
+                self.tab_manager.active_doc().and_then(|doc| {
+                    if doc.file_path.is_none()
+                        && !doc.is_dirty()
+                        && doc.buffer.length() == 0
+                    {
+                        Some(doc.id)
+                    } else {
+                        None
+                    }
+                })
+            } else {
+                None
+            };
+            let id = self.tab_manager.add_from_file(path.clone(), &content);
+            if let Some(untitled_id) = empty_untitled {
+                self.tab_manager.remove(untitled_id);
+            }
+            // Skip syntax highlighting for large files - too slow
+            // Skip plugin hooks - they may run out of memory
+            self.switch_to_document(id);
+            self.rebuild_tab_bar();
+        } else {
+            if let Some(doc) = self.tab_manager.active_doc_mut() {
+                doc.buffer.set_text(&content);
+                doc.has_unsaved_changes.set(false);
+                doc.file_path = Some(path.clone());
+                doc.update_display_name();
+            }
+            // Skip syntax highlighting and plugins for large files
+            self.update_window_title();
         }
     }
 
