@@ -26,6 +26,7 @@ use super::infrastructure::buffer::buffer_text_no_leak;
 use super::infrastructure::platform::detect_system_dark_mode;
 use super::services::session::{self, SessionRestore};
 use super::plugins::{PluginManager, PluginHook, get_plugin_dir};
+use crate::ui::dialogs::plugin_permissions::{show_permission_dialog, ApprovalResult, PermissionRequest};
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::editor_container::EditorContainer;
 use crate::ui::file_dialogs::{native_open_dialog, native_open_multi_dialog, native_save_dialog};
@@ -99,9 +100,21 @@ impl AppState {
         // Initialize plugin system
         let plugins_enabled = settings.borrow().plugins_enabled;
         let disabled_plugins = settings.borrow().disabled_plugins.clone();
+        let plugin_approvals = settings.borrow().plugin_approvals.clone();
         let mut plugins = PluginManager::new(plugins_enabled);
         if plugins_enabled {
             plugins.load_plugins(&get_plugin_dir());
+
+            // Apply previously saved permission approvals
+            for plugin in plugins.plugins_mut() {
+                if let Some(approvals) = plugin_approvals.get(&plugin.name) {
+                    plugin.approved_commands = approvals.approved_commands.clone();
+                }
+            }
+
+            // NOTE: Permission check is deferred until after UI is ready.
+            // The main.rs sends CheckPluginPermissions message after window.show().
+
             // Apply disabled list from settings
             for name in &disabled_plugins {
                 plugins.toggle_plugin(name, false);
@@ -133,6 +146,151 @@ impl AppState {
             last_open_directory: None,
             last_auto_save: Instant::now(),
             session_dirty: false,
+        }
+    }
+
+    /// Check plugin permissions and show approval dialog for unapproved commands.
+    /// Called during startup after plugins are loaded.
+    fn check_plugin_permissions(
+        plugins: &mut PluginManager,
+        settings: &Rc<RefCell<AppSettings>>,
+    ) {
+        for plugin in plugins.plugins_mut() {
+            // Find commands that need user approval
+            let unapproved: Vec<String> = plugin
+                .permissions
+                .execute
+                .iter()
+                .filter(|cmd| !plugin.approved_commands.contains(cmd))
+                .cloned()
+                .collect();
+
+            if unapproved.is_empty() {
+                continue;
+            }
+
+            // Show permission dialog
+            let request = PermissionRequest {
+                plugin_name: plugin.name.clone(),
+                description: plugin.description.clone(),
+                commands: unapproved,
+            };
+
+            match show_permission_dialog(&request) {
+                ApprovalResult::Approved(cmds) => {
+                    // Add to plugin's approved commands
+                    plugin.approved_commands.extend(cmds.clone());
+
+                    // Save to settings
+                    {
+                        let mut s = settings.borrow_mut();
+                        let approvals = s
+                            .plugin_approvals
+                            .entry(plugin.name.clone())
+                            .or_default();
+                        for cmd in cmds {
+                            if !approvals.approved_commands.contains(&cmd) {
+                                approvals.approved_commands.push(cmd);
+                            }
+                        }
+                    }
+                    if let Err(e) = settings.borrow().save() {
+                        eprintln!("[plugins] Failed to save permission approvals: {}", e);
+                    }
+                }
+                ApprovalResult::Denied => {
+                    // Disable the plugin
+                    plugin.enabled = false;
+                    eprintln!(
+                        "[plugins] {} disabled: user denied permissions",
+                        plugin.name
+                    );
+                }
+                ApprovalResult::Cancelled => {
+                    // User closed without deciding - plugin runs but can't use commands
+                    eprintln!(
+                        "[plugins] {} permission dialog cancelled - running with limited permissions",
+                        plugin.name
+                    );
+                }
+            }
+        }
+    }
+
+    /// Request permission approval for a specific plugin (called from diagnostic click)
+    pub fn request_plugin_permissions(&mut self, plugin_name: &str) {
+        // Find the plugin and its unapproved commands
+        let plugin_info: Option<(String, String, Vec<String>)> = {
+            self.plugins
+                .plugins_mut()
+                .iter()
+                .find(|p| p.name == plugin_name)
+                .map(|plugin| {
+                    let unapproved: Vec<String> = plugin
+                        .permissions
+                        .execute
+                        .iter()
+                        .filter(|cmd| !plugin.approved_commands.contains(cmd))
+                        .cloned()
+                        .collect();
+                    (plugin.name.clone(), plugin.description.clone(), unapproved)
+                })
+        };
+
+        let Some((name, description, unapproved)) = plugin_info else {
+            eprintln!("[plugins] Plugin '{}' not found", plugin_name);
+            return;
+        };
+
+        if unapproved.is_empty() {
+            eprintln!("[plugins] {} has no unapproved commands", name);
+            return;
+        }
+
+        // Show permission dialog
+        let request = PermissionRequest {
+            plugin_name: name.clone(),
+            description,
+            commands: unapproved,
+        };
+
+        match show_permission_dialog(&request) {
+            ApprovalResult::Approved(cmds) => {
+                // Update plugin's approved commands
+                if let Some(plugin) = self.plugins.plugins_mut().iter_mut().find(|p| p.name == name) {
+                    plugin.approved_commands.extend(cmds.clone());
+                    plugin.enabled = true; // Re-enable if it was disabled
+                }
+
+                // Save to settings
+                {
+                    let mut s = self.settings.borrow_mut();
+                    let approvals = s.plugin_approvals.entry(name.clone()).or_default();
+                    for cmd in cmds {
+                        if !approvals.approved_commands.contains(&cmd) {
+                            approvals.approved_commands.push(cmd);
+                        }
+                    }
+                }
+                if let Err(e) = self.settings.borrow().save() {
+                    eprintln!("[plugins] Failed to save permission approvals: {}", e);
+                }
+
+                // Re-run lint on current document to pick up the new permissions
+                self.request_manual_highlight();
+            }
+            ApprovalResult::Denied => {
+                if let Some(plugin) = self.plugins.plugins_mut().iter_mut().find(|p| p.name == name) {
+                    plugin.enabled = false;
+                }
+                eprintln!("[plugins] {} disabled: user denied permissions", name);
+            }
+            ApprovalResult::Cancelled => {
+                eprintln!(
+                    "[plugins] {} permission dialog cancelled",
+                    name
+                );
+            }
         }
     }
 
@@ -1127,6 +1285,12 @@ impl AppState {
     }
 
     // --- Plugin handlers ---
+
+    /// Check plugin permissions (deferred until after UI is ready).
+    /// Called via CheckPluginPermissions message after main window is shown.
+    pub fn check_plugin_permissions_deferred(&mut self) {
+        Self::check_plugin_permissions(&mut self.plugins, &self.settings);
+    }
 
     /// Toggle the global plugin system on/off
     pub fn handle_plugins_toggle_global(&mut self) {

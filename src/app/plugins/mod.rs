@@ -26,7 +26,7 @@ pub use api::EditorApi;
 pub use hooks::{Diagnostic, DiagnosticLevel, HookResult, PluginHook, StatusMessage};
 pub use loader::get_plugin_dir;
 
-use loader::{discover_plugins, load_plugin_toml};
+use loader::{discover_plugins, load_plugin_toml, PluginPermissions};
 use runtime::LuaRuntime;
 
 /// A loaded plugin instance
@@ -46,6 +46,12 @@ pub struct LoadedPlugin {
 
     /// Whether this plugin is currently enabled
     pub enabled: bool,
+
+    /// Permissions declared in the plugin manifest
+    pub permissions: PluginPermissions,
+
+    /// Commands the user has approved for this plugin
+    pub approved_commands: Vec<String>,
 
     /// The Lua table returned by init.lua
     table: Table,
@@ -183,12 +189,20 @@ impl PluginManager {
                 .unwrap_or_default()
         };
 
+        // Get permissions from manifest (defaults to empty if no manifest)
+        let permissions = toml_meta
+            .as_ref()
+            .map(|m| m.permissions.clone())
+            .unwrap_or_default();
+
         Ok(LoadedPlugin {
             name,
             version,
             description,
             path: plugin_path.to_path_buf(),
             enabled: true,
+            permissions,
+            approved_commands: Vec::new(), // Will be populated from settings
             table,
         })
     }
@@ -243,6 +257,44 @@ impl PluginManager {
                 }
                 Err(e) => {
                     eprintln!("[plugins] {} hook error: {}", plugin.name, e);
+                    // Short toast notification
+                    result.status_message = Some(StatusMessage {
+                        level: crate::ui::toast::ToastLevel::Error,
+                        text: format!("Plugin '{}' failed", plugin.name),
+                    });
+                    // Extract just the error message, not the stack trace
+                    let error_msg = e.to_string();
+                    let clean_msg = error_msg
+                        .lines()
+                        .next()
+                        .unwrap_or(&error_msg)
+                        .trim_start_matches("runtime error: ")
+                        .to_string();
+
+                    // Check if this is a permission error - add clickable action to open plugin folder
+                    let (fix_message, url) = if clean_msg.contains("No permissions")
+                        || clean_msg.contains("not approved")
+                    {
+                        // Create file:// URL to the plugin directory
+                        let plugin_dir = plugin.path.to_string_lossy();
+                        (
+                            Some("Double-click to open plugin folder".to_string()),
+                            Some(format!("file://{}", plugin_dir)),
+                        )
+                    } else {
+                        (None, None)
+                    };
+
+                    // Error in diagnostic panel
+                    result.diagnostics.push(Diagnostic {
+                        line: 1,
+                        column: None,
+                        message: clean_msg,
+                        level: DiagnosticLevel::Error,
+                        source: plugin.name.clone(),
+                        fix_message,
+                        url,
+                    });
                 }
             }
         }
@@ -266,8 +318,8 @@ impl PluginManager {
         let hook_name = hook.lua_name();
         let mut result = HookResult::default();
 
-        // Create the API object for this hook
-        let api = self.create_api_for_hook(hook);
+        // Create the API object for this hook with plugin context for permissions
+        let api = self.create_api_for_hook(hook, plugin);
 
         // Call the hook with appropriate arguments
         let value = match hook {
@@ -523,8 +575,9 @@ impl PluginManager {
     }
 
     /// Create an EditorApi instance for a specific hook
-    fn create_api_for_hook(&self, hook: &PluginHook) -> EditorApi {
-        match hook {
+    /// Create an EditorApi instance for a specific hook with plugin context
+    fn create_api_for_hook(&self, hook: &PluginHook, plugin: &LoadedPlugin) -> EditorApi {
+        let mut api = match hook {
             PluginHook::Init | PluginHook::Shutdown => EditorApi::default(),
 
             PluginHook::OnDocumentOpen { path } => EditorApi::with_path(path.clone()),
@@ -550,12 +603,34 @@ impl PluginManager {
             PluginHook::OnHighlightRequest { path, content } => {
                 EditorApi::with_path_and_content(path.clone(), content.clone())
             }
-        }
+        };
+
+        // Add plugin context for permission checking
+        api.plugin_name = Some(plugin.name.clone());
+        api.allowed_commands = plugin.approved_commands.clone();
+
+        api
     }
 
     /// Get a list of all loaded plugins
     pub fn list_plugins(&self) -> &[LoadedPlugin] {
         &self.plugins
+    }
+
+    /// Get mutable access to all loaded plugins (for permission management)
+    pub fn plugins_mut(&mut self) -> &mut Vec<LoadedPlugin> {
+        &mut self.plugins
+    }
+
+    /// Set approved commands for a plugin by name
+    #[allow(dead_code)]  // Reserved for future plugin manager UI
+    pub fn set_approved_commands(&mut self, name: &str, commands: Vec<String>) {
+        for plugin in &mut self.plugins {
+            if plugin.name == name {
+                plugin.approved_commands = commands;
+                break;
+            }
+        }
     }
 
     /// Toggle a specific plugin on/off by name

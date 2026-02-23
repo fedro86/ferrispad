@@ -1,10 +1,23 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
 use crate::app::infrastructure::error::AppError;
 use crate::app::services::session::SessionRestore;
 use crate::app::services::updater::UpdateChannel;
+
+/// Per-plugin permission approvals stored in settings.
+/// Tracks which commands the user has approved or denied for each plugin.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PluginApprovals {
+    /// Commands the user has approved for this plugin
+    #[serde(default)]
+    pub approved_commands: Vec<String>,
+    /// Commands the user has explicitly denied
+    #[serde(default)]
+    pub denied_commands: Vec<String>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ThemeMode {
@@ -135,6 +148,10 @@ pub struct AppSettings {
     /// Names of explicitly disabled plugins
     #[serde(default)]
     pub disabled_plugins: Vec<String>,
+
+    /// Per-plugin permission approvals (plugin_name -> approvals)
+    #[serde(default)]
+    pub plugin_approvals: HashMap<String, PluginApprovals>,
 }
 
 fn default_line_numbers() -> bool {
@@ -206,6 +223,7 @@ impl Default for AppSettings {
             tab_size: default_tab_size(),
             plugins_enabled: default_plugins_enabled(),
             disabled_plugins: Vec::new(),
+            plugin_approvals: HashMap::new(),
         }
     }
 }

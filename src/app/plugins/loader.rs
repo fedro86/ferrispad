@@ -3,7 +3,17 @@
 //! Plugins are discovered from ~/.config/ferrispad/plugins/
 //! Each plugin is a directory containing an init.lua file.
 
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+/// Permissions requested by a plugin in its manifest.
+/// These must be approved by the user before the plugin can use them.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PluginPermissions {
+    /// Commands this plugin wants to execute via `api:run_command()`
+    #[serde(default)]
+    pub execute: Vec<String>,
+}
 
 /// Metadata extracted from a plugin's init.lua or plugin.toml
 #[derive(Debug, Clone, Default)]
@@ -11,6 +21,7 @@ pub struct PluginMetadata {
     pub name: String,
     pub version: String,
     pub description: String,
+    pub permissions: PluginPermissions,
 }
 
 /// Get the plugin directory path.
@@ -77,10 +88,27 @@ pub fn load_plugin_toml(plugin_dir: &std::path::Path) -> Option<PluginMetadata> 
         .unwrap_or("")
         .to_string();
 
+    // Parse [permissions] section
+    let permissions = if let Some(perms) = parsed.get("permissions") {
+        let execute = perms
+            .get("execute")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        PluginPermissions { execute }
+    } else {
+        PluginPermissions::default()
+    };
+
     Some(PluginMetadata {
         name,
         version,
         description,
+        permissions,
     })
 }
 

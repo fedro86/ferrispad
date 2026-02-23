@@ -44,6 +44,13 @@ pub struct EditorApi {
     /// Project root directory for sandbox validation.
     /// File system operations are restricted to this directory.
     pub project_root: Option<PathBuf>,
+
+    /// Plugin name (for permission checking and logging)
+    pub plugin_name: Option<String>,
+
+    /// Commands this plugin is allowed to execute.
+    /// Empty means no commands are allowed (strict mode).
+    pub allowed_commands: Vec<String>,
 }
 
 
@@ -163,6 +170,7 @@ impl UserData for EditorApi {
         // This allows plugins to run linters like ruff, mypy, etc.
         //
         // Security:
+        // - Command must be in the plugin's approved commands list (from manifest)
         // - Arguments are validated to prevent shell injection
         // - Command runs with a timeout (30 seconds by default)
         // - Working directory is set to project root if available
@@ -180,6 +188,38 @@ impl UserData for EditorApi {
 
             let cmd = &args[0];
             let cmd_args = &args[1..];
+
+            // Security: Check if command is in approved list
+            // Compare against basename so "/path/to/venv/bin/ruff" matches "ruff"
+            // If allowed_commands is empty, no commands are permitted (strict mode)
+            let plugin_name = this.plugin_name.as_deref().unwrap_or("unknown");
+            let cmd_basename = std::path::Path::new(cmd)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(cmd);
+
+            if !this.allowed_commands.iter().any(|c| c == cmd_basename || c == cmd) {
+                if this.allowed_commands.is_empty() {
+                    eprintln!(
+                        "[plugin:security] {} tried to run '{}' but has no approved commands. \
+                        Add [permissions] execute = [\"{}\"] to plugin.toml",
+                        plugin_name, cmd, cmd_basename
+                    );
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "No permissions. Add to plugin.toml: [permissions] execute = [\"{}\"]",
+                        cmd_basename
+                    )));
+                } else {
+                    eprintln!(
+                        "[plugin:security] {} tried to run '{}' which is not in approved list: {:?}",
+                        plugin_name, cmd, this.allowed_commands
+                    );
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "Command '{}' not approved. Allowed: {:?}",
+                        cmd_basename, this.allowed_commands
+                    )));
+                }
+            }
 
             // Security: Validate command name (no shell injection in command itself)
             if let Err(reason) = validate_command_arg(cmd) {

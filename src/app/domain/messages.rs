@@ -83,6 +83,7 @@ pub enum Message {
     PluginsToggleGlobal,
     PluginToggle(String),
     PluginsReloadAll,
+    CheckPluginPermissions,
 
     // Diagnostics
     DiagnosticsUpdate(Vec<Diagnostic>),

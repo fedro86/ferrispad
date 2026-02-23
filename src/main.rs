@@ -164,6 +164,9 @@ fn main() {
         &state.plugins,
     );
 
+    // Check plugin permissions now that UI is ready (dialog needs event loop)
+    sender.send(Message::CheckPluginPermissions);
+
     // Background update check via channel
     {
         let settings_lock = app_settings.borrow();
@@ -329,6 +332,7 @@ fn main() {
                 Message::PluginsToggleGlobal => state.handle_plugins_toggle_global(),
                 Message::PluginToggle(name) => state.handle_plugin_toggle(name),
                 Message::PluginsReloadAll => state.handle_plugins_reload(),
+                Message::CheckPluginPermissions => state.check_plugin_permissions_deferred(),
 
                 // Diagnostics
                 Message::DiagnosticsUpdate(diagnostics) => {
@@ -354,7 +358,7 @@ fn main() {
                     }
                 }
                 Message::DiagnosticOpenDocs(_idx) => {
-                    // Double-click: open documentation URL in browser
+                    // Double-click: open documentation URL or file path
                     if let Some(url) = w.diagnostic_panel.selected_url() {
                         if let Err(e) = open::that(&url) {
                             eprintln!("[diagnostic] Failed to open URL: {}", e);

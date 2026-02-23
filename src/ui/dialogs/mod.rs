@@ -3,6 +3,7 @@ pub mod goto_line;
 pub mod settings_dialog;
 pub mod about;
 pub mod update;
+pub mod plugin_permissions;
 
 use fltk::{app, prelude::*, window::Window};
 
