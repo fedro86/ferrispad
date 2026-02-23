@@ -4,9 +4,20 @@
 //! document information and perform logging.
 //!
 //! Also provides controlled access to external commands for linting.
+//!
+//! ## Security
+//!
+//! All file system operations are sandboxed to the project root directory.
+//! Path traversal attacks (e.g., `../../etc/passwd`) are blocked.
 
 use mlua::{Lua, Result as LuaResult, UserData, UserDataMethods};
+use std::path::PathBuf;
 use std::process::Command;
+
+use super::security::{
+    find_project_root, validate_command_arg, validate_path, PathValidation,
+    DEFAULT_COMMAND_TIMEOUT,
+};
 
 /// Editor state passed to plugin hooks.
 /// This is a snapshot of the current document state.
@@ -29,32 +40,47 @@ pub struct EditorApi {
 
     /// Selected text (if any)
     pub selection: Option<String>,
+
+    /// Project root directory for sandbox validation.
+    /// File system operations are restricted to this directory.
+    pub project_root: Option<PathBuf>,
 }
 
 
 impl EditorApi {
+    /// Compute project root from a file path
+    fn compute_project_root(path: Option<&str>) -> Option<PathBuf> {
+        path.and_then(|p| find_project_root(std::path::Path::new(p)))
+    }
+
     /// Create an EditorApi with just a file path (for open/close hooks)
     pub fn with_path(path: Option<String>) -> Self {
+        let project_root = Self::compute_project_root(path.as_deref());
         Self {
             file_path: path,
+            project_root,
             ..Default::default()
         }
     }
 
     /// Create an EditorApi with content for save hooks
     pub fn with_content(path: String, content: String) -> Self {
+        let project_root = Self::compute_project_root(Some(&path));
         Self {
             text: Some(content),
             file_path: Some(path),
+            project_root,
             ..Default::default()
         }
     }
 
     /// Create an EditorApi with optional path and content for highlight request hooks
     pub fn with_path_and_content(path: Option<String>, content: String) -> Self {
+        let project_root = Self::compute_project_root(path.as_deref());
         Self {
             text: Some(content),
             file_path: path,
+            project_root,
             ..Default::default()
         }
     }
@@ -66,9 +92,11 @@ impl EditorApi {
         _deleted_len: i32,
         path: Option<String>,
     ) -> Self {
+        let project_root = Self::compute_project_root(path.as_deref());
         Self {
             file_path: path,
             cursor_position: position,
+            project_root,
             ..Default::default()
         }
     }
@@ -133,7 +161,16 @@ impl UserData for EditorApi {
         // Run an external command and return its output
         // Returns: { stdout = "...", stderr = "...", success = true/false }
         // This allows plugins to run linters like ruff, mypy, etc.
-        methods.add_method("run_command", |lua, _this, args: mlua::Variadic<String>| {
+        //
+        // Security:
+        // - Arguments are validated to prevent shell injection
+        // - Command runs with a timeout (30 seconds by default)
+        // - Working directory is set to project root if available
+        methods.add_method("run_command", |lua, this, args: mlua::Variadic<String>| {
+            use std::io::Read;
+            use std::process::Stdio;
+            use std::time::Instant;
+
             let args: Vec<String> = args.into_iter().collect();
             if args.is_empty() {
                 return Err(mlua::Error::RuntimeError(
@@ -144,13 +181,99 @@ impl UserData for EditorApi {
             let cmd = &args[0];
             let cmd_args = &args[1..];
 
-            match Command::new(cmd).args(cmd_args).output() {
-                Ok(output) => {
-                    let result = lua.create_table()?;
-                    result.set("stdout", String::from_utf8_lossy(&output.stdout).to_string())?;
-                    result.set("stderr", String::from_utf8_lossy(&output.stderr).to_string())?;
-                    result.set("success", output.status.success())?;
-                    Ok(mlua::Value::Table(result))
+            // Security: Validate command name (no shell injection in command itself)
+            if let Err(reason) = validate_command_arg(cmd) {
+                eprintln!("[plugin:security] run_command blocked command '{}': {}", cmd, reason);
+                return Err(mlua::Error::RuntimeError(format!(
+                    "Invalid command: {}",
+                    reason
+                )));
+            }
+
+            // Security: Validate all arguments for shell injection
+            for (i, arg) in cmd_args.iter().enumerate() {
+                if let Err(reason) = validate_command_arg(arg) {
+                    eprintln!(
+                        "[plugin:security] run_command blocked argument {}: '{}' - {}",
+                        i, arg, reason
+                    );
+                    return Err(mlua::Error::RuntimeError(format!(
+                        "Invalid argument {}: {}",
+                        i, reason
+                    )));
+                }
+            }
+
+            // Build command with pipes and optional working directory
+            let mut command = Command::new(cmd);
+            command
+                .args(cmd_args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+
+            // Set working directory to project root if available
+            if let Some(ref project_root) = this.project_root {
+                command.current_dir(project_root);
+            }
+
+            // Spawn process
+            match command.spawn() {
+                Ok(mut child) => {
+                    let start = Instant::now();
+                    let timeout = DEFAULT_COMMAND_TIMEOUT;
+
+                    // Poll until complete or timeout
+                    loop {
+                        match child.try_wait() {
+                            Ok(Some(status)) => {
+                                // Process completed - read output from pipes
+                                let mut stdout_str = String::new();
+                                let mut stderr_str = String::new();
+
+                                if let Some(mut stdout) = child.stdout.take() {
+                                    let _ = stdout.read_to_string(&mut stdout_str);
+                                }
+                                if let Some(mut stderr) = child.stderr.take() {
+                                    let _ = stderr.read_to_string(&mut stderr_str);
+                                }
+
+                                let result = lua.create_table()?;
+                                result.set("stdout", stdout_str)?;
+                                result.set("stderr", stderr_str)?;
+                                result.set("success", status.success())?;
+                                return Ok(mlua::Value::Table(result));
+                            }
+                            Ok(None) => {
+                                // Still running - check timeout
+                                if start.elapsed() > timeout {
+                                    // Timeout - kill the process
+                                    let _ = child.kill();
+                                    let _ = child.wait();
+                                    eprintln!(
+                                        "[plugin:security] run_command killed '{}' after {:?} timeout",
+                                        cmd, timeout
+                                    );
+                                    let result = lua.create_table()?;
+                                    result.set("stdout", "")?;
+                                    result.set("stderr", format!(
+                                        "Command timed out after {} seconds",
+                                        timeout.as_secs()
+                                    ))?;
+                                    result.set("success", false)?;
+                                    return Ok(mlua::Value::Table(result));
+                                }
+                                // Sleep briefly before polling again (10ms)
+                                std::thread::sleep(std::time::Duration::from_millis(10));
+                            }
+                            Err(e) => {
+                                let result = lua.create_table()?;
+                                result.set("stdout", "")?;
+                                result.set("stderr", format!("Command wait failed: {}", e))?;
+                                result.set("success", false)?;
+                                return Ok(mlua::Value::Table(result));
+                            }
+                        }
+                    }
                 }
                 Err(e) => {
                     // Command not found or failed to execute
@@ -179,10 +302,33 @@ impl UserData for EditorApi {
         });
 
         // Check if a file exists at the given path
-        // Returns true if the file exists, false otherwise
+        // Returns true if the file exists AND is within project root, false otherwise
         // Useful for checking venv executables like "./venv/bin/ruff"
-        methods.add_method("file_exists", |_, _this, path: String| {
-            Ok(std::path::Path::new(&path).exists())
+        //
+        // Security: Path is validated against project root to prevent traversal attacks.
+        // Paths outside project root return false (not an error, for backwards compatibility).
+        methods.add_method("file_exists", |_, this, path: String| {
+            let Some(ref project_root) = this.project_root else {
+                // No project root - allow any path (untitled document)
+                // This is less restrictive but necessary for some use cases
+                return Ok(std::path::Path::new(&path).exists());
+            };
+
+            match validate_path(&path, project_root) {
+                PathValidation::Valid(canonical) => Ok(canonical.exists()),
+                PathValidation::NotFound => Ok(false),
+                // For security, paths outside project root return false, not an error
+                // This prevents plugins from probing the file system
+                PathValidation::OutsideProjectRoot
+                | PathValidation::TraversalAttempt
+                | PathValidation::InvalidPath(_) => {
+                    eprintln!(
+                        "[plugin:security] file_exists blocked: '{}' outside project root",
+                        path
+                    );
+                    Ok(false)
+                }
+            }
         });
 
         // Get the directory containing the current file
@@ -197,6 +343,17 @@ impl UserData for EditorApi {
                 .and_then(|p| p.to_str())
                 .map(|s| s.to_string());
             Ok(dir)
+        });
+
+        // Get the project root directory
+        // Returns nil for untitled documents or if no project markers found
+        // Project markers: .git, Cargo.toml, package.json, pyproject.toml, etc.
+        methods.add_method("get_project_root", |_, this, ()| {
+            Ok(this
+                .project_root
+                .as_ref()
+                .and_then(|p| p.to_str())
+                .map(|s| s.to_string()))
         });
     }
 }

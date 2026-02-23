@@ -40,6 +40,9 @@ windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Dw
 [build-dependencies]
 winres = "0.1"
 
+[dev-dependencies]
+tempfile = "3.25.0"
+
 [package.metadata.deb]
 maintainer = "FerrisPad Contributors <fc@ferrispad.com>"
 copyright = "2025, FerrisPad Contributors"

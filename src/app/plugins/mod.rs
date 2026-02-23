@@ -15,6 +15,7 @@ pub mod api;
 pub mod hooks;
 pub mod loader;
 pub mod runtime;
+pub mod security;
 
 use std::path::PathBuf;
 
