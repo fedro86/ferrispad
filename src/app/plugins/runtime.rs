@@ -196,15 +196,15 @@ impl LuaRuntime {
     where
         A: mlua::IntoLuaMulti,
     {
+        // Reset instruction counter BEFORE any Lua operations
+        // This ensures table.get() doesn't consume our budget
+        self.reset_instruction_count();
+
         // Check if the hook function exists
         let hook_value: Value = plugin_table.get(hook_name)?;
 
         match hook_value {
-            Value::Function(func) => {
-                // Reset instruction counter for this hook call
-                self.reset_instruction_count();
-                func.call(args)
-            }
+            Value::Function(func) => func.call(args),
             Value::Nil => Ok(Value::Nil), // Hook not implemented, that's OK
             _ => Err(mlua::Error::RuntimeError(format!(
                 "Plugin hook '{}' must be a function",
