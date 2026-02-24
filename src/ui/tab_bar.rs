@@ -77,8 +77,9 @@ enum DragSource {
 
 #[derive(Clone, Copy, PartialEq)]
 enum DragTarget {
-    OnTab(usize),    // center zone → will group
-    InsertAt(usize), // edge zone → will reorder (index = insertion point)
+    OnTab(usize),           // center zone → will group
+    InsertAt(usize),        // edge zone → will reorder (index = insertion point)
+    OnCollapsedGroup(GroupId), // dropping onto a collapsed group chip → join that group
 }
 
 /// RGB color tuple for theme colors
@@ -1081,6 +1082,26 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                     draw::draw_rectf(ix - 1, wy + 2, 3, wh - 4);
                 }
             }
+            DragTarget::OnCollapsedGroup(gid) => {
+                // Highlight the collapsed chip with a blue tint
+                if let Some(item) = st.layout.iter().find(|it| matches!(it, LayoutItem::CollapsedChip { group_id, .. } if group_id == gid))
+                    && let LayoutItem::CollapsedChip { x, width, .. } = item {
+                        let bg = colors.inactive_bg;
+                        let (br, bg_g, bb) = bg.to_rgb();
+                        let (tr, tg, tb) = if st.is_dark {
+                            (60u8, 120u8, 220u8)
+                        } else {
+                            (80u8, 160u8, 255u8)
+                        };
+                        // 50% blend: (bg + tint) / 2
+                        let blended = Color::from_rgb(
+                            ((br as u16 + tr as u16) / 2) as u8,
+                            ((bg_g as u16 + tg as u16) / 2) as u8,
+                            ((bb as u16 + tb as u16) / 2) as u8,
+                        );
+                        draw_rounded_rect(wx + *x, wy + 4, *width, wh - 6, CORNER_RADIUS, blended);
+                    }
+            }
         }
     }
 }
@@ -1274,6 +1295,15 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                                 None
                             }
                         }
+                        HitResult::CollapsedChip(gid) => {
+                            // Check if source tab is not already in this group
+                            let src_group = st.tabs.get(src_idx).and_then(|t| t.group_id);
+                            if src_group != Some(gid) {
+                                Some(DragTarget::OnCollapsedGroup(gid))
+                            } else {
+                                None
+                            }
+                        }
                         _ => None,
                     }
                 }
@@ -1346,10 +1376,75 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                             sender.send(Message::TabGroupByDrag(source_id, target_id));
                         }
                         (DragSource::Tab(from), DragTarget::InsertAt(to)) => {
+                            // Check if we're inserting between tabs of the same group
+                            // If so, the dragged tab should join that group
+                            let source_tab = &st.tabs[from];
+                            let source_id = source_tab.id;
+
+                            // Get group of tab before and after insertion point (excluding source)
+                            let group_before = if to > 0 && to - 1 != from {
+                                st.tabs.get(to - 1).and_then(|t| t.group_id)
+                            } else if to > 1 && to - 1 == from {
+                                // Skip source, check one more before
+                                st.tabs.get(to - 2).and_then(|t| t.group_id)
+                            } else {
+                                None
+                            };
+
+                            let group_after = if to < st.tabs.len() && to != from {
+                                st.tabs.get(to).and_then(|t| t.group_id)
+                            } else if to + 1 < st.tabs.len() && to == from {
+                                // Skip source, check one more after
+                                st.tabs.get(to + 1).and_then(|t| t.group_id)
+                            } else {
+                                None
+                            };
+
+                            // Determine target group:
+                            // Only join a group if dropping BETWEEN two tabs of the SAME group
+                            // Dropping at the edge of a group should NOT auto-join
+                            let target_group = match (group_before, group_after) {
+                                (Some(gb), Some(ga)) if gb == ga => Some(gb),
+                                _ => None,
+                            };
+
+                            // Get source group for comparison
+                            let source_group = source_tab.group_id;
+
                             drop(st);
+
                             if from != to {
-                                sender.send(Message::TabMove(from, to));
+                                // Use atomic move+group operation to avoid clamp issues
+                                if let Some(target_gid) = target_group {
+                                    if source_group != Some(target_gid) {
+                                        // Moving to a different group - use atomic operation
+                                        sender.send(Message::TabMoveToGroup(source_id, to, Some(target_gid)));
+                                    } else {
+                                        // Same group - just move
+                                        sender.send(Message::TabMove(from, to));
+                                    }
+                                } else {
+                                    // No target group
+                                    if source_group.is_some() {
+                                        // Leaving a group - use atomic operation to remove from group
+                                        sender.send(Message::TabMoveToGroup(source_id, to, None));
+                                    } else {
+                                        // Not in a group, not joining one - simple move
+                                        sender.send(Message::TabMove(from, to));
+                                    }
+                                }
                             }
+                        }
+                        (DragSource::Tab(from), DragTarget::OnCollapsedGroup(gid)) => {
+                            // Dropping a tab onto a collapsed group → add to that group
+                            let source_tab = &st.tabs[from];
+                            let source_id = source_tab.id;
+                            // Find the last tab in the target group to insert after it
+                            let last_in_group = st.tabs.iter().rposition(|t| t.group_id == Some(gid));
+                            let insert_pos = last_in_group.map_or(from, |i| i + 1);
+                            drop(st);
+                            // Use atomic operation to move and join group
+                            sender.send(Message::TabMoveToGroup(source_id, insert_pos, Some(gid)));
                         }
                         (DragSource::Group(gid), DragTarget::InsertAt(to)) => {
                             drop(st);

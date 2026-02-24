@@ -286,6 +286,11 @@ fn main() {
                     state.rebuild_tab_bar();
                     state.mark_session_dirty();
                 }
+                Message::TabMoveToGroup(doc_id, to, group_id) => {
+                    state.tab_manager.move_tab_to_group(doc_id, to, group_id);
+                    state.rebuild_tab_bar();
+                    state.mark_session_dirty();
+                }
 
                 // Edit
                 Message::EditUndo => { let _ = state.active_buffer().undo(); }

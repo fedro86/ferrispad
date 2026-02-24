@@ -39,6 +39,8 @@ pub enum Message {
     TabGroupToggle(GroupId),
     TabGroupByDrag(DocumentId, DocumentId),
     TabGroupMove(GroupId, usize),
+    /// Move a tab to a position and optionally change its group atomically
+    TabMoveToGroup(DocumentId, usize, Option<GroupId>),
 
     // Edit
     EditUndo,

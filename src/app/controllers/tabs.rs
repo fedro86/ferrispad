@@ -219,6 +219,28 @@ impl TabManager {
         self.documents.insert(insert_at, doc);
     }
 
+    /// Move a tab to a new position and optionally change its group atomically.
+    /// This bypasses clamp_insert_outside_foreign_group when a target group is specified,
+    /// allowing the tab to be inserted inside the target group.
+    pub fn move_tab_to_group(&mut self, doc_id: DocumentId, to: usize, target_group: Option<GroupId>) {
+        let from = match self.documents.iter().position(|d| d.id == doc_id) {
+            Some(i) => i,
+            None => return,
+        };
+
+        // Remove the document
+        let mut doc = self.documents.remove(from);
+
+        // Set the new group
+        doc.group_id = target_group;
+
+        // Calculate insertion point (no clamping needed since we're joining the target group)
+        let insert_at = if to > from { to - 1 } else { to };
+        let insert_at = insert_at.min(self.documents.len());
+
+        self.documents.insert(insert_at, doc);
+    }
+
     /// If `pos` falls inside a contiguous run of a group that `source_group` doesn't belong to,
     /// snap it to the nearest boundary of that group.
     fn clamp_insert_outside_foreign_group(&self, pos: usize, source_group: Option<GroupId>) -> usize {
