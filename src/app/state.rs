@@ -28,6 +28,7 @@ use super::services::file_size::{check_file_size, format_size, read_chunk, read_
 use super::services::session::{self, SessionRestore};
 use super::plugins::{PluginManager, PluginHook, get_plugin_dir};
 use crate::ui::dialogs::large_file::{show_file_too_large_dialog, show_large_file_warning, load_to_buffer_with_progress, StreamLoadResult, TooLargeAction};
+use crate::ui::dialogs::plugin_manager::{show_plugin_manager_dialog, PluginManagerResult};
 use crate::ui::dialogs::plugin_permissions::{show_permission_dialog, ApprovalResult, PermissionRequest};
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::editor_container::EditorContainer;
@@ -1360,6 +1361,44 @@ impl AppState {
                 return;
             }
             self.apply_settings(new_settings);
+        }
+    }
+
+    /// Show the plugin manager dialog
+    pub fn show_plugin_manager(&mut self) {
+        let result = show_plugin_manager_dialog(&self.plugins, self.dark_mode);
+
+        match result {
+            PluginManagerResult::ToggledPlugins(toggles) => {
+                for (name, enabled) in toggles {
+                    self.plugins.toggle_plugin(&name, enabled);
+                }
+
+                // Update settings with disabled plugins
+                {
+                    let mut settings = self.settings.borrow_mut();
+                    settings.disabled_plugins = self.plugins.disabled_plugin_names();
+                    let _ = settings.save();
+                }
+
+                // Rebuild plugins menu
+                crate::ui::menu::rebuild_plugins_menu(
+                    &mut self.menu,
+                    &self.sender,
+                    &self.settings.borrow(),
+                    &self.plugins,
+                );
+            }
+            PluginManagerResult::ReloadAll => {
+                self.sender.send(Message::PluginsReloadAll);
+            }
+            PluginManagerResult::InstalledPlugins(names) => {
+                // Reload to pick up new plugins
+                self.sender.send(Message::PluginsReloadAll);
+                // Show success message
+                eprintln!("[plugins] Installed plugins: {}", names.join(", "));
+            }
+            PluginManagerResult::Cancelled => {}
         }
     }
 

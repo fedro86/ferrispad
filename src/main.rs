@@ -339,6 +339,7 @@ fn main() {
                 Message::PluginMenuAction { plugin_name, action } => {
                     state.handle_plugin_menu_action(&plugin_name, &action);
                 }
+                Message::ShowPluginManager => state.show_plugin_manager(),
 
                 // Diagnostics
                 Message::DiagnosticsUpdate(diagnostics) => {

@@ -213,6 +213,15 @@ pub fn build_menu(
         },
     );
     menu.add(
+        "Plugins/Plugin Manager...",
+        Shortcut::None,
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::ShowPluginManager)
+        },
+    );
+    menu.add(
         "Plugins/Run Checks",
         Shortcut::Ctrl | Shortcut::Shift | 'l',
         MenuFlag::Normal,

@@ -2,6 +2,7 @@ pub mod about;
 pub mod find;
 pub mod goto_line;
 pub mod large_file;
+pub mod plugin_manager;
 pub mod plugin_permissions;
 pub mod readonly_viewer;
 pub mod settings_dialog;
