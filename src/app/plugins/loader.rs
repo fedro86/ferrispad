@@ -15,6 +15,21 @@ pub struct PluginPermissions {
     pub execute: Vec<String>,
 }
 
+/// A custom menu item registered by a plugin in its manifest.
+/// Plugins declare these in `[[menu_items]]` arrays in plugin.toml.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PluginMenuItem {
+    /// Display label in menu (e.g., "Run Lint")
+    pub label: String,
+
+    /// Action name passed to `on_menu_action` hook
+    pub action: String,
+
+    /// Optional keyboard shortcut (e.g., "Ctrl+Shift+P")
+    #[serde(default)]
+    pub shortcut: Option<String>,
+}
+
 /// Metadata extracted from a plugin's init.lua or plugin.toml
 #[derive(Debug, Clone, Default)]
 pub struct PluginMetadata {
@@ -22,6 +37,8 @@ pub struct PluginMetadata {
     pub version: String,
     pub description: String,
     pub permissions: PluginPermissions,
+    /// Custom menu items registered by this plugin
+    pub menu_items: Vec<PluginMenuItem>,
 }
 
 /// Get the plugin directory path.
@@ -104,17 +121,53 @@ pub fn load_plugin_toml(plugin_dir: &std::path::Path) -> Option<PluginMetadata> 
         PluginPermissions::default()
     };
 
+    // Parse [[menu_items]] array
+    let menu_items = parsed
+        .get("menu_items")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| {
+                    let label = item.get("label")?.as_str()?.to_string();
+                    let action = item.get("action")?.as_str()?.to_string();
+                    let shortcut = item
+                        .get("shortcut")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+
+                    // Sanitize label: no '/' allowed (would create submenu)
+                    if label.contains('/') {
+                        eprintln!(
+                            "[plugins] Warning: menu item label '{}' contains '/', skipping",
+                            label
+                        );
+                        return None;
+                    }
+
+                    Some(PluginMenuItem {
+                        label,
+                        action,
+                        shortcut,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     Some(PluginMetadata {
         name,
         version,
         description,
         permissions,
+        menu_items,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    use tempfile::tempdir;
 
     #[test]
     fn test_get_plugin_dir() {
@@ -126,5 +179,90 @@ mod tests {
     fn test_discover_plugins_nonexistent() {
         let plugins = discover_plugins(std::path::Path::new("/nonexistent/path"));
         assert!(plugins.is_empty());
+    }
+
+    #[test]
+    fn test_load_plugin_toml_with_menu_items() {
+        let dir = tempdir().unwrap();
+        let toml_content = r#"
+name = "Test Plugin"
+version = "1.0.0"
+description = "A test plugin"
+
+[permissions]
+execute = ["ruff"]
+
+[[menu_items]]
+label = "Run Lint"
+action = "lint"
+shortcut = "Ctrl+Shift+P"
+
+[[menu_items]]
+label = "Format Code"
+action = "format"
+"#;
+        let toml_path = dir.path().join("plugin.toml");
+        let mut file = std::fs::File::create(&toml_path).unwrap();
+        file.write_all(toml_content.as_bytes()).unwrap();
+
+        let metadata = load_plugin_toml(dir.path()).unwrap();
+
+        assert_eq!(metadata.name, "Test Plugin");
+        assert_eq!(metadata.version, "1.0.0");
+        assert_eq!(metadata.menu_items.len(), 2);
+
+        assert_eq!(metadata.menu_items[0].label, "Run Lint");
+        assert_eq!(metadata.menu_items[0].action, "lint");
+        assert_eq!(
+            metadata.menu_items[0].shortcut,
+            Some("Ctrl+Shift+P".to_string())
+        );
+
+        assert_eq!(metadata.menu_items[1].label, "Format Code");
+        assert_eq!(metadata.menu_items[1].action, "format");
+        assert!(metadata.menu_items[1].shortcut.is_none());
+    }
+
+    #[test]
+    fn test_load_plugin_toml_without_menu_items() {
+        let dir = tempdir().unwrap();
+        let toml_content = r#"
+name = "Simple Plugin"
+version = "1.0.0"
+"#;
+        let toml_path = dir.path().join("plugin.toml");
+        let mut file = std::fs::File::create(&toml_path).unwrap();
+        file.write_all(toml_content.as_bytes()).unwrap();
+
+        let metadata = load_plugin_toml(dir.path()).unwrap();
+
+        assert_eq!(metadata.name, "Simple Plugin");
+        assert!(metadata.menu_items.is_empty());
+    }
+
+    #[test]
+    fn test_menu_item_label_sanitization() {
+        let dir = tempdir().unwrap();
+        let toml_content = r#"
+name = "Bad Plugin"
+version = "1.0.0"
+
+[[menu_items]]
+label = "Sub/Menu"
+action = "bad"
+
+[[menu_items]]
+label = "Good Label"
+action = "good"
+"#;
+        let toml_path = dir.path().join("plugin.toml");
+        let mut file = std::fs::File::create(&toml_path).unwrap();
+        file.write_all(toml_content.as_bytes()).unwrap();
+
+        let metadata = load_plugin_toml(dir.path()).unwrap();
+
+        // Only the valid menu item should be present
+        assert_eq!(metadata.menu_items.len(), 1);
+        assert_eq!(metadata.menu_items[0].label, "Good Label");
     }
 }

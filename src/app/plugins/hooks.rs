@@ -103,6 +103,15 @@ pub enum PluginHook {
         path: Option<String>,
         content: String,
     },
+
+    /// Called when user triggers a plugin's custom menu action.
+    /// The action name comes from plugin.toml [[menu_items]].
+    /// Plugin can return diagnostics, modified content, or status message.
+    OnMenuAction {
+        action: String,
+        path: Option<String>,
+        content: String,
+    },
 }
 
 impl PluginHook {
@@ -118,6 +127,7 @@ impl PluginHook {
             Self::OnThemeChanged { .. } => "on_theme_changed",
             Self::OnDocumentLint { .. } => "on_document_lint",
             Self::OnHighlightRequest { .. } => "on_highlight_request",
+            Self::OnMenuAction { .. } => "on_menu_action",
         }
     }
 }

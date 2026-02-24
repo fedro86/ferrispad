@@ -84,6 +84,8 @@ pub enum Message {
     PluginToggle(String),
     PluginsReloadAll,
     CheckPluginPermissions,
+    /// A plugin's custom menu action was triggered
+    PluginMenuAction { plugin_name: String, action: String },
 
     // Diagnostics
     DiagnosticsUpdate(Vec<Diagnostic>),

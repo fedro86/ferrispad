@@ -164,6 +164,9 @@ fn main() {
         &state.plugins,
     );
 
+    // Update menus based on active file type (preview, plugin items)
+    state.update_menus_for_file_type();
+
     // Check plugin permissions now that UI is ready (dialog needs event loop)
     sender.send(Message::CheckPluginPermissions);
 
@@ -333,6 +336,9 @@ fn main() {
                 Message::PluginToggle(name) => state.handle_plugin_toggle(name),
                 Message::PluginsReloadAll => state.handle_plugins_reload(),
                 Message::CheckPluginPermissions => state.check_plugin_permissions_deferred(),
+                Message::PluginMenuAction { plugin_name, action } => {
+                    state.handle_plugin_menu_action(&plugin_name, &action);
+                }
 
                 // Diagnostics
                 Message::DiagnosticsUpdate(diagnostics) => {

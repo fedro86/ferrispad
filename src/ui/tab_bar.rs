@@ -74,11 +74,67 @@ enum DragTarget {
     InsertAt(usize), // edge zone → will reorder (index = insertion point)
 }
 
+/// RGB color tuple for theme colors
+#[derive(Clone, Copy)]
+pub struct ThemeRgb {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+
+impl ThemeRgb {
+    pub fn new(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b }
+    }
+
+    pub fn from_tuple(rgb: (u8, u8, u8)) -> Self {
+        Self { r: rgb.0, g: rgb.1, b: rgb.2 }
+    }
+
+    /// Calculate brightness (0-255)
+    pub fn brightness(&self) -> u8 {
+        ((self.r as u32 + self.g as u32 + self.b as u32) / 3) as u8
+    }
+
+    /// Darken color by a factor (0.0 = black, 1.0 = unchanged)
+    pub fn darken(&self, factor: f32) -> Self {
+        Self {
+            r: (self.r as f32 * factor) as u8,
+            g: (self.g as f32 * factor) as u8,
+            b: (self.b as f32 * factor) as u8,
+        }
+    }
+
+    /// Lighten color towards white by a factor (0.0 = unchanged, 1.0 = white)
+    pub fn lighten(&self, factor: f32) -> Self {
+        Self {
+            r: self.r + ((255 - self.r) as f32 * factor) as u8,
+            g: self.g + ((255 - self.g) as f32 * factor) as u8,
+            b: self.b + ((255 - self.b) as f32 * factor) as u8,
+        }
+    }
+
+    /// Blend towards another color
+    pub fn blend(&self, other: &Self, factor: f32) -> Self {
+        Self {
+            r: (self.r as f32 + (other.r as f32 - self.r as f32) * factor) as u8,
+            g: (self.g as f32 + (other.g as f32 - self.g as f32) * factor) as u8,
+            b: (self.b as f32 + (other.b as f32 - self.b as f32) * factor) as u8,
+        }
+    }
+
+    pub fn to_fltk(&self) -> Color {
+        Color::from_rgb(self.r, self.g, self.b)
+    }
+}
+
 struct TabBarState {
     tabs: Vec<TabInfo>,
     groups: Vec<GroupInfo>,
     layout: Vec<LayoutItem>,
     is_dark: bool,
+    /// Editor background color from syntax theme
+    theme_bg: ThemeRgb,
     hover_tab_index: Option<usize>,
     hover_close: bool,
     hover_plus: bool,
@@ -102,6 +158,7 @@ impl TabBar {
             groups: Vec::new(),
             layout: Vec::new(),
             is_dark: false,
+            theme_bg: ThemeRgb::new(255, 255, 255), // Default to white
             hover_tab_index: None,
             hover_close: false,
             hover_plus: false,
@@ -136,9 +193,11 @@ impl TabBar {
         active_id: Option<DocumentId>,
         _sender: &Sender<Message>,
         is_dark: bool,
+        theme_bg: (u8, u8, u8),
     ) {
         let mut st = self.state.borrow_mut();
         st.is_dark = is_dark;
+        st.theme_bg = ThemeRgb::from_tuple(theme_bg);
         st.widget_w = self.widget.w();
         st.tabs.clear();
         st.groups.clear();
@@ -168,8 +227,11 @@ impl TabBar {
         self.widget.redraw();
     }
 
-    pub fn apply_theme(&mut self, is_dark: bool) {
-        self.state.borrow_mut().is_dark = is_dark;
+    pub fn apply_theme(&mut self, is_dark: bool, theme_bg: (u8, u8, u8)) {
+        let mut st = self.state.borrow_mut();
+        st.is_dark = is_dark;
+        st.theme_bg = ThemeRgb::from_tuple(theme_bg);
+        drop(st);
         self.widget.redraw();
     }
 }
@@ -356,24 +418,77 @@ struct ThemeColors {
     close_hover_bg: Color,
 }
 
+/// Calculate tab bar colors based on the editor's syntax theme background.
+/// - Active tab: matches editor background (seamless transition)
+/// - Bar background: slightly darker/lighter than editor
+/// - Inactive tab: between active and bar background
+fn theme_colors_from_bg(theme_bg: &ThemeRgb) -> ThemeColors {
+    let is_dark = theme_bg.brightness() < 128;
+
+    // Active tab = editor background (creates seamless connection)
+    let active_bg = theme_bg.to_fltk();
+
+    // Bar background: darken for light themes, darken more for dark themes
+    let bar_bg_rgb = if is_dark {
+        theme_bg.darken(0.65) // Darker than editor
+    } else {
+        theme_bg.darken(0.85) // Slightly darker
+    };
+    let bar_bg = bar_bg_rgb.to_fltk();
+
+    // Inactive tab: blend between active (editor) and bar background
+    let inactive_bg_rgb = theme_bg.blend(&bar_bg_rgb, 0.5);
+    let inactive_bg = inactive_bg_rgb.to_fltk();
+
+    // Text colors based on brightness
+    let (active_text, inactive_text) = if is_dark {
+        (
+            Color::from_rgb(230, 230, 230),
+            Color::from_rgb(140, 140, 140),
+        )
+    } else {
+        (
+            Color::from_rgb(0, 0, 0),
+            Color::from_rgb(80, 80, 80),
+        )
+    };
+
+    // Close button hover: slightly different from inactive
+    let close_hover_bg = if is_dark {
+        theme_bg.lighten(0.15).to_fltk()
+    } else {
+        theme_bg.darken(0.78).to_fltk()
+    };
+
+    ThemeColors {
+        bar_bg,
+        active_bg,
+        inactive_bg,
+        active_text,
+        inactive_text,
+        close_hover_bg,
+    }
+}
+
+#[allow(dead_code)] // Keep for reference/fallback
 fn theme_colors(is_dark: bool) -> ThemeColors {
     if is_dark {
         ThemeColors {
-            bar_bg: Color::from_rgb(25, 25, 25),
-            active_bg: Color::from_rgb(50, 50, 50),
-            inactive_bg: Color::from_rgb(35, 35, 35),
+            bar_bg: Color::from_rgb(20, 20, 20),
+            active_bg: Color::from_rgb(30, 30, 30),
+            inactive_bg: Color::from_rgb(25, 25, 25),
             active_text: Color::from_rgb(230, 230, 230),
             inactive_text: Color::from_rgb(140, 140, 140),
-            close_hover_bg: Color::from_rgb(70, 70, 70),
+            close_hover_bg: Color::from_rgb(50, 50, 50),
         }
     } else {
         ThemeColors {
-            bar_bg: Color::from_rgb(200, 200, 200),
+            bar_bg: Color::from_rgb(215, 215, 215),
             active_bg: Color::from_rgb(255, 255, 255),
-            inactive_bg: Color::from_rgb(220, 220, 220),
+            inactive_bg: Color::from_rgb(235, 235, 235),
             active_text: Color::from_rgb(0, 0, 0),
             inactive_text: Color::from_rgb(80, 80, 80),
-            close_hover_bg: Color::from_rgb(190, 190, 190),
+            close_hover_bg: Color::from_rgb(200, 200, 200),
         }
     }
 }
@@ -443,7 +558,7 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
     let wy = wid.y();
     let ww = wid.w();
     let wh = wid.h();
-    let colors = theme_colors(st.is_dark);
+    let colors = theme_colors_from_bg(&st.theme_bg);
 
     // Background
     draw::set_draw_color(colors.bar_bg);
@@ -604,21 +719,18 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                 let px = wx + *x;
                 let btn_h = wh - 4;
                 let btn_y = wy + 2;
+                // Use active tab color as base, with slight adjustment for hover
                 let bg = if st.hover_plus {
-                    if st.is_dark {
-                        Color::from_rgb(60, 60, 60)
-                    } else {
-                        Color::from_rgb(210, 210, 210)
-                    }
-                } else if st.is_dark {
-                    Color::from_rgb(35, 35, 35)
+                    colors.close_hover_bg
                 } else {
-                    Color::from_rgb(220, 220, 220)
+                    colors.active_bg
                 };
                 draw_rounded_top_rect(px, btn_y, PLUS_BTN_WIDTH, btn_h, CORNER_RADIUS, bg);
                 let text_color = if st.hover_plus {
-                    if st.is_dark { Color::from_rgb(230, 230, 230) } else { Color::from_rgb(0, 0, 0) }
-                } else if st.is_dark { Color::from_rgb(140, 140, 140) } else { Color::from_rgb(80, 80, 80) };
+                    colors.active_text
+                } else {
+                    colors.inactive_text
+                };
                 draw::set_draw_color(text_color);
                 draw::set_font(Font::HelveticaBold, 16);
                 draw::draw_text2("+", px, btn_y, PLUS_BTN_WIDTH, btn_h, Align::Center);

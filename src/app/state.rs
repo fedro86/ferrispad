@@ -381,18 +381,49 @@ impl AppState {
             // Document has never been linted - hide the panel entirely
             self.sender.send(Message::DiagnosticsClear);
         }
+
+        // Update menus based on file type (preview, plugin items)
+        self.update_menus_for_file_type();
+    }
+
+    /// Update all file-type-dependent menu items based on the current file.
+    /// This includes:
+    /// - Preview in Browser (only for markdown)
+    /// - Plugin menu items (based on their supported file extensions)
+    pub fn update_menus_for_file_type(&mut self) {
+        let file_path = self.tab_manager.active_doc()
+            .and_then(|doc| doc.file_path.as_ref())
+            .map(|p| p.as_str());
+
+        // Update built-in menus
+        crate::ui::menu::update_preview_menu(&mut self.menu, file_path);
+
+        // Update plugin menus based on file type
+        crate::ui::menu::update_plugin_menus_for_file(&mut self.menu, &self.plugins, file_path);
+    }
+
+    /// Update the Preview in Browser menu item based on current file type.
+    /// Only enables it for markdown files (.md, .markdown).
+    #[allow(dead_code)] // Keep for backward compatibility
+    pub fn update_preview_menu(&mut self) {
+        let file_path = self.tab_manager.active_doc()
+            .and_then(|doc| doc.file_path.as_ref())
+            .map(|p| p.as_str());
+        crate::ui::menu::update_preview_menu(&mut self.menu, file_path);
     }
 
     /// Rebuild the tab bar UI from current documents
     pub fn rebuild_tab_bar(&mut self) {
         if let Some(ref mut tab_bar) = self.tab_bar {
             let active_id = self.tab_manager.active_id();
+            let theme_bg = self.highlight.highlighter().theme_background();
             tab_bar.rebuild(
                 self.tab_manager.documents(),
                 self.tab_manager.groups(),
                 active_id,
                 &self.sender,
                 self.dark_mode,
+                theme_bg,
             );
         }
     }
@@ -609,6 +640,7 @@ impl AppState {
                 self.detect_and_highlight(id, &path);
             }
             self.update_window_title();
+            self.update_menus_for_file_type();
 
             // Call plugin hooks after document is loaded
             self.plugins.call_hook(PluginHook::OnDocumentOpen {
@@ -811,6 +843,7 @@ impl AppState {
                 doc.style_buffer.set_text("");
             }
             self.update_window_title();
+            self.update_menus_for_file_type();
         }
     }
 
@@ -916,6 +949,7 @@ impl AppState {
                     }
                     self.update_window_title();
                     self.rebuild_tab_bar();
+                    self.update_menus_for_file_type();
 
                     // Call lint hook after successful save
                     let lint_result = self.plugins.call_hook(PluginHook::OnDocumentLint {
@@ -1216,10 +1250,6 @@ impl AppState {
             Some(&mut self.update_banner_frame),
             self.dark_mode,
         );
-        if let Some(ref mut tab_bar) = self.tab_bar {
-            tab_bar.apply_theme(self.dark_mode);
-        }
-
         #[cfg(target_os = "windows")]
         set_windows_titlebar_theme(&self.window, self.dark_mode);
 
@@ -1230,6 +1260,11 @@ impl AppState {
         let bg = self.highlight.highlighter().theme_background();
         let fg = self.highlight.highlighter().theme_foreground();
         apply_syntax_theme_colors(&mut self.editor, bg, fg);
+
+        // Apply theme to tab bar with editor background color
+        if let Some(ref mut tab_bar) = self.tab_bar {
+            tab_bar.apply_theme(self.dark_mode, bg);
+        }
 
         self.highlight.rehighlight_all_documents(&mut self.tab_manager, &self.sender);
         self.bind_active_buffer();
@@ -1355,9 +1390,6 @@ impl AppState {
             Some(&mut self.update_banner_frame),
             is_dark,
         );
-        if let Some(ref mut tab_bar) = self.tab_bar {
-            tab_bar.apply_theme(is_dark);
-        }
         #[cfg(target_os = "windows")]
         set_windows_titlebar_theme(&self.window, is_dark);
         self.update_menu_checkbox("View/Toggle Dark Mode", is_dark);
@@ -1378,6 +1410,11 @@ impl AppState {
         let bg = self.highlight.highlighter().theme_background();
         let fg = self.highlight.highlighter().theme_foreground();
         apply_syntax_theme_colors(&mut self.editor, bg, fg);
+
+        // Apply theme to tab bar with editor background color
+        if let Some(ref mut tab_bar) = self.tab_bar {
+            tab_bar.apply_theme(is_dark, bg);
+        }
 
         self.show_linenumbers = new_settings.line_numbers_enabled;
         self.update_linenumber_width();
@@ -1649,6 +1686,60 @@ impl AppState {
             &self.settings.borrow(),
             &self.plugins,
         );
+    }
+
+    /// Handle a plugin's custom menu action.
+    /// Calls the `on_menu_action` hook on the specified plugin.
+    pub fn handle_plugin_menu_action(&mut self, plugin_name: &str, action: &str) {
+        // Get current document info for the hook
+        let path = self.tab_manager.active_doc().and_then(|d| {
+            d.file_path.as_ref().map(|p| p.clone())
+        });
+        let content = self.active_buffer().text();
+
+        // Call the hook on the specific plugin
+        let hook = PluginHook::OnMenuAction {
+            action: action.to_string(),
+            path,
+            content,
+        };
+
+        let result = self.plugins.call_hook_on_plugin(plugin_name, hook);
+
+        if let Some(result) = result {
+            // Process the result
+            self.process_hook_result(result);
+        } else {
+            // Plugin not found or not enabled
+            eprintln!(
+                "[plugins] Plugin '{}' not found or not enabled for action '{}'",
+                plugin_name, action
+            );
+        }
+    }
+
+    /// Process the result from a plugin hook (diagnostics, annotations, status message)
+    fn process_hook_result(&mut self, result: crate::app::plugins::HookResult) {
+        // Handle modified content (for format actions)
+        if let Some(modified_content) = result.modified_content {
+            let mut buf = self.active_buffer();
+            buf.set_text(&modified_content);
+        }
+
+        // Update diagnostics
+        if !result.diagnostics.is_empty() {
+            self.sender.send(Message::DiagnosticsUpdate(result.diagnostics));
+        }
+
+        // Update line annotations
+        if !result.line_annotations.is_empty() {
+            self.update_annotations(result.line_annotations);
+        }
+
+        // Show status message
+        if let Some(status) = result.status_message {
+            self.sender.send(Message::ToastShow(status.level, status.text));
+        }
     }
 
     /// Navigate to a specific line number (1-indexed)

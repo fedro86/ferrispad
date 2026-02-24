@@ -24,7 +24,7 @@ use mlua::Table;
 pub use annotations::{AnnotationColor, GutterMark, InlineHighlight, LineAnnotation};
 pub use api::EditorApi;
 pub use hooks::{Diagnostic, DiagnosticLevel, HookResult, PluginHook, StatusMessage};
-pub use loader::get_plugin_dir;
+pub use loader::{get_plugin_dir, PluginMenuItem};
 
 use loader::{discover_plugins, load_plugin_toml, PluginPermissions};
 use runtime::LuaRuntime;
@@ -52,6 +52,9 @@ pub struct LoadedPlugin {
 
     /// Commands the user has approved for this plugin
     pub approved_commands: Vec<String>,
+
+    /// Custom menu items registered by this plugin
+    pub menu_items: Vec<PluginMenuItem>,
 
     /// The Lua table returned by init.lua
     table: Table,
@@ -195,6 +198,12 @@ impl PluginManager {
             .map(|m| m.permissions.clone())
             .unwrap_or_default();
 
+        // Get menu items from manifest (defaults to empty if no manifest)
+        let menu_items = toml_meta
+            .as_ref()
+            .map(|m| m.menu_items.clone())
+            .unwrap_or_default();
+
         Ok(LoadedPlugin {
             name,
             version,
@@ -203,6 +212,7 @@ impl PluginManager {
             enabled: true,
             permissions,
             approved_commands: Vec::new(), // Will be populated from settings
+            menu_items,
             table,
         })
     }
@@ -224,6 +234,52 @@ impl PluginManager {
             .and_then(|n| n.to_str())
             .unwrap_or("unknown")
             .to_string()
+    }
+
+    /// Call a hook on a specific plugin by name.
+    /// Returns None if the plugin is not found or not enabled.
+    pub fn call_hook_on_plugin(&self, plugin_name: &str, hook: PluginHook) -> Option<HookResult> {
+        let runtime = self.runtime.as_ref()?;
+
+        let plugin = self.plugins.iter().find(|p| p.name == plugin_name)?;
+
+        if !plugin.enabled {
+            return None;
+        }
+
+        let mut result = HookResult::default();
+
+        match self.call_plugin_hook(runtime, plugin, &hook) {
+            Ok(hook_output) => {
+                result = hook_output;
+            }
+            Err(e) => {
+                eprintln!("[plugins] {} hook error: {}", plugin.name, e);
+                result.status_message = Some(StatusMessage {
+                    level: crate::ui::toast::ToastLevel::Error,
+                    text: format!("Plugin '{}' failed", plugin.name),
+                });
+                let error_msg = e.to_string();
+                let clean_msg = error_msg
+                    .lines()
+                    .next()
+                    .unwrap_or(&error_msg)
+                    .trim_start_matches("runtime error: ")
+                    .to_string();
+
+                result.diagnostics.push(Diagnostic {
+                    line: 1,
+                    column: None,
+                    message: clean_msg,
+                    level: DiagnosticLevel::Error,
+                    source: plugin.name.clone(),
+                    fix_message: None,
+                    url: None,
+                });
+            }
+        }
+
+        Some(result)
     }
 
     /// Call a hook on all enabled plugins
@@ -377,6 +433,28 @@ impl PluginManager {
 
                 // Parse highlights from the returned table
                 if let mlua::Value::Table(return_table) = value {
+                    self.parse_lint_result(&return_table, &plugin.name, &mut result);
+                }
+                return Ok(result);
+            }
+
+            PluginHook::OnMenuAction {
+                action,
+                path,
+                content,
+            } => {
+                let value = runtime.call_hook(
+                    &plugin.table,
+                    hook_name,
+                    (api, action.clone(), path.clone(), content.clone()),
+                )?;
+
+                // Parse result similar to lint hooks (diagnostics, highlights, modified_content, status_message)
+                if let mlua::Value::Table(return_table) = value {
+                    // Check for modified_content
+                    if let Ok(mlua::Value::String(s)) = return_table.get::<mlua::Value>("modified_content") {
+                        result.modified_content = Some(s.to_str()?.to_string());
+                    }
                     self.parse_lint_result(&return_table, &plugin.name, &mut result);
                 }
                 return Ok(result);
@@ -601,6 +679,10 @@ impl PluginManager {
             }
 
             PluginHook::OnHighlightRequest { path, content } => {
+                EditorApi::with_path_and_content(path.clone(), content.clone())
+            }
+
+            PluginHook::OnMenuAction { path, content, .. } => {
                 EditorApi::with_path_and_content(path.clone(), content.clone())
             }
         };
