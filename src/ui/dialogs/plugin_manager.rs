@@ -342,10 +342,27 @@ fn create_available_plugin_row(
     row.set_frame(FrameType::FlatBox);
     row.set_color(row_bg);
 
+    // Verification badge
+    let is_verified = plugin_info.is_verified();
+    let badge_text = if is_verified { "Verified" } else { "Unverified" };
+    let badge_color = if is_verified {
+        Color::from_rgb(60, 160, 60) // Green
+    } else {
+        Color::from_rgb(180, 140, 0) // Yellow/orange
+    };
+
+    let mut badge = Frame::default()
+        .with_pos(row_width - 180, 6)
+        .with_size(70, 16)
+        .with_label(badge_text);
+    badge.set_label_color(badge_color);
+    badge.set_label_size(10);
+    badge.set_align(Align::Right | Align::Inside);
+
     // Name and version
     let mut title = Frame::default()
         .with_pos(10, 8)
-        .with_size(row_width - 110, 22)
+        .with_size(row_width - 200, 22)
         .with_label(&format!("{}  v{}", plugin_info.name, plugin_info.version));
     title.set_label_color(text_color);
     title.set_align(Align::Left | Align::Inside);
@@ -400,12 +417,30 @@ fn create_available_plugin_row(
         fltk::app::awake(); // Force UI update
 
         match install_plugin(&info) {
-            Ok(()) => {
-                btn.set_label("Done!");
-                installed_rc.borrow_mut().push(info.name.clone());
+            Ok(status) => {
+                use crate::app::services::plugin_verify::VerificationStatus;
+                match status {
+                    VerificationStatus::Verified => {
+                        btn.set_label("Done!");
+                        installed_rc.borrow_mut().push(info.name.clone());
+                    }
+                    VerificationStatus::Unverified => {
+                        btn.set_label("Done!");
+                        installed_rc.borrow_mut().push(info.name.clone());
+                    }
+                    VerificationStatus::Invalid(reason) => {
+                        btn.set_label("Failed");
+                        btn.activate();
+                        fltk::dialog::alert_default(&format!(
+                            "Signature verification failed for {}:\n{}",
+                            info.name, reason
+                        ));
+                    }
+                }
             }
             Err(e) => {
                 btn.set_label("Error");
+                btn.activate();
                 eprintln!("[plugins] Install error: {}", e);
                 fltk::dialog::alert_default(&format!("Failed to install {}:\n{}", info.name, e));
             }

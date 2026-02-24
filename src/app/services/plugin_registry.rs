@@ -4,6 +4,7 @@ use serde::Deserialize;
 
 use crate::app::infrastructure::error::AppError;
 use crate::app::plugins::get_plugin_dir;
+use crate::app::services::plugin_verify::{verify_plugin, VerificationStatus};
 
 /// URL to the official plugin registry
 const REGISTRY_URL: &str =
@@ -42,6 +43,28 @@ pub struct AvailablePluginInfo {
     pub tags: Vec<String>,
     /// Minimum FerrisPad version required
     pub min_ferrispad_version: String,
+    /// SHA-256 checksums of plugin files (optional, for verification)
+    #[serde(default)]
+    pub checksums: Option<PluginChecksums>,
+    /// ed25519 signature of the plugin (optional, base64-encoded)
+    #[serde(default)]
+    pub signature: Option<String>,
+}
+
+/// SHA-256 checksums for plugin files
+#[derive(Debug, Clone, Deserialize)]
+pub struct PluginChecksums {
+    /// Checksum of init.lua in format "sha256:hexstring"
+    pub init_lua: String,
+    /// Checksum of plugin.toml in format "sha256:hexstring"
+    pub plugin_toml: String,
+}
+
+impl AvailablePluginInfo {
+    /// Check if this plugin has verification data (checksums and signature)
+    pub fn is_verified(&self) -> bool {
+        self.checksums.is_some() && self.signature.is_some()
+    }
 }
 
 /// Fetch the plugin registry from GitHub
@@ -85,30 +108,56 @@ fn fetch_file(url: &str) -> Result<String, AppError> {
         .map_err(|e| AppError::Network(format!("Invalid response encoding: {}", e)))
 }
 
-/// Install a plugin from the registry
+/// Install a plugin from the registry with verification
 ///
-/// Downloads init.lua and plugin.toml to the plugins directory
-pub fn install_plugin(plugin_info: &AvailablePluginInfo) -> Result<(), AppError> {
+/// Downloads init.lua and plugin.toml, verifies checksums and signature,
+/// then writes to the plugins directory.
+///
+/// # Returns
+/// * `Ok(VerificationStatus)` - Installation succeeded with verification status
+/// * `Err(AppError)` - Installation failed (network, checksum, or file error)
+pub fn install_plugin(plugin_info: &AvailablePluginInfo) -> Result<VerificationStatus, AppError> {
     // Derive directory name from path (e.g., "python-lint/" -> "python-lint")
     let dir_name = plugin_info.path.trim_end_matches('/');
     let plugin_dir = get_plugin_dir().join(dir_name);
-
-    // Create plugin directory
-    std::fs::create_dir_all(&plugin_dir)?;
-
     let base_url = format!("{}{}", REPO_RAW_BASE, plugin_info.path);
 
-    // Download init.lua (required)
+    // Download files to memory first (don't write until verified)
     let init_lua_url = format!("{}init.lua", base_url);
-    let init_lua = fetch_file(&init_lua_url)?;
-    let init_path = plugin_dir.join("init.lua");
-    std::fs::write(&init_path, &init_lua)?;
+    let init_lua_content = fetch_file(&init_lua_url)?;
 
-    // Download plugin.toml (required)
     let plugin_toml_url = format!("{}plugin.toml", base_url);
-    let plugin_toml = fetch_file(&plugin_toml_url)?;
+    let plugin_toml_content = fetch_file(&plugin_toml_url)?;
+
+    // Verify checksums and signature
+    let (expected_init, expected_toml) = match &plugin_info.checksums {
+        Some(checksums) => (Some(checksums.init_lua.as_str()), Some(checksums.plugin_toml.as_str())),
+        None => (None, None),
+    };
+
+    let verification_status = verify_plugin(
+        &plugin_info.path,
+        &plugin_info.version,
+        init_lua_content.as_bytes(),
+        plugin_toml_content.as_bytes(),
+        expected_init,
+        expected_toml,
+        plugin_info.signature.as_deref(),
+    )?;
+
+    // Don't install if signature is invalid
+    if !verification_status.allows_install() {
+        return Ok(verification_status);
+    }
+
+    // Verification passed (or unverified) - now write files
+    std::fs::create_dir_all(&plugin_dir)?;
+
+    let init_path = plugin_dir.join("init.lua");
+    std::fs::write(&init_path, &init_lua_content)?;
+
     let toml_path = plugin_dir.join("plugin.toml");
-    std::fs::write(&toml_path, &plugin_toml)?;
+    std::fs::write(&toml_path, &plugin_toml_content)?;
 
     // Try to download README.md (optional, don't fail if missing)
     let readme_url = format!("{}README.md", base_url);
@@ -118,11 +167,11 @@ pub fn install_plugin(plugin_info: &AvailablePluginInfo) -> Result<(), AppError>
     }
 
     eprintln!(
-        "[plugins] Installed {} v{} to {:?}",
-        plugin_info.name, plugin_info.version, plugin_dir
+        "[plugins] Installed {} v{} to {:?} ({})",
+        plugin_info.name, plugin_info.version, plugin_dir, verification_status.display()
     );
 
-    Ok(())
+    Ok(verification_status)
 }
 
 /// Check if a plugin is already installed
