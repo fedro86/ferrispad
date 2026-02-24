@@ -156,10 +156,19 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
     let session_file = dir.join("session.json");
     if let Ok(existing_json) = fs::read_to_string(&session_file)
         && let Ok(existing) = serde_json::from_str::<SessionData>(&existing_json) {
-            // Collect file paths this instance knows about (owned to avoid borrow conflict)
+            // Clone to owned HashSets to allow mutable push below (borrow checker requirement)
             let our_paths: HashSet<String> = doc_sessions
                 .iter()
                 .filter_map(|d| d.file_path.clone())
+                .collect();
+            let our_temp_files: HashSet<String> = doc_sessions
+                .iter()
+                .filter_map(|d| d.temp_file.clone())
+                .collect();
+            let our_untitled_names: HashSet<String> = doc_sessions
+                .iter()
+                .filter(|d| d.file_path.is_none())
+                .map(|d| d.display_name.clone())
                 .collect();
 
             for doc in existing.documents {
@@ -169,8 +178,16 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
                         doc_sessions.push(doc);
                     }
                     None if mode == SessionRestore::Full && doc.temp_file.is_some() => {
-                        // Untitled doc with content from another instance — keep it
-                        doc_sessions.push(doc);
+                        // Untitled doc from another instance — only keep if not a duplicate
+                        // Check both temp file and display name to catch the same doc
+                        // that may have gotten a new temp file hash due to id change
+                        let temp_dup = doc.temp_file.as_ref()
+                            .is_some_and(|tf| our_temp_files.contains(tf));
+                        let name_dup = our_untitled_names.contains(&doc.display_name);
+
+                        if !temp_dup && !name_dup {
+                            doc_sessions.push(doc);
+                        }
                     }
                     _ => {} // duplicate or empty — skip
                 }

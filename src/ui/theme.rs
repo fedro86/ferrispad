@@ -70,7 +70,8 @@ pub fn apply_theme(
     // Make menu bar flat, dropdown menus with subtle border
     menu.set_frame(FrameType::FlatBox);
     menu.set_down_frame(FrameType::FlatBox);
-    menu.set_text_size(14); // Slightly larger menu text for better readability
+    // Use app's default font size (typically 14pt) for menu readability
+    menu.set_text_size(fltk::app::font_size());
 
     // Get tab bar colors from the actual syntax theme background
     // This ensures menu bar matches the tab bar exactly
