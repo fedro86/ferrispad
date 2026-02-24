@@ -477,49 +477,72 @@ fn compute_layout(st: &mut TabBarState) {
     };
 
     // Clamp scroll_offset to valid range
-    if st.scroll_offset >= scrollable_items.len() {
+    // If scrolling is no longer needed, reset to 0 to show all tabs
+    if !needs_scroll {
+        st.scroll_offset = 0;
+    } else if st.scroll_offset >= scrollable_items.len() {
         st.scroll_offset = scrollable_items.len().saturating_sub(1);
     }
 
     // Calculate available width for tabs (excluding arrows and plus button)
     let available_for_tabs = widget_w - arrow_space - plus_btn_space;
 
-    // Calculate how many items we can show starting from scroll_offset
-    let mut visible_count = 0;
-    let mut used_width = 0;
+    // Compute tab width and visible count
+    let (tab_width, visible_count) = if !needs_scroll {
+        // No scrolling needed - all items will be shown, calculate tab width to fit them all
+        let total_tabs: i32 = scrollable_items.iter().filter(|i| i.is_tab).count() as i32;
+        let fixed_width: i32 = scrollable_items.iter().map(|item| {
+            if item.is_tab {
+                item.group_label_width + TAB_GAP
+            } else {
+                item.width + TAB_GAP
+            }
+        }).sum();
 
-    // Compute tab width based on what fits
-    // First, figure out how many tabs are visible in scrollable range
-    let visible_tabs_in_range: i32 = scrollable_items.iter().skip(st.scroll_offset).filter(|i| i.is_tab).count() as i32;
-    let fixed_in_range: i32 = scrollable_items.iter().skip(st.scroll_offset).map(|item| {
-        if item.is_tab {
-            item.group_label_width
+        let tw = if total_tabs > 0 {
+            let available_for_tab_bodies = available_for_tabs - fixed_width;
+            (available_for_tab_bodies / total_tabs).clamp(MIN_TAB_WIDTH, MAX_TAB_WIDTH)
         } else {
-            item.width + TAB_GAP
-        }
-    }).sum();
-
-    let tab_width = if visible_tabs_in_range > 0 {
-        let available_for_tab_bodies = available_for_tabs - fixed_in_range - (visible_tabs_in_range - 1).max(0) * TAB_GAP;
-        (available_for_tab_bodies / visible_tabs_in_range).clamp(MIN_TAB_WIDTH, MAX_TAB_WIDTH)
+            MAX_TAB_WIDTH
+        };
+        (tw, scrollable_items.len())
     } else {
-        MAX_TAB_WIDTH
-    };
+        // Scrolling needed - calculate how many items fit starting from scroll_offset
+        // First, estimate tab width based on visible range
+        let visible_tabs_in_range: i32 = scrollable_items.iter().skip(st.scroll_offset).filter(|i| i.is_tab).count() as i32;
+        let fixed_in_range: i32 = scrollable_items.iter().skip(st.scroll_offset).map(|item| {
+            if item.is_tab {
+                item.group_label_width
+            } else {
+                item.width + TAB_GAP
+            }
+        }).sum();
 
-    // Now determine how many items actually fit
-    for item in scrollable_items.iter().skip(st.scroll_offset) {
-        let item_width = if item.is_tab {
-            item.group_label_width + tab_width + TAB_GAP
+        let tw = if visible_tabs_in_range > 0 {
+            let available_for_tab_bodies = available_for_tabs - fixed_in_range - (visible_tabs_in_range - 1).max(0) * TAB_GAP;
+            (available_for_tab_bodies / visible_tabs_in_range).clamp(MIN_TAB_WIDTH, MAX_TAB_WIDTH)
         } else {
-            item.width + TAB_GAP
+            MAX_TAB_WIDTH
         };
 
-        if used_width + item_width > available_for_tabs && visible_count > 0 {
-            break;
+        // Now determine how many items actually fit
+        let mut count = 0;
+        let mut used_width = 0;
+        for item in scrollable_items.iter().skip(st.scroll_offset) {
+            let item_width = if item.is_tab {
+                item.group_label_width + tw + TAB_GAP
+            } else {
+                item.width + TAB_GAP
+            };
+
+            if used_width + item_width > available_for_tabs && count > 0 {
+                break;
+            }
+            used_width += item_width;
+            count += 1;
         }
-        used_width += item_width;
-        visible_count += 1;
-    }
+        (tw, count)
+    };
 
     st.visible_items = visible_count;
 
@@ -578,18 +601,20 @@ fn compute_layout(st: &mut TabBarState) {
         }
     }
 
-    // Add scroll right arrow if needed
+    // Add scroll right arrow if needed - anchored to the right side
     if needs_scroll {
         let can_scroll_right = st.scroll_offset + visible_count < scrollable_items.len();
+        // Right arrow position: widget_w - plus_btn_space - arrow_width - margin
+        let right_arrow_x = widget_w - plus_btn_space - SCROLL_ARROW_WIDTH - SCROLL_ARROW_MARGIN;
         st.layout.push(LayoutItem::ScrollRight {
-            x: cursor_x + SCROLL_ARROW_MARGIN,
+            x: right_arrow_x,
             enabled: can_scroll_right,
         });
-        cursor_x += SCROLL_ARROW_WIDTH + SCROLL_ARROW_MARGIN;
     }
 
-    // Plus button at the end
-    st.layout.push(LayoutItem::PlusButton { x: cursor_x + PLUS_BTN_MARGIN });
+    // Plus button anchored to the right edge
+    let plus_x = widget_w - PLUS_BTN_WIDTH - PLUS_BTN_MARGIN;
+    st.layout.push(LayoutItem::PlusButton { x: plus_x });
 }
 
 // --- Hit-testing ---
