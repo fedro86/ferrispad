@@ -1244,22 +1244,28 @@ impl AppState {
 
     pub fn toggle_dark_mode(&mut self) {
         self.dark_mode = !self.dark_mode;
+
+        // Set syntax theme first to get the background color
+        let theme = self.settings.borrow().current_syntax_theme(self.dark_mode);
+        self.highlight.set_theme(theme);
+
+        // Get syntax theme colors
+        let bg = self.highlight.highlighter().theme_background();
+        let fg = self.highlight.highlighter().theme_foreground();
+
+        // Apply theme with syntax background for menu bar color
         apply_theme(
             &mut self.editor,
             &mut self.window,
             &mut self.menu,
             Some(&mut self.update_banner_frame),
             self.dark_mode,
+            bg,
         );
         #[cfg(target_os = "windows")]
         set_windows_titlebar_theme(&self.window, self.dark_mode);
 
-        let theme = self.settings.borrow().current_syntax_theme(self.dark_mode);
-        self.highlight.set_theme(theme);
-
         // Apply syntax theme colors to editor
-        let bg = self.highlight.highlighter().theme_background();
-        let fg = self.highlight.highlighter().theme_foreground();
         apply_syntax_theme_colors(&mut self.editor, bg, fg);
 
         // Apply theme to tab bar with editor background color
@@ -1468,16 +1474,6 @@ impl AppState {
             ThemeMode::SystemDefault => detect_system_dark_mode(),
         };
         self.dark_mode = is_dark;
-        apply_theme(
-            &mut self.editor,
-            &mut self.window,
-            &mut self.menu,
-            Some(&mut self.update_banner_frame),
-            is_dark,
-        );
-        #[cfg(target_os = "windows")]
-        set_windows_titlebar_theme(&self.window, is_dark);
-        self.update_menu_checkbox("View/Toggle Dark Mode", is_dark);
 
         let font = match new_settings.font {
             FontChoice::ScreenBold => Font::ScreenBold,
@@ -1487,13 +1483,29 @@ impl AppState {
         self.editor.set_text_font(font);
         self.editor.set_text_size(new_settings.font_size as i32);
 
+        // Set syntax theme first to get background color
         let syntax_theme = new_settings.current_syntax_theme(is_dark);
         self.highlight.set_theme(syntax_theme);
         self.highlight.set_font(font, new_settings.font_size as i32);
 
-        // Apply syntax theme colors to editor (overrides apply_theme's default colors)
+        // Get syntax theme colors
         let bg = self.highlight.highlighter().theme_background();
         let fg = self.highlight.highlighter().theme_foreground();
+
+        // Apply theme with syntax background for menu bar color
+        apply_theme(
+            &mut self.editor,
+            &mut self.window,
+            &mut self.menu,
+            Some(&mut self.update_banner_frame),
+            is_dark,
+            bg,
+        );
+        #[cfg(target_os = "windows")]
+        set_windows_titlebar_theme(&self.window, is_dark);
+        self.update_menu_checkbox("View/Toggle Dark Mode", is_dark);
+
+        // Apply syntax theme colors to editor
         apply_syntax_theme_colors(&mut self.editor, bg, fg);
 
         // Apply theme to tab bar with editor background color

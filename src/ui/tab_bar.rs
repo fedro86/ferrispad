@@ -409,20 +409,23 @@ fn hit_test_layout(items: &[LayoutItem], wy: i32, mx: i32, my: i32) -> HitResult
 
 // --- Colors ---
 
-struct ThemeColors {
-    bar_bg: Color,
-    active_bg: Color,
-    inactive_bg: Color,
-    active_text: Color,
-    inactive_text: Color,
-    close_hover_bg: Color,
+/// Theme colors for tab bar and menu bar styling.
+pub struct ThemeColors {
+    pub bar_bg: Color,
+    pub active_bg: Color,
+    pub inactive_bg: Color,
+    pub active_text: Color,
+    pub inactive_text: Color,
+    pub close_hover_bg: Color,
 }
 
 /// Calculate tab bar colors based on the editor's syntax theme background.
 /// - Active tab: matches editor background (seamless transition)
 /// - Bar background: slightly darker/lighter than editor
 /// - Inactive tab: between active and bar background
-fn theme_colors_from_bg(theme_bg: &ThemeRgb) -> ThemeColors {
+///
+/// Also used by menu bar styling to maintain visual consistency.
+pub fn theme_colors_from_bg(theme_bg: &ThemeRgb) -> ThemeColors {
     let is_dark = theme_bg.brightness() < 128;
 
     // Active tab = editor background (creates seamless connection)

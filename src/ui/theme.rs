@@ -1,11 +1,13 @@
 use fltk::{
-    enums::Color,
+    enums::{Color, FrameType},
     frame::Frame,
     menu::MenuBar,
     prelude::*,
     text::TextEditor,
     window::Window,
 };
+
+use super::tab_bar::{theme_colors_from_bg, ThemeRgb};
 
 /// Apply syntax theme colors (background/foreground) to the editor.
 /// Used for live preview when changing syntax themes in settings.
@@ -48,7 +50,21 @@ pub fn apply_theme(
     menu: &mut MenuBar,
     banner: Option<&mut Frame>,
     is_dark: bool,
+    theme_bg: (u8, u8, u8),
 ) {
+    // Make menu bar and dropdown menus flat (no 3D borders)
+    menu.set_frame(FrameType::FlatBox);
+    menu.set_down_frame(FrameType::FlatBox);
+
+    // Get tab bar colors from the actual syntax theme background
+    // This ensures menu bar matches the tab bar exactly
+    let theme_rgb = ThemeRgb::from_tuple(theme_bg);
+    let tab_colors = theme_colors_from_bg(&theme_rgb);
+
+    // Calculate menu color as blend between active and inactive tab colors
+    // This creates visual coherence between tab bar and menu bar
+    let menu_color = blend_colors(tab_colors.active_bg, tab_colors.inactive_bg, 0.5);
+
     if is_dark {
         // Dark mode colors
         editor.set_color(Color::from_rgb(30, 30, 30));
@@ -59,9 +75,10 @@ pub fn apply_theme(
         editor.set_linenumber_fgcolor(Color::from_rgb(150, 150, 150));
         window.set_color(Color::from_rgb(25, 25, 25));
         window.set_label_color(Color::from_rgb(220, 220, 220));
-        menu.set_color(Color::from_rgb(35, 35, 35));
-        menu.set_text_color(Color::from_rgb(220, 220, 220));
-        menu.set_selection_color(Color::from_rgb(60, 60, 60)); // Hover color
+        // Menu bar color: blend of active and inactive tab colors
+        menu.set_color(menu_color);
+        menu.set_text_color(tab_colors.active_text);
+        menu.set_selection_color(tab_colors.inactive_bg); // Hover uses inactive tab color
         if let Some(b) = banner {
             b.set_color(Color::from_rgb(139, 128, 0)); // Darker yellow/olive
             b.set_label_color(Color::White);
@@ -76,9 +93,10 @@ pub fn apply_theme(
         editor.set_linenumber_fgcolor(Color::from_rgb(100, 100, 100));
         window.set_color(Color::from_rgb(240, 240, 240));
         window.set_label_color(Color::Black);
-        menu.set_color(Color::from_rgb(240, 240, 240));
-        menu.set_text_color(Color::Black);
-        menu.set_selection_color(Color::from_rgb(200, 200, 200)); // Hover color
+        // Menu bar color: blend of active and inactive tab colors
+        menu.set_color(menu_color);
+        menu.set_text_color(tab_colors.active_text);
+        menu.set_selection_color(tab_colors.inactive_bg); // Hover uses inactive tab color
         if let Some(b) = banner {
             b.set_color(Color::from_rgb(255, 250, 205)); // Lemon chiffon
             b.set_label_color(Color::Black);
@@ -88,6 +106,18 @@ pub fn apply_theme(
     editor.redraw();
     window.redraw();
     menu.redraw();
+}
+
+/// Blend two FLTK colors by a factor (0.0 = first color, 1.0 = second color)
+fn blend_colors(c1: Color, c2: Color, factor: f32) -> Color {
+    let (r1, g1, b1) = c1.to_rgb();
+    let (r2, g2, b2) = c2.to_rgb();
+
+    let r = (r1 as f32 + (r2 as f32 - r1 as f32) * factor) as u8;
+    let g = (g1 as f32 + (g2 as f32 - g1 as f32) * factor) as u8;
+    let b = (b1 as f32 + (b2 as f32 - b1 as f32) * factor) as u8;
+
+    Color::from_rgb(r, g, b)
 }
 
 /// Set Windows title bar theme (Windows 10 build 1809+).
