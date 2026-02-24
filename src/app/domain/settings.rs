@@ -152,6 +152,14 @@ pub struct AppSettings {
     /// Per-plugin permission approvals (plugin_name -> approvals)
     #[serde(default)]
     pub plugin_approvals: HashMap<String, PluginApprovals>,
+
+    /// Whether to automatically check for plugin updates
+    #[serde(default = "default_auto_check_plugin_updates")]
+    pub auto_check_plugin_updates: bool,
+
+    /// Timestamp of last plugin update check (UNIX timestamp)
+    #[serde(default)]
+    pub last_plugin_update_check: i64,
 }
 
 fn default_line_numbers() -> bool {
@@ -202,6 +210,10 @@ fn default_plugins_enabled() -> bool {
     true
 }
 
+fn default_auto_check_plugin_updates() -> bool {
+    true
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -224,6 +236,8 @@ impl Default for AppSettings {
             plugins_enabled: default_plugins_enabled(),
             disabled_plugins: Vec::new(),
             plugin_approvals: HashMap::new(),
+            auto_check_plugin_updates: default_auto_check_plugin_updates(),
+            last_plugin_update_check: 0,
         }
     }
 }

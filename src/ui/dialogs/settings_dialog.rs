@@ -222,6 +222,10 @@ pub fn show_settings_dialog(
 
     let mut check_prerelease = CheckButton::default().with_pos(RIGHT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Include pre-releases");
     check_prerelease.set_value(current_settings.update_channel == UpdateChannel::Beta);
+    y += ITEM_HEIGHT;
+
+    let mut check_plugin_updates = CheckButton::default().with_pos(RIGHT_COL + 10, y).with_size(COL_WIDTH - 10, ITEM_HEIGHT).with_label("Auto-check plugin updates");
+    check_plugin_updates.set_value(current_settings.auto_check_plugin_updates);
     y += ITEM_HEIGHT + 10;
 
     // Info text
@@ -303,10 +307,12 @@ pub fn show_settings_dialog(
             } else {
                 4
             },
-            // Preserve plugin settings (not editable in this dialog)
+            // Preserve plugin settings (not editable in this dialog, except auto-check)
             plugins_enabled: current.plugins_enabled,
             disabled_plugins: current.disabled_plugins.clone(),
             plugin_approvals: current.plugin_approvals.clone(),
+            auto_check_plugin_updates: check_plugin_updates.value(),
+            last_plugin_update_check: current.last_plugin_update_check,
         };
 
         *result_save.borrow_mut() = Some(new_settings);

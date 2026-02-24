@@ -9,6 +9,7 @@
 
 pub mod file_size;
 pub mod plugin_registry;
+pub mod plugin_update_checker;
 pub mod plugin_verify;
 pub mod session;
 pub mod syntax;

@@ -1402,6 +1402,52 @@ impl AppState {
         }
     }
 
+    /// Trigger a background check for plugin updates
+    pub fn check_plugin_updates(&self) {
+        use crate::app::services::plugin_update_checker::check_for_plugin_updates;
+
+        let sender = self.sender.clone();
+
+        // Run the check in a separate thread to avoid blocking UI
+        std::thread::spawn(move || {
+            match check_for_plugin_updates() {
+                Ok(updates) => {
+                    sender.send(Message::PluginUpdatesChecked(updates));
+                }
+                Err(e) => {
+                    eprintln!("[plugin-update-checker] Error: {}", e);
+                    sender.send(Message::PluginUpdatesChecked(Vec::new()));
+                }
+            }
+        });
+    }
+
+    /// Handle the result of a plugin update check
+    pub fn handle_plugin_updates_checked(&mut self, updates: Vec<crate::app::services::plugin_update_checker::PluginUpdateInfo>) {
+        // Update the last check timestamp
+        {
+            let mut settings = self.settings.borrow_mut();
+            settings.last_plugin_update_check = crate::app::services::plugin_update_checker::current_timestamp();
+            let _ = settings.save();
+        }
+
+        // Log the results
+        if updates.is_empty() {
+            eprintln!("[plugin-update-checker] All plugins are up to date");
+        } else {
+            eprintln!(
+                "[plugin-update-checker] {} plugin update(s) available:",
+                updates.len()
+            );
+            for update in &updates {
+                eprintln!(
+                    "  - {} ({} -> {})",
+                    update.plugin_name, update.installed_version, update.available_version
+                );
+            }
+        }
+    }
+
     /// Preview a syntax theme (called from settings dialog for live preview)
     pub fn preview_syntax_theme(&mut self, theme: SyntaxTheme) {
         self.highlight.set_theme(theme);

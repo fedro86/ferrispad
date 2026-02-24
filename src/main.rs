@@ -170,6 +170,21 @@ fn main() {
     // Check plugin permissions now that UI is ready (dialog needs event loop)
     sender.send(Message::CheckPluginPermissions);
 
+    // Background plugin update check
+    {
+        use crate::app::services::plugin_update_checker::should_check_plugin_updates;
+
+        let settings_lock = app_settings.borrow();
+        let plugins_enabled = settings_lock.plugins_enabled;
+        let auto_check_plugin_updates = settings_lock.auto_check_plugin_updates;
+        let should_check = should_check_plugin_updates(settings_lock.last_plugin_update_check);
+        drop(settings_lock);
+
+        if plugins_enabled && auto_check_plugin_updates && should_check {
+            state.sender.send(Message::CheckPluginUpdates);
+        }
+    }
+
     // Background update check via channel
     {
         let settings_lock = app_settings.borrow();
@@ -340,6 +355,8 @@ fn main() {
                     state.handle_plugin_menu_action(&plugin_name, &action);
                 }
                 Message::ShowPluginManager => state.show_plugin_manager(),
+                Message::CheckPluginUpdates => state.check_plugin_updates(),
+                Message::PluginUpdatesChecked(updates) => state.handle_plugin_updates_checked(updates),
 
                 // Diagnostics
                 Message::DiagnosticsUpdate(diagnostics) => {

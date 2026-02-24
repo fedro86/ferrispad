@@ -4,6 +4,7 @@ use super::document::DocumentId;
 use super::settings::SyntaxTheme;
 use crate::app::controllers::tabs::{GroupColor, GroupId};
 use crate::app::plugins::{Diagnostic, LineAnnotation};
+use crate::app::services::plugin_update_checker::PluginUpdateInfo;
 use crate::app::services::updater::ReleaseInfo;
 use crate::ui::toast::ToastLevel;
 
@@ -88,6 +89,10 @@ pub enum Message {
     PluginMenuAction { plugin_name: String, action: String },
     /// Open the plugin manager dialog
     ShowPluginManager,
+    /// Check for plugin updates (triggers background check)
+    CheckPluginUpdates,
+    /// Plugin update check completed with results
+    PluginUpdatesChecked(Vec<PluginUpdateInfo>),
 
     // Diagnostics
     DiagnosticsUpdate(Vec<Diagnostic>),
