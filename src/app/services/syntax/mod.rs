@@ -144,9 +144,21 @@ impl SyntaxHighlighter {
         }
     }
 
-    /// Switch to a specific theme. Clears the style map.
+    /// Switch to a specific theme. Clears the style map and updates theme colors.
     pub fn set_theme(&mut self, theme: SyntaxTheme) {
         self.theme_name = theme.theme_key().to_string();
+
+        // Get theme colors before clearing
+        let bg = self.theme_background();
+        let fg = self.theme_foreground();
+        let is_dark = (bg.0 as u32 + bg.1 as u32 + bg.2 as u32) / 3 < 128;
+
+        // Update style map with theme colors, then clear
+        self.style_map.set_theme_colors(
+            fltk::enums::Color::from_rgb(fg.0, fg.1, fg.2),
+            fltk::enums::Color::from_rgb(bg.0, bg.1, bg.2),
+            is_dark,
+        );
         self.style_map.clear();
     }
 

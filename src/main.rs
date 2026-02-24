@@ -110,11 +110,19 @@ fn main() {
 
     // Window close button -> signal quit so nested dialog loops break out,
     // then send the message for the main event loop to handle.
-    w.wind.set_callback({
+    // Using handle() with Event::Close to catch close even when menu is open.
+    w.wind.handle({
         let s = sender;
-        move |_| {
-            fltk::app::program_should_quit(true);
-            s.send(Message::WindowClose);
+        move |wind, event| {
+            if event == fltk::enums::Event::Close {
+                fltk::app::program_should_quit(true);
+                s.send(Message::WindowClose);
+                // Hide the window to break out of any modal loops (like open menus)
+                wind.hide();
+                true
+            } else {
+                false
+            }
         }
     });
 

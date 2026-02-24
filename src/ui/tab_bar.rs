@@ -12,7 +12,7 @@ use fltk::{
 
 use crate::app::{Document, DocumentId, GroupColor, GroupId, Message, TabGroup};
 
-pub const TAB_BAR_HEIGHT: i32 = 30;
+pub const TAB_BAR_HEIGHT: i32 = 32;
 
 const MIN_TAB_WIDTH: i32 = 60;
 const MAX_TAB_WIDTH: i32 = 200;
@@ -574,12 +574,12 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                 let tab_width = *width;
                 let tab = &st.tabs[*index];
 
-                // Tab background
+                // Tab background (2px gap at top for menu bar separation)
                 if tab.is_active {
-                    draw_rounded_top_rect(tx, wy, tab_width, wh, CORNER_RADIUS, colors.active_bg);
+                    draw_rounded_top_rect(tx, wy + 2, tab_width, wh - 2, CORNER_RADIUS, colors.active_bg);
                 } else {
-                    let inactive_h = wh - 2;
-                    draw_rounded_top_rect(tx, wy + 2, tab_width, inactive_h, CORNER_RADIUS, colors.inactive_bg);
+                    let inactive_h = wh - 4;
+                    draw_rounded_top_rect(tx, wy + 4, tab_width, inactive_h, CORNER_RADIUS, colors.inactive_bg);
                 }
 
                 // Group color underline
@@ -720,15 +720,17 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
             }
             LayoutItem::PlusButton { x } => {
                 let px = wx + *x;
-                let btn_h = wh - 4;
-                let btn_y = wy + 2;
+                let circle_size = 22;
+                let circle_x = px + (PLUS_BTN_WIDTH - circle_size) / 2;
+                let circle_y = wy + (wh - circle_size) / 2;
                 // Use active tab color as base, with slight adjustment for hover
                 let bg = if st.hover_plus {
                     colors.close_hover_bg
                 } else {
                     colors.active_bg
                 };
-                draw_rounded_top_rect(px, btn_y, PLUS_BTN_WIDTH, btn_h, CORNER_RADIUS, bg);
+                draw::set_draw_color(bg);
+                draw::draw_pie(circle_x, circle_y, circle_size, circle_size, 0.0, 360.0);
                 let text_color = if st.hover_plus {
                     colors.active_text
                 } else {
@@ -736,7 +738,7 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                 };
                 draw::set_draw_color(text_color);
                 draw::set_font(Font::HelveticaBold, 16);
-                draw::draw_text2("+", px, btn_y, PLUS_BTN_WIDTH, btn_h, Align::Center);
+                draw::draw_text2("+", circle_x + 1, circle_y, circle_size, circle_size, Align::Center);
             }
         }
     }

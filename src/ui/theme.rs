@@ -17,12 +17,19 @@ pub fn apply_syntax_theme_colors(
     foreground: (u8, u8, u8),
 ) {
     editor.set_color(Color::from_rgb(background.0, background.1, background.2));
-    editor.set_text_color(Color::from_rgb(foreground.0, foreground.1, foreground.2));
 
-    // Adjust cursor color for visibility based on background brightness
+    // Adjust colors based on background brightness
     let brightness = (background.0 as u32 + background.1 as u32 + background.2 as u32) / 3;
     if brightness < 128 {
-        // Dark background: light cursor
+        // Dark background: use light text color (override if foreground is too dark)
+        let fg_brightness = (foreground.0 as u32 + foreground.1 as u32 + foreground.2 as u32) / 3;
+        let text_color = if fg_brightness < 128 {
+            // Foreground is dark on dark background - use light fallback
+            Color::from_rgb(220, 220, 220)
+        } else {
+            Color::from_rgb(foreground.0, foreground.1, foreground.2)
+        };
+        editor.set_text_color(text_color);
         editor.set_cursor_color(Color::from_rgb(255, 255, 255));
         editor.set_linenumber_bgcolor(Color::from_rgb(
             background.0.saturating_add(15),
@@ -31,7 +38,15 @@ pub fn apply_syntax_theme_colors(
         ));
         editor.set_linenumber_fgcolor(Color::from_rgb(150, 150, 150));
     } else {
-        // Light background: dark cursor
+        // Light background: use dark text color (override if foreground is too light)
+        let fg_brightness = (foreground.0 as u32 + foreground.1 as u32 + foreground.2 as u32) / 3;
+        let text_color = if fg_brightness >= 128 {
+            // Foreground is light on light background - use dark fallback
+            Color::from_rgb(30, 30, 30)
+        } else {
+            Color::from_rgb(foreground.0, foreground.1, foreground.2)
+        };
+        editor.set_text_color(text_color);
         editor.set_cursor_color(Color::from_rgb(0, 0, 0));
         editor.set_linenumber_bgcolor(Color::from_rgb(
             background.0.saturating_sub(15),
@@ -52,9 +67,10 @@ pub fn apply_theme(
     is_dark: bool,
     theme_bg: (u8, u8, u8),
 ) {
-    // Make menu bar and dropdown menus flat (no 3D borders)
+    // Make menu bar flat, dropdown menus with subtle border
     menu.set_frame(FrameType::FlatBox);
     menu.set_down_frame(FrameType::FlatBox);
+    menu.set_text_size(14); // Slightly larger menu text for better readability
 
     // Get tab bar colors from the actual syntax theme background
     // This ensures menu bar matches the tab bar exactly
@@ -63,9 +79,12 @@ pub fn apply_theme(
 
     // Calculate menu color as blend between active and inactive tab colors
     // This creates visual coherence between tab bar and menu bar
-    let menu_color = blend_colors(tab_colors.active_bg, tab_colors.inactive_bg, 0.5);
+    let base_menu_color = blend_colors(tab_colors.active_bg, tab_colors.inactive_bg, 0.5);
 
     if is_dark {
+        // Dark mode: shift menu color toward lighter for contrast
+        let menu_color = blend_colors(base_menu_color, Color::from_rgb(255, 255, 255), 0.15);
+
         // Dark mode colors
         editor.set_color(Color::from_rgb(30, 30, 30));
         editor.set_text_color(Color::from_rgb(220, 220, 220));
@@ -75,7 +94,7 @@ pub fn apply_theme(
         editor.set_linenumber_fgcolor(Color::from_rgb(150, 150, 150));
         window.set_color(Color::from_rgb(25, 25, 25));
         window.set_label_color(Color::from_rgb(220, 220, 220));
-        // Menu bar color: blend of active and inactive tab colors
+        // Menu bar color: blend of tab colors, shifted slightly lighter
         menu.set_color(menu_color);
         menu.set_text_color(tab_colors.active_text);
         menu.set_selection_color(tab_colors.inactive_bg); // Hover uses inactive tab color
@@ -84,6 +103,9 @@ pub fn apply_theme(
             b.set_label_color(Color::White);
         }
     } else {
+        // Light mode: shift menu color toward darker for contrast
+        let menu_color = blend_colors(base_menu_color, Color::from_rgb(120, 120, 120), 0.15);
+
         // Light mode colors
         editor.set_color(Color::White);
         editor.set_text_color(Color::Black);
@@ -93,7 +115,7 @@ pub fn apply_theme(
         editor.set_linenumber_fgcolor(Color::from_rgb(100, 100, 100));
         window.set_color(Color::from_rgb(240, 240, 240));
         window.set_label_color(Color::Black);
-        // Menu bar color: blend of active and inactive tab colors
+        // Menu bar color: blend of tab colors, shifted slightly grayer
         menu.set_color(menu_color);
         menu.set_text_color(tab_colors.active_text);
         menu.set_selection_color(tab_colors.inactive_bg); // Hover uses inactive tab color

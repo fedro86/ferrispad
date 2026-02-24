@@ -283,4 +283,11 @@ impl StyleMap {
         }
     }
 
+    /// Update theme colors (foreground and background) for the style map.
+    /// Call this before `clear()` when switching themes.
+    pub fn set_theme_colors(&mut self, fg: Color, bg: Color, is_dark: bool) {
+        self.theme_fgcolor = fg;
+        self.theme_bgcolor = bg;
+        self.is_dark = is_dark;
+    }
 }
