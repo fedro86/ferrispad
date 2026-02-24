@@ -1,19 +1,21 @@
 //! File size checking utilities for large file handling.
 //!
 //! Provides pre-flight validation before loading files to prevent crashes
-//! from files exceeding FLTK TextBuffer's 2GB limit.
+//! from very large files that would consume too much memory.
 //!
-//! Also provides tail reading for viewing the end of very large files.
+//! Also provides tail reading and chunk reading for viewing portions
+//! of very large files.
 
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
 
-/// Files larger than this show a warning before loading (100 MB)
-pub const LARGE_FILE_THRESHOLD: u64 = 100 * 1024 * 1024;
+/// Files larger than this show a warning before loading (50 MB)
+pub const LARGE_FILE_THRESHOLD: u64 = 50 * 1024 * 1024;
 
-/// Maximum file size that can be loaded into FLTK TextBuffer (~1.8 GB)
-/// Set below i32::MAX to leave headroom for style buffer operations
-pub const MAX_EDITABLE_SIZE: u64 = 1_800_000_000;
+/// Maximum file size that can be loaded for editing (150 MB)
+/// Files larger than this open in read-only viewer with option to
+/// select specific lines to edit.
+pub const MAX_EDITABLE_SIZE: u64 = 150 * 1024 * 1024;
 
 /// Default number of lines to read in tail mode
 pub const TAIL_LINE_COUNT: usize = 10_000;
@@ -107,6 +109,49 @@ pub fn read_tail(path: &Path, lines: usize) -> io::Result<String> {
     Ok(all_lines[start..].join("\n"))
 }
 
+/// Read a specific line range from a file.
+///
+/// Reads lines from `start_line` to `end_line` (1-indexed, inclusive).
+/// This is useful for opening specific chunks of very large files.
+///
+/// # Arguments
+/// * `path` - Path to the file to read
+/// * `start_line` - First line to read (1-indexed)
+/// * `end_line` - Last line to read (1-indexed, inclusive)
+///
+/// # Returns
+/// The specified lines as a String, or an error if the file cannot be read.
+pub fn read_chunk(path: &Path, start_line: usize, end_line: usize) -> io::Result<String> {
+    if start_line == 0 || end_line < start_line {
+        return Ok(String::new());
+    }
+
+    let file = std::fs::File::open(path)?;
+    let reader = io::BufReader::new(file);
+
+    use std::io::BufRead;
+    let mut result = String::new();
+    let mut current_line = 0;
+
+    for line in reader.lines() {
+        current_line += 1;
+        if current_line < start_line {
+            continue;
+        }
+        if current_line > end_line {
+            break;
+        }
+
+        let line = line?;
+        if !result.is_empty() {
+            result.push('\n');
+        }
+        result.push_str(&line);
+    }
+
+    Ok(result)
+}
+
 /// Format file size for display (e.g., "1.5 GB")
 pub fn format_size(bytes: u64) -> String {
     const KB: u64 = 1024;
@@ -153,21 +198,21 @@ mod tests {
 
     #[test]
     fn test_thresholds() {
-        // Normal: under 100 MB
+        // Normal: under 50 MB
         assert!(matches!(
-            check_file_size_from_value(50 * 1024 * 1024),
+            check_file_size_from_value(30 * 1024 * 1024),
             FileSizeCheck::Normal(_)
         ));
 
-        // Large: 100 MB to 1.8 GB
+        // Large: 50 MB to 150 MB (show warning but allow editing)
         assert!(matches!(
-            check_file_size_from_value(500 * 1024 * 1024),
+            check_file_size_from_value(100 * 1024 * 1024),
             FileSizeCheck::Large(_)
         ));
 
-        // Too large: over 1.8 GB
+        // Too large: over 150 MB (read-only viewer only)
         assert!(matches!(
-            check_file_size_from_value(2_000_000_000),
+            check_file_size_from_value(200 * 1024 * 1024),
             FileSizeCheck::TooLarge(_)
         ));
     }
@@ -226,5 +271,78 @@ mod tests {
         let file = NamedTempFile::new().unwrap();
         let tail = read_tail(file.path(), 10).unwrap();
         assert!(tail.is_empty());
+    }
+
+    #[test]
+    fn test_read_chunk_basic() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut file = NamedTempFile::new().unwrap();
+        for i in 1..=10 {
+            writeln!(file, "line {}", i).unwrap();
+        }
+        file.flush().unwrap();
+
+        // Read lines 3-5
+        let chunk = read_chunk(file.path(), 3, 5).unwrap();
+        assert!(chunk.contains("line 3"));
+        assert!(chunk.contains("line 4"));
+        assert!(chunk.contains("line 5"));
+        assert!(!chunk.contains("line 1"));
+        assert!(!chunk.contains("line 2"));
+        assert!(!chunk.contains("line 6"));
+    }
+
+    #[test]
+    fn test_read_chunk_from_start() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut file = NamedTempFile::new().unwrap();
+        for i in 1..=5 {
+            writeln!(file, "line {}", i).unwrap();
+        }
+        file.flush().unwrap();
+
+        // Read lines 1-2
+        let chunk = read_chunk(file.path(), 1, 2).unwrap();
+        assert!(chunk.contains("line 1"));
+        assert!(chunk.contains("line 2"));
+        assert!(!chunk.contains("line 3"));
+    }
+
+    #[test]
+    fn test_read_chunk_beyond_file() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "line 1").unwrap();
+        writeln!(file, "line 2").unwrap();
+        file.flush().unwrap();
+
+        // Request more lines than exist
+        let chunk = read_chunk(file.path(), 1, 100).unwrap();
+        assert!(chunk.contains("line 1"));
+        assert!(chunk.contains("line 2"));
+    }
+
+    #[test]
+    fn test_read_chunk_invalid_range() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "line 1").unwrap();
+        file.flush().unwrap();
+
+        // Invalid range (start > end)
+        let chunk = read_chunk(file.path(), 5, 2).unwrap();
+        assert!(chunk.is_empty());
+
+        // Zero start line
+        let chunk = read_chunk(file.path(), 0, 2).unwrap();
+        assert!(chunk.is_empty());
     }
 }

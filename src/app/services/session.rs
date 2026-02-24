@@ -126,7 +126,10 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
                 }
 
                 let temp_file = if is_dirty || !has_path {
-                    let hash = make_hash(&doc.display_name, doc.id.0);
+                    // Use file_path if available (stable across sessions),
+                    // otherwise fall back to display_name + id (stable within session)
+                    let hash_key = doc.file_path.as_deref().unwrap_or(&doc.display_name);
+                    let hash = make_hash(hash_key, doc.id.0);
                     let filename = format!("{:016x}.tmp", hash);
                     let temp_path = dir.join(&filename);
                     fs::write(&temp_path, &content)?;
@@ -186,7 +189,32 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
 
     fs::write(&session_file, json)?;
 
+    // Clean up orphaned temp files (not referenced in current session)
+    cleanup_orphaned_temp_files(&session_data, &dir);
+
     Ok(())
+}
+
+/// Remove .tmp files that are no longer referenced by any document in the session.
+fn cleanup_orphaned_temp_files(session: &SessionData, dir: &std::path::Path) {
+    // Collect all referenced temp files
+    let referenced: HashSet<&str> = session
+        .documents
+        .iter()
+        .filter_map(|d| d.temp_file.as_deref())
+        .collect();
+
+    // Find and delete orphaned .tmp files
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                if filename.ends_with(".tmp") && !referenced.contains(filename) {
+                    let _ = fs::remove_file(&path);
+                }
+            }
+        }
+    }
 }
 
 /// Load session data from disk.
@@ -235,16 +263,13 @@ pub fn read_temp_file(temp_file: &str) -> Option<String> {
     fs::read_to_string(&path).ok()
 }
 
+/// Create a stable hash for temp file naming.
+/// Uses only name and id - NOT timestamp - so the same document
+/// always gets the same temp filename across auto-saves.
 fn make_hash(name: &str, id: u64) -> u64 {
     let mut hasher = DefaultHasher::new();
     name.hash(&mut hasher);
     id.hash(&mut hasher);
-    // Include a timestamp-like value to avoid collisions across sessions
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
-        .hash(&mut hasher);
     hasher.finish()
 }
 

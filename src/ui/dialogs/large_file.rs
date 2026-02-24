@@ -5,16 +5,21 @@
 
 use fltk::{
     app,
+    button::Button,
     dialog,
+    enums::Align,
     frame::Frame,
     group::Flex,
+    input::Input,
     misc::Progress,
     prelude::*,
     text::TextBuffer,
     window::Window,
 };
+use std::cell::RefCell;
 use std::io::{self, Read};
 use std::path::Path;
+use std::rc::Rc;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc, Arc,
@@ -43,7 +48,7 @@ pub fn show_large_file_warning(path: &Path, size: u64) -> bool {
 }
 
 /// Result of the "file too large" dialog
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TooLargeAction {
     /// User cancelled - don't open the file
     Cancel,
@@ -51,6 +56,8 @@ pub enum TooLargeAction {
     OpenTail,
     /// Open in read-only viewer mode
     ViewReadOnly,
+    /// Open a specific line range (start_line, end_line)
+    OpenChunk(usize, usize),
 }
 
 /// Show dialog for file that exceeds FLTK limit, offering view and tail options
@@ -58,25 +65,118 @@ pub fn show_file_too_large_dialog(path: &Path, size: u64) -> TooLargeAction {
     let filename = path
         .file_name()
         .and_then(|n| n.to_str())
-        .unwrap_or("file");
+        .unwrap_or("file")
+        .to_string();
 
+    // Use Rc<RefCell> to store the result from button callbacks
+    let result = Rc::new(RefCell::new(TooLargeAction::Cancel));
+
+    let mut dialog = Window::new(100, 100, 450, 280, "File Too Large");
+    dialog.make_modal(true);
+
+    let mut main_flex = Flex::new(15, 15, 420, 250, None);
+    main_flex.set_type(fltk::group::FlexType::Column);
+    main_flex.set_spacing(10);
+
+    // Message
     let msg = format!(
-        "File Too Large\n\n\
-        \"{}\" is {} which exceeds the maximum \
-        editable file size (~1.8 GB).\n\n\
-        Choose an option:\n\
-        - View Read-Only: Browse the entire file (no editing)\n\
-        - Open Tail: Load the last 10,000 lines (editable)",
+        "\"{}\" is {} which exceeds the maximum\n\
+        editable file size (150 MB).\n\n\
+        Choose an option:",
         filename,
         format_size(size)
     );
+    let mut msg_frame = Frame::default().with_label(&msg);
+    msg_frame.set_align(Align::Left | Align::Inside | Align::Wrap);
+    main_flex.fixed(&msg_frame, 80);
 
-    // choice2_default: Some(0) = first, Some(1) = second, Some(2) = third
-    match dialog::choice2_default(&msg, "View Read-Only", "Open Tail", "Cancel") {
-        Some(0) => TooLargeAction::ViewReadOnly,
-        Some(1) => TooLargeAction::OpenTail,
-        _ => TooLargeAction::Cancel,
+    // View Read-Only button
+    let mut view_btn = Button::default().with_label("View Read-Only (browse entire file, no editing)");
+    main_flex.fixed(&view_btn, 30);
+
+    // Open Tail button
+    let mut tail_btn = Button::default().with_label("Open Tail (last 10,000 lines, editable)");
+    main_flex.fixed(&tail_btn, 30);
+
+    // Open Lines row
+    let mut lines_row = Flex::default();
+    lines_row.set_type(fltk::group::FlexType::Row);
+    lines_row.set_spacing(5);
+
+    let mut lines_btn = Button::default().with_label("Open Lines:");
+    lines_row.fixed(&lines_btn, 100);
+
+    let mut start_input = Input::default();
+    start_input.set_value("1");
+    start_input.set_tooltip("Start line");
+    lines_row.fixed(&start_input, 80);
+
+    let dash_label = Frame::default().with_label("-");
+    lines_row.fixed(&dash_label, 20);
+
+    let mut end_input = Input::default();
+    end_input.set_value("10000");
+    end_input.set_tooltip("End line");
+    lines_row.fixed(&end_input, 80);
+
+    Frame::default(); // Spacer
+
+    lines_row.end();
+    main_flex.fixed(&lines_row, 30);
+
+    Frame::default(); // Spacer
+
+    // Cancel button
+    let mut cancel_btn = Button::default().with_label("Cancel");
+    main_flex.fixed(&cancel_btn, 30);
+
+    main_flex.end();
+    dialog.end();
+    dialog.show();
+
+    // Set up callbacks
+    let result_view = Rc::clone(&result);
+    let mut dialog_view = dialog.clone();
+    view_btn.set_callback(move |_| {
+        *result_view.borrow_mut() = TooLargeAction::ViewReadOnly;
+        dialog_view.hide();
+    });
+
+    let result_tail = Rc::clone(&result);
+    let mut dialog_tail = dialog.clone();
+    tail_btn.set_callback(move |_| {
+        *result_tail.borrow_mut() = TooLargeAction::OpenTail;
+        dialog_tail.hide();
+    });
+
+    let result_lines = Rc::clone(&result);
+    let mut dialog_lines = dialog.clone();
+    let start_input_clone = start_input.clone();
+    let end_input_clone = end_input.clone();
+    lines_btn.set_callback(move |_| {
+        let start = start_input_clone.value().trim().parse::<usize>().unwrap_or(1);
+        let end = end_input_clone.value().trim().parse::<usize>().unwrap_or(10000);
+        *result_lines.borrow_mut() = TooLargeAction::OpenChunk(start, end);
+        dialog_lines.hide();
+    });
+
+    let mut dialog_cancel = dialog.clone();
+    cancel_btn.set_callback(move |_| {
+        dialog_cancel.hide();
+    });
+
+    // Run dialog event loop
+    while dialog.shown() {
+        app::wait();
+        if app::should_program_quit() {
+            dialog.hide();
+        }
     }
+
+    // Return the result
+    Rc::try_unwrap(result)
+        .unwrap_or_else(|rc| RefCell::new(rc.borrow().clone()))
+        .into_inner()
 }
 
 /// Result of streaming load directly to TextBuffer

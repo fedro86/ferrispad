@@ -63,13 +63,18 @@ impl ViewerState {
         let text = String::from_utf8_lossy(slice);
         buffer.set_text(&text);
 
-        // Count approximate line number at start
+        // Count line numbers at start and end of current view
         let lines_before: usize = self.mmap[..start].iter().filter(|&&b| b == b'\n').count();
+        let lines_in_page: usize = slice.iter().filter(|&&b| b == b'\n').count();
+        let start_line = lines_before + 1;
+        let end_line = start_line + lines_in_page;
+
         pos_label.set_label(&format!(
-            "Page {}/{} | Lines ~{} | Offset: {}",
+            "Page {}/{} | Lines {}-{} | Offset: {}",
             self.current_page + 1,
             self.total_pages,
-            lines_before + 1,
+            start_line,
+            end_line,
             format_size(start as u64)
         ));
     }
@@ -95,6 +100,23 @@ impl ViewerState {
         }
     }
 
+    /// Find byte offset for a given line number
+    fn find_line_offset(&self, target_line: usize) -> usize {
+        if target_line <= 1 {
+            return 0;
+        }
+        let mut line_count = 1usize;
+        for (i, &byte) in self.mmap.iter().enumerate() {
+            if line_count >= target_line {
+                return i;
+            }
+            if byte == b'\n' {
+                line_count += 1;
+            }
+        }
+        self.file_size
+    }
+
     fn go_to_line(
         &mut self,
         target_line: usize,
@@ -104,21 +126,45 @@ impl ViewerState {
         if target_line == 0 {
             return;
         }
-        // Find the byte offset of the target line
-        let mut line_count = 1usize;
-        let mut byte_offset = 0usize;
-        for (i, &byte) in self.mmap.iter().enumerate() {
-            if line_count >= target_line {
-                byte_offset = i;
-                break;
-            }
-            if byte == b'\n' {
-                line_count += 1;
-            }
-        }
-        // Calculate which page contains this offset
+        let byte_offset = self.find_line_offset(target_line);
         let target_page = byte_offset / PAGE_SIZE;
         self.go_to_page(target_page, buffer, pos_label);
+    }
+
+    /// Load a specific line range into buffer (for chunk-based viewing)
+    fn load_line_range(
+        &mut self,
+        start_line: usize,
+        end_line: usize,
+        buffer: &mut TextBuffer,
+        pos_label: &mut Frame,
+    ) {
+        if start_line == 0 || end_line < start_line {
+            return;
+        }
+
+        let start_offset = self.find_line_offset(start_line);
+        let end_offset = self.find_line_offset(end_line + 1); // Include end line
+
+        if start_offset >= self.file_size {
+            return;
+        }
+
+        let end_offset = end_offset.min(self.file_size);
+        let slice = &self.mmap[start_offset..end_offset];
+        let text = String::from_utf8_lossy(slice);
+        buffer.set_text(&text);
+
+        // Update current page to match start
+        self.current_page = start_offset / PAGE_SIZE;
+
+        pos_label.set_label(&format!(
+            "Lines {}-{} | Offset: {}-{}",
+            start_line,
+            end_line,
+            format_size(start_offset as u64),
+            format_size(end_offset as u64)
+        ));
     }
 
     fn search(
@@ -241,7 +287,7 @@ pub fn show_readonly_viewer(path: &Path) {
     Frame::default(); // Spacer
 
     let mut goto_input = Input::default();
-    goto_input.set_tooltip("Enter line number and press Enter");
+    goto_input.set_tooltip("Line number or range (e.g., 100 or 100-200)");
     toolbar.fixed(&goto_input, 100);
 
     let mut goto_btn = Button::default().with_label("Go to Line");
@@ -263,13 +309,16 @@ pub fn show_readonly_viewer(path: &Path) {
     toolbar.end();
     main_flex.fixed(&toolbar, 30);
 
-    // Text display area
+    // Text display area with line numbers
     let mut display = TextDisplay::default();
     let buffer = TextBuffer::default();
     display.set_buffer(buffer.clone());
     display.set_text_font(Font::Courier);
     display.set_text_size(14);
     display.wrap_mode(WrapMode::None, 0);
+    display.set_linenumber_width(60);
+    display.set_linenumber_font(Font::Courier);
+    display.set_linenumber_size(12);
 
     // Status bar
     let mut status_flex = Flex::default();
@@ -333,14 +382,29 @@ pub fn show_readonly_viewer(path: &Path) {
             .next_page(&mut buf_next, &mut pos_label_next);
     });
 
-    // Go to line button
+    // Go to line button (supports single line or range like "100-200")
     let state_goto = Rc::clone(&state);
     let mut buf_goto = buffer.clone();
     let mut pos_label_goto = position_label.clone();
     let goto_input_val = goto_input.clone();
     goto_btn.set_callback(move |_| {
         let line_str = goto_input_val.value();
-        if let Ok(target_line) = line_str.parse::<usize>() {
+        // Check for range format (100-200 or 100:200)
+        if let Some((start, end)) = line_str
+            .split_once('-')
+            .or_else(|| line_str.split_once(':'))
+        {
+            if let (Ok(start_line), Ok(end_line)) =
+                (start.trim().parse::<usize>(), end.trim().parse::<usize>())
+            {
+                state_goto.borrow_mut().load_line_range(
+                    start_line,
+                    end_line,
+                    &mut buf_goto,
+                    &mut pos_label_goto,
+                );
+            }
+        } else if let Ok(target_line) = line_str.parse::<usize>() {
             state_goto
                 .borrow_mut()
                 .go_to_line(target_line, &mut buf_goto, &mut pos_label_goto);

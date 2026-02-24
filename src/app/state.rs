@@ -24,7 +24,7 @@ use super::domain::messages::Message;
 use super::domain::settings::{AppSettings, FontChoice, SyntaxTheme, ThemeMode};
 use super::infrastructure::buffer::buffer_text_no_leak;
 use super::infrastructure::platform::detect_system_dark_mode;
-use super::services::file_size::{check_file_size, format_size, read_tail, FileSizeCheck, TAIL_LINE_COUNT};
+use super::services::file_size::{check_file_size, format_size, read_chunk, read_tail, FileSizeCheck, TAIL_LINE_COUNT};
 use super::services::session::{self, SessionRestore};
 use super::plugins::{PluginManager, PluginHook, get_plugin_dir};
 use crate::ui::dialogs::large_file::{show_file_too_large_dialog, show_large_file_warning, load_to_buffer_with_progress, StreamLoadResult, TooLargeAction};
@@ -499,6 +499,23 @@ impl AppState {
                         }
                         return;
                     }
+                    TooLargeAction::OpenChunk(start_line, end_line) => {
+                        // Read specific line range and open as special document
+                        let filename = path_ref
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("file")
+                            .to_string();
+                        match read_chunk(path_ref, start_line, end_line) {
+                            Ok(content) => {
+                                self.open_chunk_content(path, content, &filename, start_line, end_line);
+                            }
+                            Err(e) => {
+                                dialog::alert_default(&format!("Failed to read file chunk: {}", e));
+                            }
+                        }
+                        return;
+                    }
                 }
             }
             Ok(FileSizeCheck::Large(size)) => {
@@ -714,6 +731,70 @@ impl AppState {
         }
     }
 
+    /// Open content from a specific line range (chunk) as a special document.
+    /// The document is marked with "(lines X-Y)" in its display name.
+    fn open_chunk_content(
+        &mut self,
+        path: String,
+        content: String,
+        filename: &str,
+        start_line: usize,
+        end_line: usize,
+    ) {
+        let chunk_label = format!("{} (lines {}-{})", filename, start_line, end_line);
+
+        if self.tabs_enabled {
+            // Close empty Untitled tab if it's the only one
+            let empty_untitled = if self.tab_manager.count() == 1 {
+                self.tab_manager.active_doc().and_then(|doc| {
+                    if doc.file_path.is_none()
+                        && !doc.is_dirty()
+                        && doc.buffer.length() == 0
+                    {
+                        Some(doc.id)
+                    } else {
+                        None
+                    }
+                })
+            } else {
+                None
+            };
+
+            let id = self.tab_manager.add_from_file(path.clone(), &content);
+            if let Some(untitled_id) = empty_untitled {
+                self.tab_manager.remove(untitled_id);
+            }
+
+            // Mark as chunk mode in display name
+            if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+                doc.display_name = chunk_label;
+                // Don't mark as dirty - this is expected state
+                doc.has_unsaved_changes.set(false);
+            }
+
+            self.switch_to_document(id);
+            self.rebuild_tab_bar();
+
+            // Call plugin hooks
+            self.plugins.call_hook(PluginHook::OnDocumentOpen {
+                path: Some(path),
+            });
+        } else {
+            // Single document mode - just load the chunk
+            if let Some(doc) = self.tab_manager.active_doc_mut() {
+                doc.buffer.set_text(&content);
+                doc.has_unsaved_changes.set(false);
+                doc.file_path = Some(path.clone());
+                doc.display_name = chunk_label;
+            }
+            self.update_window_title();
+
+            self.plugins.call_hook(PluginHook::OnDocumentOpen {
+                path: Some(path),
+            });
+        }
+    }
+
     pub fn file_new(&mut self) {
         if self.tabs_enabled {
             let id = self.tab_manager.add_untitled();
@@ -746,18 +827,20 @@ impl AppState {
     }
 
     pub fn file_save(&mut self) {
-        let (file_path, text, doc_id, is_tail) = {
+        let (file_path, text, doc_id, is_partial) = {
             if let Some(doc) = self.tab_manager.active_doc() {
-                let is_tail = doc.display_name.contains("(tail)");
-                (doc.file_path.clone(), buffer_text_no_leak(&doc.buffer), doc.id.0, is_tail)
+                // Check if this is a partial view (tail or chunk)
+                let is_partial = doc.display_name.contains("(tail)")
+                    || doc.display_name.contains("(lines ");
+                (doc.file_path.clone(), buffer_text_no_leak(&doc.buffer), doc.id.0, is_partial)
             } else {
                 return;
             }
         };
 
-        // Warn if saving a tail document - user might accidentally overwrite the full file
-        if is_tail {
-            let msg = "Warning: This is a tail view (last 10,000 lines).\n\n\
+        // Warn if saving a partial document - user might accidentally overwrite the full file
+        if is_partial {
+            let msg = "Warning: This is a partial view of the file.\n\n\
                        Saving will overwrite the file with ONLY these lines.\n\
                        The rest of the original file will be lost.\n\n\
                        Continue?";
