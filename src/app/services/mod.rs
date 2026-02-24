@@ -15,3 +15,4 @@ pub mod session;
 pub mod syntax;
 pub mod text_ops;
 pub mod updater;
+pub mod yaml_parser;

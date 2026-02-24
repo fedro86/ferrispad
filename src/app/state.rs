@@ -26,15 +26,17 @@ use super::infrastructure::buffer::buffer_text_no_leak;
 use super::infrastructure::platform::detect_system_dark_mode;
 use super::services::file_size::{check_file_size, format_size, read_chunk, read_tail, FileSizeCheck, TAIL_LINE_COUNT};
 use super::services::session::{self, SessionRestore};
-use super::plugins::{PluginManager, PluginHook, get_plugin_dir};
+use super::plugins::{PluginManager, PluginHook, WidgetActionData, WidgetManager, get_plugin_dir};
 use crate::ui::dialogs::large_file::{show_file_too_large_dialog, show_large_file_warning, load_to_buffer_with_progress, StreamLoadResult, TooLargeAction};
 use crate::ui::dialogs::plugin_manager::{show_plugin_manager_dialog, PluginManagerResult};
 use crate::ui::dialogs::plugin_permissions::{show_permission_dialog, ApprovalResult, PermissionRequest};
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::editor_container::EditorContainer;
 use crate::ui::file_dialogs::{native_open_dialog, native_open_multi_dialog, native_save_dialog};
+use crate::ui::split_panel::SplitPanel;
 use crate::ui::tab_bar::TabBar;
 use crate::ui::theme::{apply_theme, apply_syntax_theme_colors};
+use crate::ui::tree_panel::TreePanel;
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
 
@@ -64,6 +66,12 @@ pub struct AppState {
     last_auto_save: Instant,
     /// Whether something changed since the last auto-save.
     session_dirty: bool,
+    /// Widget manager for plugin-created widgets
+    pub widget_manager: WidgetManager,
+    /// Split panel for diff/suggestion views
+    pub split_panel: Option<SplitPanel>,
+    /// Tree panel for file browser/YAML viewer
+    pub tree_panel: Option<TreePanel>,
 }
 
 impl AppState {
@@ -149,6 +157,9 @@ impl AppState {
             last_open_directory: None,
             last_auto_save: Instant::now(),
             session_dirty: false,
+            widget_manager: WidgetManager::new(),
+            split_panel: None,
+            tree_panel: None,
         }
     }
 
@@ -1804,7 +1815,10 @@ impl AppState {
         let result = self.plugins.call_hook_on_plugin(plugin_name, hook);
 
         if let Some(result) = result {
-            // Process the result
+            // Process widget requests (split view, tree view)
+            self.process_widget_requests(&result, plugin_name);
+
+            // Process the result (diagnostics, annotations, etc.)
             self.process_hook_result(result);
         } else {
             // Plugin not found or not enabled
@@ -2058,6 +2072,184 @@ impl AppState {
 
         if let Some(status) = result.status_message {
             self.sender.send(Message::ToastShow(status.level, status.text));
+        }
+    }
+
+    // ===== Widget API Methods =====
+
+    /// Show a split view panel from a plugin request
+    pub fn show_split_view(
+        &mut self,
+        session_id: u32,
+        _plugin_name: &str,
+        request: &super::plugins::SplitViewRequest,
+    ) {
+        // Create split panel if it doesn't exist
+        if self.split_panel.is_none() {
+            let mut panel = SplitPanel::new(self.sender);
+            panel.apply_theme(self.dark_mode);
+            self.split_panel = Some(panel);
+        }
+
+        if let Some(ref mut panel) = self.split_panel {
+            panel.show_request(session_id, request);
+            // Note: In a full implementation, we'd integrate this into the Flex layout
+            // For now, the panel manages its own visibility
+        }
+    }
+
+    /// Hide the split view panel
+    pub fn hide_split_view(&mut self, session_id: u32) {
+        if let Some(ref mut panel) = self.split_panel {
+            if panel.session_id() == Some(session_id) {
+                panel.hide();
+            }
+        }
+
+        // Clean up session
+        self.widget_manager.remove_session(session_id);
+    }
+
+    /// Handle split view accept action
+    pub fn handle_split_view_accept(&mut self, session_id: u32) {
+        // Get session info
+        let session = match self.widget_manager.get_session(session_id) {
+            Some(s) => s.clone(),
+            None => return,
+        };
+
+        // Get the right pane content
+        let right_content = if let Some(ref panel) = self.split_panel {
+            Some(panel.right_content())
+        } else {
+            None
+        };
+
+        // Call plugin's on_widget_action hook
+        let result = self.plugins.call_hook_on_plugin(
+            &session.plugin_name,
+            PluginHook::OnWidgetAction {
+                widget_type: "split_view".to_string(),
+                action: "accept".to_string(),
+                session_id,
+                data: WidgetActionData {
+                    right_content,
+                    node_path: None,
+                },
+            },
+        );
+
+        // Process result (may contain modified_content to apply to editor)
+        if let Some(result) = result {
+            if let Some(content) = result.modified_content {
+                // Apply the accepted content to the editor
+                if let Some(mut buf) = self.editor.buffer() {
+                    buf.set_text(&content);
+                }
+            }
+        }
+
+        // Hide the panel
+        self.hide_split_view(session_id);
+    }
+
+    /// Handle split view reject action
+    pub fn handle_split_view_reject(&mut self, session_id: u32) {
+        // Just hide the panel, no content changes
+        self.hide_split_view(session_id);
+    }
+
+    /// Show a tree view panel from a plugin request
+    pub fn show_tree_view(
+        &mut self,
+        session_id: u32,
+        _plugin_name: &str,
+        request: &super::plugins::TreeViewRequest,
+    ) {
+        // Create tree panel if it doesn't exist
+        if self.tree_panel.is_none() {
+            let mut panel = TreePanel::new(self.sender);
+            panel.apply_theme(self.dark_mode);
+            self.tree_panel = Some(panel);
+        }
+
+        // If YAML content is provided, parse it into a tree
+        let final_request = if request.yaml_content.is_some() && request.root.is_none() {
+            let yaml_content = request.yaml_content.as_ref().unwrap();
+            let root = super::services::yaml_parser::parse_yaml_to_tree(yaml_content, &request.title);
+            super::plugins::TreeViewRequest {
+                title: request.title.clone(),
+                root: Some(root),
+                yaml_content: None,
+                on_click_action: request.on_click_action.clone(),
+                expand_depth: request.expand_depth,
+            }
+        } else {
+            request.clone()
+        };
+
+        if let Some(ref mut panel) = self.tree_panel {
+            panel.show_request(session_id, &final_request);
+        }
+    }
+
+    /// Hide the tree view panel
+    pub fn hide_tree_view(&mut self, session_id: u32) {
+        if let Some(ref mut panel) = self.tree_panel {
+            panel.hide();
+        }
+
+        // Clean up session
+        self.widget_manager.remove_session(session_id);
+    }
+
+    /// Handle tree view node click
+    pub fn handle_tree_view_node_click(&mut self, session_id: u32, node_path: Vec<String>) {
+        // Get session info
+        let session = match self.widget_manager.get_session(session_id) {
+            Some(s) => s.clone(),
+            None => return,
+        };
+
+        // Call plugin's on_widget_action hook
+        let _ = self.plugins.call_hook_on_plugin(
+            &session.plugin_name,
+            PluginHook::OnWidgetAction {
+                widget_type: "tree_view".to_string(),
+                action: "node_clicked".to_string(),
+                session_id,
+                data: WidgetActionData {
+                    right_content: None,
+                    node_path: Some(node_path),
+                },
+            },
+        );
+    }
+
+    /// Process widget requests from a hook result
+    pub fn process_widget_requests(&mut self, result: &super::plugins::HookResult, plugin_name: &str) {
+        // Check for split view request
+        if let Some(ref split_request) = result.split_view {
+            if split_request.is_valid() {
+                let session_id = self.widget_manager.create_split_view_session(plugin_name);
+                self.sender.send(Message::SplitViewShow {
+                    session_id,
+                    plugin_name: plugin_name.to_string(),
+                    request: split_request.clone(),
+                });
+            }
+        }
+
+        // Check for tree view request
+        if let Some(ref tree_request) = result.tree_view {
+            if tree_request.is_valid() {
+                let session_id = self.widget_manager.create_tree_view_session(plugin_name);
+                self.sender.send(Message::TreeViewShow {
+                    session_id,
+                    plugin_name: plugin_name.to_string(),
+                    request: tree_request.clone(),
+                });
+            }
         }
     }
 }

@@ -1,0 +1,204 @@
+//! Tree view widget types for plugin API.
+//!
+//! Allows plugins to display hierarchical data, useful for:
+//! - File browsers
+//! - YAML/JSON viewers
+//! - Outline views
+
+/// A request to show a tree view, returned from plugin hooks
+#[derive(Debug, Clone, Default)]
+pub struct TreeViewRequest {
+    /// Title shown in the tree view header
+    pub title: String,
+    /// Root node of the tree
+    pub root: Option<TreeNode>,
+    /// YAML content to parse into a tree (alternative to root)
+    pub yaml_content: Option<String>,
+    /// Action name sent back to plugin on node click
+    pub on_click_action: Option<String>,
+    /// How many levels to auto-expand (0 = none, -1 = all)
+    pub expand_depth: i32,
+}
+
+/// A node in the tree
+#[derive(Debug, Clone)]
+pub struct TreeNode {
+    /// Display label for this node
+    pub label: String,
+    /// Optional data payload (e.g., file path, metadata)
+    pub data: Option<String>,
+    /// Child nodes
+    pub children: Vec<TreeNode>,
+    /// Whether this node is initially expanded
+    pub expanded: bool,
+    /// Optional icon hint (e.g., "file", "folder", "error")
+    pub icon: Option<String>,
+}
+
+impl Default for TreeNode {
+    fn default() -> Self {
+        Self {
+            label: String::new(),
+            data: None,
+            children: Vec::new(),
+            expanded: false,
+            icon: None,
+        }
+    }
+}
+
+impl TreeViewRequest {
+    /// Parse a tree view request from a Lua table
+    pub fn from_lua_table(table: &mlua::Table) -> Option<Self> {
+        let title: String = table.get("title").unwrap_or_default();
+
+        // Parse root node if present
+        let root = if let Ok(mlua::Value::Table(root_table)) = table.get::<mlua::Value>("root") {
+            Some(TreeNode::from_lua_table(&root_table))
+        } else {
+            None
+        };
+
+        // Check for YAML content
+        let yaml_content: Option<String> = table.get("yaml_content").ok();
+
+        // Action to trigger on node click
+        let on_click_action: Option<String> = table.get("on_click").ok();
+
+        // Expand depth
+        let expand_depth: i32 = table.get("expand_depth").unwrap_or(1);
+
+        Some(Self {
+            title,
+            root,
+            yaml_content,
+            on_click_action,
+            expand_depth,
+        })
+    }
+
+    /// Check if this is a valid request (has root or YAML content)
+    pub fn is_valid(&self) -> bool {
+        self.root.is_some() || self.yaml_content.is_some()
+    }
+}
+
+impl TreeNode {
+    /// Create a new tree node with just a label
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            ..Default::default()
+        }
+    }
+
+    /// Create a new tree node with label and children
+    #[allow(dead_code)]  // Used by tests and future API extensions
+    pub fn with_children(label: impl Into<String>, children: Vec<TreeNode>) -> Self {
+        Self {
+            label: label.into(),
+            children,
+            expanded: true, // Nodes with children are expanded by default
+            ..Default::default()
+        }
+    }
+
+    /// Parse a tree node from a Lua table
+    pub fn from_lua_table(table: &mlua::Table) -> Self {
+        let label: String = table.get("label").unwrap_or_default();
+        let data: Option<String> = table.get("data").ok();
+        let expanded: bool = table.get("expanded").unwrap_or(false);
+        let icon: Option<String> = table.get("icon").ok();
+
+        // Parse children recursively
+        let children = if let Ok(mlua::Value::Table(children_table)) = table.get::<mlua::Value>("children") {
+            children_table
+                .pairs::<i32, mlua::Table>()
+                .flatten()
+                .map(|(_, child_table)| TreeNode::from_lua_table(&child_table))
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        Self {
+            label,
+            data,
+            children,
+            expanded,
+            icon,
+        }
+    }
+
+    /// Check if this node has children
+    pub fn has_children(&self) -> bool {
+        !self.children.is_empty()
+    }
+
+    /// Get the path to this node from root (for callback data)
+    #[allow(dead_code)]  // Used by tree view navigation
+    pub fn get_path(&self, parent_path: &[String]) -> Vec<String> {
+        let mut path = parent_path.to_vec();
+        path.push(self.label.clone());
+        path
+    }
+
+    /// Count total nodes in this subtree
+    #[allow(dead_code)]
+    pub fn count_nodes(&self) -> usize {
+        1 + self.children.iter().map(|c| c.count_nodes()).sum::<usize>()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tree_node_new() {
+        let node = TreeNode::new("test");
+        assert_eq!(node.label, "test");
+        assert!(node.children.is_empty());
+        assert!(!node.expanded);
+    }
+
+    #[test]
+    fn test_tree_node_with_children() {
+        let child1 = TreeNode::new("child1");
+        let child2 = TreeNode::new("child2");
+        let parent = TreeNode::with_children("parent", vec![child1, child2]);
+
+        assert_eq!(parent.label, "parent");
+        assert_eq!(parent.children.len(), 2);
+        assert!(parent.expanded);
+        assert!(parent.has_children());
+    }
+
+    #[test]
+    fn test_tree_node_count() {
+        let leaf = TreeNode::new("leaf");
+        assert_eq!(leaf.count_nodes(), 1);
+
+        let parent = TreeNode::with_children(
+            "parent",
+            vec![
+                TreeNode::new("child1"),
+                TreeNode::with_children("child2", vec![TreeNode::new("grandchild")]),
+            ],
+        );
+        assert_eq!(parent.count_nodes(), 4);
+    }
+
+    #[test]
+    fn test_tree_view_request_validity() {
+        let mut request = TreeViewRequest::default();
+        assert!(!request.is_valid());
+
+        request.root = Some(TreeNode::new("root"));
+        assert!(request.is_valid());
+
+        request.root = None;
+        request.yaml_content = Some("key: value".to_string());
+        assert!(request.is_valid());
+    }
+}

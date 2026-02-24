@@ -443,6 +443,31 @@ fn main() {
                         tab_bar.handle_resize();
                     }
                 }
+
+                // Widget API - Split View
+                Message::SplitViewShow { session_id, plugin_name, request } => {
+                    state.show_split_view(session_id, &plugin_name, &request);
+                }
+                Message::SplitViewHide(session_id) => {
+                    state.hide_split_view(session_id);
+                }
+                Message::SplitViewAccept(session_id) => {
+                    state.handle_split_view_accept(session_id);
+                }
+                Message::SplitViewReject(session_id) => {
+                    state.handle_split_view_reject(session_id);
+                }
+
+                // Widget API - Tree View
+                Message::TreeViewShow { session_id, plugin_name, request } => {
+                    state.show_tree_view(session_id, &plugin_name, &request);
+                }
+                Message::TreeViewHide(session_id) => {
+                    state.hide_tree_view(session_id);
+                }
+                Message::TreeViewNodeClicked { session_id, node_path } => {
+                    state.handle_tree_view_node_click(session_id, node_path);
+                }
             }
         }
         state.auto_save_session_if_needed();

@@ -3,7 +3,7 @@ use fltk::enums::Font;
 use super::document::DocumentId;
 use super::settings::SyntaxTheme;
 use crate::app::controllers::tabs::{GroupColor, GroupId};
-use crate::app::plugins::{Diagnostic, LineAnnotation};
+use crate::app::plugins::{Diagnostic, LineAnnotation, SplitViewRequest, TreeViewRequest};
 use crate::app::services::plugin_update_checker::PluginUpdateInfo;
 use crate::app::services::updater::ReleaseInfo;
 use crate::ui::toast::ToastLevel;
@@ -116,4 +116,33 @@ pub enum Message {
 
     // Window events
     WindowResize,
+
+    // Widget API - Split View
+    /// Show a split view requested by a plugin
+    SplitViewShow {
+        session_id: u32,
+        plugin_name: String,
+        request: SplitViewRequest,
+    },
+    /// Hide the current split view
+    SplitViewHide(u32),
+    /// User clicked Accept in split view
+    SplitViewAccept(u32),
+    /// User clicked Reject in split view
+    SplitViewReject(u32),
+
+    // Widget API - Tree View
+    /// Show a tree view requested by a plugin
+    TreeViewShow {
+        session_id: u32,
+        plugin_name: String,
+        request: TreeViewRequest,
+    },
+    /// Hide the current tree view
+    TreeViewHide(u32),
+    /// User clicked a node in the tree view
+    TreeViewNodeClicked {
+        session_id: u32,
+        node_path: Vec<String>,
+    },
 }

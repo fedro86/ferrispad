@@ -5,5 +5,7 @@ pub mod diagnostic_panel;
 pub mod editor_container;
 pub mod main_window;
 pub mod menu;
+pub mod split_panel;
 pub mod tab_bar;
 pub mod toast;
+pub mod tree_panel;

@@ -16,6 +16,7 @@ pub mod hooks;
 pub mod loader;
 pub mod runtime;
 pub mod security;
+pub mod widgets;
 
 use std::path::PathBuf;
 
@@ -23,8 +24,12 @@ use mlua::Table;
 
 pub use annotations::{AnnotationColor, GutterMark, InlineHighlight, LineAnnotation};
 pub use api::EditorApi;
-pub use hooks::{Diagnostic, DiagnosticLevel, HookResult, PluginHook, StatusMessage};
+pub use hooks::{Diagnostic, DiagnosticLevel, HookResult, PluginHook, StatusMessage, WidgetActionData};
 pub use loader::{get_plugin_dir, PluginMenuItem};
+pub use widgets::{SplitViewRequest, TreeViewRequest, WidgetManager};
+// Re-export widget types for public API (may not be used internally yet)
+#[allow(unused_imports)]
+pub use widgets::{HighlightColor, LineHighlight, SplitPane, SplitViewAction, TreeNode};
 
 use loader::{discover_plugins, load_plugin_toml, PluginPermissions};
 use runtime::LuaRuntime;
@@ -459,6 +464,42 @@ impl PluginManager {
                 }
                 return Ok(result);
             }
+
+            PluginHook::OnWidgetAction {
+                widget_type,
+                action,
+                session_id,
+                data,
+            } => {
+                // Convert WidgetActionData to a Lua table
+                let lua = runtime.lua();
+                let data_table = lua.create_table()?;
+                if let Some(ref content) = data.right_content {
+                    data_table.set("right_content", content.as_str())?;
+                }
+                if let Some(ref path) = data.node_path {
+                    let path_table = lua.create_table()?;
+                    for (i, segment) in path.iter().enumerate() {
+                        path_table.set(i + 1, segment.as_str())?;
+                    }
+                    data_table.set("node_path", path_table)?;
+                }
+
+                let value = runtime.call_hook(
+                    &plugin.table,
+                    hook_name,
+                    (api, widget_type.clone(), action.clone(), *session_id, data_table),
+                )?;
+
+                // Parse result similar to menu action hooks
+                if let mlua::Value::Table(return_table) = value {
+                    if let Ok(mlua::Value::String(s)) = return_table.get::<mlua::Value>("modified_content") {
+                        result.modified_content = Some(s.to_str()?.to_string());
+                    }
+                    self.parse_lint_result(&return_table, &plugin.name, &mut result);
+                }
+                return Ok(result);
+            }
         };
 
         // Most hooks don't return anything useful
@@ -511,14 +552,16 @@ impl PluginManager {
     /// Parse lint/highlight result from Lua table.
     /// Supports both old format (array of diagnostics) and new extended format:
     /// - Old: { {line=1, message="..."}, ... }
-    /// - New: { diagnostics = {...}, highlights = {...}, status_message = {...} }
+    /// - New: { diagnostics = {...}, highlights = {...}, status_message = {...}, split_view = {...}, tree_view = {...} }
     fn parse_lint_result(&self, table: &mlua::Table, plugin_name: &str, result: &mut HookResult) {
         // Check if this is the new extended format (has 'diagnostics' or 'highlights' key)
         let has_diagnostics_key: bool = table.contains_key("diagnostics").unwrap_or(false);
         let has_highlights_key: bool = table.contains_key("highlights").unwrap_or(false);
         let has_status_key: bool = table.contains_key("status_message").unwrap_or(false);
+        let has_split_view_key: bool = table.contains_key("split_view").unwrap_or(false);
+        let has_tree_view_key: bool = table.contains_key("tree_view").unwrap_or(false);
 
-        if has_diagnostics_key || has_highlights_key || has_status_key {
+        if has_diagnostics_key || has_highlights_key || has_status_key || has_split_view_key || has_tree_view_key {
             // New extended format
             if let Ok(mlua::Value::Table(diags_table)) = table.get::<mlua::Value>("diagnostics") {
                 result.diagnostics.extend(self.parse_diagnostics(&diags_table, plugin_name));
@@ -529,6 +572,14 @@ impl PluginManager {
             // Parse optional status message for toast notification
             if let Ok(mlua::Value::Table(status_table)) = table.get::<mlua::Value>("status_message") {
                 result.status_message = self.parse_status_message(&status_table);
+            }
+            // Parse optional split view request
+            if let Ok(mlua::Value::Table(split_view_table)) = table.get::<mlua::Value>("split_view") {
+                result.split_view = SplitViewRequest::from_lua_table(&split_view_table);
+            }
+            // Parse optional tree view request
+            if let Ok(mlua::Value::Table(tree_view_table)) = table.get::<mlua::Value>("tree_view") {
+                result.tree_view = TreeViewRequest::from_lua_table(&tree_view_table);
             }
         } else {
             // Old format: array of diagnostics directly
@@ -685,6 +736,8 @@ impl PluginManager {
             PluginHook::OnMenuAction { path, content, .. } => {
                 EditorApi::with_path_and_content(path.clone(), content.clone())
             }
+
+            PluginHook::OnWidgetAction { .. } => EditorApi::default(),
         };
 
         // Add plugin context for permission checking

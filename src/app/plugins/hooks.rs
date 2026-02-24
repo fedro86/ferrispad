@@ -4,6 +4,7 @@
 //! No async, no background threads. This ensures 0% CPU when idle.
 
 use super::annotations::LineAnnotation;
+use super::widgets::{SplitViewRequest, TreeViewRequest};
 use crate::ui::toast::ToastLevel;
 
 /// Diagnostic severity level
@@ -112,6 +113,19 @@ pub enum PluginHook {
         path: Option<String>,
         content: String,
     },
+
+    /// Called when user interacts with a plugin-created widget.
+    /// Sent when user clicks Accept/Reject in split view, or clicks a tree node.
+    OnWidgetAction {
+        /// Type of widget: "split_view" or "tree_view"
+        widget_type: String,
+        /// Action name: "accept", "reject", "node_clicked", etc.
+        action: String,
+        /// Session ID of the widget
+        session_id: u32,
+        /// Additional data (e.g., node path for tree view, content for split view)
+        data: WidgetActionData,
+    },
 }
 
 impl PluginHook {
@@ -128,8 +142,18 @@ impl PluginHook {
             Self::OnDocumentLint { .. } => "on_document_lint",
             Self::OnHighlightRequest { .. } => "on_highlight_request",
             Self::OnMenuAction { .. } => "on_menu_action",
+            Self::OnWidgetAction { .. } => "on_widget_action",
         }
     }
+}
+
+/// Data passed to OnWidgetAction hook
+#[derive(Debug, Clone, Default)]
+pub struct WidgetActionData {
+    /// For split view: content of the right pane (for accept action)
+    pub right_content: Option<String>,
+    /// For tree view: path to the clicked node
+    pub node_path: Option<Vec<String>>,
 }
 
 /// A status message to display to the user
@@ -152,6 +176,10 @@ pub struct HookResult {
     pub line_annotations: Vec<LineAnnotation>,
     /// Status message to show in toast
     pub status_message: Option<StatusMessage>,
+    /// Request to show a split view widget
+    pub split_view: Option<SplitViewRequest>,
+    /// Request to show a tree view widget
+    pub tree_view: Option<TreeViewRequest>,
 }
 
 #[cfg(test)]
