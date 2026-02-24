@@ -111,4 +111,7 @@ pub enum Message {
     // Toast notifications
     ToastShow(ToastLevel, String),
     ToastHide,
+
+    // Window events
+    WindowResize,
 }

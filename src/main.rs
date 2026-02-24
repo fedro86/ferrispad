@@ -108,20 +108,24 @@ fn main() {
         state.open_file(path.clone());
     }
 
-    // Window close button -> signal quit so nested dialog loops break out,
-    // then send the message for the main event loop to handle.
+    // Window event handler for close and resize.
     // Using handle() with Event::Close to catch close even when menu is open.
     w.wind.handle({
         let s = sender;
         move |wind, event| {
-            if event == fltk::enums::Event::Close {
-                fltk::app::program_should_quit(true);
-                s.send(Message::WindowClose);
-                // Hide the window to break out of any modal loops (like open menus)
-                wind.hide();
-                true
-            } else {
-                false
+            match event {
+                fltk::enums::Event::Close => {
+                    fltk::app::program_should_quit(true);
+                    s.send(Message::WindowClose);
+                    // Hide the window to break out of any modal loops (like open menus)
+                    wind.hide();
+                    true
+                }
+                fltk::enums::Event::Resize => {
+                    s.send(Message::WindowResize);
+                    false // Let FLTK handle the resize too
+                }
+                _ => false,
             }
         }
     });
@@ -241,6 +245,10 @@ fn main() {
                 Message::TabSwitch(id) => {
                     state.switch_to_document(id);
                     state.rebuild_tab_bar();
+                    // Auto-scroll to make the active tab visible
+                    if let Some(ref mut tab_bar) = state.tab_bar {
+                        tab_bar.ensure_active_visible(Some(id));
+                    }
                 }
                 Message::TabClose(id) => {
                     if state.close_tab(id) {
@@ -422,6 +430,13 @@ fn main() {
                     w.flex.fixed(w.toast.widget(), 0);
                     w.flex.recalc();
                     w.wind.redraw();
+                }
+
+                // Window events
+                Message::WindowResize => {
+                    if let Some(ref mut tab_bar) = state.tab_bar {
+                        tab_bar.handle_resize();
+                    }
                 }
             }
         }
