@@ -33,6 +33,11 @@ const TAB_HEIGHT: i32 = 30;
 const BUTTON_HEIGHT: i32 = 30;
 const PLUGIN_ROW_HEIGHT: i32 = 58;
 
+// Scroll/pack layout - rows should fill the tab width with 3px margin each side
+const SCROLL_OFFSET: i32 = 3; // Offset from tab edge
+const SCROLLBAR_WIDTH: i32 = 15; // Approximate scrollbar width
+const ROW_MARGIN: i32 = 3; // Margin on each side of rows
+
 // Row layout constants
 const CHECKBOX_WIDTH: i32 = 24;
 const ICON_SIZE: i32 = 32;
@@ -40,7 +45,7 @@ const ICON_MARGIN: i32 = 8;
 const ACTION_BUTTON_WIDTH: i32 = 80;
 
 // Description truncation (approximate chars that fit)
-const DESC_MAX_CHARS: usize = 55;
+const DESC_MAX_CHARS: usize = 60; // Increased due to wider rows
 
 /// Result from the plugin manager dialog
 #[derive(Debug, Clone)]
@@ -150,14 +155,22 @@ pub fn show_plugin_manager_dialog(
     installed_group.set_label_color(theme.text);
     installed_group.set_color(theme.bg);
 
+    // Scroll fills the tab content area with small offset
+    let scroll_x = PADDING + SCROLL_OFFSET;
+    let scroll_width = DIALOG_WIDTH - PADDING * 2 - SCROLL_OFFSET * 2;
+    let scroll_height = tabs_height - TAB_HEIGHT - SCROLL_OFFSET * 2;
+
     let mut scroll_installed = Scroll::default()
-        .with_pos(PADDING + 5, tabs_y + TAB_HEIGHT + 5)
-        .with_size(DIALOG_WIDTH - PADDING * 2 - 10, tabs_height - TAB_HEIGHT - 10);
+        .with_pos(scroll_x, tabs_y + TAB_HEIGHT + SCROLL_OFFSET)
+        .with_size(scroll_width, scroll_height);
     scroll_installed.set_color(theme.bg);
 
+    // Row width: scroll width minus scrollbar minus margins on each side
+    let row_width = scroll_width - SCROLLBAR_WIDTH - ROW_MARGIN * 2;
+
     let mut pack_installed_inner = Pack::default()
-        .with_pos(PADDING + 5, tabs_y + TAB_HEIGHT + 5)
-        .with_size(DIALOG_WIDTH - PADDING * 2 - 30, 0);
+        .with_pos(scroll_x + ROW_MARGIN, tabs_y + TAB_HEIGHT + SCROLL_OFFSET)
+        .with_size(row_width, 0);
     pack_installed_inner.set_type(PackType::Vertical);
     pack_installed_inner.set_spacing(5);
 
@@ -165,9 +178,11 @@ pub fn show_plugin_manager_dialog(
     let plugin_list = plugins.list_plugins();
     // Track the empty label so we can hide it when a plugin is installed from Available tab
     let empty_label_for_tracking: Rc<RefCell<Option<Frame>>> = Rc::new(RefCell::new(None));
+    // Store row_width for use in callbacks
+    let row_width_for_callback = row_width;
     if plugin_list.is_empty() {
         let mut empty_label = Frame::default()
-            .with_size(DIALOG_WIDTH - PADDING * 2 - 30, 40)
+            .with_size(row_width, 40)
             .with_label("No plugins installed");
         empty_label.set_label_color(theme.text_dim);
         *empty_label_for_tracking.borrow_mut() = Some(empty_label);
@@ -179,6 +194,7 @@ pub fn show_plugin_manager_dialog(
                 &plugin.description,
                 plugin.enabled,
                 &theme,
+                row_width,
                 toggles.clone(),
                 uninstalled.clone(),
                 available_buttons.clone(),
@@ -211,13 +227,13 @@ pub fn show_plugin_manager_dialog(
     available_group.set_color(theme.bg);
 
     let mut scroll_available = Scroll::default()
-        .with_pos(PADDING + 5, tabs_y + TAB_HEIGHT + 5)
-        .with_size(DIALOG_WIDTH - PADDING * 2 - 10, tabs_height - TAB_HEIGHT - 10);
+        .with_pos(scroll_x, tabs_y + TAB_HEIGHT + SCROLL_OFFSET)
+        .with_size(scroll_width, scroll_height);
     scroll_available.set_color(theme.bg);
 
     let mut pack_available = Pack::default()
-        .with_pos(PADDING + 5, tabs_y + TAB_HEIGHT + 5)
-        .with_size(DIALOG_WIDTH - PADDING * 2 - 30, 0);
+        .with_pos(scroll_x + ROW_MARGIN, tabs_y + TAB_HEIGHT + SCROLL_OFFSET)
+        .with_size(row_width, 0);
     pack_available.set_type(PackType::Vertical);
     pack_available.set_spacing(5);
 
@@ -228,7 +244,7 @@ pub fn show_plugin_manager_dialog(
         Ok(registry) => {
             if registry.plugins.is_empty() {
                 let mut empty_label = Frame::default()
-                    .with_size(DIALOG_WIDTH - PADDING * 2 - 30, 40)
+                    .with_size(row_width, 40)
                     .with_label("No plugins available in registry");
                 empty_label.set_label_color(theme.text_dim);
             } else {
@@ -260,6 +276,7 @@ pub fn show_plugin_manager_dialog(
                         already_installed,
                         update_available,
                         &theme,
+                        row_width_for_callback,
                         installed.clone(),
                         toggles.clone(),
                         uninstalled.clone(),
@@ -279,7 +296,7 @@ pub fn show_plugin_manager_dialog(
                 Color::from_rgb(180, 0, 0)
             };
             let mut error_label = Frame::default()
-                .with_size(DIALOG_WIDTH - PADDING * 2 - 30, 60)
+                .with_size(row_width, 60)
                 .with_label(&format!("Failed to fetch plugins:\n{}", e));
             error_label.set_label_color(error_color);
         }
@@ -374,12 +391,12 @@ fn create_installed_plugin_row(
     description: &str,
     enabled: bool,
     theme: &DialogTheme,
+    row_width: i32,
     toggles: Rc<RefCell<Vec<(String, bool)>>>,
     uninstalled: Rc<RefCell<Vec<String>>>,
     available_buttons: Rc<RefCell<HashMap<String, Button>>>,
     installed_rows: Rc<RefCell<HashMap<String, Group>>>,
 ) -> Group {
-    let row_width = DIALOG_WIDTH - PADDING * 2 - 30;
     let is_dark = theme.is_dark();
 
     let mut row = Group::default().with_size(row_width, PLUGIN_ROW_HEIGHT);
@@ -514,6 +531,7 @@ fn create_available_plugin_row(
     already_installed: bool,
     update_available: bool,
     theme: &DialogTheme,
+    row_width: i32,
     installed: Rc<RefCell<Vec<String>>>,
     toggles: Rc<RefCell<Vec<(String, bool)>>>,
     uninstalled: Rc<RefCell<Vec<String>>>,
@@ -522,7 +540,6 @@ fn create_available_plugin_row(
     empty_installed_label: Rc<RefCell<Option<Frame>>>,
     installed_rows: Rc<RefCell<HashMap<String, Group>>>,
 ) -> Group {
-    let row_width = DIALOG_WIDTH - PADDING * 2 - 30;
     let is_dark = theme.is_dark();
 
     let mut row = Group::default().with_size(row_width, PLUGIN_ROW_HEIGHT);
@@ -635,6 +652,7 @@ fn create_available_plugin_row(
 
     // Capture theme values for callback
     let theme_clone = *theme;
+    let row_width_clone = row_width;
 
     // Install callback
     let info = plugin_info.clone();
@@ -673,6 +691,7 @@ fn create_available_plugin_row(
                             &info.description,
                             true, // enabled by default
                             &theme_clone,
+                            row_width_clone,
                             toggles.clone(),
                             uninstalled.clone(),
                             available_buttons.clone(),
