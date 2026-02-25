@@ -24,8 +24,10 @@ pub struct DialogTheme {
     pub text_dim: Color,
     /// Input field background (slightly different from dialog bg)
     pub input_bg: Color,
-    /// Button background (contrasts with dialog bg)
+    /// Button/active tab background (contrasts with dialog bg)
     pub button_bg: Color,
+    /// Tab active/selected background (slightly lighter than button_bg)
+    pub tab_active_bg: Color,
     /// Row background (for lists/tables)
     pub row_bg: Color,
     /// Alternate row background (for zebra striping)
@@ -76,14 +78,22 @@ impl DialogTheme {
         // Button background: contrast with dialog bg
         // Light bg → buttons darker (toward black)
         // Dark bg → buttons lighter (toward white)
-        let button_bg = if is_dark {
+        let (btn_r, btn_g, btn_b) = if is_dark {
             // Dark dialog: lighten buttons for contrast
-            let (br, bg_c, bb) = lighten(bg_r, bg_g, bg_b, 0.15);
-            Color::from_rgb(br, bg_c, bb)
+            lighten(bg_r, bg_g, bg_b, 0.15)
         } else {
             // Light dialog: darken buttons for contrast
-            let (br, bg_c, bb) = darken(bg_r, bg_g, bg_b, 0.85);
-            Color::from_rgb(br, bg_c, bb)
+            darken(bg_r, bg_g, bg_b, 0.85)
+        };
+        let button_bg = Color::from_rgb(btn_r, btn_g, btn_b);
+
+        // Tab active background: slightly lighter than button_bg for selected/active state
+        let tab_active_bg = if is_dark {
+            let (tr, tg, tb) = lighten(btn_r, btn_g, btn_b, 0.10);
+            Color::from_rgb(tr, tg, tb)
+        } else {
+            let (tr, tg, tb) = lighten(btn_r, btn_g, btn_b, 0.15);
+            Color::from_rgb(tr, tg, tb)
         };
 
         // Input background: closer to editor background (lighter than dialog)
@@ -130,6 +140,7 @@ impl DialogTheme {
             text_dim,
             input_bg,
             button_bg,
+            tab_active_bg,
             row_bg,
             row_bg_alt,
             is_dark,

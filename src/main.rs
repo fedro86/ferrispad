@@ -58,6 +58,10 @@ fn main() {
 
     let _ = fltk_app::lock();
     let app = fltk_app::App::default().with_scheme(fltk_app::AppScheme::Gtk);
+
+    // Set subtle rounded corners for RFlatBox widgets globally (min is 5, default is 15)
+    fltk_app::set_frame_border_radius_max(5);
+
     let (sender, receiver) = fltk_app::channel::<Message>();
 
     // Load settings
