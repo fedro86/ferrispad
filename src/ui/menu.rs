@@ -12,7 +12,7 @@ use crate::app::{AppSettings, Message};
 
 /// Reserved keyboard shortcuts that plugins cannot override.
 /// These are built-in editor functions.
-const RESERVED_SHORTCUTS: &[&str] = &[
+pub const RESERVED_SHORTCUTS: &[&str] = &[
     "ctrl+t",
     "ctrl+n",
     "ctrl+o",
@@ -113,7 +113,7 @@ fn parse_shortcut(s: &str) -> Option<Shortcut> {
 }
 
 /// Normalize a shortcut string for comparison (lowercase, sorted modifiers)
-fn normalize_shortcut(s: &str) -> String {
+pub fn normalize_shortcut(s: &str) -> String {
     let parts: Vec<&str> = s.split('+').map(|p| p.trim()).collect();
     let mut modifiers: Vec<String> = Vec::new();
     let mut key = String::new();
@@ -133,6 +133,11 @@ fn normalize_shortcut(s: &str) -> String {
         modifiers.push(key);
     }
     modifiers.join("+")
+}
+
+/// Check if a shortcut string is valid (can be parsed into an FLTK shortcut)
+pub fn is_valid_shortcut(s: &str) -> bool {
+    !s.is_empty() && parse_shortcut(s).is_some()
 }
 
 pub fn build_menu(

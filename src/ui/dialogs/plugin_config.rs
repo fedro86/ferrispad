@@ -9,6 +9,10 @@
 //! - "number": Text input field (validated as number)
 //! - "boolean": Checkbox
 //! - "choice": Dropdown with predefined options
+//!
+//! Validation:
+//! - Shortcut: Checks for conflicts with reserved and other plugin shortcuts
+//! - Number: Validates that value is a valid number
 
 use fltk::{enums::Color, prelude::*, *};
 use std::cell::RefCell;
@@ -17,6 +21,7 @@ use std::rc::Rc;
 
 use crate::app::domain::settings::PluginConfig;
 use crate::app::plugins::ConfigParamDef;
+use crate::ui::menu::{normalize_shortcut, RESERVED_SHORTCUTS};
 
 const DIALOG_WIDTH: i32 = 480;
 const MIN_DIALOG_HEIGHT: i32 = 180;
@@ -25,6 +30,7 @@ const SPACING: i32 = 10;
 const LABEL_WIDTH: i32 = 150;
 const FIELD_X: i32 = 170;
 const FIELD_WIDTH: i32 = 280;
+const ERROR_ROW_HEIGHT: i32 = 20;
 
 /// Result from the plugin config dialog
 pub struct PluginConfigResult {
@@ -51,6 +57,83 @@ fn parse_option(opt: &str) -> (String, String) {
     }
 }
 
+/// Shortcut validation data (clonable for use in callbacks)
+/// Maps plugin name to its effective shortcut (normalized)
+#[derive(Debug, Clone, Default)]
+pub struct ShortcutValidationData {
+    /// Other plugins' shortcuts: plugin_name -> normalized_shortcut
+    pub other_plugins: HashMap<String, String>,
+}
+
+impl ShortcutValidationData {
+    /// Build validation data from settings and plugin manager
+    pub fn from_plugins(
+        settings: &crate::app::domain::settings::AppSettings,
+        plugins: &crate::app::plugins::PluginManager,
+        current_plugin: &str,
+    ) -> Self {
+        let mut other_plugins = HashMap::new();
+
+        for plugin in plugins.list_plugins() {
+            // Skip the current plugin
+            if plugin.name == current_plugin {
+                continue;
+            }
+
+            // Get effective shortcut for this plugin
+            let effective = if let Some(config) = settings.plugin_configs.get(&plugin.name) {
+                config
+                    .shortcut
+                    .as_ref()
+                    .or(plugin.menu_items.first().and_then(|m| m.shortcut.as_ref()))
+            } else {
+                plugin.menu_items.first().and_then(|m| m.shortcut.as_ref())
+            };
+
+            if let Some(shortcut) = effective {
+                other_plugins.insert(plugin.name.clone(), normalize_shortcut(shortcut));
+            }
+        }
+
+        Self { other_plugins }
+    }
+
+    /// Validate a shortcut string
+    /// Returns Ok(()) if valid, Err(message) if invalid
+    pub fn validate(&self, shortcut: &str) -> Result<(), String> {
+        // Empty is always valid (no shortcut)
+        if shortcut.trim().is_empty() {
+            return Ok(());
+        }
+
+        // Check if it can be parsed (basic format check)
+        if !crate::ui::menu::is_valid_shortcut(shortcut) {
+            return Err("Invalid shortcut format. Use e.g. Ctrl+Shift+P".to_string());
+        }
+
+        let normalized = normalize_shortcut(shortcut);
+
+        // Check reserved shortcuts
+        for reserved in RESERVED_SHORTCUTS {
+            if normalize_shortcut(reserved) == normalized {
+                return Err(format!("Shortcut '{}' is reserved by FerrisPad", shortcut));
+            }
+        }
+
+        // Check against other plugins
+        for (plugin_name, other_shortcut) in &self.other_plugins {
+            if *other_shortcut == normalized {
+                return Err(format!(
+                    "Shortcut '{}' conflicts with {}",
+                    shortcut, plugin_name
+                ));
+            }
+        }
+
+        Ok(())
+    }
+}
+
 /// Show the per-plugin configuration dialog
 ///
 /// # Arguments
@@ -59,15 +142,17 @@ fn parse_option(opt: &str) -> (String, String) {
 /// * `current_config` - Current config values from settings
 /// * `default_shortcut` - Default shortcut from plugin manifest (may be None)
 /// * `is_dark` - Whether dark mode is enabled
+/// * `shortcut_validation` - Optional validation data for shortcut conflict detection
 ///
 /// # Returns
-/// Some(result) if user clicked Save, None if cancelled
+/// Some(result) if user clicked Save and validation passed, None if cancelled
 pub fn show_plugin_config_dialog(
     plugin_name: &str,
     param_defs: &[ConfigParamDef],
     current_config: &PluginConfig,
     default_shortcut: Option<&str>,
     is_dark: bool,
+    shortcut_validation: Option<ShortcutValidationData>,
 ) -> Option<PluginConfigResult> {
     // Theme colors
     let bg_color = if is_dark {
@@ -95,12 +180,13 @@ pub fn show_plugin_config_dialog(
     } else {
         Color::from_rgb(230, 230, 230)
     };
+    let error_color = Color::from_rgb(220, 60, 60);
 
     // Calculate dialog height based on number of params
-    // 1 row for title, 1 for shortcut, N for params, 1 for buttons
+    // 1 row for title, 1 for shortcut, N for params, 1 for error, 1 for buttons
     let content_rows = 2 + param_defs.len();
-    let dialog_height =
-        MIN_DIALOG_HEIGHT.max(60 + (content_rows as i32 * (ROW_HEIGHT + SPACING)) + 50);
+    let dialog_height = MIN_DIALOG_HEIGHT
+        .max(60 + (content_rows as i32 * (ROW_HEIGHT + SPACING)) + ERROR_ROW_HEIGHT + 50);
 
     let mut dialog = window::Window::default()
         .with_size(DIALOG_WIDTH, dialog_height)
@@ -154,7 +240,8 @@ pub fn show_plugin_config_dialog(
 
     // Store references to input widgets for retrieval
     // For Choice widgets, also store the options values (not labels) for retrieval
-    let param_widgets: Rc<RefCell<Vec<(String, ParamWidget, Vec<String>)>>> =
+    // For number validation, also store the param type
+    let param_widgets: Rc<RefCell<Vec<(String, ParamWidget, Vec<String>, String)>>> =
         Rc::new(RefCell::new(Vec::new()));
 
     for def in param_defs {
@@ -181,9 +268,12 @@ pub fn show_plugin_config_dialog(
                 cb.set_value(current_value.eq_ignore_ascii_case("true"));
                 cb.set_label_color(text_color);
                 cb.set_color(bg_color);
-                param_widgets
-                    .borrow_mut()
-                    .push((def.key.clone(), ParamWidget::Check(cb), vec![]));
+                param_widgets.borrow_mut().push((
+                    def.key.clone(),
+                    ParamWidget::Check(cb),
+                    vec![],
+                    "boolean".to_string(),
+                ));
             }
             "choice" => {
                 let mut choice = menu::Choice::default()
@@ -210,11 +300,14 @@ pub fn show_plugin_config_dialog(
                     choice.set_value(selected_idx);
                 }
 
-                param_widgets
-                    .borrow_mut()
-                    .push((def.key.clone(), ParamWidget::Choice(choice), option_values));
+                param_widgets.borrow_mut().push((
+                    def.key.clone(),
+                    ParamWidget::Choice(choice),
+                    option_values,
+                    "choice".to_string(),
+                ));
             }
-            _ => {
+            param_type => {
                 // "string" or "number" - use Input widget
                 let mut inp = input::Input::default()
                     .with_pos(FIELD_X, y)
@@ -240,14 +333,27 @@ pub fn show_plugin_config_dialog(
                     }
                 }
 
-                param_widgets
-                    .borrow_mut()
-                    .push((def.key.clone(), ParamWidget::Input(inp), vec![]));
+                param_widgets.borrow_mut().push((
+                    def.key.clone(),
+                    ParamWidget::Input(inp),
+                    vec![],
+                    param_type.to_string(),
+                ));
             }
         }
 
         y += ROW_HEIGHT + SPACING;
     }
+
+    // Error label (hidden by default, shown when validation fails)
+    let mut error_label = frame::Frame::default()
+        .with_pos(20, y)
+        .with_size(DIALOG_WIDTH - 40, ERROR_ROW_HEIGHT)
+        .with_label("");
+    error_label.set_label_color(error_color);
+    error_label.set_label_size(11);
+    error_label.set_align(enums::Align::Left | enums::Align::Inside);
+    error_label.hide();
 
     // Buttons at the bottom
     let button_y = dialog_height - 45;
@@ -273,10 +379,43 @@ pub fn show_plugin_config_dialog(
     let result_save = result.clone();
     let mut dialog_save = dialog.clone();
     let default_shortcut_clone = default_shortcut.map(String::from);
+    let error_label = Rc::new(RefCell::new(error_label));
+    let error_label_save = error_label.clone();
+    let mut shortcut_input_clone = shortcut_input.clone();
 
     save_btn.set_callback(move |_| {
         // Get shortcut value
         let shortcut_val = shortcut_input.value();
+
+        // Validate shortcut if validation data is available
+        if let Some(ref validation) = shortcut_validation {
+            if let Err(error_msg) = validation.validate(&shortcut_val) {
+                let mut err = error_label_save.borrow_mut();
+                err.set_label(&error_msg);
+                err.show();
+                err.redraw();
+                return;
+            }
+        }
+
+        // Validate number fields
+        for (key, widget, _, param_type) in param_widgets_save.borrow().iter() {
+            if param_type == "number" {
+                if let ParamWidget::Input(inp) = widget {
+                    let value = inp.value();
+                    // Allow empty (will use default)
+                    if !value.is_empty() && value.parse::<f64>().is_err() {
+                        let mut err = error_label_save.borrow_mut();
+                        err.set_label(&format!("'{}' must be a valid number", key));
+                        err.show();
+                        err.redraw();
+                        return;
+                    }
+                }
+            }
+        }
+
+        // All validation passed, build result
         let shortcut = if shortcut_val.is_empty() {
             None
         } else if Some(shortcut_val.as_str()) == default_shortcut_clone.as_deref() {
@@ -288,7 +427,7 @@ pub fn show_plugin_config_dialog(
 
         // Get all param values
         let mut params = HashMap::new();
-        for (key, widget, option_values) in param_widgets_save.borrow().iter() {
+        for (key, widget, option_values, _) in param_widgets_save.borrow().iter() {
             let value = match widget {
                 ParamWidget::Input(inp) => inp.value(),
                 ParamWidget::Check(cb) => {
@@ -312,6 +451,19 @@ pub fn show_plugin_config_dialog(
 
         *result_save.borrow_mut() = Some(PluginConfigResult { shortcut, params });
         dialog_save.hide();
+    });
+
+    // Clear error on shortcut input change
+    let error_label_input = error_label.clone();
+    shortcut_input_clone.handle(move |_, ev| {
+        if ev == enums::Event::KeyUp || ev == enums::Event::KeyDown {
+            let mut err = error_label_input.borrow_mut();
+            if err.visible() {
+                err.hide();
+                err.redraw();
+            }
+        }
+        false
     });
 
     let mut dialog_cancel = dialog.clone();

@@ -1507,7 +1507,7 @@ impl AppState {
     /// Show per-plugin configuration dialog
     pub fn show_plugin_config(&mut self, plugin_name: &str) {
         use crate::app::domain::settings::PluginConfig;
-        use crate::ui::dialogs::plugin_config::show_plugin_config_dialog;
+        use crate::ui::dialogs::plugin_config::{show_plugin_config_dialog, ShortcutValidationData};
 
         // Find the plugin
         let plugin = self.plugins.list_plugins().iter().find(|p| p.name == plugin_name);
@@ -1532,6 +1532,13 @@ impl AppState {
             .first()
             .and_then(|m| m.shortcut.as_deref());
 
+        // Build shortcut validation data for conflict detection
+        let shortcut_validation = ShortcutValidationData::from_plugins(
+            &self.settings.borrow(),
+            &self.plugins,
+            plugin_name,
+        );
+
         // Show dialog
         let config_schema = plugin.config_schema.clone();
         if let Some(result) = show_plugin_config_dialog(
@@ -1540,6 +1547,7 @@ impl AppState {
             &current_config,
             default_shortcut,
             self.dark_mode,
+            Some(shortcut_validation),
         ) {
             // Build new config
             let new_config = PluginConfig {
