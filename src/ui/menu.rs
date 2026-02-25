@@ -249,6 +249,46 @@ pub fn build_menu(
     menu.add("Help/Check for Updates...", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::CheckForUpdates) });
 }
 
+/// Remove all menu entries for a plugin by name.
+/// This handles both flat toggles and submenu items.
+fn remove_plugin_menu_entries(menu: &mut MenuBar, name: &str) {
+    // Remove flat toggle if exists
+    let flat_label = format!("Plugins/{}", name);
+    loop {
+        let idx = menu.find_index(&flat_label);
+        if idx < 0 {
+            break;
+        }
+        menu.remove(idx);
+    }
+
+    // Remove submenu items by trying common patterns
+    let submenu_prefix = format!("Plugins/{}/", name);
+
+    // Remove known entries: Enable, Settings...
+    for suffix in ["Enable", "Settings..."] {
+        loop {
+            let idx = menu.find_index(&format!("{}{}", submenu_prefix, suffix));
+            if idx < 0 {
+                break;
+            }
+            menu.remove(idx);
+        }
+    }
+
+    // Try to remove any remaining submenu entries
+    // FLTK find_index can match partial paths, so this will find any item
+    // that starts with "Plugins/{name}/"
+    for _ in 0..50 {
+        // Limit iterations to avoid infinite loop
+        let idx = menu.find_index(&submenu_prefix);
+        if idx < 0 {
+            break;
+        }
+        menu.remove(idx);
+    }
+}
+
 /// Rebuild the plugins submenu with the current list of plugins.
 /// Plugins with menu_items get their own submenu; plugins without stay flat.
 pub fn rebuild_plugins_menu(
@@ -256,6 +296,18 @@ pub fn rebuild_plugins_menu(
     sender: &Sender<Message>,
     settings: &AppSettings,
     plugins: &PluginManager,
+) {
+    rebuild_plugins_menu_with_orphans(menu, sender, settings, plugins, &[]);
+}
+
+/// Rebuild the plugins menu, also cleaning up entries for orphaned plugins
+/// (plugins that were uninstalled and are no longer in the plugin list)
+pub fn rebuild_plugins_menu_with_orphans(
+    menu: &mut MenuBar,
+    sender: &Sender<Message>,
+    settings: &AppSettings,
+    plugins: &PluginManager,
+    orphaned_names: &[String],
 ) {
     // Build set of reserved shortcuts
     let mut used_shortcuts: HashSet<String> = RESERVED_SHORTCUTS
@@ -269,15 +321,6 @@ pub fn rebuild_plugins_menu(
     // Note: We no longer use text separators "---". Instead, we use MenuDivider flag
     // on menu items to draw visual divider lines below them.
 
-    // Remove the visual separator line if it exists
-    loop {
-        let idx = menu.find_index("Plugins/────────────────────────────");
-        if idx < 0 {
-            break;
-        }
-        menu.remove(idx);
-    }
-
     // Remove the "Installed Plugins" label if it exists
     loop {
         let idx = menu.find_index("Plugins/───── Installed Plugins ─────");
@@ -289,48 +332,13 @@ pub fn rebuild_plugins_menu(
 
     // Remove all plugin-related entries (flat toggles and submenus)
     let plugin_list = plugins.list_plugins();
-    for plugin in plugin_list {
-        // Remove flat toggle if exists
-        let flat_label = format!("Plugins/{}", plugin.name);
-        loop {
-            let idx = menu.find_index(&flat_label);
-            if idx < 0 {
-                break;
-            }
-            menu.remove(idx);
-        }
+    for plugin in plugin_list.iter() {
+        remove_plugin_menu_entries(menu, &plugin.name);
+    }
 
-        // Remove submenu items if they exist
-        let submenu_prefix = format!("Plugins/{}/", plugin.name);
-        // Remove Enable toggle
-        loop {
-            let idx = menu.find_index(&format!("{}Enable", submenu_prefix));
-            if idx < 0 {
-                break;
-            }
-            menu.remove(idx);
-        }
-
-        // Remove Settings... item
-        loop {
-            let idx = menu.find_index(&format!("{}Settings...", submenu_prefix));
-            if idx < 0 {
-                break;
-            }
-            menu.remove(idx);
-        }
-
-        // Remove menu items
-        for item in &plugin.menu_items {
-            loop {
-                let idx = menu.find_index(&format!("{}{}", submenu_prefix, item.label));
-                if idx < 0 {
-                    break;
-                }
-                menu.remove(idx);
-            }
-        }
-
+    // Also remove entries for orphaned plugins (just uninstalled)
+    for name in orphaned_names {
+        remove_plugin_menu_entries(menu, name);
     }
 
     // Add plugins to menu if any exist
@@ -339,16 +347,6 @@ pub fn rebuild_plugins_menu(
         let settings_idx = menu.find_index("Plugins/General/Settings...");
         if settings_idx >= 0 {
             let mut insert_pos = settings_idx + 1;
-
-            // Add visual separator line (empty label with divider)
-            menu.insert(
-                insert_pos,
-                "Plugins/────────────────────────────",
-                Shortcut::None,
-                MenuFlag::Normal | MenuFlag::MenuDivider,
-                |_| {},
-            );
-            insert_pos += 1;
 
             // Add "Installed Plugins" label
             menu.insert(

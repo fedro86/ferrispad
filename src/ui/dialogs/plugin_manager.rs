@@ -9,6 +9,7 @@ use fltk::{
     window::Window,
 };
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::app::plugins::PluginManager;
@@ -85,6 +86,10 @@ pub fn show_plugin_manager_dialog(
     // Track uninstalled plugins
     let uninstalled: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
 
+    // Cross-tab sync: map of plugin name -> Available tab button (to update on uninstall)
+    let available_buttons: Rc<RefCell<HashMap<String, Button>>> =
+        Rc::new(RefCell::new(HashMap::new()));
+
     // Create tabs
     let tabs_y = PADDING;
     let tabs_height = DIALOG_HEIGHT - PADDING * 3 - BUTTON_HEIGHT - 10;
@@ -103,19 +108,22 @@ pub fn show_plugin_manager_dialog(
         .with_pos(PADDING + 5, tabs_y + TAB_HEIGHT + 5)
         .with_size(DIALOG_WIDTH - PADDING * 2 - 10, tabs_height - TAB_HEIGHT - 10);
 
-    let mut pack_installed = Pack::default()
+    let mut pack_installed_inner = Pack::default()
         .with_pos(PADDING + 5, tabs_y + TAB_HEIGHT + 5)
         .with_size(DIALOG_WIDTH - PADDING * 2 - 30, 0);
-    pack_installed.set_type(PackType::Vertical);
-    pack_installed.set_spacing(5);
+    pack_installed_inner.set_type(PackType::Vertical);
+    pack_installed_inner.set_spacing(5);
 
     // Add installed plugins
     let plugin_list = plugins.list_plugins();
+    // Track the empty label so we can hide it when a plugin is installed from Available tab
+    let empty_label_for_tracking: Rc<RefCell<Option<Frame>>> = Rc::new(RefCell::new(None));
     if plugin_list.is_empty() {
         let mut empty_label = Frame::default()
             .with_size(DIALOG_WIDTH - PADDING * 2 - 30, 40)
             .with_label("No plugins installed");
         empty_label.set_label_color(text_color);
+        *empty_label_for_tracking.borrow_mut() = Some(empty_label);
     } else {
         for plugin in plugin_list {
             let row = create_installed_plugin_row(
@@ -128,14 +136,21 @@ pub fn show_plugin_manager_dialog(
                 is_dark,
                 toggles.clone(),
                 uninstalled.clone(),
+                available_buttons.clone(),
             );
-            pack_installed.add(&row);
+            pack_installed_inner.add(&row);
         }
     }
 
-    pack_installed.end();
+    pack_installed_inner.end();
     scroll_installed.end();
     installed_group.end();
+
+    // Wrap pack_installed for cross-tab sharing
+    let pack_installed: Rc<RefCell<Pack>> = Rc::new(RefCell::new(pack_installed_inner));
+
+    // Copy the empty label reference for cross-tab sync
+    let empty_installed_label = empty_label_for_tracking.clone();
 
     // ============ AVAILABLE TAB ============
     let mut available_group = Group::default()
@@ -196,6 +211,11 @@ pub fn show_plugin_manager_dialog(
                         text_color,
                         is_dark,
                         installed.clone(),
+                        toggles.clone(),
+                        uninstalled.clone(),
+                        pack_installed.clone(),
+                        available_buttons.clone(),
+                        empty_installed_label.clone(),
                     );
                     pack_available.add(&row);
                 }
@@ -302,6 +322,7 @@ fn create_installed_plugin_row(
     is_dark: bool,
     toggles: Rc<RefCell<Vec<(String, bool)>>>,
     uninstalled: Rc<RefCell<Vec<String>>>,
+    available_buttons: Rc<RefCell<HashMap<String, Button>>>,
 ) -> Group {
     let row_width = DIALOG_WIDTH - PADDING * 2 - 30;
     let mut row = Group::default().with_size(row_width, PLUGIN_ROW_HEIGHT);
@@ -355,8 +376,9 @@ fn create_installed_plugin_row(
         t.push((plugin_name.clone(), new_state));
     });
 
-    // Uninstall callback
-    uninstall_btn.set_callback(move |btn| {
+    // Uninstall callback - clone row to hide it after confirmation
+    let mut row_to_hide = row.clone();
+    uninstall_btn.set_callback(move |_btn| {
         // Confirmation dialog
         let choice = fltk::dialog::choice2_default(
             &format!(
@@ -370,8 +392,18 @@ fn create_installed_plugin_row(
 
         if choice == Some(1) {
             uninstalled.borrow_mut().push(plugin_name_uninstall.clone());
-            btn.set_label("Pending");
-            btn.deactivate();
+            // Hide the entire row immediately
+            row_to_hide.hide();
+            // Trigger parent redraw
+            if let Some(mut parent) = row_to_hide.parent() {
+                parent.redraw();
+            }
+
+            // Cross-tab sync: reset the Available tab button to "Install"
+            if let Some(btn) = available_buttons.borrow_mut().get_mut(&plugin_name_uninstall) {
+                btn.set_label("Install");
+                btn.activate();
+            }
         }
     });
 
@@ -388,6 +420,11 @@ fn create_available_plugin_row(
     text_color: Color,
     is_dark: bool,
     installed: Rc<RefCell<Vec<String>>>,
+    toggles: Rc<RefCell<Vec<(String, bool)>>>,
+    uninstalled: Rc<RefCell<Vec<String>>>,
+    pack_installed: Rc<RefCell<Pack>>,
+    available_buttons: Rc<RefCell<HashMap<String, Button>>>,
+    empty_installed_label: Rc<RefCell<Option<Frame>>>,
 ) -> Group {
     let row_width = DIALOG_WIDTH - PADDING * 2 - 30;
     let mut row = Group::default().with_size(row_width, PLUGIN_ROW_HEIGHT);
@@ -464,6 +501,11 @@ fn create_available_plugin_row(
         install_btn.set_label("Install");
     }
 
+    // Store button reference for cross-tab sync (uninstall -> re-enable Install button)
+    available_buttons
+        .borrow_mut()
+        .insert(plugin_info.name.clone(), install_btn.clone());
+
     // Install callback
     let info = plugin_info.clone();
     let installed_rc = installed.clone();
@@ -476,13 +518,30 @@ fn create_available_plugin_row(
             Ok(status) => {
                 use crate::app::services::plugin_verify::VerificationStatus;
                 match status {
-                    VerificationStatus::Verified => {
+                    VerificationStatus::Verified | VerificationStatus::Unverified => {
                         btn.set_label("Done!");
                         installed_rc.borrow_mut().push(info.name.clone());
-                    }
-                    VerificationStatus::Unverified => {
-                        btn.set_label("Done!");
-                        installed_rc.borrow_mut().push(info.name.clone());
+
+                        // Hide "No plugins installed" label if present
+                        if let Some(ref mut label) = *empty_installed_label.borrow_mut() {
+                            label.hide();
+                        }
+
+                        // Cross-tab sync: add row to Installed tab
+                        let new_row = create_installed_plugin_row(
+                            &info.name,
+                            &info.version,
+                            &info.description,
+                            true, // enabled by default
+                            row_bg,
+                            text_color,
+                            is_dark,
+                            toggles.clone(),
+                            uninstalled.clone(),
+                            available_buttons.clone(),
+                        );
+                        pack_installed.borrow_mut().add(&new_row);
+                        pack_installed.borrow_mut().redraw();
                     }
                     VerificationStatus::Invalid(reason) => {
                         btn.set_label("Failed");

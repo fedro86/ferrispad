@@ -1446,8 +1446,23 @@ impl AppState {
                     ));
                 }
 
-                // Reload plugins to refresh the list
-                self.sender.send(Message::PluginsReloadAll);
+                // Reload plugins from disk
+                self.plugins.reload_all(&get_plugin_dir());
+
+                // Apply disabled list
+                let disabled = self.settings.borrow().disabled_plugins.clone();
+                for disabled_name in &disabled {
+                    self.plugins.toggle_plugin(disabled_name, false);
+                }
+
+                // Rebuild menu with orphaned names to clean up stale entries
+                crate::ui::menu::rebuild_plugins_menu_with_orphans(
+                    &mut self.menu,
+                    &self.sender,
+                    &self.settings.borrow(),
+                    &self.plugins,
+                    &names,
+                );
             }
             PluginManagerResult::Cancelled => {}
         }
