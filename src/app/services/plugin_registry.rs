@@ -55,8 +55,10 @@ pub struct AvailablePluginInfo {
 #[derive(Debug, Clone, Deserialize)]
 pub struct PluginChecksums {
     /// Checksum of init.lua in format "sha256:hexstring"
+    #[serde(rename = "init.lua")]
     pub init_lua: String,
     /// Checksum of plugin.toml in format "sha256:hexstring"
+    #[serde(rename = "plugin.toml")]
     pub plugin_toml: String,
 }
 

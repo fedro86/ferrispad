@@ -112,14 +112,18 @@ impl AppState {
         let plugins_enabled = settings.borrow().plugins_enabled;
         let disabled_plugins = settings.borrow().disabled_plugins.clone();
         let plugin_approvals = settings.borrow().plugin_approvals.clone();
+        let plugin_configs = settings.borrow().plugin_configs.clone();
         let mut plugins = PluginManager::new(plugins_enabled);
         if plugins_enabled {
             plugins.load_plugins(&get_plugin_dir());
 
-            // Apply previously saved permission approvals
+            // Apply previously saved permission approvals and config params
             for plugin in plugins.plugins_mut() {
                 if let Some(approvals) = plugin_approvals.get(&plugin.name) {
                     plugin.approved_commands = approvals.approved_commands.clone();
+                }
+                if let Some(config) = plugin_configs.get(&plugin.name) {
+                    plugin.config_params = config.params.clone();
                 }
             }
 
@@ -1449,6 +1453,108 @@ impl AppState {
         }
     }
 
+    /// Show the plugin settings dialog (Run All Checks configuration)
+    pub fn show_plugin_settings(&mut self) {
+        use crate::ui::dialogs::plugin_settings::show_plugin_settings_dialog;
+
+        // Get list of available plugins with their enabled status
+        let available_plugins: Vec<(String, bool)> = self
+            .plugins
+            .list_plugins()
+            .iter()
+            .map(|p| (p.name.clone(), p.enabled))
+            .collect();
+
+        if let Some(result) = show_plugin_settings_dialog(
+            &self.settings.borrow(),
+            &available_plugins,
+            self.dark_mode,
+        ) {
+            // Update settings
+            {
+                let mut settings = self.settings.borrow_mut();
+                settings.run_all_checks_plugins = result.run_all_checks_plugins;
+                settings.run_all_checks_shortcut = result.run_all_checks_shortcut;
+                let _ = settings.save();
+            }
+
+            // Rebuild menu to apply new shortcut
+            // Note: Need to rebuild the entire menu since the shortcut is set at build time
+            crate::ui::menu::rebuild_plugins_menu(
+                &mut self.menu,
+                &self.sender,
+                &self.settings.borrow(),
+                &self.plugins,
+            );
+        }
+    }
+
+    /// Show per-plugin configuration dialog
+    pub fn show_plugin_config(&mut self, plugin_name: &str) {
+        use crate::app::domain::settings::PluginConfig;
+        use crate::ui::dialogs::plugin_config::show_plugin_config_dialog;
+
+        // Find the plugin
+        let plugin = self.plugins.list_plugins().iter().find(|p| p.name == plugin_name);
+
+        let Some(plugin) = plugin else {
+            eprintln!("[plugins] Plugin not found: {}", plugin_name);
+            return;
+        };
+
+        // Get current config from settings
+        let current_config = self
+            .settings
+            .borrow()
+            .plugin_configs
+            .get(plugin_name)
+            .cloned()
+            .unwrap_or_default();
+
+        // Get default shortcut from first menu item
+        let default_shortcut = plugin
+            .menu_items
+            .first()
+            .and_then(|m| m.shortcut.as_deref());
+
+        // Show dialog
+        let config_schema = plugin.config_schema.clone();
+        if let Some(result) = show_plugin_config_dialog(
+            plugin_name,
+            &config_schema.params,
+            &current_config,
+            default_shortcut,
+            self.dark_mode,
+        ) {
+            // Build new config
+            let new_config = PluginConfig {
+                shortcut: result.shortcut,
+                params: result.params.clone(),
+            };
+
+            // Save to settings
+            {
+                let mut settings = self.settings.borrow_mut();
+                settings
+                    .plugin_configs
+                    .insert(plugin_name.to_string(), new_config);
+                let _ = settings.save();
+            }
+
+            // Update plugin's runtime config params
+            self.plugins
+                .set_plugin_config(plugin_name, result.params);
+
+            // Rebuild menu to apply shortcut changes
+            crate::ui::menu::rebuild_plugins_menu(
+                &mut self.menu,
+                &self.sender,
+                &self.settings.borrow(),
+                &self.plugins,
+            );
+        }
+    }
+
     /// Trigger a background check for plugin updates
     pub fn check_plugin_updates(&self) {
         use crate::app::services::plugin_update_checker::check_for_plugin_updates;
@@ -2051,18 +2157,42 @@ impl AppState {
         self.bind_active_buffer();
     }
 
-    /// Request manual highlight from plugins (Ctrl+Shift+L)
+    /// Request manual highlight from plugins (Ctrl+Shift+L / Run All Checks)
     pub fn request_manual_highlight(&mut self) {
         // Get current document info
         let doc = self.tab_manager.active_doc();
         let path = doc.as_ref().and_then(|d| d.file_path.clone());
         let content = buffer_text_no_leak(&self.editor.buffer().unwrap_or_default());
 
-        // Call the highlight request hook
-        let result = self.plugins.call_hook(PluginHook::OnHighlightRequest {
-            path,
-            content,
-        });
+        // Check if specific plugins are configured for Run All Checks
+        let selected_plugins = self.settings.borrow().run_all_checks_plugins.clone();
+
+        let result = if selected_plugins.is_empty() {
+            // Call all enabled plugins (default behavior)
+            self.plugins.call_hook(PluginHook::OnHighlightRequest {
+                path,
+                content,
+            })
+        } else {
+            // Call only selected plugins
+            let mut combined = super::plugins::HookResult::default();
+            for plugin_name in &selected_plugins {
+                if let Some(plugin_result) = self.plugins.call_hook_on_plugin(
+                    plugin_name,
+                    PluginHook::OnHighlightRequest {
+                        path: path.clone(),
+                        content: content.clone(),
+                    },
+                ) {
+                    combined.diagnostics.extend(plugin_result.diagnostics);
+                    combined.line_annotations.extend(plugin_result.line_annotations);
+                    if plugin_result.status_message.is_some() {
+                        combined.status_message = plugin_result.status_message;
+                    }
+                }
+            }
+            combined
+        };
 
         // Process results (diagnostics, annotations, and toast)
         self.process_lint_result(result);

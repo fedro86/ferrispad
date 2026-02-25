@@ -30,6 +30,42 @@ pub struct PluginMenuItem {
     pub shortcut: Option<String>,
 }
 
+/// Definition of a configurable parameter for a plugin.
+/// Plugins declare these in `[[config.params]]` arrays in plugin.toml.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ConfigParamDef {
+    /// Parameter key used in Lua (e.g., "max_line_length")
+    pub key: String,
+
+    /// Human-readable label for the UI
+    pub label: String,
+
+    /// Parameter type: "string", "number", or "boolean"
+    #[serde(rename = "type", default = "default_param_type")]
+    pub param_type: String,
+
+    /// Default value as string
+    #[serde(default)]
+    pub default: String,
+
+    /// Placeholder text for input fields
+    #[serde(default)]
+    pub placeholder: Option<String>,
+}
+
+fn default_param_type() -> String {
+    "string".to_string()
+}
+
+/// Plugin configuration schema from manifest.
+/// Defines what parameters the plugin accepts.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PluginConfigDef {
+    /// Configurable parameters
+    #[serde(default)]
+    pub params: Vec<ConfigParamDef>,
+}
+
 /// Metadata extracted from a plugin's init.lua or plugin.toml
 #[derive(Debug, Clone, Default)]
 pub struct PluginMetadata {
@@ -39,6 +75,8 @@ pub struct PluginMetadata {
     pub permissions: PluginPermissions,
     /// Custom menu items registered by this plugin
     pub menu_items: Vec<PluginMenuItem>,
+    /// Configuration schema for this plugin
+    pub config: PluginConfigDef,
 }
 
 /// Get the plugin directory path.
@@ -154,12 +192,56 @@ pub fn load_plugin_toml(plugin_dir: &std::path::Path) -> Option<PluginMetadata> 
         })
         .unwrap_or_default();
 
+    // Parse [config] section with [[config.params]]
+    let config = parsed
+        .get("config")
+        .map(|cfg| {
+            let params = cfg
+                .get("params")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|param| {
+                            let key = param.get("key")?.as_str()?.to_string();
+                            let label = param.get("label")?.as_str()?.to_string();
+                            let param_type = param
+                                .get("type")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("string")
+                                .to_string();
+                            let default = param
+                                .get("default")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let placeholder = param
+                                .get("placeholder")
+                                .and_then(|v| v.as_str())
+                                .map(String::from);
+
+                            Some(ConfigParamDef {
+                                key,
+                                label,
+                                param_type,
+                                default,
+                                placeholder,
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            PluginConfigDef { params }
+        })
+        .unwrap_or_default();
+
     Some(PluginMetadata {
         name,
         version,
         description,
         permissions,
         menu_items,
+        config,
     })
 }
 

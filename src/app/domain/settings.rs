@@ -19,6 +19,19 @@ pub struct PluginApprovals {
     pub denied_commands: Vec<String>,
 }
 
+/// Per-plugin configuration (stored in settings.json)
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PluginConfig {
+    /// Custom shortcut override for plugin's primary menu action (e.g., "Ctrl+Alt+P")
+    #[serde(default)]
+    pub shortcut: Option<String>,
+
+    /// Plugin-specific parameters as key-value pairs
+    /// e.g., {"max_line_length": "120", "ignore_rules": "E501,W503"}
+    #[serde(default)]
+    pub params: HashMap<String, String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ThemeMode {
     Light,
@@ -160,6 +173,18 @@ pub struct AppSettings {
     /// Timestamp of last plugin update check (UNIX timestamp)
     #[serde(default)]
     pub last_plugin_update_check: i64,
+
+    /// Names of plugins to include in "Run All Checks" (empty = all enabled plugins)
+    #[serde(default)]
+    pub run_all_checks_plugins: Vec<String>,
+
+    /// Shortcut for "Run All Checks" command (default: "Ctrl+Shift+L")
+    #[serde(default = "default_run_all_checks_shortcut")]
+    pub run_all_checks_shortcut: String,
+
+    /// Per-plugin configuration (plugin_name -> config)
+    #[serde(default)]
+    pub plugin_configs: HashMap<String, PluginConfig>,
 }
 
 fn default_line_numbers() -> bool {
@@ -214,6 +239,10 @@ fn default_auto_check_plugin_updates() -> bool {
     true
 }
 
+fn default_run_all_checks_shortcut() -> String {
+    "Ctrl+Shift+L".to_string()
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -238,6 +267,9 @@ impl Default for AppSettings {
             plugin_approvals: HashMap::new(),
             auto_check_plugin_updates: default_auto_check_plugin_updates(),
             last_plugin_update_check: 0,
+            run_all_checks_plugins: Vec::new(),
+            run_all_checks_shortcut: default_run_all_checks_shortcut(),
+            plugin_configs: HashMap::new(),
         }
     }
 }

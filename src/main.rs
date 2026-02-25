@@ -376,6 +376,8 @@ fn main() {
                     state.handle_plugin_menu_action(&plugin_name, &action);
                 }
                 Message::ShowPluginManager => state.show_plugin_manager(),
+                Message::ShowPluginSettings => state.show_plugin_settings(),
+                Message::ShowPluginConfig(name) => state.show_plugin_config(&name),
                 Message::CheckPluginUpdates => state.check_plugin_updates(),
                 Message::PluginUpdatesChecked(updates) => state.handle_plugin_updates_checked(updates),
 

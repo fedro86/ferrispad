@@ -91,6 +91,10 @@ pub enum Message {
     PluginMenuAction { plugin_name: String, action: String },
     /// Open the plugin manager dialog
     ShowPluginManager,
+    /// Open the plugin settings dialog (Run All Checks config)
+    ShowPluginSettings,
+    /// Open per-plugin configuration dialog
+    ShowPluginConfig(String),
     /// Check for plugin updates (triggers background check)
     CheckPluginUpdates,
     /// Plugin update check completed with results

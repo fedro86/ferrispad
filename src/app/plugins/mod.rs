@@ -18,6 +18,7 @@ pub mod runtime;
 pub mod security;
 pub mod widgets;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use mlua::Table;
@@ -25,7 +26,7 @@ use mlua::Table;
 pub use annotations::{AnnotationColor, GutterMark, InlineHighlight, LineAnnotation};
 pub use api::EditorApi;
 pub use hooks::{Diagnostic, DiagnosticLevel, HookResult, PluginHook, StatusMessage, WidgetActionData};
-pub use loader::{get_plugin_dir, PluginMenuItem};
+pub use loader::{get_plugin_dir, ConfigParamDef, PluginConfigDef, PluginMenuItem};
 pub use widgets::{SplitViewRequest, TreeViewRequest, WidgetManager};
 // Re-export widget types for public API (may not be used internally yet)
 #[allow(unused_imports)]
@@ -60,6 +61,12 @@ pub struct LoadedPlugin {
 
     /// Custom menu items registered by this plugin
     pub menu_items: Vec<PluginMenuItem>,
+
+    /// Configuration schema from plugin.toml (what params are configurable)
+    pub config_schema: PluginConfigDef,
+
+    /// User configuration values (from AppSettings.plugin_configs)
+    pub config_params: HashMap<String, String>,
 
     /// The Lua table returned by init.lua
     table: Table,
@@ -209,6 +216,12 @@ impl PluginManager {
             .map(|m| m.menu_items.clone())
             .unwrap_or_default();
 
+        // Get config schema from manifest (defaults to empty if no manifest)
+        let config_schema = toml_meta
+            .as_ref()
+            .map(|m| m.config.clone())
+            .unwrap_or_default();
+
         Ok(LoadedPlugin {
             name,
             version,
@@ -218,6 +231,8 @@ impl PluginManager {
             permissions,
             approved_commands: Vec::new(), // Will be populated from settings
             menu_items,
+            config_schema,
+            config_params: HashMap::new(), // Will be populated from settings
             table,
         })
     }
@@ -744,6 +759,9 @@ impl PluginManager {
         api.plugin_name = Some(plugin.name.clone());
         api.allowed_commands = plugin.approved_commands.clone();
 
+        // Add plugin-specific configuration
+        api.config = plugin.config_params.clone();
+
         api
     }
 
@@ -787,6 +805,17 @@ impl PluginManager {
             .collect()
     }
 
+    /// Set configuration parameters for a plugin by name.
+    /// Called from AppState when loading settings.
+    pub fn set_plugin_config(&mut self, name: &str, params: HashMap<String, String>) {
+        for plugin in &mut self.plugins {
+            if plugin.name == name {
+                plugin.config_params = params;
+                break;
+            }
+        }
+    }
+
     /// Get current Lua memory usage in bytes.
     /// Returns 0 if the plugin system is disabled.
     pub fn lua_memory_usage(&self) -> usize {
@@ -815,6 +844,12 @@ impl PluginManager {
             .iter()
             .map(|p| (p.name.clone(), p.approved_commands.clone()))
             .collect();
+        // Remember config params for each plugin
+        let configs: Vec<(String, HashMap<String, String>)> = self
+            .plugins
+            .iter()
+            .map(|p| (p.name.clone(), p.config_params.clone()))
+            .collect();
 
         // Log memory before reload (debug aid)
         let mem_before = self.lua_memory_usage();
@@ -836,6 +871,11 @@ impl PluginManager {
                     break;
                 }
             }
+        }
+
+        // Restore config params
+        for (name, params) in configs {
+            self.set_plugin_config(&name, params);
         }
 
         // Log memory after reload

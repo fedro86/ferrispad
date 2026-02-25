@@ -313,6 +313,11 @@ pub fn show_settings_dialog(
             plugin_approvals: current.plugin_approvals.clone(),
             auto_check_plugin_updates: check_plugin_updates.value(),
             last_plugin_update_check: current.last_plugin_update_check,
+            // Preserve Run All Checks settings (editable via Plugins > General > Settings)
+            run_all_checks_plugins: current.run_all_checks_plugins.clone(),
+            run_all_checks_shortcut: current.run_all_checks_shortcut.clone(),
+            // Preserve per-plugin configs (editable via Plugins > {Plugin} > Settings)
+            plugin_configs: current.plugin_configs.clone(),
         };
 
         *result_save.borrow_mut() = Some(new_settings);

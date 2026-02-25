@@ -11,6 +11,7 @@
 //! Path traversal attacks (e.g., `../../etc/passwd`) are blocked.
 
 use mlua::{Lua, Result as LuaResult, UserData, UserDataMethods};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -51,6 +52,10 @@ pub struct EditorApi {
     /// Commands this plugin is allowed to execute.
     /// Empty means no commands are allowed (strict mode).
     pub allowed_commands: Vec<String>,
+
+    /// Plugin-specific configuration from user settings.
+    /// Key-value pairs configured via Plugins > {Plugin} > Settings.
+    pub config: HashMap<String, String>,
 }
 
 
@@ -394,6 +399,29 @@ impl UserData for EditorApi {
                 .as_ref()
                 .and_then(|p| p.to_str())
                 .map(|s| s.to_string()))
+        });
+
+        // Get a plugin configuration value as string
+        // Returns nil if key not set
+        methods.add_method("get_config", |_, this, key: String| {
+            Ok(this.config.get(&key).cloned())
+        });
+
+        // Get a plugin configuration value as number
+        // Returns nil if key not set or not a valid number
+        methods.add_method("get_config_number", |_, this, key: String| {
+            Ok(this.config.get(&key).and_then(|v| v.parse::<f64>().ok()))
+        });
+
+        // Get a plugin configuration value as boolean
+        // Returns false if key not set
+        // "true" (case-insensitive) returns true, anything else returns false
+        methods.add_method("get_config_bool", |_, this, key: String| {
+            Ok(this
+                .config
+                .get(&key)
+                .map(|v| v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false))
         });
     }
 }

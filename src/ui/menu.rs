@@ -188,14 +188,14 @@ pub fn build_menu(
     menu.add("Format/Font Size/Medium (16)", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::SetFontSize(16)) });
     menu.add("Format/Font Size/Large (20)", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::SetFontSize(20)) });
 
-    // Plugins - static menu, will be rebuilt when plugins change
+    // Plugins - General submenu with core functionality
     let plugins_flag = if settings.plugins_enabled {
         MenuFlag::Toggle | MenuFlag::Value
     } else {
         MenuFlag::Toggle
     };
     menu.add(
-        "Plugins/Enable Plugins",
+        "Plugins/General/Enable Plugins",
         Shortcut::None,
         plugins_flag,
         {
@@ -203,8 +203,21 @@ pub fn build_menu(
             move |_| s.send(Message::PluginsToggleGlobal)
         },
     );
+
+    // Parse the custom shortcut or fall back to default
+    let run_checks_shortcut = parse_shortcut(&settings.run_all_checks_shortcut)
+        .unwrap_or(Shortcut::Ctrl | Shortcut::Shift | 'l');
     menu.add(
-        "Plugins/Reload All",
+        "Plugins/General/Run All Checks",
+        run_checks_shortcut,
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::ManualHighlight)
+        },
+    );
+    menu.add(
+        "Plugins/General/Reload All",
         Shortcut::None,
         MenuFlag::Normal,
         {
@@ -213,7 +226,7 @@ pub fn build_menu(
         },
     );
     menu.add(
-        "Plugins/Plugin Manager...",
+        "Plugins/General/Plugin Manager...",
         Shortcut::None,
         MenuFlag::Normal,
         {
@@ -222,12 +235,12 @@ pub fn build_menu(
         },
     );
     menu.add(
-        "Plugins/Run Checks",
-        Shortcut::Ctrl | Shortcut::Shift | 'l',
+        "Plugins/General/Settings...",
+        Shortcut::None,
         MenuFlag::Normal,
         {
             let s = *s;
-            move |_| s.send(Message::ManualHighlight)
+            move |_| s.send(Message::ShowPluginSettings)
         },
     );
 
@@ -256,6 +269,24 @@ pub fn rebuild_plugins_menu(
     // Note: We no longer use text separators "---". Instead, we use MenuDivider flag
     // on menu items to draw visual divider lines below them.
 
+    // Remove the visual separator line if it exists
+    loop {
+        let idx = menu.find_index("Plugins/────────────────────────────");
+        if idx < 0 {
+            break;
+        }
+        menu.remove(idx);
+    }
+
+    // Remove the "Installed Plugins" label if it exists
+    loop {
+        let idx = menu.find_index("Plugins/───── Installed Plugins ─────");
+        if idx < 0 {
+            break;
+        }
+        menu.remove(idx);
+    }
+
     // Remove all plugin-related entries (flat toggles and submenus)
     let plugin_list = plugins.list_plugins();
     for plugin in plugin_list {
@@ -280,6 +311,15 @@ pub fn rebuild_plugins_menu(
             menu.remove(idx);
         }
 
+        // Remove Settings... item
+        loop {
+            let idx = menu.find_index(&format!("{}Settings...", submenu_prefix));
+            if idx < 0 {
+                break;
+            }
+            menu.remove(idx);
+        }
+
         // Remove menu items
         for item in &plugin.menu_items {
             loop {
@@ -295,15 +335,30 @@ pub fn rebuild_plugins_menu(
 
     // Add plugins to menu if any exist
     if !plugin_list.is_empty() {
-        // Find position after "Run Checks" to insert plugins
-        let run_checks_idx = menu.find_index("Plugins/Run Checks");
-        if run_checks_idx >= 0 {
-            // Add MenuDivider flag to Run Checks to draw a visual separator line below it
-            if let Some(mut item) = menu.at(run_checks_idx) {
-                item.set_flag(MenuFlag::MenuDivider);
-            }
+        // Find position after "General/Settings..." to insert plugins
+        let settings_idx = menu.find_index("Plugins/General/Settings...");
+        if settings_idx >= 0 {
+            let mut insert_pos = settings_idx + 1;
 
-            let mut insert_pos = run_checks_idx + 1;
+            // Add visual separator line (empty label with divider)
+            menu.insert(
+                insert_pos,
+                "Plugins/────────────────────────────",
+                Shortcut::None,
+                MenuFlag::Normal | MenuFlag::MenuDivider,
+                |_| {},
+            );
+            insert_pos += 1;
+
+            // Add "Installed Plugins" label
+            menu.insert(
+                insert_pos,
+                "Plugins/───── Installed Plugins ─────",
+                Shortcut::None,
+                MenuFlag::Normal,
+                |_| {},
+            );
+            insert_pos += 1;
 
             // Add each plugin
             for plugin in plugin_list {
@@ -351,12 +406,38 @@ pub fn rebuild_plugins_menu(
                     );
                     insert_pos += 1;
 
+                    // Add "Settings..." menu item for plugin configuration
+                    let settings_label = format!("{}/Settings...", submenu_base);
+                    let plugin_name_settings = plugin.name.clone();
+                    let s = *sender;
+
+                    menu.insert(
+                        insert_pos,
+                        &settings_label,
+                        Shortcut::None,
+                        MenuFlag::Normal | MenuFlag::MenuDivider,
+                        move |_| s.send(Message::ShowPluginConfig(plugin_name_settings.clone())),
+                    );
+                    insert_pos += 1;
+
                     // Add each menu item
+                    let mut is_first = true;
                     for item in &plugin.menu_items {
                         let item_label = format!("{}/{}", submenu_base, item.label);
 
+                        // For first item, check for shortcut override from settings
+                        let shortcut_str = if is_first {
+                            settings
+                                .plugin_configs
+                                .get(&plugin.name)
+                                .and_then(|c| c.shortcut.as_ref())
+                                .or(item.shortcut.as_ref())
+                        } else {
+                            item.shortcut.as_ref()
+                        };
+
                         // Parse and validate shortcut
-                        let shortcut = if let Some(ref sc_str) = item.shortcut {
+                        let shortcut = if let Some(sc_str) = shortcut_str {
                             let normalized = normalize_shortcut(sc_str);
                             if used_shortcuts.contains(&normalized) {
                                 eprintln!(
@@ -377,6 +458,8 @@ pub fn rebuild_plugins_menu(
                         } else {
                             Shortcut::None
                         };
+
+                        is_first = false;
 
                         let plugin_name = plugin.name.clone();
                         let action = item.action.clone();
@@ -402,7 +485,7 @@ pub fn rebuild_plugins_menu(
     }
 
     // Update the global enable checkbox
-    let idx = menu.find_index("Plugins/Enable Plugins");
+    let idx = menu.find_index("Plugins/General/Enable Plugins");
     if idx >= 0
         && let Some(mut item) = menu.at(idx)
     {
