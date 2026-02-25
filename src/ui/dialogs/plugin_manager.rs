@@ -650,6 +650,36 @@ fn create_available_plugin_row(
     install_btn.set_color(theme.button_bg);
     install_btn.set_label_color(theme.text);
 
+    // Details button (to the left of Install, only if readme_url is present)
+    if let Some(readme_url) = &plugin_info.readme_url {
+        let details_btn_width = 60;
+        let details_btn_x = btn_x - details_btn_width - 8; // 8px gap between buttons
+        let mut details_btn = Button::default()
+            .with_pos(details_btn_x, (PLUGIN_ROW_HEIGHT - btn_height) / 2)
+            .with_size(details_btn_width, btn_height)
+            .with_label("Details");
+        details_btn.set_frame(FrameType::RFlatBox);
+        details_btn.set_label_size(11);
+        details_btn.set_color(theme.button_bg);
+        details_btn.set_label_color(theme.text);
+
+        let url = readme_url.clone();
+        details_btn.set_callback(move |_| {
+            let choice = fltk::dialog::choice2_default(
+                &format!(
+                    "This will open your browser to:\n\n{}\n\nContinue?",
+                    url
+                ),
+                "Cancel",
+                "Open in Browser",
+                "",
+            );
+            if choice == Some(1) {
+                let _ = open::that(&url);
+            }
+        });
+    }
+
     if already_installed && !update_available {
         install_btn.set_label("Installed");
         install_btn.deactivate();

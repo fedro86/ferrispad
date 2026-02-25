@@ -49,6 +49,9 @@ pub struct AvailablePluginInfo {
     /// ed25519 signature of the plugin (optional, base64-encoded)
     #[serde(default)]
     pub signature: Option<String>,
+    /// URL to the plugin's README (e.g., GitHub page)
+    #[serde(default)]
+    pub readme_url: Option<String>,
 }
 
 /// SHA-256 checksums for plugin files

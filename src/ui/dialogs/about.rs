@@ -1,6 +1,6 @@
 use fltk::{
     button::Button,
-    enums::Font,
+    enums::{Color, Font, FrameType},
     frame::Frame,
     group::Flex,
     prelude::*,
@@ -14,17 +14,20 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
     let theme = DialogTheme::from_theme_bg(theme_bg);
     let version = env!("CARGO_PKG_VERSION");
 
+    // Use original editor background for dialog (not derived/darkened)
+    let dialog_bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
+
     let mut dialog = Window::default()
         .with_size(450, 400)
         .with_label("About FerrisPad")
         .center_screen();
     dialog.make_modal(true);
-    dialog.set_color(theme.bg);
+    dialog.set_color(dialog_bg);
 
     let mut flex = Flex::new(10, 10, 430, 380, None);
     flex.set_type(fltk::group::FlexType::Column);
     flex.set_spacing(10);
-    flex.set_color(theme.bg);
+    flex.set_color(dialog_bg);
 
     // App icon/logo
     let mut title = Frame::default();
@@ -32,6 +35,8 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
     title.set_label_size(24);
     title.set_label_font(Font::HelveticaBold);
     title.set_label_color(theme.text);
+    title.set_frame(FrameType::FlatBox);
+    title.set_color(dialog_bg);
     flex.fixed(&title, 40);
 
     // Version
@@ -39,6 +44,8 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
     version_frame.set_label(&format!("Version {}", version));
     version_frame.set_label_size(14);
     version_frame.set_label_color(theme.text);
+    version_frame.set_frame(FrameType::FlatBox);
+    version_frame.set_color(dialog_bg);
     flex.fixed(&version_frame, 25);
 
     // Description
@@ -46,16 +53,20 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
     desc_frame.set_label("A blazingly fast, minimalist notepad written in Rust");
     desc_frame.set_label_size(12);
     desc_frame.set_label_color(theme.text_dim);
+    desc_frame.set_frame(FrameType::FlatBox);
+    desc_frame.set_color(dialog_bg);
     flex.fixed(&desc_frame, 25);
 
     // Spacing
     let mut _spacer1 = Frame::default();
+    _spacer1.set_frame(FrameType::FlatBox);
+    _spacer1.set_color(dialog_bg);
     flex.fixed(&_spacer1, 10);
 
     // Info section
     let info_text = "Copyright \u{00a9} 2025 FerrisPad Contributors\n\
          Licensed under the MIT License\n\n\
-         Built with Rust and FLTK\n\n\
+         Built with Rust, FLTK, and Lua\n\n\
          Website: www.ferrispad.com\n\
          GitHub: github.com/fedro86/ferrispad".to_string();
 
@@ -64,10 +75,14 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
     info_frame.set_label_size(12);
     info_frame.set_label_color(theme.text);
     info_frame.set_align(fltk::enums::Align::Center | fltk::enums::Align::Inside);
+    info_frame.set_frame(FrameType::FlatBox);
+    info_frame.set_color(dialog_bg);
     flex.fixed(&info_frame, 120);
 
     // Spacing
     let mut _spacer2 = Frame::default();
+    _spacer2.set_frame(FrameType::FlatBox);
+    _spacer2.set_color(dialog_bg);
     flex.fixed(&_spacer2, 10);
 
     // Credits
@@ -76,10 +91,13 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
     credits_frame.set_label_size(11);
     credits_frame.set_label_color(theme.text_dim);
     credits_frame.set_align(fltk::enums::Align::Center | fltk::enums::Align::Inside);
+    credits_frame.set_frame(FrameType::FlatBox);
+    credits_frame.set_color(dialog_bg);
     flex.fixed(&credits_frame, 40);
 
     // Close button
     let mut close_btn = Button::default().with_label("Close");
+    close_btn.set_frame(FrameType::RFlatBox);
     close_btn.set_color(theme.button_bg);
     close_btn.set_label_color(theme.text);
     flex.fixed(&close_btn, 35);

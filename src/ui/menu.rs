@@ -428,16 +428,33 @@ pub fn rebuild_plugins_menu_with_orphans(
                     for item in &plugin.menu_items {
                         let item_label = format!("{}/{}", submenu_base, item.label);
 
-                        // For first item, check for shortcut override from settings
-                        let shortcut_str = if is_first {
-                            settings
-                                .plugin_configs
-                                .get(&plugin.name)
-                                .and_then(|c| c.shortcut.as_ref())
-                                .or(item.shortcut.as_ref())
+                        // Look up per-action shortcut from plugin config params
+                        // Convention: "run_X" action -> "X_shortcut" param key
+                        // For "lint" action (primary), use the legacy shortcut field
+                        let plugin_config = settings.plugin_configs.get(&plugin.name);
+
+                        // Build shortcut key: "run_foo" -> "foo_shortcut"
+                        let shortcut_key = if item.action.starts_with("run_") {
+                            format!("{}_shortcut", &item.action[4..])
                         } else {
-                            item.shortcut.as_ref()
+                            format!("{}_shortcut", item.action)
                         };
+
+                        // Priority: config param shortcut > legacy shortcut field > manifest shortcut
+                        let shortcut_str: Option<&str> =
+                            if is_first && item.action == "lint" {
+                                // Primary lint action: prefer top-level shortcut override
+                                plugin_config
+                                    .and_then(|c| c.shortcut.as_deref())
+                                    .or(item.shortcut.as_deref())
+                            } else {
+                                // Per-action shortcut from config params
+                                plugin_config
+                                    .and_then(|c| c.params.get(&shortcut_key))
+                                    .map(String::as_str)
+                                    .filter(|s| !s.is_empty())
+                                    .or(item.shortcut.as_deref())
+                            };
 
                         // Parse and validate shortcut
                         let shortcut = if let Some(sc_str) = shortcut_str {

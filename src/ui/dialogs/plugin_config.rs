@@ -16,7 +16,7 @@
 //! - cli_args: Validates CLI arguments (blocks shell metacharacters)
 //! - regex:PATTERN: Validates against a custom regex pattern
 
-use fltk::{enums::Color, prelude::*, *};
+use fltk::{enums::{Color, FrameType}, prelude::*, *};
 use regex_lite::Regex;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -83,12 +83,13 @@ fn validate_param_value(value: &str, validate_rule: &str, label: &str) -> Result
 }
 
 const DIALOG_WIDTH: i32 = 480;
-const MIN_DIALOG_HEIGHT: i32 = 180;
-const ROW_HEIGHT: i32 = 30;
-const SPACING: i32 = 10;
-const LABEL_WIDTH: i32 = 150;
-const FIELD_X: i32 = 170;
-const FIELD_WIDTH: i32 = 280;
+const MIN_DIALOG_HEIGHT: i32 = 200;
+const ROW_HEIGHT: i32 = 55;           // Label (20) + gap (5) + field (25) + spacing (5)
+const SPACING: i32 = 5;
+const LABEL_HEIGHT: i32 = 20;
+const FIELD_Y_OFFSET: i32 = 25;       // Field starts below label
+const FIELD_X: i32 = 20;              // Aligned with label
+const FIELD_WIDTH: i32 = 440;         // Full width minus margins
 const ERROR_ROW_HEIGHT: i32 = 20;
 
 /// Result from the plugin config dialog
@@ -257,17 +258,17 @@ pub fn show_plugin_config_dialog(
     title.set_label_color(text_color);
     y += ROW_HEIGHT + SPACING;
 
-    // Shortcut field (always shown)
+    // Shortcut field (always shown) - stacked layout: label above input
     let mut shortcut_label = frame::Frame::default()
         .with_pos(20, y)
-        .with_size(LABEL_WIDTH, 25)
+        .with_size(FIELD_WIDTH, LABEL_HEIGHT)
         .with_label("Shortcut:");
     shortcut_label.set_label_color(text_color);
     shortcut_label.set_align(enums::Align::Left | enums::Align::Inside);
 
     let mut shortcut_input = input::Input::default()
-        .with_pos(FIELD_X, y)
-        .with_size(150, 25);
+        .with_pos(FIELD_X, y + FIELD_Y_OFFSET)
+        .with_size(180, 25);
 
     // Use override if set, otherwise use manifest default
     let shortcut_value = current_config
@@ -280,7 +281,7 @@ pub fn show_plugin_config_dialog(
     shortcut_input.set_text_color(text_color);
 
     let mut shortcut_hint = frame::Frame::default()
-        .with_pos(FIELD_X + 155, y)
+        .with_pos(FIELD_X + 190, y + FIELD_Y_OFFSET)
         .with_size(120, 25)
         .with_label("e.g. Ctrl+Shift+P");
     shortcut_hint.set_label_size(10);
@@ -292,12 +293,15 @@ pub fn show_plugin_config_dialog(
     let param_widgets: Rc<RefCell<Vec<ParamWidgetInfo>>> = Rc::new(RefCell::new(Vec::new()));
 
     for def in param_defs {
+        // Stacked layout: label above input field
         let mut label = frame::Frame::default()
             .with_pos(20, y)
-            .with_size(LABEL_WIDTH, 25)
+            .with_size(FIELD_WIDTH, LABEL_HEIGHT)
             .with_label(&format!("{}:", def.label));
         label.set_label_color(text_color);
         label.set_align(enums::Align::Left | enums::Align::Inside);
+
+        let field_y = y + FIELD_Y_OFFSET;
 
         // Get current value or default
         let current_value = current_config
@@ -309,7 +313,7 @@ pub fn show_plugin_config_dialog(
         match def.param_type.as_str() {
             "boolean" => {
                 let mut cb = button::CheckButton::default()
-                    .with_pos(FIELD_X, y)
+                    .with_pos(FIELD_X, field_y)
                     .with_size(FIELD_WIDTH, 25)
                     .with_label("Enabled");
                 cb.set_value(current_value.eq_ignore_ascii_case("true"));
@@ -326,7 +330,7 @@ pub fn show_plugin_config_dialog(
             }
             "choice" => {
                 let mut choice = menu::Choice::default()
-                    .with_pos(FIELD_X, y)
+                    .with_pos(FIELD_X, field_y)
                     .with_size(FIELD_WIDTH, 25);
                 choice.set_color(input_bg);
                 choice.set_text_color(text_color);
@@ -361,7 +365,7 @@ pub fn show_plugin_config_dialog(
             param_type => {
                 // "string" or "number" - use Input widget
                 let mut inp = input::Input::default()
-                    .with_pos(FIELD_X, y)
+                    .with_pos(FIELD_X, field_y)
                     .with_size(FIELD_WIDTH, 25);
                 inp.set_value(&current_value);
                 inp.set_color(input_bg);
@@ -415,6 +419,7 @@ pub fn show_plugin_config_dialog(
         .with_pos(DIALOG_WIDTH - 180, button_y)
         .with_size(75, 30)
         .with_label("Save");
+    save_btn.set_frame(FrameType::RFlatBox);
     save_btn.set_color(button_bg);
     save_btn.set_label_color(text_color);
 
@@ -422,6 +427,7 @@ pub fn show_plugin_config_dialog(
         .with_pos(DIALOG_WIDTH - 95, button_y)
         .with_size(75, 30)
         .with_label("Cancel");
+    cancel_btn.set_frame(FrameType::RFlatBox);
     cancel_btn.set_color(button_bg);
     cancel_btn.set_label_color(text_color);
 
