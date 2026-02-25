@@ -1,6 +1,7 @@
 use fltk::{
     app::Sender,
     button::{Button, CheckButton, RadioRoundButton},
+    enums::FrameType,
     frame::Frame,
     group::Group,
     menu::Choice,
@@ -308,9 +309,11 @@ pub fn show_settings_dialog(
     // Buttons at bottom
     let btn_y = DIALOG_HEIGHT - 45;
     let mut save_btn = Button::default().with_pos(DIALOG_WIDTH - 200, btn_y).with_size(90, 30).with_label("Save");
+    save_btn.set_frame(FrameType::RFlatBox);
     save_btn.set_color(theme.button_bg);
     save_btn.set_label_color(theme.text);
     let mut cancel_btn = Button::default().with_pos(DIALOG_WIDTH - 100, btn_y).with_size(90, 30).with_label("Cancel");
+    cancel_btn.set_frame(FrameType::RFlatBox);
     cancel_btn.set_color(theme.button_bg);
     cancel_btn.set_label_color(theme.text);
 

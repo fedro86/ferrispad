@@ -726,8 +726,30 @@ fn create_available_plugin_row(
                         }
 
                         // Cross-tab sync: hide old row if this is an update
-                        if let Some(old_row) = installed_rows.borrow_mut().remove(&info.name) {
-                            let mut old_row = old_row;
+                        // Try multiple key formats: registry name uses "python-lint",
+                        // but installed plugins use display name "Python Lint"
+                        let display_name = info
+                            .name
+                            .split('-')
+                            .map(|word| {
+                                let mut chars = word.chars();
+                                match chars.next() {
+                                    Some(first) => {
+                                        first.to_uppercase().chain(chars).collect::<String>()
+                                    }
+                                    None => String::new(),
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" ");
+
+                        // Try display name first, then registry name
+                        let old_row = installed_rows
+                            .borrow_mut()
+                            .remove(&display_name)
+                            .or_else(|| installed_rows.borrow_mut().remove(&info.name));
+
+                        if let Some(mut old_row) = old_row {
                             old_row.hide();
                             if let Some(mut parent) = old_row.parent() {
                                 parent.redraw();
