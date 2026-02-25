@@ -414,7 +414,10 @@ fn create_installed_plugin_row(
             installed_rows.borrow_mut().remove(&plugin_name_uninstall);
 
             // Cross-tab sync: reset the Available tab button to "Install"
-            if let Some(btn) = available_buttons.borrow_mut().get_mut(&plugin_name_uninstall) {
+            // Note: registry uses lowercase-hyphenated names (e.g., "python-lint")
+            // while installed plugins use display names (e.g., "Python Lint")
+            let registry_name = plugin_name_uninstall.to_lowercase().replace(' ', "-");
+            if let Some(btn) = available_buttons.borrow_mut().get_mut(&registry_name) {
                 btn.set_label("Install");
                 btn.activate();
             }
