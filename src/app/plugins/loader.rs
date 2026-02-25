@@ -40,7 +40,8 @@ pub struct ConfigParamDef {
     /// Human-readable label for the UI
     pub label: String,
 
-    /// Parameter type: "string", "number", or "boolean"
+    /// Parameter type: "string", "number", "boolean", or "choice"
+    /// - "choice": single selection from options list (dropdown)
     #[serde(rename = "type", default = "default_param_type")]
     pub param_type: String,
 
@@ -51,6 +52,11 @@ pub struct ConfigParamDef {
     /// Placeholder text for input fields
     #[serde(default)]
     pub placeholder: Option<String>,
+
+    /// Available options for "choice" type parameters
+    /// Each option can be "value" or "value|Display Label"
+    #[serde(default)]
+    pub options: Vec<String>,
 }
 
 fn default_param_type() -> String {
@@ -218,6 +224,15 @@ pub fn load_plugin_toml(plugin_dir: &std::path::Path) -> Option<PluginMetadata> 
                                 .get("placeholder")
                                 .and_then(|v| v.as_str())
                                 .map(String::from);
+                            let options = param
+                                .get("options")
+                                .and_then(|v| v.as_array())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|v| v.as_str().map(String::from))
+                                        .collect()
+                                })
+                                .unwrap_or_default();
 
                             Some(ConfigParamDef {
                                 key,
@@ -225,6 +240,7 @@ pub fn load_plugin_toml(plugin_dir: &std::path::Path) -> Option<PluginMetadata> 
                                 param_type,
                                 default,
                                 placeholder,
+                                options,
                             })
                         })
                         .collect()

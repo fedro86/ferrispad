@@ -3,6 +3,12 @@
 //! Allows users to configure plugin-specific settings like:
 //! - Custom shortcut for the plugin's primary action
 //! - Plugin parameters defined in plugin.toml [config] section
+//!
+//! Supported parameter types:
+//! - "string": Text input field
+//! - "number": Text input field (validated as number)
+//! - "boolean": Checkbox
+//! - "choice": Dropdown with predefined options
 
 use fltk::{enums::Color, prelude::*, *};
 use std::cell::RefCell;
@@ -12,10 +18,13 @@ use std::rc::Rc;
 use crate::app::domain::settings::PluginConfig;
 use crate::app::plugins::ConfigParamDef;
 
-const DIALOG_WIDTH: i32 = 420;
+const DIALOG_WIDTH: i32 = 480;
 const MIN_DIALOG_HEIGHT: i32 = 180;
 const ROW_HEIGHT: i32 = 30;
-const SPACING: i32 = 8;
+const SPACING: i32 = 10;
+const LABEL_WIDTH: i32 = 150;
+const FIELD_X: i32 = 170;
+const FIELD_WIDTH: i32 = 280;
 
 /// Result from the plugin config dialog
 pub struct PluginConfigResult {
@@ -23,6 +32,23 @@ pub struct PluginConfigResult {
     pub shortcut: Option<String>,
     /// Plugin-specific parameters
     pub params: HashMap<String, String>,
+}
+
+/// Widget types for parameter values
+enum ParamWidget {
+    Input(input::Input),
+    Check(button::CheckButton),
+    Choice(menu::Choice),
+}
+
+/// Parse an option string into (value, display_label)
+/// Supports format: "value" or "value|Display Label"
+fn parse_option(opt: &str) -> (String, String) {
+    if let Some((value, label)) = opt.split_once('|') {
+        (value.to_string(), label.to_string())
+    } else {
+        (opt.to_string(), opt.to_string())
+    }
 }
 
 /// Show the per-plugin configuration dialog
@@ -98,13 +124,13 @@ pub fn show_plugin_config_dialog(
     // Shortcut field (always shown)
     let mut shortcut_label = frame::Frame::default()
         .with_pos(20, y)
-        .with_size(100, 25)
+        .with_size(LABEL_WIDTH, 25)
         .with_label("Shortcut:");
     shortcut_label.set_label_color(text_color);
     shortcut_label.set_align(enums::Align::Left | enums::Align::Inside);
 
     let mut shortcut_input = input::Input::default()
-        .with_pos(130, y)
+        .with_pos(FIELD_X, y)
         .with_size(150, 25);
 
     // Use override if set, otherwise use manifest default
@@ -118,7 +144,7 @@ pub fn show_plugin_config_dialog(
     shortcut_input.set_text_color(text_color);
 
     let mut shortcut_hint = frame::Frame::default()
-        .with_pos(285, y)
+        .with_pos(FIELD_X + 155, y)
         .with_size(120, 25)
         .with_label("e.g. Ctrl+Shift+P");
     shortcut_hint.set_label_size(10);
@@ -126,19 +152,15 @@ pub fn show_plugin_config_dialog(
     shortcut_hint.set_align(enums::Align::Left | enums::Align::Inside);
     y += ROW_HEIGHT + SPACING;
 
-    // Dynamic parameter fields
     // Store references to input widgets for retrieval
-    enum ParamWidget {
-        Input(input::Input),
-        Check(button::CheckButton),
-    }
-
-    let param_widgets: Rc<RefCell<Vec<(String, ParamWidget)>>> = Rc::new(RefCell::new(Vec::new()));
+    // For Choice widgets, also store the options values (not labels) for retrieval
+    let param_widgets: Rc<RefCell<Vec<(String, ParamWidget, Vec<String>)>>> =
+        Rc::new(RefCell::new(Vec::new()));
 
     for def in param_defs {
         let mut label = frame::Frame::default()
             .with_pos(20, y)
-            .with_size(110, 25)
+            .with_size(LABEL_WIDTH, 25)
             .with_label(&format!("{}:", def.label));
         label.set_label_color(text_color);
         label.set_align(enums::Align::Left | enums::Align::Inside);
@@ -153,21 +175,50 @@ pub fn show_plugin_config_dialog(
         match def.param_type.as_str() {
             "boolean" => {
                 let mut cb = button::CheckButton::default()
-                    .with_pos(130, y)
-                    .with_size(200, 25)
+                    .with_pos(FIELD_X, y)
+                    .with_size(FIELD_WIDTH, 25)
                     .with_label("Enabled");
                 cb.set_value(current_value.eq_ignore_ascii_case("true"));
                 cb.set_label_color(text_color);
                 cb.set_color(bg_color);
                 param_widgets
                     .borrow_mut()
-                    .push((def.key.clone(), ParamWidget::Check(cb)));
+                    .push((def.key.clone(), ParamWidget::Check(cb), vec![]));
+            }
+            "choice" => {
+                let mut choice = menu::Choice::default()
+                    .with_pos(FIELD_X, y)
+                    .with_size(FIELD_WIDTH, 25);
+                choice.set_color(input_bg);
+                choice.set_text_color(text_color);
+
+                // Parse options and add to choice widget
+                let mut option_values: Vec<String> = Vec::new();
+                let mut selected_idx: i32 = 0;
+
+                for (idx, opt) in def.options.iter().enumerate() {
+                    let (value, display_label) = parse_option(opt);
+                    choice.add_choice(&display_label);
+                    if value == current_value {
+                        selected_idx = idx as i32;
+                    }
+                    option_values.push(value);
+                }
+
+                // Set current selection
+                if !def.options.is_empty() {
+                    choice.set_value(selected_idx);
+                }
+
+                param_widgets
+                    .borrow_mut()
+                    .push((def.key.clone(), ParamWidget::Choice(choice), option_values));
             }
             _ => {
                 // "string" or "number" - use Input widget
                 let mut inp = input::Input::default()
-                    .with_pos(130, y)
-                    .with_size(200, 25);
+                    .with_pos(FIELD_X, y)
+                    .with_size(FIELD_WIDTH, 25);
                 inp.set_value(&current_value);
                 inp.set_color(input_bg);
                 inp.set_text_color(text_color);
@@ -191,7 +242,7 @@ pub fn show_plugin_config_dialog(
 
                 param_widgets
                     .borrow_mut()
-                    .push((def.key.clone(), ParamWidget::Input(inp)));
+                    .push((def.key.clone(), ParamWidget::Input(inp), vec![]));
             }
         }
 
@@ -237,7 +288,7 @@ pub fn show_plugin_config_dialog(
 
         // Get all param values
         let mut params = HashMap::new();
-        for (key, widget) in param_widgets_save.borrow().iter() {
+        for (key, widget, option_values) in param_widgets_save.borrow().iter() {
             let value = match widget {
                 ParamWidget::Input(inp) => inp.value(),
                 ParamWidget::Check(cb) => {
@@ -245,6 +296,14 @@ pub fn show_plugin_config_dialog(
                         "true".to_string()
                     } else {
                         "false".to_string()
+                    }
+                }
+                ParamWidget::Choice(choice) => {
+                    let idx = choice.value();
+                    if idx >= 0 && (idx as usize) < option_values.len() {
+                        option_values[idx as usize].clone()
+                    } else {
+                        String::new()
                     }
                 }
             };
