@@ -13,8 +13,11 @@
 //! Validation:
 //! - Shortcut: Checks for conflicts with reserved and other plugin shortcuts
 //! - Number: Validates that value is a valid number
+//! - cli_args: Validates CLI arguments (blocks shell metacharacters)
+//! - regex:PATTERN: Validates against a custom regex pattern
 
 use fltk::{enums::Color, prelude::*, *};
+use regex_lite::Regex;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -22,6 +25,60 @@ use std::rc::Rc;
 use crate::app::domain::settings::PluginConfig;
 use crate::app::plugins::ConfigParamDef;
 use crate::ui::menu::{normalize_shortcut, RESERVED_SHORTCUTS};
+
+/// Characters that are dangerous in shell contexts and should be blocked in CLI args
+const SHELL_METACHARACTERS: &[char] = &[
+    ';', '&', '|', '$', '`', '(', ')', '{', '}', '<', '>', '\n', '\r', '\\', '"', '\'', '!', '*',
+    '?', '[', ']', '#', '~', '^',
+];
+
+/// Validate a value according to a validation rule
+/// Returns Ok(()) if valid, Err(message) if invalid
+fn validate_param_value(value: &str, validate_rule: &str, label: &str) -> Result<(), String> {
+    // Empty values are always allowed (will use default)
+    if value.is_empty() {
+        return Ok(());
+    }
+
+    if validate_rule == "cli_args" {
+        // Check for dangerous shell metacharacters
+        for ch in SHELL_METACHARACTERS {
+            if value.contains(*ch) {
+                return Err(format!(
+                    "'{}' contains invalid character '{}'. Shell metacharacters are not allowed.",
+                    label, ch
+                ));
+            }
+        }
+        Ok(())
+    } else if let Some(pattern) = validate_rule.strip_prefix("regex:") {
+        // Validate against regex pattern
+        match Regex::new(pattern) {
+            Ok(re) => {
+                if re.is_match(value) {
+                    Ok(())
+                } else {
+                    Err(format!("'{}' does not match required format", label))
+                }
+            }
+            Err(_) => {
+                // Invalid regex pattern in plugin manifest - allow the value
+                eprintln!(
+                    "[plugins] Warning: invalid regex pattern '{}' in config validation",
+                    pattern
+                );
+                Ok(())
+            }
+        }
+    } else {
+        // Unknown validation rule - allow the value
+        eprintln!(
+            "[plugins] Warning: unknown validation rule '{}' for '{}'",
+            validate_rule, label
+        );
+        Ok(())
+    }
+}
 
 const DIALOG_WIDTH: i32 = 480;
 const MIN_DIALOG_HEIGHT: i32 = 180;
@@ -45,6 +102,16 @@ enum ParamWidget {
     Input(input::Input),
     Check(button::CheckButton),
     Choice(menu::Choice),
+}
+
+/// Stored info about a parameter widget for validation and value retrieval
+struct ParamWidgetInfo {
+    key: String,
+    label: String,
+    widget: ParamWidget,
+    option_values: Vec<String>,
+    param_type: String,
+    validate: Option<String>,
 }
 
 /// Parse an option string into (value, display_label)
@@ -238,11 +305,8 @@ pub fn show_plugin_config_dialog(
     shortcut_hint.set_align(enums::Align::Left | enums::Align::Inside);
     y += ROW_HEIGHT + SPACING;
 
-    // Store references to input widgets for retrieval
-    // For Choice widgets, also store the options values (not labels) for retrieval
-    // For number validation, also store the param type
-    let param_widgets: Rc<RefCell<Vec<(String, ParamWidget, Vec<String>, String)>>> =
-        Rc::new(RefCell::new(Vec::new()));
+    // Store references to input widgets for retrieval and validation
+    let param_widgets: Rc<RefCell<Vec<ParamWidgetInfo>>> = Rc::new(RefCell::new(Vec::new()));
 
     for def in param_defs {
         let mut label = frame::Frame::default()
@@ -268,12 +332,14 @@ pub fn show_plugin_config_dialog(
                 cb.set_value(current_value.eq_ignore_ascii_case("true"));
                 cb.set_label_color(text_color);
                 cb.set_color(bg_color);
-                param_widgets.borrow_mut().push((
-                    def.key.clone(),
-                    ParamWidget::Check(cb),
-                    vec![],
-                    "boolean".to_string(),
-                ));
+                param_widgets.borrow_mut().push(ParamWidgetInfo {
+                    key: def.key.clone(),
+                    label: def.label.clone(),
+                    widget: ParamWidget::Check(cb),
+                    option_values: vec![],
+                    param_type: "boolean".to_string(),
+                    validate: def.validate.clone(),
+                });
             }
             "choice" => {
                 let mut choice = menu::Choice::default()
@@ -300,12 +366,14 @@ pub fn show_plugin_config_dialog(
                     choice.set_value(selected_idx);
                 }
 
-                param_widgets.borrow_mut().push((
-                    def.key.clone(),
-                    ParamWidget::Choice(choice),
+                param_widgets.borrow_mut().push(ParamWidgetInfo {
+                    key: def.key.clone(),
+                    label: def.label.clone(),
+                    widget: ParamWidget::Choice(choice),
                     option_values,
-                    "choice".to_string(),
-                ));
+                    param_type: "choice".to_string(),
+                    validate: def.validate.clone(),
+                });
             }
             param_type => {
                 // "string" or "number" - use Input widget
@@ -333,12 +401,14 @@ pub fn show_plugin_config_dialog(
                     }
                 }
 
-                param_widgets.borrow_mut().push((
-                    def.key.clone(),
-                    ParamWidget::Input(inp),
-                    vec![],
-                    param_type.to_string(),
-                ));
+                param_widgets.borrow_mut().push(ParamWidgetInfo {
+                    key: def.key.clone(),
+                    label: def.label.clone(),
+                    widget: ParamWidget::Input(inp),
+                    option_values: vec![],
+                    param_type: param_type.to_string(),
+                    validate: def.validate.clone(),
+                });
             }
         }
 
@@ -398,15 +468,31 @@ pub fn show_plugin_config_dialog(
             }
         }
 
-        // Validate number fields
-        for (key, widget, _, param_type) in param_widgets_save.borrow().iter() {
-            if param_type == "number" {
-                if let ParamWidget::Input(inp) = widget {
+        // Validate param fields
+        for info in param_widgets_save.borrow().iter() {
+            // Number validation
+            if info.param_type == "number" {
+                if let ParamWidget::Input(inp) = &info.widget {
                     let value = inp.value();
                     // Allow empty (will use default)
                     if !value.is_empty() && value.parse::<f64>().is_err() {
                         let mut err = error_label_save.borrow_mut();
-                        err.set_label(&format!("'{}' must be a valid number", key));
+                        err.set_label(&format!("'{}' must be a valid number", info.label));
+                        err.show();
+                        err.redraw();
+                        return;
+                    }
+                }
+            }
+
+            // Custom validation rules (e.g., cli_args, regex:PATTERN)
+            if let Some(ref validate_rule) = info.validate {
+                if let ParamWidget::Input(inp) = &info.widget {
+                    let value = inp.value();
+                    if let Err(error_msg) = validate_param_value(&value, validate_rule, &info.label)
+                    {
+                        let mut err = error_label_save.borrow_mut();
+                        err.set_label(&error_msg);
                         err.show();
                         err.redraw();
                         return;
@@ -427,8 +513,8 @@ pub fn show_plugin_config_dialog(
 
         // Get all param values
         let mut params = HashMap::new();
-        for (key, widget, option_values, _) in param_widgets_save.borrow().iter() {
-            let value = match widget {
+        for info in param_widgets_save.borrow().iter() {
+            let value = match &info.widget {
                 ParamWidget::Input(inp) => inp.value(),
                 ParamWidget::Check(cb) => {
                     if cb.value() {
@@ -439,14 +525,14 @@ pub fn show_plugin_config_dialog(
                 }
                 ParamWidget::Choice(choice) => {
                     let idx = choice.value();
-                    if idx >= 0 && (idx as usize) < option_values.len() {
-                        option_values[idx as usize].clone()
+                    if idx >= 0 && (idx as usize) < info.option_values.len() {
+                        info.option_values[idx as usize].clone()
                     } else {
                         String::new()
                     }
                 }
             };
-            params.insert(key.clone(), value);
+            params.insert(info.key.clone(), value);
         }
 
         *result_save.borrow_mut() = Some(PluginConfigResult { shortcut, params });

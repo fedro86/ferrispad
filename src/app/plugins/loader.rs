@@ -57,6 +57,12 @@ pub struct ConfigParamDef {
     /// Each option can be "value" or "value|Display Label"
     #[serde(default)]
     pub options: Vec<String>,
+
+    /// Validation rule for the parameter value
+    /// - "cli_args": Validates as safe CLI arguments (blocks shell metacharacters)
+    /// - "regex:PATTERN": Validates against a regex pattern
+    #[serde(default)]
+    pub validate: Option<String>,
 }
 
 fn default_param_type() -> String {
@@ -233,6 +239,10 @@ pub fn load_plugin_toml(plugin_dir: &std::path::Path) -> Option<PluginMetadata> 
                                         .collect()
                                 })
                                 .unwrap_or_default();
+                            let validate = param
+                                .get("validate")
+                                .and_then(|v| v.as_str())
+                                .map(String::from);
 
                             Some(ConfigParamDef {
                                 key,
@@ -241,6 +251,7 @@ pub fn load_plugin_toml(plugin_dir: &std::path::Path) -> Option<PluginMetadata> 
                                 default,
                                 placeholder,
                                 options,
+                                validate,
                             })
                         })
                         .collect()
