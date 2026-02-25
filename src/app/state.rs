@@ -1415,6 +1415,36 @@ impl AppState {
                 // Show success message
                 eprintln!("[plugins] Installed plugins: {}", names.join(", "));
             }
+            PluginManagerResult::UninstalledPlugins(names) => {
+                use std::fs;
+
+                let plugins_dir = crate::app::plugins::loader::get_plugin_dir();
+                let mut errors = Vec::new();
+
+                for name in &names {
+                    // Convert plugin name to directory name (lowercase, spaces to hyphens)
+                    let dir_name = name.to_lowercase().replace(' ', "-");
+                    let plugin_path = plugins_dir.join(&dir_name);
+
+                    if plugin_path.exists() {
+                        if let Err(e) = fs::remove_dir_all(&plugin_path) {
+                            errors.push(format!("{}: {}", name, e));
+                        } else {
+                            eprintln!("[plugins] Uninstalled: {}", name);
+                        }
+                    }
+                }
+
+                if !errors.is_empty() {
+                    fltk::dialog::alert_default(&format!(
+                        "Failed to uninstall some plugins:\n{}",
+                        errors.join("\n")
+                    ));
+                }
+
+                // Reload plugins to refresh the list
+                self.sender.send(Message::PluginsReloadAll);
+            }
             PluginManagerResult::Cancelled => {}
         }
     }

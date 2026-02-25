@@ -34,6 +34,8 @@ pub enum PluginManagerResult {
     ReloadAll,
     /// User installed new plugins
     InstalledPlugins(Vec<String>),
+    /// User uninstalled plugins
+    UninstalledPlugins(Vec<String>),
     /// Dialog closed with no changes
     Cancelled,
 }
@@ -80,6 +82,9 @@ pub fn show_plugin_manager_dialog(
     // Track installed plugins
     let installed: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
 
+    // Track uninstalled plugins
+    let uninstalled: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+
     // Create tabs
     let tabs_y = PADDING;
     let tabs_height = DIALOG_HEIGHT - PADDING * 3 - BUTTON_HEIGHT - 10;
@@ -122,6 +127,7 @@ pub fn show_plugin_manager_dialog(
                 text_color,
                 is_dark,
                 toggles.clone(),
+                uninstalled.clone(),
             );
             pack_installed.add(&row);
         }
@@ -240,12 +246,16 @@ pub fn show_plugin_manager_dialog(
     let result_close = result.clone();
     let toggles_close = toggles.clone();
     let installed_close = installed.clone();
+    let uninstalled_close = uninstalled.clone();
     let dialog_close = dialog.clone();
     close_btn.set_callback(move |_| {
         let toggled = toggles_close.borrow().clone();
         let inst = installed_close.borrow().clone();
+        let uninst = uninstalled_close.borrow().clone();
 
-        if !inst.is_empty() {
+        if !uninst.is_empty() {
+            *result_close.borrow_mut() = PluginManagerResult::UninstalledPlugins(uninst);
+        } else if !inst.is_empty() {
             *result_close.borrow_mut() = PluginManagerResult::InstalledPlugins(inst);
         } else if !toggled.is_empty() {
             *result_close.borrow_mut() = PluginManagerResult::ToggledPlugins(toggled);
@@ -259,11 +269,15 @@ pub fn show_plugin_manager_dialog(
     let result_x = result.clone();
     let toggles_x = toggles.clone();
     let installed_x = installed.clone();
+    let uninstalled_x = uninstalled.clone();
     dialog.set_callback(move |w| {
         let toggled = toggles_x.borrow().clone();
         let inst = installed_x.borrow().clone();
+        let uninst = uninstalled_x.borrow().clone();
 
-        if !inst.is_empty() {
+        if !uninst.is_empty() {
+            *result_x.borrow_mut() = PluginManagerResult::UninstalledPlugins(uninst);
+        } else if !inst.is_empty() {
             *result_x.borrow_mut() = PluginManagerResult::InstalledPlugins(inst);
         } else if !toggled.is_empty() {
             *result_x.borrow_mut() = PluginManagerResult::ToggledPlugins(toggled);
@@ -287,19 +301,36 @@ fn create_installed_plugin_row(
     text_color: Color,
     is_dark: bool,
     toggles: Rc<RefCell<Vec<(String, bool)>>>,
+    uninstalled: Rc<RefCell<Vec<String>>>,
 ) -> Group {
     let row_width = DIALOG_WIDTH - PADDING * 2 - 30;
     let mut row = Group::default().with_size(row_width, PLUGIN_ROW_HEIGHT);
     row.set_frame(FrameType::FlatBox);
     row.set_color(row_bg);
 
-    // Checkbox for enable/disable
+    // Checkbox for enable/disable (narrower to make room for uninstall button)
     let mut checkbox = CheckButton::default()
         .with_pos(10, 10)
-        .with_size(row_width - 20, 24)
+        .with_size(row_width - 100, 24)
         .with_label(&format!("{}  v{}", name, version));
     checkbox.set_value(enabled);
     checkbox.set_label_color(text_color);
+
+    // Uninstall button (right side)
+    let mut uninstall_btn = Button::default()
+        .with_pos(row_width - 80, 10)
+        .with_size(70, 24)
+        .with_label("Uninstall");
+    uninstall_btn.set_label_size(11);
+
+    // Set red-ish color for destructive action
+    if is_dark {
+        uninstall_btn.set_color(Color::from_rgb(120, 50, 50));
+        uninstall_btn.set_label_color(Color::from_rgb(255, 200, 200));
+    } else {
+        uninstall_btn.set_color(Color::from_rgb(255, 220, 220));
+        uninstall_btn.set_label_color(Color::from_rgb(140, 30, 30));
+    }
 
     // Description
     let mut desc = Frame::default()
@@ -315,12 +346,33 @@ fn create_installed_plugin_row(
 
     // Track toggle callback
     let plugin_name = name.to_string();
+    let plugin_name_uninstall = name.to_string();
     checkbox.set_callback(move |cb| {
         let new_state = cb.value();
         let mut t = toggles.borrow_mut();
         // Remove any previous toggle for this plugin
         t.retain(|(n, _)| n != &plugin_name);
         t.push((plugin_name.clone(), new_state));
+    });
+
+    // Uninstall callback
+    uninstall_btn.set_callback(move |btn| {
+        // Confirmation dialog
+        let choice = fltk::dialog::choice2_default(
+            &format!(
+                "Uninstall \"{}\"?\n\nThis will delete the plugin files.",
+                plugin_name_uninstall
+            ),
+            "Cancel",
+            "Uninstall",
+            "",
+        );
+
+        if choice == Some(1) {
+            uninstalled.borrow_mut().push(plugin_name_uninstall.clone());
+            btn.set_label("Pending");
+            btn.deactivate();
+        }
     });
 
     row.end();
@@ -379,19 +431,23 @@ fn create_available_plugin_row(
     });
     desc.set_align(Align::Left | Align::Inside);
 
-    // Tags
-    let tags_str = plugin_info.tags.join(", ");
-    let mut tags = Frame::default()
+    // Author and tags on the same line
+    let author_tags = if plugin_info.author.is_empty() {
+        format!("Tags: {}", plugin_info.tags.join(", "))
+    } else {
+        format!("by {} · Tags: {}", plugin_info.author, plugin_info.tags.join(", "))
+    };
+    let mut meta = Frame::default()
         .with_pos(10, 50)
         .with_size(row_width - 110, 16)
-        .with_label(&format!("Tags: {}", tags_str));
-    tags.set_label_color(if is_dark {
+        .with_label(&author_tags);
+    meta.set_label_color(if is_dark {
         Color::from_rgb(130, 130, 130)
     } else {
         Color::from_rgb(120, 120, 120)
     });
-    tags.set_align(Align::Left | Align::Inside);
-    tags.set_label_size(11);
+    meta.set_align(Align::Left | Align::Inside);
+    meta.set_label_size(11);
 
     // Install/Update button
     let mut install_btn = Button::default()

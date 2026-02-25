@@ -392,6 +392,40 @@ Windows cross-compilation from Linux is tricky with GUI apps. Recommended approa
 
 ---
 
+## Signing Binaries
+
+FerrisPad uses ed25519 signatures to verify update integrity. The auto-updater will refuse to install unsigned binaries.
+
+### Sign each release binary
+
+```bash
+cd ~/code-folder/continuous_learning/ferrispad-plugins/tools/signer
+
+# Build the signer if needed
+cargo build --release
+
+# Sign each platform binary
+./target/release/plugin-signer sign-release FerrisPad-linux-amd64 0.9.1 linux-amd64
+./target/release/plugin-signer sign-release FerrisPad-macos-universal 0.9.1 macos-universal
+./target/release/plugin-signer sign-release FerrisPad-windows-x64.exe 0.9.1 windows-x64.exe
+```
+
+This creates `.sig` files alongside each binary. Upload both the binary and its `.sig` file to the release.
+
+### Platform identifiers
+
+| Platform | Identifier | Binary Name |
+|----------|------------|-------------|
+| Linux | `linux-amd64` | `FerrisPad-linux-amd64` |
+| macOS | `macos-universal` | `FerrisPad-macos-universal` |
+| Windows | `windows-x64.exe` | `FerrisPad-windows-x64.exe` |
+
+### Signing key location
+
+The signing key is stored at `~/.config/ferrispad/signing/plugin_signing_key.bin`. This key is also used for signing plugins.
+
+---
+
 ## Distribution Checklist
 
 Before releasing binaries:
@@ -401,7 +435,9 @@ Before releasing binaries:
 - [ ] Check that icons/assets are embedded
 - [ ] Test installation process
 - [ ] Verify uninstallation works (Linux)
-- [ ] Create checksums (SHA256)
+- [ ] **Sign all binaries** with `plugin-signer sign-release`
+- [ ] **Upload `.sig` files** alongside binaries
+- [ ] Create checksums (SHA256) - optional, signatures are sufficient
 - [ ] Update website download links
 - [ ] Update documentation
 - [ ] Tag release in git

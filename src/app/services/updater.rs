@@ -1,7 +1,18 @@
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::app::infrastructure::error::AppError;
+
+/// FerrisPad's official signing public key (same key used for plugin signing).
+/// This key verifies both plugin signatures and release binary signatures.
+const SIGNING_PUBLIC_KEY: [u8; 32] = [
+    0x7f, 0x14, 0x24, 0xc5, 0x14, 0x5d, 0x99, 0xd7,
+    0xf0, 0xfd, 0x7c, 0x12, 0xdd, 0x5c, 0x3d, 0x8b,
+    0x8f, 0x6d, 0x6b, 0x4e, 0xe7, 0xba, 0xb1, 0x2c,
+    0xd0, 0xdb, 0xdf, 0xbc, 0x17, 0x54, 0xff, 0x56,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum UpdateChannel {
@@ -149,7 +160,99 @@ pub fn get_platform_asset_name() -> &'static str {
     }
 }
 
-/// Download a binary from a URL to a specified path with progress
+/// Compute SHA-256 checksum of binary data
+fn compute_checksum(data: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    let result = hasher.finalize();
+    hex::encode(result)
+}
+
+/// Verify a binary's signature
+///
+/// The signature is over the message: "{version}:{platform}:{sha256_hex}"
+/// This ties the signature to a specific version and platform.
+fn verify_binary_signature(
+    binary_data: &[u8],
+    version: &str,
+    platform: &str,
+    signature_b64: &str,
+) -> Result<(), AppError> {
+    // Compute checksum of the binary
+    let checksum = compute_checksum(binary_data);
+
+    // Build the message that was signed
+    let message = format!("{}:{}:{}", version, platform, checksum);
+
+    // Decode public key
+    let verifying_key = VerifyingKey::from_bytes(&SIGNING_PUBLIC_KEY)
+        .map_err(|e| AppError::Update(format!("Invalid public key: {}", e)))?;
+
+    // Decode signature from base64
+    let signature_bytes = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        signature_b64,
+    )
+    .map_err(|e| AppError::Update(format!("Invalid signature encoding: {}", e)))?;
+
+    // ed25519 signatures are exactly 64 bytes
+    if signature_bytes.len() != 64 {
+        return Err(AppError::Update(format!(
+            "Invalid signature length: expected 64, got {}",
+            signature_bytes.len()
+        )));
+    }
+
+    let signature = Signature::from_slice(&signature_bytes)
+        .map_err(|e| AppError::Update(format!("Invalid signature format: {}", e)))?;
+
+    // Verify
+    verifying_key
+        .verify(message.as_bytes(), &signature)
+        .map_err(|_| AppError::Update("Signature verification failed - binary may be tampered".to_string()))
+}
+
+/// Fetch the signature file for a release asset
+fn fetch_signature(release: &ReleaseInfo, asset_name: &str) -> Result<String, AppError> {
+    let sig_asset_name = format!("{}.sig", asset_name);
+
+    let sig_asset = release
+        .assets
+        .iter()
+        .find(|a| a.name == sig_asset_name)
+        .ok_or_else(|| {
+            AppError::Update(format!(
+                "No signature file found for {} (expected {})",
+                asset_name, sig_asset_name
+            ))
+        })?;
+
+    let response = minreq::get(&sig_asset.browser_download_url)
+        .with_header("User-Agent", "FerrisPad")
+        .with_timeout(10)
+        .send()
+        .map_err(|e| AppError::Update(format!("Failed to download signature: {}", e)))?;
+
+    if response.status_code < 200 || response.status_code >= 300 {
+        return Err(AppError::Update(format!(
+            "Failed to download signature: HTTP {}",
+            response.status_code
+        )));
+    }
+
+    // Signature file contains just the base64 signature (trimmed)
+    let signature = response
+        .as_str()
+        .map_err(|e| AppError::Update(format!("Invalid signature file: {}", e)))?
+        .trim()
+        .to_string();
+
+    Ok(signature)
+}
+
+/// Download a binary from a URL to a specified path with progress (no verification)
+///
+/// This is kept for backwards compatibility. New code should use `download_and_verify`.
 pub fn download_file<F>(url: &str, dest_path: &std::path::Path, mut progress_cb: F) -> Result<(), AppError>
 where
     F: FnMut(f32),
@@ -177,6 +280,73 @@ where
     if total_size > 0 {
         eprintln!("[update] Downloaded {} bytes", total_size);
     }
+
+    Ok(())
+}
+
+/// Download and verify a release binary
+///
+/// This function:
+/// 1. Downloads the binary from the release assets
+/// 2. Downloads the corresponding .sig file
+/// 3. Verifies the signature matches the binary
+/// 4. Only writes to disk if verification passes
+///
+/// Returns an error if verification fails or signature is missing.
+pub fn download_and_verify<F>(
+    release: &ReleaseInfo,
+    dest_path: &std::path::Path,
+    mut progress_cb: F,
+) -> Result<(), AppError>
+where
+    F: FnMut(f32),
+{
+    let platform = get_platform_asset_name();
+    let version = release.version();
+
+    // Find the binary asset
+    let binary_asset = release
+        .assets
+        .iter()
+        .find(|a| a.name.contains(platform))
+        .ok_or_else(|| {
+            AppError::Update(format!("No release binary found for platform: {}", platform))
+        })?;
+
+    eprintln!("[update] Downloading {} ...", binary_asset.name);
+    progress_cb(0.0);
+
+    // Download binary
+    let response = minreq::get(&binary_asset.browser_download_url)
+        .with_header("User-Agent", "FerrisPad")
+        .with_timeout(120) // Longer timeout for large binaries
+        .send()
+        .map_err(|e| AppError::Update(format!("Failed to download update: {}", e)))?;
+
+    if response.status_code < 200 || response.status_code >= 300 {
+        return Err(AppError::Update(format!(
+            "Download failed with status: {}",
+            response.status_code
+        )));
+    }
+
+    let binary_data = response.as_bytes();
+    eprintln!("[update] Downloaded {} bytes", binary_data.len());
+    progress_cb(0.5);
+
+    // Fetch and verify signature
+    eprintln!("[update] Fetching signature...");
+    let signature = fetch_signature(release, &binary_asset.name)?;
+
+    eprintln!("[update] Verifying signature...");
+    verify_binary_signature(binary_data, &version, platform, &signature)?;
+
+    eprintln!("[update] Signature verified successfully");
+    progress_cb(0.9);
+
+    // Only write to disk after verification passes
+    std::fs::write(dest_path, binary_data)?;
+    progress_cb(1.0);
 
     Ok(())
 }
