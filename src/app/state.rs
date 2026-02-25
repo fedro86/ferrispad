@@ -1376,7 +1376,8 @@ impl AppState {
 
     pub fn open_settings(&mut self) {
         let current = self.settings.borrow().clone();
-        if let Some(new_settings) = show_settings_dialog(&current, &self.sender, self.dark_mode) {
+        let theme_bg = self.highlight.highlighter().theme_background();
+        if let Some(new_settings) = show_settings_dialog(&current, &self.sender, theme_bg) {
             if let Err(e) = new_settings.save() {
                 dialog::alert_default(&format!("Failed to save settings: {}", e));
                 return;
@@ -1387,7 +1388,8 @@ impl AppState {
 
     /// Show the plugin manager dialog
     pub fn show_plugin_manager(&mut self) {
-        let result = show_plugin_manager_dialog(&self.plugins, self.dark_mode);
+        let theme_bg = self.highlight.highlighter().theme_background();
+        let result = show_plugin_manager_dialog(&self.plugins, theme_bg);
 
         match result {
             PluginManagerResult::ToggledPlugins(toggles) => {
@@ -1480,10 +1482,11 @@ impl AppState {
             .map(|p| (p.name.clone(), p.enabled))
             .collect();
 
+        let theme_bg = self.highlight.highlighter().theme_background();
         if let Some(result) = show_plugin_settings_dialog(
             &self.settings.borrow(),
             &available_plugins,
-            self.dark_mode,
+            theme_bg,
         ) {
             // Update settings
             {
@@ -1541,12 +1544,13 @@ impl AppState {
 
         // Show dialog
         let config_schema = plugin.config_schema.clone();
+        let theme_bg = self.highlight.highlighter().theme_background();
         if let Some(result) = show_plugin_config_dialog(
             plugin_name,
             &config_schema.params,
             &current_config,
             default_shortcut,
-            self.dark_mode,
+            theme_bg,
             Some(shortcut_validation),
         ) {
             // Build new config

@@ -1,11 +1,13 @@
 //! Plugin settings dialog for configuring Run All Checks behavior.
 
-use fltk::{enums::Color, prelude::*, *};
+use fltk::{prelude::*, *};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
 
 use crate::app::domain::settings::AppSettings;
+
+use super::DialogTheme;
 
 const DIALOG_WIDTH: i32 = 400;
 const DIALOG_HEIGHT: i32 = 350;
@@ -23,41 +25,22 @@ pub struct PluginSettingsResult {
 /// # Arguments
 /// * `settings` - Current app settings
 /// * `available_plugins` - List of (plugin_name, is_enabled) pairs
-/// * `is_dark` - Whether dark mode is enabled
+/// * `theme_bg` - Syntax theme background color for consistent styling
 ///
 /// # Returns
 /// Some(result) if user clicked Save, None if cancelled
 pub fn show_plugin_settings_dialog(
     settings: &AppSettings,
     available_plugins: &[(String, bool)],
-    is_dark: bool,
+    theme_bg: (u8, u8, u8),
 ) -> Option<PluginSettingsResult> {
-    // Theme colors
-    let bg_color = if is_dark {
-        Color::from_rgb(45, 45, 45)
-    } else {
-        Color::from_rgb(250, 250, 250)
-    };
-    let text_color = if is_dark {
-        Color::from_rgb(220, 220, 220)
-    } else {
-        Color::from_rgb(30, 30, 30)
-    };
-    let text_dim = if is_dark {
-        Color::from_rgb(150, 150, 150)
-    } else {
-        Color::from_rgb(100, 100, 100)
-    };
-    let input_bg = if is_dark {
-        Color::from_rgb(60, 60, 60)
-    } else {
-        Color::from_rgb(255, 255, 255)
-    };
-    let button_bg = if is_dark {
-        Color::from_rgb(70, 70, 70)
-    } else {
-        Color::from_rgb(230, 230, 230)
-    };
+    // Theme colors from DialogTheme
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+    let bg_color = theme.bg;
+    let text_color = theme.text;
+    let text_dim = theme.text_dim;
+    let input_bg = theme.input_bg;
+    let button_bg = theme.button_bg;
 
     let mut dialog = window::Window::default()
         .with_size(DIALOG_WIDTH, DIALOG_HEIGHT)

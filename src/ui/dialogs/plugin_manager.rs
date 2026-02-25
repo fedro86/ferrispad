@@ -1,8 +1,13 @@
 //! Plugin Manager dialog for viewing, enabling/disabling, and installing plugins.
+//!
+//! VSCode-inspired design with:
+//! - Themed tabs and buttons
+//! - Icon letter placeholders
+//! - Compact row layout with truncated descriptions
 
 use fltk::{
     button::{Button, CheckButton},
-    enums::{Align, Color, FrameType},
+    enums::{Align, Color, Font, FrameType},
     frame::Frame,
     group::{Group, Pack, PackType, Scroll, Tabs},
     prelude::*,
@@ -18,13 +23,24 @@ use crate::app::services::plugin_registry::{
     AvailablePluginInfo,
 };
 
+use super::DialogTheme;
+
 // Layout constants
 const DIALOG_WIDTH: i32 = 550;
 const DIALOG_HEIGHT: i32 = 480;
 const PADDING: i32 = 10;
 const TAB_HEIGHT: i32 = 30;
 const BUTTON_HEIGHT: i32 = 30;
-const PLUGIN_ROW_HEIGHT: i32 = 70;
+const PLUGIN_ROW_HEIGHT: i32 = 58;
+
+// Row layout constants
+const CHECKBOX_WIDTH: i32 = 24;
+const ICON_SIZE: i32 = 32;
+const ICON_MARGIN: i32 = 8;
+const ACTION_BUTTON_WIDTH: i32 = 80;
+
+// Description truncation (approximate chars that fit)
+const DESC_MAX_CHARS: usize = 55;
 
 /// Result from the plugin manager dialog
 #[derive(Debug, Clone)]
@@ -41,37 +57,60 @@ pub enum PluginManagerResult {
     Cancelled,
 }
 
+/// Truncate text to max_chars, adding "..." if truncated
+fn truncate_text(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        text.to_string()
+    } else {
+        let truncated: String = text.chars().take(max_chars.saturating_sub(3)).collect();
+        format!("{}...", truncated.trim_end())
+    }
+}
+
+/// Get a color for the icon background based on the first letter
+fn icon_color_for_letter(letter: char, is_dark: bool) -> Color {
+    // Simple palette - 6 distinct colors that work in both dark and light
+    let palette_dark: [(u8, u8, u8); 6] = [
+        (100, 140, 180), // Blue-ish
+        (140, 100, 160), // Purple-ish
+        (100, 160, 140), // Teal-ish
+        (160, 120, 100), // Brown-ish
+        (140, 140, 100), // Olive-ish
+        (160, 100, 120), // Rose-ish
+    ];
+    let palette_light: [(u8, u8, u8); 6] = [
+        (70, 110, 150),
+        (110, 70, 130),
+        (70, 130, 110),
+        (130, 90, 70),
+        (110, 110, 70),
+        (130, 70, 90),
+    ];
+    let idx = (letter.to_ascii_uppercase() as usize) % 6;
+    let (r, g, b) = if is_dark {
+        palette_dark[idx]
+    } else {
+        palette_light[idx]
+    };
+    Color::from_rgb(r, g, b)
+}
+
 /// Show the plugin manager dialog
 ///
 /// Returns the result indicating what actions were taken
 pub fn show_plugin_manager_dialog(
     plugins: &PluginManager,
-    is_dark: bool,
+    theme_bg: (u8, u8, u8),
 ) -> PluginManagerResult {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+    let is_dark = theme.is_dark();
+
     let mut dialog = Window::default()
         .with_size(DIALOG_WIDTH, DIALOG_HEIGHT)
         .with_label("Plugin Manager")
         .center_screen();
     dialog.make_modal(true);
-
-    // Apply dark theme if needed
-    let bg_color = if is_dark {
-        Color::from_rgb(45, 45, 45)
-    } else {
-        Color::from_rgb(245, 245, 245)
-    };
-    let text_color = if is_dark {
-        Color::from_rgb(220, 220, 220)
-    } else {
-        Color::from_rgb(30, 30, 30)
-    };
-    let row_bg = if is_dark {
-        Color::from_rgb(55, 55, 55)
-    } else {
-        Color::from_rgb(255, 255, 255)
-    };
-
-    dialog.set_color(bg_color);
+    dialog.set_color(theme.bg);
 
     // Track result
     let result: Rc<RefCell<PluginManagerResult>> =
@@ -100,17 +139,21 @@ pub fn show_plugin_manager_dialog(
     let mut tabs = Tabs::default()
         .with_pos(PADDING, tabs_y)
         .with_size(DIALOG_WIDTH - PADDING * 2, tabs_height);
+    tabs.set_color(theme.bg);
+    tabs.set_selection_color(theme.button_bg);
 
     // ============ INSTALLED TAB ============
     let mut installed_group = Group::default()
         .with_pos(PADDING, tabs_y + TAB_HEIGHT)
         .with_size(DIALOG_WIDTH - PADDING * 2, tabs_height - TAB_HEIGHT)
         .with_label("Installed");
-    installed_group.set_label_color(text_color);
+    installed_group.set_label_color(theme.text);
+    installed_group.set_color(theme.bg);
 
-    let scroll_installed = Scroll::default()
+    let mut scroll_installed = Scroll::default()
         .with_pos(PADDING + 5, tabs_y + TAB_HEIGHT + 5)
         .with_size(DIALOG_WIDTH - PADDING * 2 - 10, tabs_height - TAB_HEIGHT - 10);
+    scroll_installed.set_color(theme.bg);
 
     let mut pack_installed_inner = Pack::default()
         .with_pos(PADDING + 5, tabs_y + TAB_HEIGHT + 5)
@@ -126,7 +169,7 @@ pub fn show_plugin_manager_dialog(
         let mut empty_label = Frame::default()
             .with_size(DIALOG_WIDTH - PADDING * 2 - 30, 40)
             .with_label("No plugins installed");
-        empty_label.set_label_color(text_color);
+        empty_label.set_label_color(theme.text_dim);
         *empty_label_for_tracking.borrow_mut() = Some(empty_label);
     } else {
         for plugin in plugin_list {
@@ -135,9 +178,7 @@ pub fn show_plugin_manager_dialog(
                 &plugin.version,
                 &plugin.description,
                 plugin.enabled,
-                row_bg,
-                text_color,
-                is_dark,
+                &theme,
                 toggles.clone(),
                 uninstalled.clone(),
                 available_buttons.clone(),
@@ -166,11 +207,13 @@ pub fn show_plugin_manager_dialog(
         .with_pos(PADDING, tabs_y + TAB_HEIGHT)
         .with_size(DIALOG_WIDTH - PADDING * 2, tabs_height - TAB_HEIGHT)
         .with_label("Available");
-    available_group.set_label_color(text_color);
+    available_group.set_label_color(theme.text);
+    available_group.set_color(theme.bg);
 
-    let scroll_available = Scroll::default()
+    let mut scroll_available = Scroll::default()
         .with_pos(PADDING + 5, tabs_y + TAB_HEIGHT + 5)
         .with_size(DIALOG_WIDTH - PADDING * 2 - 10, tabs_height - TAB_HEIGHT - 10);
+    scroll_available.set_color(theme.bg);
 
     let mut pack_available = Pack::default()
         .with_pos(PADDING + 5, tabs_y + TAB_HEIGHT + 5)
@@ -187,7 +230,7 @@ pub fn show_plugin_manager_dialog(
                 let mut empty_label = Frame::default()
                     .with_size(DIALOG_WIDTH - PADDING * 2 - 30, 40)
                     .with_label("No plugins available in registry");
-                empty_label.set_label_color(text_color);
+                empty_label.set_label_color(theme.text_dim);
             } else {
                 // Get installed plugin versions for update detection
                 let installed_versions: Vec<(String, String)> = plugin_list
@@ -216,9 +259,7 @@ pub fn show_plugin_manager_dialog(
                         plugin_info,
                         already_installed,
                         update_available,
-                        row_bg,
-                        text_color,
-                        is_dark,
+                        &theme,
                         installed.clone(),
                         toggles.clone(),
                         uninstalled.clone(),
@@ -232,14 +273,15 @@ pub fn show_plugin_manager_dialog(
             }
         }
         Err(e) => {
-            let mut error_label = Frame::default()
-                .with_size(DIALOG_WIDTH - PADDING * 2 - 30, 60)
-                .with_label(&format!("Failed to fetch plugins:\n{}", e));
-            error_label.set_label_color(if is_dark {
+            let error_color = if is_dark {
                 Color::from_rgb(255, 120, 120)
             } else {
                 Color::from_rgb(180, 0, 0)
-            });
+            };
+            let mut error_label = Frame::default()
+                .with_size(DIALOG_WIDTH - PADDING * 2 - 30, 60)
+                .with_label(&format!("Failed to fetch plugins:\n{}", e));
+            error_label.set_label_color(error_color);
         }
     }
 
@@ -257,11 +299,15 @@ pub fn show_plugin_manager_dialog(
         .with_pos(PADDING, btn_y)
         .with_size(100, BUTTON_HEIGHT)
         .with_label("Reload All");
+    reload_btn.set_color(theme.button_bg);
+    reload_btn.set_label_color(theme.text);
 
     let mut close_btn = Button::default()
         .with_pos(DIALOG_WIDTH - PADDING - 80, btn_y)
         .with_size(80, BUTTON_HEIGHT)
         .with_label("Close");
+    close_btn.set_color(theme.button_bg);
+    close_btn.set_label_color(theme.text);
 
     dialog.end();
 
@@ -321,60 +367,94 @@ pub fn show_plugin_manager_dialog(
     result.borrow().clone()
 }
 
-/// Create a row for an installed plugin
+/// Create a row for an installed plugin (VSCode-style layout)
 fn create_installed_plugin_row(
     name: &str,
     version: &str,
     description: &str,
     enabled: bool,
-    row_bg: Color,
-    text_color: Color,
-    is_dark: bool,
+    theme: &DialogTheme,
     toggles: Rc<RefCell<Vec<(String, bool)>>>,
     uninstalled: Rc<RefCell<Vec<String>>>,
     available_buttons: Rc<RefCell<HashMap<String, Button>>>,
     installed_rows: Rc<RefCell<HashMap<String, Group>>>,
 ) -> Group {
     let row_width = DIALOG_WIDTH - PADDING * 2 - 30;
+    let is_dark = theme.is_dark();
+
     let mut row = Group::default().with_size(row_width, PLUGIN_ROW_HEIGHT);
     row.set_frame(FrameType::FlatBox);
-    row.set_color(row_bg);
+    row.set_color(theme.row_bg);
 
-    // Checkbox for enable/disable (narrower to make room for uninstall button)
+    // Layout: [checkbox 24] [margin 4] [icon 32] [margin 8] [content...] [button 80] [margin 8]
+    let mut x = 4;
+
+    // Enable/disable checkbox
     let mut checkbox = CheckButton::default()
-        .with_pos(10, 10)
-        .with_size(row_width - 100, 24)
-        .with_label(&format!("{}  v{}", name, version));
+        .with_pos(x, (PLUGIN_ROW_HEIGHT - 20) / 2)
+        .with_size(CHECKBOX_WIDTH, 20);
     checkbox.set_value(enabled);
-    checkbox.set_label_color(text_color);
+    checkbox.set_color(theme.row_bg);
+    x += CHECKBOX_WIDTH + 4;
 
-    // Uninstall button (right side)
+    // Icon with first letter
+    let first_letter = name.chars().next().unwrap_or('?');
+    let icon_color = icon_color_for_letter(first_letter, is_dark);
+    let mut icon = Frame::default()
+        .with_pos(x, (PLUGIN_ROW_HEIGHT - ICON_SIZE) / 2)
+        .with_size(ICON_SIZE, ICON_SIZE)
+        .with_label(&first_letter.to_uppercase().to_string());
+    icon.set_frame(FrameType::FlatBox);
+    icon.set_color(icon_color);
+    icon.set_label_color(Color::White);
+    icon.set_label_font(Font::HelveticaBold);
+    icon.set_label_size(16);
+    x += ICON_SIZE + ICON_MARGIN;
+
+    // Content area width (excluding button area)
+    let content_width = row_width - x - ACTION_BUTTON_WIDTH - ICON_MARGIN;
+
+    // Title: name + version (line 1)
+    let mut title = Frame::default()
+        .with_pos(x, 6)
+        .with_size(content_width, 18)
+        .with_label(&format!("{}  v{}", name, version));
+    title.set_label_color(theme.text);
+    title.set_align(Align::Left | Align::Inside);
+
+    // Description (line 2) - truncated
+    let desc_text = truncate_text(description, DESC_MAX_CHARS);
+    let mut desc = Frame::default()
+        .with_pos(x, 24)
+        .with_size(content_width, 16)
+        .with_label(&desc_text);
+    desc.set_label_color(theme.text_dim);
+    desc.set_align(Align::Left | Align::Inside);
+    desc.set_label_size(11);
+
+    // Meta line (line 3) - just show verified status for installed
+    let mut meta = Frame::default()
+        .with_pos(x, 40)
+        .with_size(content_width, 14)
+        .with_label("Installed");
+    meta.set_label_color(theme.text_dim);
+    meta.set_align(Align::Left | Align::Inside);
+    meta.set_label_size(10);
+
+    // Uninstall button (right side, vertically centered)
+    let btn_x = row_width - ACTION_BUTTON_WIDTH - ICON_MARGIN;
     let mut uninstall_btn = Button::default()
-        .with_pos(row_width - 80, 10)
-        .with_size(70, 24)
+        .with_pos(btn_x, (PLUGIN_ROW_HEIGHT - 26) / 2)
+        .with_size(ACTION_BUTTON_WIDTH, 26)
         .with_label("Uninstall");
     uninstall_btn.set_label_size(11);
-
-    // Set red-ish color for destructive action
-    if is_dark {
-        uninstall_btn.set_color(Color::from_rgb(120, 50, 50));
-        uninstall_btn.set_label_color(Color::from_rgb(255, 200, 200));
+    uninstall_btn.set_color(theme.button_bg);
+    // Red-tinted label for destructive action
+    uninstall_btn.set_label_color(if is_dark {
+        Color::from_rgb(255, 150, 150)
     } else {
-        uninstall_btn.set_color(Color::from_rgb(255, 220, 220));
-        uninstall_btn.set_label_color(Color::from_rgb(140, 30, 30));
-    }
-
-    // Description
-    let mut desc = Frame::default()
-        .with_pos(30, 36)
-        .with_size(row_width - 40, 24)
-        .with_label(description);
-    desc.set_label_color(if is_dark {
-        Color::from_rgb(160, 160, 160)
-    } else {
-        Color::from_rgb(100, 100, 100)
+        Color::from_rgb(180, 50, 50)
     });
-    desc.set_align(Align::Left | Align::Inside);
 
     // Track toggle callback
     let plugin_name = name.to_string();
@@ -428,14 +508,12 @@ fn create_installed_plugin_row(
     row
 }
 
-/// Create a row for an available plugin
+/// Create a row for an available plugin (VSCode-style layout)
 fn create_available_plugin_row(
     plugin_info: &AvailablePluginInfo,
     already_installed: bool,
     update_available: bool,
-    row_bg: Color,
-    text_color: Color,
-    is_dark: bool,
+    theme: &DialogTheme,
     installed: Rc<RefCell<Vec<String>>>,
     toggles: Rc<RefCell<Vec<(String, bool)>>>,
     uninstalled: Rc<RefCell<Vec<String>>>,
@@ -445,76 +523,107 @@ fn create_available_plugin_row(
     installed_rows: Rc<RefCell<HashMap<String, Group>>>,
 ) -> Group {
     let row_width = DIALOG_WIDTH - PADDING * 2 - 30;
+    let is_dark = theme.is_dark();
+
     let mut row = Group::default().with_size(row_width, PLUGIN_ROW_HEIGHT);
     row.set_frame(FrameType::FlatBox);
-    row.set_color(row_bg);
+    row.set_color(theme.row_bg);
 
-    // Verification badge
-    let is_verified = plugin_info.is_verified();
-    let badge_text = if is_verified { "Verified" } else { "Unverified" };
-    let badge_color = if is_verified {
-        Color::from_rgb(60, 160, 60) // Green
-    } else {
-        Color::from_rgb(180, 140, 0) // Yellow/orange
-    };
+    // Layout: [margin 8] [icon 32] [margin 8] [content...] [button 80] [margin 8]
+    let mut x = ICON_MARGIN;
 
-    let mut badge = Frame::default()
-        .with_pos(row_width - 180, 6)
-        .with_size(70, 16)
-        .with_label(badge_text);
-    badge.set_label_color(badge_color);
-    badge.set_label_size(10);
-    badge.set_align(Align::Right | Align::Inside);
+    // Icon with first letter
+    let first_letter = plugin_info.name.chars().next().unwrap_or('?');
+    let icon_color = icon_color_for_letter(first_letter, is_dark);
+    let mut icon = Frame::default()
+        .with_pos(x, (PLUGIN_ROW_HEIGHT - ICON_SIZE) / 2)
+        .with_size(ICON_SIZE, ICON_SIZE)
+        .with_label(&first_letter.to_uppercase().to_string());
+    icon.set_frame(FrameType::FlatBox);
+    icon.set_color(icon_color);
+    icon.set_label_color(Color::White);
+    icon.set_label_font(Font::HelveticaBold);
+    icon.set_label_size(16);
+    x += ICON_SIZE + ICON_MARGIN;
 
-    // Name and version
+    // Content area width (excluding button area)
+    let content_width = row_width - x - ACTION_BUTTON_WIDTH - ICON_MARGIN;
+
+    // Title: name + version (line 1)
     let mut title = Frame::default()
-        .with_pos(10, 8)
-        .with_size(row_width - 200, 22)
+        .with_pos(x, 6)
+        .with_size(content_width, 18)
         .with_label(&format!("{}  v{}", plugin_info.name, plugin_info.version));
-    title.set_label_color(text_color);
+    title.set_label_color(theme.text);
     title.set_align(Align::Left | Align::Inside);
 
-    // Description
+    // Description (line 2) - truncated
+    let desc_text = truncate_text(&plugin_info.description, DESC_MAX_CHARS);
     let mut desc = Frame::default()
-        .with_pos(10, 30)
-        .with_size(row_width - 110, 20)
-        .with_label(&plugin_info.description);
-    desc.set_label_color(if is_dark {
-        Color::from_rgb(160, 160, 160)
-    } else {
-        Color::from_rgb(100, 100, 100)
-    });
+        .with_pos(x, 24)
+        .with_size(content_width, 16)
+        .with_label(&desc_text);
+    desc.set_label_color(theme.text_dim);
     desc.set_align(Align::Left | Align::Inside);
+    desc.set_label_size(11);
 
-    // Author and tags on the same line
-    let author_tags = if plugin_info.author.is_empty() {
-        format!("Tags: {}", plugin_info.tags.join(", "))
+    // Meta line (line 3): author + tags + verification badge
+    let is_verified = plugin_info.is_verified();
+    let badge_text = if is_verified {
+        "\u{2713} Verified"
     } else {
-        format!("by {} · Tags: {}", plugin_info.author, plugin_info.tags.join(", "))
+        "\u{26A0} Unverified"
+    };
+    let meta_text = if plugin_info.author.is_empty() {
+        format!("{} \u{00B7} {}", plugin_info.tags.join(", "), badge_text)
+    } else {
+        format!(
+            "by {} \u{00B7} {} \u{00B7} {}",
+            plugin_info.author,
+            plugin_info.tags.join(", "),
+            badge_text
+        )
     };
     let mut meta = Frame::default()
-        .with_pos(10, 50)
-        .with_size(row_width - 110, 16)
-        .with_label(&author_tags);
-    meta.set_label_color(if is_dark {
-        Color::from_rgb(130, 130, 130)
+        .with_pos(x, 40)
+        .with_size(content_width, 14)
+        .with_label(&meta_text);
+    // Color the meta line based on verification
+    let meta_color = if is_verified {
+        if is_dark {
+            Color::from_rgb(100, 180, 100) // Green-ish
+        } else {
+            Color::from_rgb(50, 120, 50)
+        }
+    } else if is_dark {
+        Color::from_rgb(200, 160, 80) // Yellow-ish
     } else {
-        Color::from_rgb(120, 120, 120)
-    });
+        Color::from_rgb(160, 120, 40)
+    };
+    meta.set_label_color(meta_color);
     meta.set_align(Align::Left | Align::Inside);
-    meta.set_label_size(11);
+    meta.set_label_size(10);
 
-    // Install/Update button
+    // Install/Update button (right side, vertically centered)
+    let btn_x = row_width - ACTION_BUTTON_WIDTH - ICON_MARGIN;
     let mut install_btn = Button::default()
-        .with_pos(row_width - 90, 20)
-        .with_size(80, 28);
+        .with_pos(btn_x, (PLUGIN_ROW_HEIGHT - 26) / 2)
+        .with_size(ACTION_BUTTON_WIDTH, 26);
+    install_btn.set_label_size(11);
+    install_btn.set_color(theme.button_bg);
+    install_btn.set_label_color(theme.text);
 
     if already_installed && !update_available {
         install_btn.set_label("Installed");
         install_btn.deactivate();
     } else if update_available {
         install_btn.set_label("Update");
-        install_btn.set_color(Color::from_rgb(80, 160, 80));
+        // Green accent for update
+        install_btn.set_label_color(if is_dark {
+            Color::from_rgb(100, 200, 100)
+        } else {
+            Color::from_rgb(40, 140, 40)
+        });
     } else {
         install_btn.set_label("Install");
     }
@@ -523,6 +632,9 @@ fn create_available_plugin_row(
     available_buttons
         .borrow_mut()
         .insert(plugin_info.name.clone(), install_btn.clone());
+
+    // Capture theme values for callback
+    let theme_clone = *theme;
 
     // Install callback
     let info = plugin_info.clone();
@@ -560,9 +672,7 @@ fn create_available_plugin_row(
                             &info.version,
                             &info.description,
                             true, // enabled by default
-                            row_bg,
-                            text_color,
-                            is_dark,
+                            &theme_clone,
                             toggles.clone(),
                             uninstalled.clone(),
                             available_buttons.clone(),

@@ -320,7 +320,10 @@ fn main() {
                 // Settings & Help
                 Message::OpenSettings => state.open_settings(),
                 Message::CheckForUpdates => check_for_updates_ui(&state.settings),
-                Message::ShowAbout => show_about_dialog(),
+                Message::ShowAbout => {
+                    let theme_bg = state.highlight.highlighter().theme_background();
+                    show_about_dialog(theme_bg);
+                }
 
                 // Syntax highlighting (debounced)
                 Message::BufferModified(id, pos) => {
