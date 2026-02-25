@@ -90,6 +90,10 @@ pub fn show_plugin_manager_dialog(
     let available_buttons: Rc<RefCell<HashMap<String, Button>>> =
         Rc::new(RefCell::new(HashMap::new()));
 
+    // Cross-tab sync: map of plugin name -> Installed tab row (to hide on update)
+    let installed_rows: Rc<RefCell<HashMap<String, Group>>> =
+        Rc::new(RefCell::new(HashMap::new()));
+
     // Create tabs
     let tabs_y = PADDING;
     let tabs_height = DIALOG_HEIGHT - PADDING * 3 - BUTTON_HEIGHT - 10;
@@ -137,7 +141,12 @@ pub fn show_plugin_manager_dialog(
                 toggles.clone(),
                 uninstalled.clone(),
                 available_buttons.clone(),
+                installed_rows.clone(),
             );
+            // Track installed row for cross-tab sync (hide on update)
+            installed_rows
+                .borrow_mut()
+                .insert(plugin.name.clone(), row.clone());
             pack_installed_inner.add(&row);
         }
     }
@@ -216,6 +225,7 @@ pub fn show_plugin_manager_dialog(
                         pack_installed.clone(),
                         available_buttons.clone(),
                         empty_installed_label.clone(),
+                        installed_rows.clone(),
                     );
                     pack_available.add(&row);
                 }
@@ -323,6 +333,7 @@ fn create_installed_plugin_row(
     toggles: Rc<RefCell<Vec<(String, bool)>>>,
     uninstalled: Rc<RefCell<Vec<String>>>,
     available_buttons: Rc<RefCell<HashMap<String, Button>>>,
+    installed_rows: Rc<RefCell<HashMap<String, Group>>>,
 ) -> Group {
     let row_width = DIALOG_WIDTH - PADDING * 2 - 30;
     let mut row = Group::default().with_size(row_width, PLUGIN_ROW_HEIGHT);
@@ -399,6 +410,9 @@ fn create_installed_plugin_row(
                 parent.redraw();
             }
 
+            // Remove from installed_rows tracking
+            installed_rows.borrow_mut().remove(&plugin_name_uninstall);
+
             // Cross-tab sync: reset the Available tab button to "Install"
             if let Some(btn) = available_buttons.borrow_mut().get_mut(&plugin_name_uninstall) {
                 btn.set_label("Install");
@@ -425,6 +439,7 @@ fn create_available_plugin_row(
     pack_installed: Rc<RefCell<Pack>>,
     available_buttons: Rc<RefCell<HashMap<String, Button>>>,
     empty_installed_label: Rc<RefCell<Option<Frame>>>,
+    installed_rows: Rc<RefCell<HashMap<String, Group>>>,
 ) -> Group {
     let row_width = DIALOG_WIDTH - PADDING * 2 - 30;
     let mut row = Group::default().with_size(row_width, PLUGIN_ROW_HEIGHT);
@@ -527,6 +542,15 @@ fn create_available_plugin_row(
                             label.hide();
                         }
 
+                        // Cross-tab sync: hide old row if this is an update
+                        if let Some(old_row) = installed_rows.borrow_mut().remove(&info.name) {
+                            let mut old_row = old_row;
+                            old_row.hide();
+                            if let Some(mut parent) = old_row.parent() {
+                                parent.redraw();
+                            }
+                        }
+
                         // Cross-tab sync: add row to Installed tab
                         let new_row = create_installed_plugin_row(
                             &info.name,
@@ -539,7 +563,12 @@ fn create_available_plugin_row(
                             toggles.clone(),
                             uninstalled.clone(),
                             available_buttons.clone(),
+                            installed_rows.clone(),
                         );
+                        // Track the new row for future updates
+                        installed_rows
+                            .borrow_mut()
+                            .insert(info.name.clone(), new_row.clone());
                         pack_installed.borrow_mut().add(&new_row);
                         pack_installed.borrow_mut().redraw();
                     }
