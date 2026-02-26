@@ -41,6 +41,8 @@ pub struct TreePanel {
     visible: bool,
     /// Action to send on node click
     on_click_action: Option<String>,
+    /// Item text color for per-item styling
+    item_fg: Color,
 }
 
 impl TreePanel {
@@ -100,6 +102,7 @@ impl TreePanel {
             session_id: None,
             visible: false,
             on_click_action: None,
+            item_fg: Color::from_rgb(220, 220, 220),
         }
     }
 
@@ -176,6 +179,9 @@ impl TreePanel {
 
         // Find the item we just added
         if let Some(mut item) = self.tree.find_item(&item_path) {
+            // Set text color per-item (tree-level default doesn't propagate)
+            item.set_label_fgcolor(self.item_fg);
+
             // Set expansion state
             let should_expand = if expand_depth < 0 {
                 true // -1 means expand all
@@ -310,8 +316,17 @@ impl TreePanel {
         self.tree.set_selection_color(selection);
         self.tree.set_select_frame(FrameType::FlatBox);
 
-        // Item text color — this is the FLTK tree-level default for new items
+        // Item text color
+        self.item_fg = theme.text;
         self.tree.set_item_label_fgcolor(theme.text);
+
+        // Re-style existing items (theme toggle while tree is visible)
+        let fg = self.item_fg;
+        let mut item = self.tree.first();
+        while let Some(mut it) = item {
+            it.set_label_fgcolor(fg);
+            item = it.next();
+        }
         self.tree.set_connector_color(theme.text_dim);
 
         // Style scrollbars to match the editor (Tree inherits Fl_Group)
