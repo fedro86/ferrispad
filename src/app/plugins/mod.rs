@@ -575,8 +575,9 @@ impl PluginManager {
         let has_status_key: bool = table.contains_key("status_message").unwrap_or(false);
         let has_split_view_key: bool = table.contains_key("split_view").unwrap_or(false);
         let has_tree_view_key: bool = table.contains_key("tree_view").unwrap_or(false);
+        let has_open_file_key: bool = table.contains_key("open_file").unwrap_or(false);
 
-        if has_diagnostics_key || has_highlights_key || has_status_key || has_split_view_key || has_tree_view_key {
+        if has_diagnostics_key || has_highlights_key || has_status_key || has_split_view_key || has_tree_view_key || has_open_file_key {
             // New extended format
             if let Ok(mlua::Value::Table(diags_table)) = table.get::<mlua::Value>("diagnostics") {
                 result.diagnostics.extend(self.parse_diagnostics(&diags_table, plugin_name));
@@ -595,6 +596,12 @@ impl PluginManager {
             // Parse optional tree view request
             if let Ok(mlua::Value::Table(tree_view_table)) = table.get::<mlua::Value>("tree_view") {
                 result.tree_view = TreeViewRequest::from_lua_table(&tree_view_table);
+            }
+            // Parse optional open_file request
+            if let Ok(mlua::Value::String(s)) = table.get::<mlua::Value>("open_file") {
+                if let Ok(path) = s.to_str() {
+                    result.open_file = Some(path.to_string());
+                }
             }
         } else {
             // Old format: array of diagnostics directly

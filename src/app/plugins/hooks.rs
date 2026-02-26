@@ -180,6 +180,8 @@ pub struct HookResult {
     pub split_view: Option<SplitViewRequest>,
     /// Request to show a tree view widget
     pub tree_view: Option<TreeViewRequest>,
+    /// Request to open a file (from tree view clicks, etc.)
+    pub open_file: Option<String>,
 }
 
 #[cfg(test)]

@@ -2024,7 +2024,7 @@ impl AppState {
             self.process_widget_requests(&result, plugin_name);
 
             // Process the result (diagnostics, annotations, etc.)
-            self.process_hook_result(result);
+            self.process_hook_result(result, plugin_name);
         } else {
             // Plugin not found or not enabled
             eprintln!(
@@ -2034,8 +2034,8 @@ impl AppState {
         }
     }
 
-    /// Process the result from a plugin hook (diagnostics, annotations, status message)
-    fn process_hook_result(&mut self, result: crate::app::plugins::HookResult) {
+    /// Process the result from a plugin hook (diagnostics, annotations, status message, open_file)
+    fn process_hook_result(&mut self, result: crate::app::plugins::HookResult, plugin_name: &str) {
         // Handle modified content (for format actions)
         if let Some(modified_content) = result.modified_content {
             let mut buf = self.active_buffer();
@@ -2055,6 +2055,32 @@ impl AppState {
         // Show status message
         if let Some(status) = result.status_message {
             self.sender.send(Message::ToastShow(status.level, status.text));
+        }
+
+        // Handle open_file request with security validation
+        if let Some(ref file_path) = result.open_file {
+            use super::plugins::security::{validate_path, PathValidation, find_project_root};
+
+            // Determine project root from current document
+            let project_root = self.tab_manager.active_doc()
+                .and_then(|d| d.file_path.as_ref())
+                .and_then(|p| find_project_root(std::path::Path::new(p)));
+
+            if let Some(ref root) = project_root {
+                match validate_path(file_path, root) {
+                    PathValidation::Valid(_) => {
+                        eprintln!("[plugin:{}] open_file approved: {}", plugin_name, file_path);
+                        self.open_file(file_path.clone());
+                    }
+                    other => {
+                        eprintln!("[plugin:security] open_file BLOCKED for '{}': '{}' - {:?}", plugin_name, file_path, other);
+                    }
+                }
+            } else {
+                // No project root - allow (same as file_exists behavior for untitled docs)
+                eprintln!("[plugin:{}] open_file (no project root): {}", plugin_name, file_path);
+                self.open_file(file_path.clone());
+            }
         }
     }
 
@@ -2440,9 +2466,11 @@ impl AppState {
             None => return,
         };
 
+        let plugin_name = session.plugin_name.clone();
+
         // Call plugin's on_widget_action hook
-        let _ = self.plugins.call_hook_on_plugin(
-            &session.plugin_name,
+        let result = self.plugins.call_hook_on_plugin(
+            &plugin_name,
             PluginHook::OnWidgetAction {
                 widget_type: "tree_view".to_string(),
                 action: "node_clicked".to_string(),
@@ -2453,6 +2481,14 @@ impl AppState {
                 },
             },
         );
+
+        if let Some(result) = result {
+            // Process widget requests (split view, tree view)
+            self.process_widget_requests(&result, &plugin_name);
+
+            // Process the result (diagnostics, open_file, etc.)
+            self.process_hook_result(result, &plugin_name);
+        }
     }
 
     /// Process widget requests from a hook result
