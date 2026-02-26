@@ -15,7 +15,7 @@ use fltk::{
 
 use crate::app::plugins::widgets::{TreeNode, TreeViewRequest};
 use crate::app::Message;
-use super::dialogs::{DialogTheme, SCROLLBAR_SIZE};
+use super::dialogs::{darken, lighten, DialogTheme, SCROLLBAR_SIZE};
 
 /// Height of the tree panel header (matches TAB_BAR_HEIGHT)
 const HEADER_HEIGHT: i32 = 32;
@@ -299,8 +299,18 @@ impl TreePanel {
         self.close_btn.set_color(theme.bg);
         self.close_btn.set_label_color(theme.text_dim);
 
-        // Selection and connector from the theme
-        self.tree.set_selection_color(theme.button_bg);
+        // Selection: slightly darker than bg for light themes, slightly lighter for dark
+        let selection = if theme.is_dark() {
+            let (sr, sg, sb) = lighten(r, g, b, 0.15);
+            Color::from_rgb(sr, sg, sb)
+        } else {
+            let (sr, sg, sb) = darken(r, g, b, 0.90);
+            Color::from_rgb(sr, sg, sb)
+        };
+        self.tree.set_selection_color(selection);
+        self.tree.set_select_frame(FrameType::FlatBox);
+
+        // Item text color — this is the FLTK tree-level default for new items
         self.tree.set_item_label_fgcolor(theme.text);
         self.tree.set_connector_color(theme.text_dim);
 
