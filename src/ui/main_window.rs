@@ -9,6 +9,7 @@ use fltk::{
     window::Window,
 };
 
+use crate::app::domain::settings::TreePanelPosition;
 use crate::app::Message;
 use super::diagnostic_panel::DiagnosticPanel;
 use super::editor_container::EditorContainer;
@@ -26,9 +27,13 @@ pub struct MainWidgets {
     pub editor_container: EditorContainer,
     pub diagnostic_panel: DiagnosticPanel,
     pub tree_panel: TreePanel,
+    /// Inner row flex for left/right tree panel positioning
+    pub content_row: Flex,
+    /// Current tree panel position setting
+    pub tree_position: TreePanelPosition,
 }
 
-pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWidgets {
+pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_position: TreePanelPosition) -> MainWidgets {
     let mut wind = Window::new(100, 100, 640, 480, "Untitled - \u{1f980} FerrisPad");
     wind.set_xclass("FerrisPad");
 
@@ -46,15 +51,6 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWi
     let menu = MenuBar::new(0, 0, 0, 30, "");
     flex.fixed(&menu, 30);
 
-    // Tab bar (only when tabs enabled)
-    let tab_bar = if tabs_enabled {
-        let tb = TabBar::new(0, 30, 640, *sender);
-        flex.fixed(&tb.widget, TAB_BAR_HEIGHT);
-        Some(tb)
-    } else {
-        None
-    };
-
     // Toast notification bar (initially hidden, auto-hides after 4 seconds)
     let toast = Toast::new(*sender);
     flex.fixed(toast.widget(), 0);
@@ -68,15 +64,83 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWi
     update_banner_frame.hide();
     flex.fixed(&update_banner_frame, 0);
 
-    // Editor container — the TextEditor is added directly to flex (no wrapper)
-    let editor_container = EditorContainer::new(&flex);
+    // Content area layout depends on tree panel position:
+    //
+    // Left/Right: row flex with tree panel beside [tab_bar + editor] column
+    //   content_row (row):
+    //     [tree_panel]  [editor_col: tab_bar + editor]   (Left)
+    //     [editor_col: tab_bar + editor]  [tree_panel]   (Right)
+    //
+    // Bottom: no row wrapper needed, tab_bar + editor + tree_panel all in outer column
+    let mut content_row = Flex::default().row();
+    let tree_panel;
+    let tab_bar;
+    let editor_container;
 
-    // Tree panel (below editor, initially hidden - used by file-explorer etc.)
-    let mut tree_panel = TreePanel::new(*sender);
-    tree_panel.hide();
-    flex.fixed(tree_panel.widget(), 0);
+    match tree_position {
+        TreePanelPosition::Left => {
+            // Tree panel first in the row
+            let mut tp = TreePanel::new(*sender);
+            tp.hide();
+            content_row.fixed(tp.widget(), 0);
 
-    // Diagnostic panel (below editor, initially hidden)
+            // Editor column: tab bar + editor (takes remaining width)
+            let mut editor_col = Flex::default().column();
+            tab_bar = if tabs_enabled {
+                let tb = TabBar::new(0, 0, 640, *sender);
+                editor_col.fixed(&tb.widget, TAB_BAR_HEIGHT);
+                Some(tb)
+            } else {
+                None
+            };
+            editor_container = EditorContainer::new(&editor_col);
+            editor_col.end();
+
+            content_row.end();
+            tree_panel = tp;
+        }
+        TreePanelPosition::Right => {
+            // Editor column first
+            let mut editor_col = Flex::default().column();
+            tab_bar = if tabs_enabled {
+                let tb = TabBar::new(0, 0, 640, *sender);
+                editor_col.fixed(&tb.widget, TAB_BAR_HEIGHT);
+                Some(tb)
+            } else {
+                None
+            };
+            editor_container = EditorContainer::new(&editor_col);
+            editor_col.end();
+
+            // Tree panel after editor in the row
+            let mut tp = TreePanel::new(*sender);
+            tp.hide();
+            content_row.fixed(tp.widget(), 0);
+
+            content_row.end();
+            tree_panel = tp;
+        }
+        TreePanelPosition::Bottom => {
+            // No tree panel in the row — just tab bar + editor
+            tab_bar = if tabs_enabled {
+                let tb = TabBar::new(0, 0, 640, *sender);
+                content_row.fixed(&tb.widget, TAB_BAR_HEIGHT);
+                Some(tb)
+            } else {
+                None
+            };
+            editor_container = EditorContainer::new(&content_row);
+            content_row.end();
+
+            // Tree panel in the outer column flex (below editor area)
+            let mut tp = TreePanel::new(*sender);
+            tp.hide();
+            flex.fixed(tp.widget(), 0);
+            tree_panel = tp;
+        }
+    }
+
+    // Diagnostic panel (below everything, initially hidden)
     let mut diagnostic_panel = DiagnosticPanel::new(*sender);
     diagnostic_panel.hide();
     flex.fixed(diagnostic_panel.widget(), 0);
@@ -94,5 +158,7 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWi
         editor_container,
         diagnostic_panel,
         tree_panel,
+        content_row,
+        tree_position,
     }
 }

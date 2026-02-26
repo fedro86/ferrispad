@@ -2424,7 +2424,8 @@ impl AppState {
         request: &super::plugins::TreeViewRequest,
         tree_panel: &mut TreePanel,
     ) {
-        tree_panel.apply_theme(self.dark_mode);
+        let theme_bg = self.highlight.highlighter().theme_background();
+        tree_panel.apply_theme(self.dark_mode, theme_bg);
 
         // If YAML content is provided, parse it into a tree
         let final_request = if request.yaml_content.is_some() && request.root.is_none() {

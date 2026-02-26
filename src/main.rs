@@ -16,6 +16,7 @@ use crate::app::controllers::update::BannerWidgets;
 use crate::app::services::updater::{check_for_updates, current_timestamp, should_check_now, UpdateCheckResult};
 use crate::app::services::shortcut_registry::ShortcutRegistry;
 use crate::app::state::AppState;
+use crate::app::domain::settings::TreePanelPosition;
 use crate::app::{detect_system_dark_mode, AppSettings, Message, ThemeMode};
 use crate::ui::dialogs::about::show_about_dialog;
 use crate::ui::dialogs::find::{show_find_dialog, show_replace_dialog};
@@ -75,8 +76,16 @@ fn main() {
         ThemeMode::SystemDefault => detect_system_dark_mode(),
     };
 
+    // Read tree panel position from file-explorer plugin config
+    let tree_position = settings
+        .plugin_configs
+        .get("file-explorer")
+        .and_then(|c| c.params.get("position"))
+        .map(|s| TreePanelPosition::from_config_str(s))
+        .unwrap_or_default();
+
     // Build UI widgets (tab bar included only when tabs enabled)
-    let mut w = build_main_window(tabs_enabled, &sender);
+    let mut w = build_main_window(tabs_enabled, &sender, tree_position);
 
     // Build shortcut registry from settings
     let shortcut_registry = ShortcutRegistry::from_settings(&settings.shortcut_overrides);
@@ -319,7 +328,13 @@ fn main() {
                 // View
                 Message::ToggleLineNumbers => state.toggle_line_numbers(),
                 Message::ToggleWordWrap => state.toggle_word_wrap(),
-                Message::ToggleDarkMode => state.toggle_dark_mode(),
+                Message::ToggleDarkMode => {
+                    state.toggle_dark_mode();
+                    if w.tree_panel.is_visible() {
+                        let theme_bg = state.highlight.highlighter().theme_background();
+                        w.tree_panel.apply_theme(state.dark_mode, theme_bg);
+                    }
+                }
                 Message::ToggleHighlighting => state.toggle_highlighting(),
                 Message::TogglePreview => state.preview_in_browser(),
 
@@ -328,7 +343,13 @@ fn main() {
                 Message::SetFontSize(size) => state.set_font_size(size),
 
                 // Settings & Help
-                Message::OpenSettings => state.open_settings(),
+                Message::OpenSettings => {
+                    state.open_settings();
+                    if w.tree_panel.is_visible() {
+                        let theme_bg = state.highlight.highlighter().theme_background();
+                        w.tree_panel.apply_theme(state.dark_mode, theme_bg);
+                    }
+                }
                 Message::CheckForUpdates => check_for_updates_ui(&state.settings),
                 Message::ShowAbout => {
                     let theme_bg = state.highlight.highlighter().theme_background();
@@ -477,15 +498,32 @@ fn main() {
                 // Widget API - Tree View
                 Message::TreeViewShow { session_id, plugin_name, request } => {
                     state.show_tree_view(session_id, &plugin_name, &request, &mut w.tree_panel);
-                    let height = w.tree_panel.current_height();
-                    w.flex.fixed(w.tree_panel.widget(), height);
-                    w.flex.recalc();
+                    match w.tree_position {
+                        TreePanelPosition::Bottom => {
+                            let height = w.tree_panel.current_height();
+                            w.flex.fixed(w.tree_panel.widget(), height);
+                            w.flex.recalc();
+                        }
+                        TreePanelPosition::Left | TreePanelPosition::Right => {
+                            let width = w.tree_panel.current_width();
+                            w.content_row.fixed(w.tree_panel.widget(), width);
+                            w.content_row.recalc();
+                        }
+                    }
                     w.wind.redraw();
                 }
                 Message::TreeViewHide(session_id) => {
                     state.hide_tree_view(session_id, &mut w.tree_panel);
-                    w.flex.fixed(w.tree_panel.widget(), 0);
-                    w.flex.recalc();
+                    match w.tree_position {
+                        TreePanelPosition::Bottom => {
+                            w.flex.fixed(w.tree_panel.widget(), 0);
+                            w.flex.recalc();
+                        }
+                        TreePanelPosition::Left | TreePanelPosition::Right => {
+                            w.content_row.fixed(w.tree_panel.widget(), 0);
+                            w.content_row.recalc();
+                        }
+                    }
                     w.wind.redraw();
                 }
                 Message::TreeViewNodeClicked { session_id, node_path } => {

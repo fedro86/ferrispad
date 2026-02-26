@@ -43,6 +43,26 @@ pub struct PluginConfig {
     pub params: HashMap<String, String>,
 }
 
+/// Position of a tree panel (used by plugins like file-explorer)
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum TreePanelPosition {
+    #[default]
+    Left,
+    Right,
+    Bottom,
+}
+
+impl TreePanelPosition {
+    /// Parse from a plugin config string value
+    pub fn from_config_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "right" => Self::Right,
+            "bottom" => Self::Bottom,
+            _ => Self::Left,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ThemeMode {
     Light,

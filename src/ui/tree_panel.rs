@@ -15,6 +15,7 @@ use fltk::{
 
 use crate::app::plugins::widgets::{TreeNode, TreeViewRequest};
 use crate::app::Message;
+use super::dialogs::DialogTheme;
 
 /// Height of the tree panel header
 const HEADER_HEIGHT: i32 = 24;
@@ -260,7 +261,10 @@ impl TreePanel {
         self.session_id
     }
 
-    /// Get the current panel height for flex layout
+    /// Default width when shown in left/right position
+    pub const DEFAULT_WIDTH: i32 = 250;
+
+    /// Get the current panel height for flex layout (bottom position)
     pub fn current_height(&self) -> i32 {
         if self.visible {
             HEADER_HEIGHT + DEFAULT_HEIGHT
@@ -269,26 +273,33 @@ impl TreePanel {
         }
     }
 
-    /// Apply theme colors
-    pub fn apply_theme(&mut self, is_dark: bool) {
-        if is_dark {
-            self.header.set_color(Color::from_rgb(60, 60, 60));
-            self.header.set_label_color(Color::White);
-            self.close_btn.set_color(Color::from_rgb(60, 60, 60));
-            self.close_btn.set_label_color(Color::from_rgb(180, 180, 180));
-            self.tree.set_color(Color::from_rgb(40, 40, 40));
-            self.tree.set_selection_color(Color::from_rgb(70, 100, 130));
-            self.tree.set_item_label_fgcolor(Color::from_rgb(220, 220, 220));
-            self.tree.set_connector_color(Color::from_rgb(100, 100, 100));
+    /// Get the current panel width for flex layout (left/right position)
+    pub fn current_width(&self) -> i32 {
+        if self.visible {
+            Self::DEFAULT_WIDTH
         } else {
-            self.header.set_color(Color::from_rgb(220, 220, 220));
-            self.header.set_label_color(Color::from_rgb(30, 30, 30));
-            self.close_btn.set_color(Color::from_rgb(220, 220, 220));
-            self.close_btn.set_label_color(Color::from_rgb(60, 60, 60));
-            self.tree.set_color(Color::White);
-            self.tree.set_selection_color(Color::from_rgb(180, 210, 240));
-            self.tree.set_item_label_fgcolor(Color::from_rgb(30, 30, 30));
-            self.tree.set_connector_color(Color::from_rgb(180, 180, 180));
+            0
         }
+    }
+
+    /// Apply theme colors derived from the syntax theme background.
+    /// Uses DialogTheme for consistent color derivation across the app.
+    pub fn apply_theme(&mut self, _is_dark: bool, theme_bg: (u8, u8, u8)) {
+        let theme = DialogTheme::from_theme_bg(theme_bg);
+        let (r, g, b) = theme_bg;
+
+        // Tree background matches the editor background
+        self.tree.set_color(Color::from_rgb(r, g, b));
+
+        // Header uses the dialog/tab-bar background (darker/lighter than editor)
+        self.header.set_color(theme.bg);
+        self.header.set_label_color(theme.text);
+        self.close_btn.set_color(theme.bg);
+        self.close_btn.set_label_color(theme.text_dim);
+
+        // Selection and connector from the theme
+        self.tree.set_selection_color(theme.button_bg);
+        self.tree.set_item_label_fgcolor(theme.text);
+        self.tree.set_connector_color(theme.text_dim);
     }
 }
