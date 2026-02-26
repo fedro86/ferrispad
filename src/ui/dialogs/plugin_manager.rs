@@ -159,6 +159,7 @@ pub fn show_plugin_manager_dialog(
         .with_pos(PADDING + 5, tabs_y + TAB_HEIGHT + 5)
         .with_size(DIALOG_WIDTH - PADDING * 2 - 10, tabs_height - TAB_HEIGHT - 10);
     scroll_installed.set_color(theme.bg);
+    theme.style_scroll(&mut scroll_installed);
 
     // Row width: original was 500, keep it the same to avoid horizontal scrollbar
     let row_width = DIALOG_WIDTH - PADDING * 2 - 10; // 550 - 20 - 30 = 500
@@ -226,6 +227,7 @@ pub fn show_plugin_manager_dialog(
         .with_pos(PADDING + 5, tabs_y + TAB_HEIGHT + 5)
         .with_size(DIALOG_WIDTH - PADDING * 2 - 10, tabs_height - TAB_HEIGHT - 10);
     scroll_available.set_color(theme.bg);
+    theme.style_scroll(&mut scroll_available);
 
     let mut pack_available = Pack::default()
         .with_pos(PADDING + 5, tabs_y + TAB_HEIGHT + 5)

@@ -11,7 +11,10 @@ pub mod settings_dialog;
 pub mod shortcut_dialog;
 pub mod update;
 
-use fltk::{app, enums::Color, prelude::*, window::Window};
+use fltk::{app, enums::{Color, FrameType}, group::Scroll, prelude::*, window::Window};
+
+/// Global scrollbar width used across all dialogs.
+pub const SCROLLBAR_SIZE: i32 = 12;
 
 /// Theme colors for dialogs, derived from the syntax theme background.
 /// Uses the same derivation logic as tab_bar for visual consistency.
@@ -33,6 +36,10 @@ pub struct DialogTheme {
     pub row_bg: Color,
     /// Alternate row background (for zebra striping)
     pub row_bg_alt: Color,
+    /// Scrollbar track background
+    pub scroll_track: Color,
+    /// Scrollbar thumb/slider color
+    pub scroll_thumb: Color,
     /// Whether the theme is dark mode
     is_dark: bool,
 }
@@ -135,6 +142,17 @@ impl DialogTheme {
             )
         };
 
+        // Scrollbar colors
+        let (scroll_track, scroll_thumb) = if is_dark {
+            let (tr, tg, tb) = darken(bg_r, bg_g, bg_b, 0.70);
+            let (thr, thg, thb) = lighten(bg_r, bg_g, bg_b, 0.20);
+            (Color::from_rgb(tr, tg, tb), Color::from_rgb(thr, thg, thb))
+        } else {
+            let (tr, tg, tb) = darken(bg_r, bg_g, bg_b, 0.95);
+            let (thr, thg, thb) = darken(bg_r, bg_g, bg_b, 0.75);
+            (Color::from_rgb(tr, tg, tb), Color::from_rgb(thr, thg, thb))
+        };
+
         Self {
             bg,
             text,
@@ -144,6 +162,8 @@ impl DialogTheme {
             tab_active_bg,
             row_bg,
             row_bg_alt,
+            scroll_track,
+            scroll_thumb,
             is_dark,
         }
     }
@@ -151,6 +171,21 @@ impl DialogTheme {
     /// Check if the theme is dark mode
     pub fn is_dark(&self) -> bool {
         self.is_dark
+    }
+
+    /// Apply flat themed scrollbar styling to a Scroll widget.
+    pub fn style_scroll(&self, scroll: &mut Scroll) {
+        scroll.set_scrollbar_size(SCROLLBAR_SIZE);
+        let mut vsb = scroll.scrollbar();
+        vsb.set_frame(FrameType::FlatBox);
+        vsb.set_color(self.scroll_track);
+        vsb.set_slider_frame(FrameType::FlatBox);
+        vsb.set_selection_color(self.scroll_thumb);
+        let mut hsb = scroll.hscrollbar();
+        hsb.set_frame(FrameType::FlatBox);
+        hsb.set_color(self.scroll_track);
+        hsb.set_slider_frame(FrameType::FlatBox);
+        hsb.set_selection_color(self.scroll_thumb);
     }
 }
 

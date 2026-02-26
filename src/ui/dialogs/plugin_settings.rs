@@ -72,7 +72,7 @@ pub fn show_plugin_settings_dialog(
         .with_pos(20, 90)
         .with_size(DIALOG_WIDTH - 40, 150);
     scroll.set_color(bg_color);
-    scroll.set_scrollbar_size(12);
+    theme.style_scroll(&mut scroll);
 
     let mut pack = group::Pack::default()
         .with_pos(20, 90)

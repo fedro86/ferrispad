@@ -10,8 +10,9 @@
 //! - Real-time conflict detection across all shortcuts
 
 use fltk::{
+    app,
     button::Button,
-    enums::{Align, Color, FrameType},
+    enums::{Align, Color, Event, FrameType, Key},
     frame::Frame,
     group::{Group, Pack, PackType, Scroll, Tabs},
     input::Input,
@@ -28,7 +29,7 @@ use crate::ui::menu::{
     normalize_shortcut, is_valid_shortcut, plugin_command_id, BUILTIN_SHORTCUTS,
 };
 
-use super::DialogTheme;
+use super::{DialogTheme, SCROLLBAR_SIZE};
 
 // Layout constants
 const DIALOG_WIDTH: i32 = 580;
@@ -93,6 +94,17 @@ pub fn show_shortcut_dialog(
     let content_h = tabs_height - TAB_HEIGHT;
     let scroll_w = DIALOG_WIDTH - PADDING * 2 - 10;
 
+    // Dynamic row width: count visible rows to decide if scrollbar will appear
+    let builtin_count = BUILTIN_SHORTCUTS.iter()
+        .filter(|&&(id, _)| tabs_enabled || !matches!(id, "File/Close Tab" | "File/Next Tab" | "File/Previous Tab"))
+        .count() + 1; // +1 for header
+    let builtin_total_h = builtin_count as i32 * (ROW_HEIGHT + 2); // 2 = pack spacing
+    let row_w_builtin = if builtin_total_h > content_h - 10 {
+        scroll_w - SCROLLBAR_SIZE
+    } else {
+        scroll_w
+    };
+
     // ============ FERRISPAD TAB ============
     let mut builtin_group = Group::default()
         .with_pos(PADDING, content_y)
@@ -105,16 +117,17 @@ pub fn show_shortcut_dialog(
         .with_pos(PADDING + 5, content_y + 5)
         .with_size(scroll_w, content_h - 10);
     scroll_builtin.set_color(theme.bg);
+    theme.style_scroll(&mut scroll_builtin);
 
     let mut pack_builtin = Pack::default()
         .with_pos(PADDING + 5, content_y + 5)
-        .with_size(scroll_w, 0);
+        .with_size(row_w_builtin, 0);
     pack_builtin.set_type(PackType::Vertical);
     pack_builtin.set_spacing(2);
 
     // Add header row
     {
-        let mut header = Group::default().with_size(scroll_w, SECTION_HEADER_HEIGHT);
+        let mut header = Group::default().with_size(row_w_builtin, SECTION_HEADER_HEIGHT);
         header.set_frame(FrameType::FlatBox);
         header.set_color(theme.button_bg);
 
@@ -152,7 +165,7 @@ pub fn show_shortcut_dialog(
             actual_default,
             effective,
             &theme,
-            scroll_w,
+            row_w_builtin,
             all_entries.clone(),
         );
         pack_builtin.add(&row);
@@ -163,6 +176,24 @@ pub fn show_shortcut_dialog(
     builtin_group.end();
 
     // ============ PLUGINS TAB ============
+    // Dynamic row width for plugins tab
+    let plugin_list = plugins.list_plugins();
+    let has_plugin_shortcuts = plugin_list.iter().any(|p| !p.menu_items.is_empty());
+    let plugins_row_count = if has_plugin_shortcuts {
+        plugin_list.iter()
+            .filter(|p| !p.menu_items.is_empty())
+            .map(|p| 1 + p.menu_items.len()) // section header + action rows
+            .sum::<usize>()
+    } else {
+        1 // "No plugins" label
+    };
+    let plugins_total_h = plugins_row_count as i32 * (ROW_HEIGHT + 2);
+    let row_w_plugins = if plugins_total_h > content_h - 10 {
+        scroll_w - SCROLLBAR_SIZE
+    } else {
+        scroll_w
+    };
+
     let mut plugins_group = Group::default()
         .with_pos(PADDING, content_y)
         .with_size(DIALOG_WIDTH - PADDING * 2, content_h)
@@ -174,19 +205,17 @@ pub fn show_shortcut_dialog(
         .with_pos(PADDING + 5, content_y + 5)
         .with_size(scroll_w, content_h - 10);
     scroll_plugins.set_color(theme.bg);
+    theme.style_scroll(&mut scroll_plugins);
 
     let mut pack_plugins = Pack::default()
         .with_pos(PADDING + 5, content_y + 5)
-        .with_size(scroll_w, 0);
+        .with_size(row_w_plugins, 0);
     pack_plugins.set_type(PackType::Vertical);
     pack_plugins.set_spacing(2);
 
-    let plugin_list = plugins.list_plugins();
-    let has_plugin_shortcuts = plugin_list.iter().any(|p| !p.menu_items.is_empty());
-
     if !has_plugin_shortcuts {
         let mut empty = Frame::default()
-            .with_size(scroll_w, 40)
+            .with_size(row_w_plugins, 40)
             .with_label("No plugins with shortcuts installed");
         empty.set_label_color(theme.text_dim);
     } else {
@@ -196,13 +225,13 @@ pub fn show_shortcut_dialog(
             }
 
             // Section header for plugin name
-            let mut section = Group::default().with_size(scroll_w, SECTION_HEADER_HEIGHT);
+            let mut section = Group::default().with_size(row_w_plugins, SECTION_HEADER_HEIGHT);
             section.set_frame(FrameType::FlatBox);
             section.set_color(theme.button_bg);
 
             let mut section_label = Frame::default()
                 .with_pos(PADDING, 4)
-                .with_size(scroll_w - PADDING * 2, 20)
+                .with_size(row_w_plugins - PADDING * 2, 20)
                 .with_label(&plugin.name);
             section_label.set_label_color(theme.text);
             section_label.set_align(Align::Left | Align::Inside);
@@ -222,7 +251,7 @@ pub fn show_shortcut_dialog(
                     manifest_default,
                     effective,
                     &theme,
-                    scroll_w,
+                    row_w_plugins,
                     all_entries.clone(),
                 );
                 pack_plugins.add(&row);
@@ -349,6 +378,86 @@ pub fn show_shortcut_dialog(
     result.borrow_mut().take()
 }
 
+/// Convert an FLTK `Key` to its display name, or `None` for modifier-only / unsupported keys.
+fn key_name(key: Key) -> Option<String> {
+    // Function keys F1–F12
+    for i in 1..=12u32 {
+        if key == Key::from_i32(0xffbe + (i as i32 - 1)) {
+            return Some(format!("F{}", i));
+        }
+    }
+
+    // Printable ASCII range: letters, digits, punctuation
+    let bits = key.bits();
+    if (0x20..=0x7e).contains(&bits) {
+        let ch = bits as u8 as char;
+        if ch.is_ascii_alphanumeric() {
+            return Some(ch.to_ascii_uppercase().to_string());
+        }
+        // Map punctuation to names
+        return match ch {
+            ' ' => Some("Space".to_string()),
+            '-' => Some("Minus".to_string()),
+            '=' => Some("Equal".to_string()),
+            '[' => Some("LeftBracket".to_string()),
+            ']' => Some("RightBracket".to_string()),
+            '\\' => Some("Backslash".to_string()),
+            ';' => Some("Semicolon".to_string()),
+            '\'' => Some("Quote".to_string()),
+            ',' => Some("Comma".to_string()),
+            '.' => Some("Period".to_string()),
+            '/' => Some("Slash".to_string()),
+            '`' => Some("Backtick".to_string()),
+            _ => None,
+        };
+    }
+
+    // Arrow keys
+    if key == Key::Left { return Some("Left".to_string()); }
+    if key == Key::Right { return Some("Right".to_string()); }
+    if key == Key::Up { return Some("Up".to_string()); }
+    if key == Key::Down { return Some("Down".to_string()); }
+    if key == Key::Home { return Some("Home".to_string()); }
+    if key == Key::End { return Some("End".to_string()); }
+    if key == Key::PageUp { return Some("PageUp".to_string()); }
+    if key == Key::PageDown { return Some("PageDown".to_string()); }
+    if key == Key::Insert { return Some("Insert".to_string()); }
+    if key == Key::Tab { return Some("Tab".to_string()); }
+    if key == Key::Escape { return Some("Escape".to_string()); }
+    if key == Key::BackSpace { return Some("Backspace".to_string()); }
+    if key == Key::Delete { return Some("Delete".to_string()); }
+
+    // Modifier-only and unsupported keys return None
+    None
+}
+
+/// Build a shortcut string from the current FLTK key event, e.g. "Ctrl+Shift+P".
+/// Returns `None` if the key is unsupported or no modifier is held (bare keys aren't valid shortcuts,
+/// except for F-keys which are allowed without modifiers).
+fn shortcut_string_from_event() -> Option<String> {
+    let key = app::event_key();
+    let name = key_name(key)?;
+
+    let state = app::event_state();
+    let ctrl = state.contains(fltk::enums::Shortcut::Ctrl);
+    let shift = state.contains(fltk::enums::Shortcut::Shift);
+    let alt = state.contains(fltk::enums::Shortcut::Alt);
+
+    // Require at least one modifier, unless it's an F-key
+    let is_fkey = name.starts_with('F') && name.len() >= 2 && name[1..].chars().all(|c| c.is_ascii_digit());
+    if !ctrl && !shift && !alt && !is_fkey {
+        return None;
+    }
+
+    let mut parts = Vec::new();
+    if ctrl { parts.push("Ctrl"); }
+    if shift { parts.push("Shift"); }
+    if alt { parts.push("Alt"); }
+    parts.push(&name);
+
+    Some(parts.join("+"))
+}
+
 /// Create a single shortcut row: [Label] [Input] [Reset]
 fn create_shortcut_row(
     id: &str,
@@ -381,6 +490,37 @@ fn create_shortcut_row(
     input.set_color(theme.input_bg);
     input.set_text_color(theme.text);
     input.set_text_size(12);
+
+    // Capture key combinations directly
+    input.handle(move |inp, ev| {
+        if ev == Event::KeyDown {
+            let key = app::event_key();
+            let state = app::event_state();
+            let has_modifier = state.contains(fltk::enums::Shortcut::Ctrl)
+                || state.contains(fltk::enums::Shortcut::Alt);
+
+            // Let bare Escape pass through (close dialog)
+            if key == Key::Escape && !has_modifier {
+                return false;
+            }
+            // Let bare Tab/Shift+Tab pass through (focus navigation)
+            if key == Key::Tab && !has_modifier {
+                return false;
+            }
+            // Bare Backspace/Delete clears the field (unbinds the shortcut)
+            if matches!(key, Key::BackSpace | Key::Delete) && !has_modifier {
+                inp.set_value("");
+                return true;
+            }
+            if let Some(shortcut_str) = shortcut_string_from_event() {
+                inp.set_value(&shortcut_str);
+            }
+            // Consume all other key events to prevent stray characters
+            true
+        } else {
+            false
+        }
+    });
 
     // Reset button
     let reset_x = input_x + INPUT_WIDTH + 8;

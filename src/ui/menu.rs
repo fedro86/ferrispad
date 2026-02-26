@@ -155,6 +155,25 @@ fn parse_shortcut(s: &str) -> Option<Shortcut> {
                     }
                 }
 
+                // Named special keys
+                match lower.as_str() {
+                    "tab" => { result = result | Key::Tab; continue; }
+                    "backspace" => { result = result | Key::BackSpace; continue; }
+                    "delete" | "del" => { result = result | Key::Delete; continue; }
+                    "insert" | "ins" => { result = result | Key::Insert; continue; }
+                    "home" => { result = result | Key::Home; continue; }
+                    "end" => { result = result | Key::End; continue; }
+                    "pageup" | "pgup" => { result = result | Key::PageUp; continue; }
+                    "pagedown" | "pgdn" => { result = result | Key::PageDown; continue; }
+                    "left" => { result = result | Key::Left; continue; }
+                    "right" => { result = result | Key::Right; continue; }
+                    "up" => { result = result | Key::Up; continue; }
+                    "down" => { result = result | Key::Down; continue; }
+                    "space" => { result = result | Key::from_char(' '); continue; }
+                    "escape" | "esc" => { result = result | Key::Escape; continue; }
+                    _ => {}
+                }
+
                 // Single character key (A-Z, 0-9)
                 if part.len() == 1 {
                     let ch = part.chars().next().unwrap().to_ascii_lowercase();
