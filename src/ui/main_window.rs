@@ -47,6 +47,8 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
 
     let mut flex = Flex::new(0, 0, 640, 480, None);
     flex.set_type(fltk::group::FlexType::Column);
+    flex.set_margin(0);
+    flex.set_pad(0);
 
     let menu = MenuBar::new(0, 0, 0, 30, "");
     flex.fixed(&menu, 30);
@@ -73,6 +75,8 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
     //
     // Bottom: no row wrapper needed, tab_bar + editor + tree_panel all in outer column
     let mut content_row = Flex::default().row();
+    content_row.set_margin(0);
+    content_row.set_pad(0);
     let tree_panel;
     let tab_bar;
     let editor_container;
@@ -86,6 +90,8 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
 
             // Editor column: tab bar + editor (takes remaining width)
             let mut editor_col = Flex::default().column();
+            editor_col.set_margin(0);
+            editor_col.set_pad(0);
             tab_bar = if tabs_enabled {
                 let tb = TabBar::new(0, 0, 640, *sender);
                 editor_col.fixed(&tb.widget, TAB_BAR_HEIGHT);
@@ -102,6 +108,8 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
         TreePanelPosition::Right => {
             // Editor column first
             let mut editor_col = Flex::default().column();
+            editor_col.set_margin(0);
+            editor_col.set_pad(0);
             tab_bar = if tabs_enabled {
                 let tb = TabBar::new(0, 0, 640, *sender);
                 editor_col.fixed(&tb.widget, TAB_BAR_HEIGHT);

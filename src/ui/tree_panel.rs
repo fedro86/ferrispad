@@ -15,10 +15,10 @@ use fltk::{
 
 use crate::app::plugins::widgets::{TreeNode, TreeViewRequest};
 use crate::app::Message;
-use super::dialogs::DialogTheme;
+use super::dialogs::{DialogTheme, SCROLLBAR_SIZE};
 
-/// Height of the tree panel header
-const HEADER_HEIGHT: i32 = 24;
+/// Height of the tree panel header (matches TAB_BAR_HEIGHT)
+const HEADER_HEIGHT: i32 = 32;
 
 /// Default height of the tree panel
 const DEFAULT_HEIGHT: i32 = 200;
@@ -48,10 +48,14 @@ impl TreePanel {
     pub fn new(sender: Sender<Message>) -> Self {
         let mut container = Flex::default().column();
         container.set_frame(FrameType::FlatBox);
+        container.set_margin(0);
+        container.set_pad(0);
 
         // Header bar with title and close button
         let mut header_row = Flex::default().row();
         header_row.set_frame(FrameType::FlatBox);
+        header_row.set_margin(0);
+        header_row.set_pad(0);
         header_row.set_color(Color::from_rgb(60, 60, 60));
 
         let mut header = Frame::default();
@@ -133,10 +137,12 @@ impl TreePanel {
         self.container.redraw();
     }
 
-    /// Add a node to the tree recursively
+    /// Add a node to the tree recursively.
+    /// `parent_path` is the full FLTK tree path of the parent node (used for
+    /// `tree.add()` which interprets `/` as a hierarchy separator).
     fn add_tree_node(
         &mut self,
-        parent: Option<&TreeItem>,
+        parent_path: Option<&str>,
         node: &TreeNode,
         expand_depth: i32,
         current_depth: i32,
@@ -159,13 +165,9 @@ impl TreePanel {
 
         let label = format!("{}{}", icon, node.label);
 
-        // Add item to tree
-        let item_path = if let Some(parent_item) = parent {
-            if let Some(path) = parent_item.label() {
-                format!("{}/{}", path, label)
-            } else {
-                label.clone()
-            }
+        // Build full FLTK tree path from root to this node
+        let item_path = if let Some(pp) = parent_path {
+            format!("{}/{}", pp, label)
         } else {
             label.clone()
         };
@@ -187,9 +189,9 @@ impl TreePanel {
                 item.close();
             }
 
-            // Add children recursively
+            // Add children recursively, passing our full path
             for child in &node.children {
-                self.add_tree_node(Some(&item), child, expand_depth, current_depth + 1);
+                self.add_tree_node(Some(&item_path), child, expand_depth, current_depth + 1);
             }
         }
     }
@@ -301,5 +303,30 @@ impl TreePanel {
         self.tree.set_selection_color(theme.button_bg);
         self.tree.set_item_label_fgcolor(theme.text);
         self.tree.set_connector_color(theme.text_dim);
+
+        // Style scrollbars to match the editor (Tree inherits Fl_Group)
+        self.tree.set_scrollbar_size(SCROLLBAR_SIZE);
+        unsafe extern "C" {
+            fn Fl_Group_children(grp: *mut std::ffi::c_void) -> std::ffi::c_int;
+            fn Fl_Group_child(
+                grp: *mut std::ffi::c_void,
+                index: std::ffi::c_int,
+            ) -> *mut std::ffi::c_void;
+        }
+        unsafe {
+            use fltk::valuator::Scrollbar;
+            let group_ptr = self.tree.as_widget_ptr() as *mut std::ffi::c_void;
+            let nchildren = Fl_Group_children(group_ptr);
+            for i in 0..nchildren.min(2) {
+                let ptr = Fl_Group_child(group_ptr, i);
+                if !ptr.is_null() {
+                    let mut sb = Scrollbar::from_widget_ptr(ptr as fltk::app::WidgetPtr);
+                    sb.set_frame(FrameType::FlatBox);
+                    sb.set_color(theme.scroll_track);
+                    sb.set_slider_frame(FrameType::FlatBox);
+                    sb.set_selection_color(theme.scroll_thumb);
+                }
+            }
+        }
     }
 }
