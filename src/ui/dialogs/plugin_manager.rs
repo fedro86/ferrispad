@@ -744,10 +744,12 @@ fn create_available_plugin_row(
                             .join(" ");
 
                         // Try display name first, then registry name
-                        let old_row = installed_rows
-                            .borrow_mut()
-                            .remove(&display_name)
-                            .or_else(|| installed_rows.borrow_mut().remove(&info.name));
+                        // Must split borrows to avoid RefCell double-borrow panic
+                        let old_row = {
+                            let mut rows = installed_rows.borrow_mut();
+                            rows.remove(&display_name)
+                                .or_else(|| rows.remove(&info.name))
+                        };
 
                         if let Some(mut old_row) = old_row {
                             old_row.hide();

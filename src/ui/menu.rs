@@ -8,11 +8,12 @@ use fltk::{
 };
 
 use crate::app::plugins::PluginManager;
+use crate::app::services::shortcut_registry::ShortcutRegistry;
 use crate::app::{AppSettings, Message};
 
 /// Reserved keyboard shortcuts that plugins cannot override.
 /// These are built-in editor functions.
-pub const RESERVED_SHORTCUTS: &[&str] = &[
+const RESERVED_SHORTCUTS: &[&str] = &[
     "ctrl+t",
     "ctrl+n",
     "ctrl+o",
@@ -34,6 +35,71 @@ pub const RESERVED_SHORTCUTS: &[&str] = &[
     "ctrl+m",
     "ctrl+shift+l", // Run All Checks
 ];
+
+/// Built-in shortcuts: (menu_path/command_id, default_shortcut_string).
+/// This table is the single source of truth for default built-in shortcuts.
+/// The `tabs_enabled` variants are handled separately in `build_menu()`.
+pub const BUILTIN_SHORTCUTS: &[(&str, &str)] = &[
+    ("File/New",                  "Ctrl+T"),       // Ctrl+N when tabs off
+    ("File/Open...",              "Ctrl+O"),
+    ("File/Save",                 "Ctrl+S"),
+    ("File/Save As...",           "Ctrl+Shift+S"),
+    ("File/Close Tab",            "Ctrl+W"),        // tabs only
+    ("File/Next Tab",             "Ctrl+Tab"),       // tabs only
+    ("File/Previous Tab",         "Ctrl+Shift+Tab"), // tabs only
+    ("File/Quit",                 "Ctrl+Q"),
+    ("Edit/Undo",                 "Ctrl+Z"),
+    ("Edit/Redo",                 "Ctrl+Shift+Z"),
+    ("Edit/Cut",                  "Ctrl+X"),
+    ("Edit/Copy",                 "Ctrl+C"),
+    ("Edit/Paste",                "Ctrl+V"),
+    ("Edit/Select All",           "Ctrl+A"),
+    ("Edit/Find...",              "Ctrl+F"),
+    ("Edit/Replace...",           "Ctrl+H"),
+    ("Edit/Go To Line...",        "Ctrl+G"),
+    ("View/Preview in Browser",   "Ctrl+M"),
+    ("Plugins/General/Run All Checks", "Ctrl+Shift+L"),
+];
+
+/// Resolve the effective shortcut for a built-in command.
+/// Returns the FLTK Shortcut from the registry override or the provided default string.
+pub fn resolve_shortcut(registry: &ShortcutRegistry, id: &str, default: &str) -> Shortcut {
+    let effective = registry.effective_shortcut(id, default);
+    if effective.is_empty() {
+        return Shortcut::None;
+    }
+    parse_shortcut(effective).unwrap_or(Shortcut::None)
+}
+
+/// Apply shortcut overrides to an existing menu bar (in-place mutation).
+/// This avoids a full menu rebuild when only shortcuts change.
+pub fn apply_shortcut_overrides(menu: &mut MenuBar, registry: &ShortcutRegistry, tabs_enabled: bool) {
+    for &(id, default) in BUILTIN_SHORTCUTS {
+        // Skip tab-only shortcuts when tabs are disabled
+        if !tabs_enabled && matches!(id, "File/Close Tab" | "File/Next Tab" | "File/Previous Tab") {
+            continue;
+        }
+        // Handle File/New special case (Ctrl+N when tabs off)
+        let actual_default = if id == "File/New" && !tabs_enabled {
+            "Ctrl+N"
+        } else {
+            default
+        };
+
+        let shortcut = resolve_shortcut(registry, id, actual_default);
+        let idx = menu.find_index(id);
+        if idx >= 0 {
+            if let Some(mut item) = menu.at(idx) {
+                item.set_shortcut(shortcut);
+            }
+        }
+    }
+}
+
+/// Build a plugin command ID from plugin name and action.
+pub fn plugin_command_id(plugin_name: &str, action: &str) -> String {
+    format!("plugin:{}:{}", plugin_name, action)
+}
 
 /// Parse a shortcut string like "Ctrl+Shift+P" into an FLTK Shortcut.
 /// Returns None if the string is invalid or empty.
@@ -146,33 +212,46 @@ pub fn build_menu(
     settings: &AppSettings,
     initial_dark_mode: bool,
     tabs_enabled: bool,
+    registry: &ShortcutRegistry,
 ) {
     let s = sender;
 
+    // Helper: resolve shortcut from registry, with special-case for File/New
+    let rs = |id: &str| -> Shortcut {
+        let default = BUILTIN_SHORTCUTS
+            .iter()
+            .find(|(k, _)| *k == id)
+            .map(|(_, v)| *v)
+            .unwrap_or("");
+        // File/New uses Ctrl+N when tabs disabled
+        let actual_default = if id == "File/New" && !tabs_enabled { "Ctrl+N" } else { default };
+        resolve_shortcut(registry, id, actual_default)
+    };
+
     // File
-    let new_shortcut = if tabs_enabled { Shortcut::Ctrl | 't' } else { Shortcut::Ctrl | 'n' };
-    menu.add("File/New", new_shortcut, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::FileNew) });
-    menu.add("File/Open...", Shortcut::Ctrl | 'o', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::FileOpen) });
-    menu.add("File/Save", Shortcut::Ctrl | 's', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::FileSave) });
-    menu.add("File/Save As...", Shortcut::Ctrl | Shortcut::Shift | 's', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::FileSaveAs) });
+    menu.add("File/New", rs("File/New"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::FileNew) });
+    menu.add("File/Open...", rs("File/Open..."), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::FileOpen) });
+    menu.add("File/Save", rs("File/Save"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::FileSave) });
+    menu.add("File/Save As...", rs("File/Save As..."), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::FileSaveAs) });
     if tabs_enabled {
-        menu.add("File/Close Tab", Shortcut::Ctrl | 'w', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TabCloseActive) });
-        menu.add("File/Next Tab", Shortcut::Ctrl | Key::Tab, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TabNext) });
-        menu.add("File/Previous Tab", Shortcut::Ctrl | Shortcut::Shift | Key::Tab, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TabPrevious) });
+        menu.add("File/Close Tab", rs("File/Close Tab"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TabCloseActive) });
+        menu.add("File/Next Tab", rs("File/Next Tab"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TabNext) });
+        menu.add("File/Previous Tab", rs("File/Previous Tab"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TabPrevious) });
     }
     menu.add("File/Settings...", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::OpenSettings) });
-    menu.add("File/Quit", Shortcut::Ctrl | 'q', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::FileQuit) });
+    menu.add("File/Quit", rs("File/Quit"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::FileQuit) });
 
     // Edit
-    menu.add("Edit/Undo", Shortcut::Ctrl | 'z', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::EditUndo) });
-    menu.add("Edit/Redo", Shortcut::Ctrl | Shortcut::Shift | 'z', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::EditRedo) });
-    menu.add("Edit/Cut", Shortcut::Ctrl | 'x', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::EditCut) });
-    menu.add("Edit/Copy", Shortcut::Ctrl | 'c', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::EditCopy) });
-    menu.add("Edit/Paste", Shortcut::Ctrl | 'v', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::EditPaste) });
-    menu.add("Edit/Select All", Shortcut::Ctrl | 'a', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::SelectAll) });
-    menu.add("Edit/Find...", Shortcut::Ctrl | 'f', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::ShowFind) });
-    menu.add("Edit/Replace...", Shortcut::Ctrl | 'h', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::ShowReplace) });
-    menu.add("Edit/Go To Line...", Shortcut::Ctrl | 'g', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::ShowGoToLine) });
+    menu.add("Edit/Undo", rs("Edit/Undo"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::EditUndo) });
+    menu.add("Edit/Redo", rs("Edit/Redo"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::EditRedo) });
+    menu.add("Edit/Cut", rs("Edit/Cut"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::EditCut) });
+    menu.add("Edit/Copy", rs("Edit/Copy"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::EditCopy) });
+    menu.add("Edit/Paste", rs("Edit/Paste"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::EditPaste) });
+    menu.add("Edit/Select All", rs("Edit/Select All"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::SelectAll) });
+    menu.add("Edit/Find...", rs("Edit/Find..."), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::ShowFind) });
+    menu.add("Edit/Replace...", rs("Edit/Replace..."), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::ShowReplace) });
+    menu.add("Edit/Go To Line...", rs("Edit/Go To Line..."), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::ShowGoToLine) });
+    menu.add("Edit/Key Shortcuts...", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::ShowKeyShortcuts) });
 
     // View
     let ln_flag = if settings.line_numbers_enabled { MenuFlag::Toggle | MenuFlag::Value } else { MenuFlag::Toggle };
@@ -183,7 +262,7 @@ pub fn build_menu(
     menu.add("View/Toggle Dark Mode", Shortcut::None, dm_flag, { let s = *s; move |_| s.send(Message::ToggleDarkMode) });
     let hl_flag = if settings.highlighting_enabled { MenuFlag::Toggle | MenuFlag::Value } else { MenuFlag::Toggle };
     menu.add("View/Toggle Syntax Highlighting", Shortcut::None, hl_flag, { let s = *s; move |_| s.send(Message::ToggleHighlighting) });
-    menu.add("View/Preview in Browser", Shortcut::Ctrl | 'm', MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TogglePreview) });
+    menu.add("View/Preview in Browser", rs("View/Preview in Browser"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TogglePreview) });
 
     // Format
     menu.add("Format/Font/Screen (Bold)", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::SetFont(Font::ScreenBold)) });
@@ -209,12 +288,9 @@ pub fn build_menu(
         },
     );
 
-    // Parse the custom shortcut or fall back to default
-    let run_checks_shortcut = parse_shortcut(&settings.run_all_checks_shortcut)
-        .unwrap_or(Shortcut::Ctrl | Shortcut::Shift | 'l');
     menu.add(
         "Plugins/General/Run All Checks",
-        run_checks_shortcut,
+        rs("Plugins/General/Run All Checks"),
         MenuFlag::Normal,
         {
             let s = *s;
@@ -301,8 +377,9 @@ pub fn rebuild_plugins_menu(
     sender: &Sender<Message>,
     settings: &AppSettings,
     plugins: &PluginManager,
+    registry: &ShortcutRegistry,
 ) {
-    rebuild_plugins_menu_with_orphans(menu, sender, settings, plugins, &[]);
+    rebuild_plugins_menu_with_orphans(menu, sender, settings, plugins, &[], registry);
 }
 
 /// Rebuild the plugins menu, also cleaning up entries for orphaned plugins
@@ -313,6 +390,7 @@ pub fn rebuild_plugins_menu_with_orphans(
     settings: &AppSettings,
     plugins: &PluginManager,
     orphaned_names: &[String],
+    registry: &ShortcutRegistry,
 ) {
     // Build set of reserved shortcuts
     let mut used_shortcuts: HashSet<String> = RESERVED_SHORTCUTS
@@ -424,36 +502,24 @@ pub fn rebuild_plugins_menu_with_orphans(
                     insert_pos += 1;
 
                     // Add each menu item
-                    let mut is_first = true;
                     for item in &plugin.menu_items {
                         let item_label = format!("{}/{}", submenu_base, item.label);
 
-                        // Look up per-action shortcut from plugin config params
-                        // Convention: "run_X" action -> "X_shortcut" param key
-                        // For "lint" action (primary), use the legacy shortcut field
-                        let plugin_config = settings.plugin_configs.get(&plugin.name);
+                        // Shortcut resolution: registry override > manifest default
+                        let cmd_id = plugin_command_id(&plugin.name, &item.action);
+                        let manifest_default = item.shortcut.as_deref().unwrap_or("");
 
-                        // Build shortcut key: "run_foo" -> "foo_shortcut"
-                        let shortcut_key = if item.action.starts_with("run_") {
-                            format!("{}_shortcut", &item.action[4..])
-                        } else {
-                            format!("{}_shortcut", item.action)
-                        };
-
-                        // Priority: config param shortcut > legacy shortcut field > manifest shortcut
                         let shortcut_str: Option<&str> =
-                            if is_first && item.action == "lint" {
-                                // Primary lint action: prefer top-level shortcut override
-                                plugin_config
-                                    .and_then(|c| c.shortcut.as_deref())
-                                    .or(item.shortcut.as_deref())
+                            if let Some(ovr) = registry.get_override(&cmd_id) {
+                                if ovr.enabled && !ovr.shortcut.is_empty() {
+                                    Some(&ovr.shortcut)
+                                } else if ovr.enabled {
+                                    None // explicitly unbound
+                                } else {
+                                    Some(manifest_default).filter(|s| !s.is_empty())
+                                }
                             } else {
-                                // Per-action shortcut from config params
-                                plugin_config
-                                    .and_then(|c| c.params.get(&shortcut_key))
-                                    .map(String::as_str)
-                                    .filter(|s| !s.is_empty())
-                                    .or(item.shortcut.as_deref())
+                                Some(manifest_default).filter(|s| !s.is_empty())
                             };
 
                         // Parse and validate shortcut
@@ -478,8 +544,6 @@ pub fn rebuild_plugins_menu_with_orphans(
                         } else {
                             Shortcut::None
                         };
-
-                        is_first = false;
 
                         let plugin_name = plugin.name.clone();
                         let action = item.action.clone();

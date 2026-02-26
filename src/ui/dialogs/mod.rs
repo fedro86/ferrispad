@@ -8,6 +8,7 @@ pub mod plugin_permissions;
 pub mod plugin_settings;
 pub mod readonly_viewer;
 pub mod settings_dialog;
+pub mod shortcut_dialog;
 pub mod update;
 
 use fltk::{app, enums::Color, prelude::*, window::Window};

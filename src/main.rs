@@ -14,6 +14,7 @@ use std::env;
 
 use crate::app::controllers::update::BannerWidgets;
 use crate::app::services::updater::{check_for_updates, current_timestamp, should_check_now, UpdateCheckResult};
+use crate::app::services::shortcut_registry::ShortcutRegistry;
 use crate::app::state::AppState;
 use crate::app::{detect_system_dark_mode, AppSettings, Message, ThemeMode};
 use crate::ui::dialogs::about::show_about_dialog;
@@ -76,8 +77,11 @@ fn main() {
     // Build UI widgets (tab bar included only when tabs enabled)
     let mut w = build_main_window(tabs_enabled, &sender);
 
+    // Build shortcut registry from settings
+    let shortcut_registry = ShortcutRegistry::from_settings(&settings.shortcut_overrides);
+
     // Build menu (all items are one-liner message sends)
-    build_menu(&mut w.menu, &sender, &settings, initial_dark_mode, tabs_enabled);
+    build_menu(&mut w.menu, &sender, &settings, initial_dark_mode, tabs_enabled, &shortcut_registry);
 
     // Initialize state
     let app_settings = Rc::new(RefCell::new(settings.clone()));
@@ -178,6 +182,7 @@ fn main() {
         &state.sender,
         &state.settings.borrow(),
         &state.plugins,
+        &state.shortcut_registry,
     );
 
     // Update menus based on active file type (preview, plugin items)
@@ -328,6 +333,7 @@ fn main() {
                     let theme_bg = state.highlight.highlighter().theme_background();
                     show_about_dialog(theme_bg);
                 }
+                Message::ShowKeyShortcuts => state.show_key_shortcuts(),
 
                 // Syntax highlighting (debounced)
                 Message::BufferModified(id, pos) => {

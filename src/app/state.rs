@@ -27,6 +27,7 @@ use super::infrastructure::platform::detect_system_dark_mode;
 use super::services::file_size::{check_file_size, format_size, read_chunk, read_tail, FileSizeCheck, TAIL_LINE_COUNT};
 use super::services::session::{self, SessionRestore};
 use super::plugins::{PluginManager, PluginHook, WidgetActionData, WidgetManager, get_plugin_dir};
+use super::services::shortcut_registry::ShortcutRegistry;
 use crate::ui::dialogs::large_file::{show_file_too_large_dialog, show_large_file_warning, load_to_buffer_with_progress, StreamLoadResult, TooLargeAction};
 use crate::ui::dialogs::plugin_manager::{show_plugin_manager_dialog, PluginManagerResult};
 use crate::ui::dialogs::plugin_permissions::{show_permission_dialog, ApprovalResult, PermissionRequest};
@@ -60,6 +61,7 @@ pub struct AppState {
     pub highlight: HighlightController,
     pub preview: PreviewController,
     pub plugins: PluginManager,
+    pub shortcut_registry: ShortcutRegistry,
     /// Last directory used in a file open/save dialog.
     pub last_open_directory: Option<String>,
     /// Tracks when the session was last auto-saved.
@@ -137,6 +139,8 @@ impl AppState {
             plugins.call_hook(PluginHook::Init);
         }
 
+        let shortcut_registry = ShortcutRegistry::from_settings(&settings.borrow().shortcut_overrides);
+
         let editor = editor_container.editor().clone();
 
         Self {
@@ -158,6 +162,7 @@ impl AppState {
             highlight,
             preview,
             plugins,
+            shortcut_registry,
             last_open_directory: None,
             last_auto_save: Instant::now(),
             session_dirty: false,
@@ -1410,6 +1415,7 @@ impl AppState {
                     &self.sender,
                     &self.settings.borrow(),
                     &self.plugins,
+                    &self.shortcut_registry,
                 );
             }
             PluginManagerResult::ReloadAll => {
@@ -1464,6 +1470,7 @@ impl AppState {
                     &self.settings.borrow(),
                     &self.plugins,
                     &names,
+                    &self.shortcut_registry,
                 );
             }
             PluginManagerResult::Cancelled => {}
@@ -1503,6 +1510,7 @@ impl AppState {
                 &self.sender,
                 &self.settings.borrow(),
                 &self.plugins,
+                &self.shortcut_registry,
             );
         }
     }
@@ -1510,7 +1518,7 @@ impl AppState {
     /// Show per-plugin configuration dialog
     pub fn show_plugin_config(&mut self, plugin_name: &str) {
         use crate::app::domain::settings::PluginConfig;
-        use crate::ui::dialogs::plugin_config::{show_plugin_config_dialog, ShortcutValidationData};
+        use crate::ui::dialogs::plugin_config::show_plugin_config_dialog;
 
         // Find the plugin
         let plugin = self.plugins.list_plugins().iter().find(|p| p.name == plugin_name);
@@ -1529,19 +1537,6 @@ impl AppState {
             .cloned()
             .unwrap_or_default();
 
-        // Get default shortcut from first menu item
-        let default_shortcut = plugin
-            .menu_items
-            .first()
-            .and_then(|m| m.shortcut.as_deref());
-
-        // Build shortcut validation data for conflict detection
-        let shortcut_validation = ShortcutValidationData::from_plugins(
-            &self.settings.borrow(),
-            &self.plugins,
-            plugin_name,
-        );
-
         // Show dialog
         let config_schema = plugin.config_schema.clone();
         let theme_bg = self.highlight.highlighter().theme_background();
@@ -1549,13 +1544,10 @@ impl AppState {
             plugin_name,
             &config_schema.params,
             &current_config,
-            default_shortcut,
             theme_bg,
-            Some(shortcut_validation),
         ) {
             // Build new config
             let new_config = PluginConfig {
-                shortcut: result.shortcut,
                 params: result.params.clone(),
             };
 
@@ -1572,12 +1564,59 @@ impl AppState {
             self.plugins
                 .set_plugin_config(plugin_name, result.params);
 
-            // Rebuild menu to apply shortcut changes
+            // Rebuild menu to apply config changes
             crate::ui::menu::rebuild_plugins_menu(
                 &mut self.menu,
                 &self.sender,
                 &self.settings.borrow(),
                 &self.plugins,
+                &self.shortcut_registry,
+            );
+        }
+    }
+
+    /// Show the Key Shortcuts dialog and apply changes.
+    pub fn show_key_shortcuts(&mut self) {
+        use crate::ui::dialogs::shortcut_dialog::show_shortcut_dialog;
+
+        let theme_bg = self.highlight.highlighter().theme_background();
+        if let Some(result) = show_shortcut_dialog(
+            &self.shortcut_registry,
+            &self.plugins,
+            theme_bg,
+            self.tabs_enabled,
+        ) {
+            // Update registry
+            self.shortcut_registry.replace_all(result.overrides.clone());
+
+            // Persist to settings
+            {
+                let mut settings = self.settings.borrow_mut();
+                settings.shortcut_overrides = result.overrides;
+
+                // Sync run_all_checks_shortcut for backward compat
+                let effective_run_all = self
+                    .shortcut_registry
+                    .effective_shortcut("Plugins/General/Run All Checks", "Ctrl+Shift+L");
+                settings.run_all_checks_shortcut = effective_run_all.to_string();
+
+                let _ = settings.save();
+            }
+
+            // Apply built-in shortcut overrides to menu in-place
+            crate::ui::menu::apply_shortcut_overrides(
+                &mut self.menu,
+                &self.shortcut_registry,
+                self.tabs_enabled,
+            );
+
+            // Rebuild plugin menu for plugin shortcuts
+            crate::ui::menu::rebuild_plugins_menu(
+                &mut self.menu,
+                &self.sender,
+                &self.settings.borrow(),
+                &self.plugins,
+                &self.shortcut_registry,
             );
         }
     }
@@ -1909,6 +1948,7 @@ impl AppState {
             &self.sender,
             &self.settings.borrow(),
             &self.plugins,
+            &self.shortcut_registry,
         );
     }
 
@@ -1937,6 +1977,7 @@ impl AppState {
             &self.sender,
             &self.settings.borrow(),
             &self.plugins,
+            &self.shortcut_registry,
         );
     }
 
@@ -1956,6 +1997,7 @@ impl AppState {
             &self.sender,
             &self.settings.borrow(),
             &self.plugins,
+            &self.shortcut_registry,
         );
     }
 

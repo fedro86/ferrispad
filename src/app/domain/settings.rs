@@ -19,13 +19,24 @@ pub struct PluginApprovals {
     pub denied_commands: Vec<String>,
 }
 
+/// A shortcut override entry stored in settings.
+/// Used by the centralized ShortcutRegistry to override default shortcuts.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ShortcutOverride {
+    /// Normalized shortcut string (e.g., "Ctrl+Shift+S"), empty = unbound
+    pub shortcut: String,
+    /// Whether this shortcut is enabled
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// Per-plugin configuration (stored in settings.json)
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PluginConfig {
-    /// Custom shortcut override for plugin's primary menu action (e.g., "Ctrl+Alt+P")
-    #[serde(default)]
-    pub shortcut: Option<String>,
-
     /// Plugin-specific parameters as key-value pairs
     /// e.g., {"max_line_length": "120", "ignore_rules": "E501,W503"}
     #[serde(default)]
@@ -185,6 +196,11 @@ pub struct AppSettings {
     /// Per-plugin configuration (plugin_name -> config)
     #[serde(default)]
     pub plugin_configs: HashMap<String, PluginConfig>,
+
+    /// Centralized shortcut overrides (command_id -> override)
+    /// Keys: "File/Save" for built-ins, "plugin:name:action" for plugins
+    #[serde(default)]
+    pub shortcut_overrides: HashMap<String, ShortcutOverride>,
 }
 
 fn default_line_numbers() -> bool {
@@ -270,6 +286,7 @@ impl Default for AppSettings {
             run_all_checks_plugins: Vec::new(),
             run_all_checks_shortcut: default_run_all_checks_shortcut(),
             plugin_configs: HashMap::new(),
+            shortcut_overrides: HashMap::new(),
         }
     }
 }

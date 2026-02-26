@@ -26,7 +26,8 @@ pub struct PluginMenuItem {
     pub action: String,
 
     /// Optional keyboard shortcut (e.g., "Ctrl+Shift+P")
-    #[serde(default)]
+    /// Plugin authors can use either "shortcut" or "default_shortcut" in plugin.toml.
+    #[serde(default, alias = "default_shortcut")]
     pub shortcut: Option<String>,
 }
 

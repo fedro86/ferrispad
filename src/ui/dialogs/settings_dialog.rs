@@ -393,6 +393,8 @@ pub fn show_settings_dialog(
             run_all_checks_shortcut: current.run_all_checks_shortcut.clone(),
             // Preserve per-plugin configs (editable via Plugins > {Plugin} > Settings)
             plugin_configs: current.plugin_configs.clone(),
+            // Preserve shortcut overrides (editable via Edit > Key Shortcuts)
+            shortcut_overrides: current.shortcut_overrides.clone(),
         };
 
         *result_save.borrow_mut() = Some(new_settings);

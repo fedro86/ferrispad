@@ -68,6 +68,7 @@ pub enum Message {
     OpenSettings,
     CheckForUpdates,
     ShowAbout,
+    ShowKeyShortcuts,
 
     // Syntax highlighting
     BufferModified(DocumentId, i32),
