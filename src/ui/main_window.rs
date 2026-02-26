@@ -14,6 +14,7 @@ use super::diagnostic_panel::DiagnosticPanel;
 use super::editor_container::EditorContainer;
 use super::tab_bar::{TabBar, TAB_BAR_HEIGHT};
 use super::toast::Toast;
+use super::tree_panel::TreePanel;
 
 pub struct MainWidgets {
     pub wind: Window,
@@ -24,6 +25,7 @@ pub struct MainWidgets {
     pub update_banner_frame: Frame,
     pub editor_container: EditorContainer,
     pub diagnostic_panel: DiagnosticPanel,
+    pub tree_panel: TreePanel,
 }
 
 pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWidgets {
@@ -69,6 +71,11 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWi
     // Editor container — the TextEditor is added directly to flex (no wrapper)
     let editor_container = EditorContainer::new(&flex);
 
+    // Tree panel (below editor, initially hidden - used by file-explorer etc.)
+    let mut tree_panel = TreePanel::new(*sender);
+    tree_panel.hide();
+    flex.fixed(tree_panel.widget(), 0);
+
     // Diagnostic panel (below editor, initially hidden)
     let mut diagnostic_panel = DiagnosticPanel::new(*sender);
     diagnostic_panel.hide();
@@ -86,5 +93,6 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>) -> MainWi
         update_banner_frame,
         editor_container,
         diagnostic_panel,
+        tree_panel,
     }
 }

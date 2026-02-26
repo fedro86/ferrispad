@@ -72,8 +72,6 @@ pub struct AppState {
     pub widget_manager: WidgetManager,
     /// Split panel for diff/suggestion views
     pub split_panel: Option<SplitPanel>,
-    /// Tree panel for file browser/YAML viewer
-    pub tree_panel: Option<TreePanel>,
 }
 
 impl AppState {
@@ -168,7 +166,6 @@ impl AppState {
             session_dirty: false,
             widget_manager: WidgetManager::new(),
             split_panel: None,
-            tree_panel: None,
         }
     }
 
@@ -1940,6 +1937,8 @@ impl AppState {
             for name in &disabled {
                 self.plugins.toggle_plugin(name, false);
             }
+            // Check permissions for any newly installed plugins
+            Self::check_plugin_permissions(&mut self.plugins, &self.settings);
         }
 
         // Rebuild plugins menu to reflect changes
@@ -1990,6 +1989,9 @@ impl AppState {
         for name in &disabled {
             self.plugins.toggle_plugin(name, false);
         }
+
+        // Check permissions for any newly installed plugins
+        Self::check_plugin_permissions(&mut self.plugins, &self.settings);
 
         // Rebuild plugins menu
         crate::ui::menu::rebuild_plugins_menu(
@@ -2420,13 +2422,9 @@ impl AppState {
         session_id: u32,
         _plugin_name: &str,
         request: &super::plugins::TreeViewRequest,
+        tree_panel: &mut TreePanel,
     ) {
-        // Create tree panel if it doesn't exist
-        if self.tree_panel.is_none() {
-            let mut panel = TreePanel::new(self.sender);
-            panel.apply_theme(self.dark_mode);
-            self.tree_panel = Some(panel);
-        }
+        tree_panel.apply_theme(self.dark_mode);
 
         // If YAML content is provided, parse it into a tree
         let final_request = if request.yaml_content.is_some() && request.root.is_none() {
@@ -2443,16 +2441,12 @@ impl AppState {
             request.clone()
         };
 
-        if let Some(ref mut panel) = self.tree_panel {
-            panel.show_request(session_id, &final_request);
-        }
+        tree_panel.show_request(session_id, &final_request);
     }
 
     /// Hide the tree view panel
-    pub fn hide_tree_view(&mut self, session_id: u32) {
-        if let Some(ref mut panel) = self.tree_panel {
-            panel.hide();
-        }
+    pub fn hide_tree_view(&mut self, session_id: u32, tree_panel: &mut TreePanel) {
+        tree_panel.hide();
 
         // Clean up session
         self.widget_manager.remove_session(session_id);

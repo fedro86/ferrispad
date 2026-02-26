@@ -476,10 +476,17 @@ fn main() {
 
                 // Widget API - Tree View
                 Message::TreeViewShow { session_id, plugin_name, request } => {
-                    state.show_tree_view(session_id, &plugin_name, &request);
+                    state.show_tree_view(session_id, &plugin_name, &request, &mut w.tree_panel);
+                    let height = w.tree_panel.current_height();
+                    w.flex.fixed(w.tree_panel.widget(), height);
+                    w.flex.recalc();
+                    w.wind.redraw();
                 }
                 Message::TreeViewHide(session_id) => {
-                    state.hide_tree_view(session_id);
+                    state.hide_tree_view(session_id, &mut w.tree_panel);
+                    w.flex.fixed(w.tree_panel.widget(), 0);
+                    w.flex.recalc();
+                    w.wind.redraw();
                 }
                 Message::TreeViewNodeClicked { session_id, node_path } => {
                     state.handle_tree_view_node_click(session_id, node_path);
