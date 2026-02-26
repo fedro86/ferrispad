@@ -10,7 +10,7 @@ use fltk::{
     frame::Frame,
     group::Flex,
     prelude::*,
-    tree::{Tree, TreeItem, TreeReason},
+    tree::{Tree, TreeReason},
 };
 
 use crate::app::plugins::widgets::{TreeNode, TreeViewRequest};
@@ -88,6 +88,7 @@ impl TreePanel {
         tree.set_connector_color(Color::from_rgb(100, 100, 100));
         tree.set_margin_left(10);
         tree.set_item_draw_mode(fltk::tree::TreeItemDrawMode::LabelAndWidget);
+        tree.set_item_reselect_mode(fltk::tree::TreeItemReselectMode::Always);
         tree.set_show_root(false);
 
         container.end();
@@ -207,16 +208,17 @@ impl TreePanel {
         let sender = self.sender;
         let on_click_action = self.on_click_action.clone();
 
-        // Tree selection callback
+        // Tree selection callback — open files on double-click only
+        // Reselected fires when the same item is clicked again;
+        // event_clicks() is true on the second rapid click (FLTK double-click).
         self.tree.set_callback(move |tree| {
-            if tree.callback_reason() == TreeReason::Selected {
+            if tree.callback_reason() == TreeReason::Reselected && fltk::app::event_clicks() {
                 if let Some(item) = tree.first_selected_item() {
                     // Build node path from item
                     let mut path = Vec::new();
                     let mut current = Some(item);
                     while let Some(item) = current {
                         if let Some(label) = item.label() {
-                            // Remove icon prefix if present
                             let clean_label = label
                                 .trim_start_matches("\u{1F4C1} ")
                                 .trim_start_matches("\u{1F4C4} ")
@@ -224,13 +226,18 @@ impl TreePanel {
                                 .trim_start_matches("\u{26A0} ")
                                 .trim_start_matches("\u{2139} ")
                                 .to_string();
-                            path.push(clean_label);
+                            if clean_label != "ROOT" {
+                                path.push(clean_label);
+                            }
                         }
                         current = item.parent();
                     }
                     path.reverse();
+                    // Skip the first element (project root node label)
+                    if path.len() > 1 {
+                        path.remove(0);
+                    }
 
-                    // Send click message
                     if on_click_action.is_some() {
                         sender.send(Message::TreeViewNodeClicked {
                             session_id,

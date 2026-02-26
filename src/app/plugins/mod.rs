@@ -485,6 +485,7 @@ impl PluginManager {
                 action,
                 session_id,
                 data,
+                path: _,
             } => {
                 // Convert WidgetActionData to a Lua table
                 let lua = runtime.lua();
@@ -759,7 +760,13 @@ impl PluginManager {
                 EditorApi::with_path_and_content(path.clone(), content.clone())
             }
 
-            PluginHook::OnWidgetAction { .. } => EditorApi::default(),
+            PluginHook::OnWidgetAction { path, .. } => {
+                if path.is_some() {
+                    EditorApi::with_path(path.clone())
+                } else {
+                    EditorApi::default()
+                }
+            }
         };
 
         // Add plugin context for permission checking

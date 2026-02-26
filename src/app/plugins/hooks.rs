@@ -125,6 +125,8 @@ pub enum PluginHook {
         session_id: u32,
         /// Additional data (e.g., node path for tree view, content for split view)
         data: WidgetActionData,
+        /// Current document path (for project root detection)
+        path: Option<String>,
     },
 }
 

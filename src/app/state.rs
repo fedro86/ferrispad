@@ -2393,6 +2393,7 @@ impl AppState {
                     right_content,
                     node_path: None,
                 },
+                path: self.tab_manager.active_doc().and_then(|d| d.file_path.clone()),
             },
         );
 
@@ -2463,6 +2464,10 @@ impl AppState {
 
         let plugin_name = session.plugin_name.clone();
 
+        // Get current document path for project root detection
+        let current_path = self.tab_manager.active_doc()
+            .and_then(|d| d.file_path.clone());
+
         // Call plugin's on_widget_action hook
         let result = self.plugins.call_hook_on_plugin(
             &plugin_name,
@@ -2474,6 +2479,7 @@ impl AppState {
                     right_content: None,
                     node_path: Some(node_path),
                 },
+                path: current_path,
             },
         );
 
