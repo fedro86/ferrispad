@@ -45,7 +45,7 @@ pub struct DialogTheme {
 }
 
 /// Helper to darken a color (shift toward black)
-fn darken(r: u8, g: u8, b: u8, factor: f32) -> (u8, u8, u8) {
+pub(crate) fn darken(r: u8, g: u8, b: u8, factor: f32) -> (u8, u8, u8) {
     (
         (r as f32 * factor) as u8,
         (g as f32 * factor) as u8,
@@ -54,7 +54,7 @@ fn darken(r: u8, g: u8, b: u8, factor: f32) -> (u8, u8, u8) {
 }
 
 /// Helper to lighten a color (shift toward white)
-fn lighten(r: u8, g: u8, b: u8, factor: f32) -> (u8, u8, u8) {
+pub(crate) fn lighten(r: u8, g: u8, b: u8, factor: f32) -> (u8, u8, u8) {
     (
         r + ((255 - r) as f32 * factor) as u8,
         g + ((255 - g) as f32 * factor) as u8,

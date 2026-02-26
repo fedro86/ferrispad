@@ -7,6 +7,7 @@ use fltk::{
     window::Window,
 };
 
+use super::dialogs::{darken, lighten, SCROLLBAR_SIZE};
 use super::tab_bar::{theme_colors_from_bg, ThemeRgb};
 
 /// Apply syntax theme colors (background/foreground) to the editor.
@@ -54,6 +55,50 @@ pub fn apply_syntax_theme_colors(
             background.2.saturating_sub(15),
         ));
         editor.set_linenumber_fgcolor(Color::from_rgb(100, 100, 100));
+    }
+
+    // Style the vertical scrollbar to match the editor theme.
+    // TextEditor doesn't expose scrollbar() directly, so we access
+    // the child widgets via Fl_Group FFI (Fl_Text_Display inherits Fl_Group).
+    // Child 0 = vertical scrollbar, child 1 = horizontal scrollbar.
+    let (track, thumb) = if brightness < 128 {
+        // Dark: track darker than bg, thumb lighter
+        let (tr, tg, tb) = darken(background.0, background.1, background.2, 0.70);
+        let (thr, thg, thb) = lighten(background.0, background.1, background.2, 0.20);
+        (Color::from_rgb(tr, tg, tb), Color::from_rgb(thr, thg, thb))
+    } else {
+        // Light: subtle darkening
+        let (tr, tg, tb) = darken(background.0, background.1, background.2, 0.95);
+        let (thr, thg, thb) = darken(background.0, background.1, background.2, 0.75);
+        (Color::from_rgb(tr, tg, tb), Color::from_rgb(thr, thg, thb))
+    };
+
+    editor.set_scrollbar_size(SCROLLBAR_SIZE);
+    // SAFETY: TextEditor's underlying Fl_Text_Display inherits from Fl_Group.
+    // The scrollbars are child widgets: child 0 = horizontal, child 1 = vertical.
+    // The editor widget pointer is valid (we have a mutable reference).
+    unsafe extern "C" {
+        fn Fl_Group_children(grp: *mut std::ffi::c_void) -> std::ffi::c_int;
+        fn Fl_Group_child(
+            grp: *mut std::ffi::c_void,
+            index: std::ffi::c_int,
+        ) -> *mut std::ffi::c_void;
+    }
+    unsafe {
+        use fltk::valuator::Scrollbar;
+        let group_ptr = editor.as_widget_ptr() as *mut std::ffi::c_void;
+        let nchildren = Fl_Group_children(group_ptr);
+        // Style both scrollbars: child 0 = horizontal, child 1 = vertical
+        for i in 0..nchildren.min(2) {
+            let ptr = Fl_Group_child(group_ptr, i);
+            if !ptr.is_null() {
+                let mut sb = Scrollbar::from_widget_ptr(ptr as fltk::app::WidgetPtr);
+                sb.set_frame(FrameType::FlatBox);
+                sb.set_color(track);
+                sb.set_slider_frame(FrameType::FlatBox);
+                sb.set_selection_color(thumb);
+            }
+        }
     }
 
     editor.redraw();
