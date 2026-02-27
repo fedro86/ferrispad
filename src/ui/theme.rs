@@ -118,19 +118,13 @@ pub fn apply_theme(
     // Use app's default font size (typically 14pt) for menu readability
     menu.set_text_size(fltk::app::font_size());
 
-    // Get tab bar colors from the actual syntax theme background
-    // This ensures menu bar matches the tab bar exactly
-    let theme_rgb = ThemeRgb::from_tuple(theme_bg);
-    let tab_colors = theme_colors_from_bg(&theme_rgb);
-
-    // Calculate menu color as blend between active and inactive tab colors
-    // This creates visual coherence between tab bar and menu bar
-    let base_menu_color = blend_colors(tab_colors.active_bg, tab_colors.inactive_bg, 0.5);
+    // Menu colors derived from syntax theme (shared with context menus)
+    let mc = menu_colors_from_bg(theme_bg);
+    menu.set_color(mc.color);
+    menu.set_text_color(mc.text_color);
+    menu.set_selection_color(mc.selection_color);
 
     if is_dark {
-        // Dark mode: shift menu color toward lighter for contrast
-        let menu_color = blend_colors(base_menu_color, Color::from_rgb(255, 255, 255), 0.15);
-
         // Dark mode colors
         editor.set_color(Color::from_rgb(30, 30, 30));
         editor.set_text_color(Color::from_rgb(220, 220, 220));
@@ -140,18 +134,11 @@ pub fn apply_theme(
         editor.set_linenumber_fgcolor(Color::from_rgb(150, 150, 150));
         window.set_color(Color::from_rgb(25, 25, 25));
         window.set_label_color(Color::from_rgb(220, 220, 220));
-        // Menu bar color: blend of tab colors, shifted slightly lighter
-        menu.set_color(menu_color);
-        menu.set_text_color(tab_colors.active_text);
-        menu.set_selection_color(tab_colors.inactive_bg); // Hover uses inactive tab color
         if let Some(b) = banner {
             b.set_color(Color::from_rgb(139, 128, 0)); // Darker yellow/olive
             b.set_label_color(Color::White);
         }
     } else {
-        // Light mode: shift menu color toward darker for contrast
-        let menu_color = blend_colors(base_menu_color, Color::from_rgb(120, 120, 120), 0.15);
-
         // Light mode colors
         editor.set_color(Color::White);
         editor.set_text_color(Color::Black);
@@ -161,10 +148,6 @@ pub fn apply_theme(
         editor.set_linenumber_fgcolor(Color::from_rgb(100, 100, 100));
         window.set_color(Color::from_rgb(240, 240, 240));
         window.set_label_color(Color::Black);
-        // Menu bar color: blend of tab colors, shifted slightly grayer
-        menu.set_color(menu_color);
-        menu.set_text_color(tab_colors.active_text);
-        menu.set_selection_color(tab_colors.inactive_bg); // Hover uses inactive tab color
         if let Some(b) = banner {
             b.set_color(Color::from_rgb(255, 250, 205)); // Lemon chiffon
             b.set_label_color(Color::Black);
@@ -176,8 +159,34 @@ pub fn apply_theme(
     menu.redraw();
 }
 
+/// Colors for styling any menu widget (MenuBar or MenuButton) to match the app theme.
+pub(crate) struct MenuColors {
+    pub color: Color,           // Background color
+    pub text_color: Color,      // Text color
+    pub selection_color: Color, // Hover/selection color
+}
+
+/// Compute menu colors from the syntax theme background.
+/// Reused by: main menu bar, tab bar context menu, tree panel context menu.
+pub(crate) fn menu_colors_from_bg(theme_bg: (u8, u8, u8)) -> MenuColors {
+    let theme_rgb = ThemeRgb::from_tuple(theme_bg);
+    let tab_colors = theme_colors_from_bg(&theme_rgb);
+    let base = blend_colors(tab_colors.active_bg, tab_colors.inactive_bg, 0.5);
+    let is_dark = (theme_bg.0 as u32 + theme_bg.1 as u32 + theme_bg.2 as u32) / 3 < 128;
+    let color = if is_dark {
+        blend_colors(base, Color::from_rgb(255, 255, 255), 0.15)
+    } else {
+        blend_colors(base, Color::from_rgb(120, 120, 120), 0.15)
+    };
+    MenuColors {
+        color,
+        text_color: tab_colors.active_text,
+        selection_color: tab_colors.inactive_bg,
+    }
+}
+
 /// Blend two FLTK colors by a factor (0.0 = first color, 1.0 = second color)
-fn blend_colors(c1: Color, c2: Color, factor: f32) -> Color {
+pub(crate) fn blend_colors(c1: Color, c2: Color, factor: f32) -> Color {
     let (r1, g1, b1) = c1.to_rgb();
     let (r2, g2, b2) = c2.to_rgb();
 

@@ -262,7 +262,19 @@ impl TabBar {
         let mut st = self.state.borrow_mut();
         st.is_dark = is_dark;
         st.theme_bg = ThemeRgb::from_tuple(theme_bg);
+        let ctx_ptr = st.ctx_menu_ptr;
         drop(st);
+
+        // Style context menu to match the main menu bar
+        let mc = super::theme::menu_colors_from_bg(theme_bg);
+        let mut ctx_menu = unsafe { MenuButton::from_widget_ptr(ctx_ptr) };
+        ctx_menu.set_frame(fltk::enums::FrameType::FlatBox);
+        ctx_menu.set_down_frame(fltk::enums::FrameType::FlatBox);
+        ctx_menu.set_text_size(fltk::app::font_size());
+        ctx_menu.set_color(mc.color);
+        ctx_menu.set_text_color(mc.text_color);
+        ctx_menu.set_selection_color(mc.selection_color);
+
         self.widget.redraw();
     }
 

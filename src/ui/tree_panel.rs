@@ -547,12 +547,12 @@ impl TreePanel {
         self.close_btn.set_color(theme.bg);
         self.close_btn.set_label_color(theme.text_dim);
 
-        // Selection: slightly darker than bg for light themes, slightly lighter for dark
+        // Selection: more visible shift so it stands out from the menu background
         let selection = if theme.is_dark() {
-            let (sr, sg, sb) = lighten(r, g, b, 0.15);
+            let (sr, sg, sb) = lighten(r, g, b, 0.10);
             Color::from_rgb(sr, sg, sb)
         } else {
-            let (sr, sg, sb) = darken(r, g, b, 0.90);
+            let (sr, sg, sb) = darken(r, g, b, 0.95);
             Color::from_rgb(sr, sg, sb)
         };
         self.tree.set_selection_color(selection);
@@ -570,6 +570,15 @@ impl TreePanel {
             item = it.next();
         }
         self.tree.set_connector_color(theme.text_dim);
+
+        // Style context menu to match the main menu bar
+        let mc = super::theme::menu_colors_from_bg(theme_bg);
+        self.ctx_menu.set_frame(FrameType::FlatBox);
+        self.ctx_menu.set_down_frame(FrameType::FlatBox);
+        self.ctx_menu.set_text_size(fltk::app::font_size());
+        self.ctx_menu.set_color(mc.color);
+        self.ctx_menu.set_text_color(mc.text_color);
+        self.ctx_menu.set_selection_color(mc.selection_color);
 
         // Style scrollbars to match the editor (Tree inherits Fl_Group)
         self.tree.set_scrollbar_size(SCROLLBAR_SIZE);
