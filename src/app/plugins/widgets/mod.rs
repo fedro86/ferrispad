@@ -132,6 +132,14 @@ impl WidgetManager {
         self.sessions
             .retain(|_, s| s.plugin_name != plugin_name);
     }
+
+    /// Find any active tree view session and return its ID.
+    /// Used for toggle behavior (show/hide on repeated menu action).
+    pub fn any_tree_view_session(&self) -> Option<u32> {
+        self.sessions.values()
+            .find(|s| s.widget_type == WidgetType::TreeView)
+            .map(|s| s.id)
+    }
 }
 
 #[cfg(test)]

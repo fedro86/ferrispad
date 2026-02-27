@@ -157,4 +157,10 @@ pub enum Message {
         node_path: Vec<String>,
         input_text: Option<String>,
     },
+    /// User typed in the tree view search bar
+    TreeViewSearch {
+        query: String,
+    },
+    /// User dragged the tree panel divider to resize
+    TreeViewResize(i32),
 }

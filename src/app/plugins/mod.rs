@@ -35,6 +35,21 @@ pub use widgets::{HighlightColor, LineHighlight, SplitPane, SplitViewAction, Tre
 use loader::{discover_plugins, load_plugin_toml, PluginPermissions};
 use runtime::LuaRuntime;
 
+/// Convert a plugin directory name (e.g. "yaml-json-viewer") into a display name
+/// (e.g. "Yaml Json Viewer") by title-casing each dash-separated word.
+pub fn plugin_display_name(name: &str) -> String {
+    name.split('-')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().chain(chars).collect::<String>(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// A loaded plugin instance
 #[allow(dead_code)]  // description and path used for UI display
 pub struct LoadedPlugin {
@@ -332,6 +347,24 @@ impl PluginManager {
                     if hook_output.status_message.is_some() {
                         result.status_message = hook_output.status_message;
                     }
+                    // Propagate widget requests (last plugin wins)
+                    if hook_output.split_view.is_some() {
+                        result.split_view = hook_output.split_view;
+                        result.source_plugin = Some(plugin.name.clone());
+                    }
+                    if hook_output.tree_view.is_some() {
+                        result.tree_view = hook_output.tree_view;
+                        result.source_plugin = Some(plugin.name.clone());
+                    }
+                    if hook_output.open_file.is_some() {
+                        result.open_file = hook_output.open_file;
+                    }
+                    if hook_output.clipboard_text.is_some() {
+                        result.clipboard_text = hook_output.clipboard_text;
+                    }
+                    if hook_output.goto_line.is_some() {
+                        result.goto_line = hook_output.goto_line;
+                    }
                 }
                 Err(e) => {
                     eprintln!("[plugins] {} hook error: {}", plugin.name, e);
@@ -406,7 +439,11 @@ impl PluginManager {
             }
 
             PluginHook::OnDocumentOpen { path } => {
-                runtime.call_hook(&plugin.table, hook_name, (api, path.clone()))?
+                let value = runtime.call_hook(&plugin.table, hook_name, (api, path.clone()))?;
+                if let mlua::Value::Table(return_table) = value {
+                    self.parse_lint_result(&return_table, &plugin.name, &mut result);
+                }
+                return Ok(result);
             }
 
             PluginHook::OnDocumentSave { path, content } => {
@@ -513,6 +550,10 @@ impl PluginManager {
                     (api, widget_type.clone(), action.clone(), *session_id, data_table),
                 )?;
 
+                // DEBUG: click-to-line chain
+                eprintln!("[debug:click] OnWidgetAction Lua returned: {:?}",
+                    match &value { mlua::Value::Table(_) => "Table", mlua::Value::Nil => "Nil", _ => "Other" });
+
                 // Parse result similar to menu action hooks
                 if let mlua::Value::Table(return_table) = value {
                     if let Ok(mlua::Value::String(s)) = return_table.get::<mlua::Value>("modified_content") {
@@ -583,8 +624,10 @@ impl PluginManager {
         let has_split_view_key: bool = table.contains_key("split_view").unwrap_or(false);
         let has_tree_view_key: bool = table.contains_key("tree_view").unwrap_or(false);
         let has_open_file_key: bool = table.contains_key("open_file").unwrap_or(false);
+        let has_clipboard_text_key: bool = table.contains_key("clipboard_text").unwrap_or(false);
+        let has_goto_line_key: bool = table.contains_key("goto_line").unwrap_or(false);
 
-        if has_diagnostics_key || has_highlights_key || has_status_key || has_split_view_key || has_tree_view_key || has_open_file_key {
+        if has_diagnostics_key || has_highlights_key || has_status_key || has_split_view_key || has_tree_view_key || has_open_file_key || has_clipboard_text_key || has_goto_line_key {
             // New extended format
             if let Ok(mlua::Value::Table(diags_table)) = table.get::<mlua::Value>("diagnostics") {
                 result.diagnostics.extend(self.parse_diagnostics(&diags_table, plugin_name));
@@ -609,6 +652,17 @@ impl PluginManager {
                 if let Ok(path) = s.to_str() {
                     result.open_file = Some(path.to_string());
                 }
+            }
+            // Parse optional clipboard_text request
+            if let Ok(mlua::Value::String(s)) = table.get::<mlua::Value>("clipboard_text") {
+                if let Ok(text) = s.to_str() {
+                    result.clipboard_text = Some(text.to_string());
+                }
+            }
+            // Parse optional goto_line request
+            if let Ok(line) = table.get::<u32>("goto_line") {
+                eprintln!("[debug:click] parse_lint_result: goto_line={}", line);
+                result.goto_line = Some(line);
             }
         } else {
             // Old format: array of diagnostics directly
@@ -738,7 +792,15 @@ impl PluginManager {
         let mut api = match hook {
             PluginHook::Init | PluginHook::Shutdown => EditorApi::default(),
 
-            PluginHook::OnDocumentOpen { path } => EditorApi::with_path(path.clone()),
+            PluginHook::OnDocumentOpen { path } => {
+                // Read file content so api:get_text() works for tree viewer plugins
+                let content = path.as_deref()
+                    .and_then(|p| std::fs::read_to_string(p).ok());
+                match content {
+                    Some(text) => EditorApi::with_path_and_content(path.clone(), text),
+                    None => EditorApi::with_path(path.clone()),
+                }
+            }
 
             PluginHook::OnDocumentSave { path, content } => {
                 EditorApi::with_content(path.clone(), content.clone())
@@ -766,11 +828,18 @@ impl PluginManager {
                 EditorApi::with_path_and_content(path.clone(), content.clone())
             }
 
-            PluginHook::OnWidgetAction { path, .. } => {
-                if path.is_some() {
-                    EditorApi::with_path(path.clone())
-                } else {
-                    EditorApi::default()
+            PluginHook::OnWidgetAction { path, data, .. } => {
+                // Prefer buffer content (avoids stale reads for unsaved files),
+                // fall back to reading from disk
+                let content = data.content.clone()
+                    .or_else(|| path.as_deref().and_then(|p| std::fs::read_to_string(p).ok()));
+                // DEBUG: click-to-line chain
+                eprintln!("[debug:click] create_api_for_hook OnWidgetAction: data.content={}, final_content={}",
+                    data.content.as_ref().map(|c| c.len()).unwrap_or(0),
+                    content.as_ref().map(|c| c.len()).unwrap_or(0));
+                match content {
+                    Some(text) => EditorApi::with_path_and_content(path.clone(), text),
+                    None => EditorApi::with_path(path.clone()),
                 }
             }
         };

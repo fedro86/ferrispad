@@ -23,6 +23,7 @@ use crate::ui::dialogs::find::{show_find_dialog, show_replace_dialog};
 use crate::ui::dialogs::goto_line::show_goto_line_dialog;
 use crate::ui::dialogs::update::check_for_updates_ui;
 use crate::ui::main_window::build_main_window;
+use crate::ui::tree_panel::TreePanel;
 use crate::ui::menu::build_menu;
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
@@ -508,6 +509,11 @@ fn main() {
                         TreePanelPosition::Left | TreePanelPosition::Right => {
                             let width = w.tree_panel.current_width();
                             w.content_row.fixed(w.tree_panel.widget(), width);
+                            // Show divider
+                            if let Some(ref mut div) = w.tree_panel.divider {
+                                div.show();
+                                w.content_row.fixed(div, TreePanel::DIVIDER_WIDTH);
+                            }
                             w.content_row.recalc();
                         }
                     }
@@ -525,6 +531,11 @@ fn main() {
                         }
                         TreePanelPosition::Left | TreePanelPosition::Right => {
                             w.content_row.fixed(w.tree_panel.widget(), 0);
+                            // Hide divider
+                            if let Some(ref mut div) = w.tree_panel.divider {
+                                div.hide();
+                                w.content_row.fixed(div, 0);
+                            }
                             w.content_row.recalc();
                         }
                     }
@@ -538,6 +549,33 @@ fn main() {
                 }
                 Message::TreeViewContextAction { session_id, action, node_path, input_text } => {
                     state.handle_tree_view_context_action(session_id, action, node_path, input_text);
+                }
+                Message::TreeViewSearch { query } => {
+                    w.tree_panel.apply_search(&query);
+                }
+                Message::TreeViewResize(mouse_x) => {
+                    if matches!(w.tree_position, TreePanelPosition::Left | TreePanelPosition::Right) {
+                        // Calculate new width based on mouse position relative to content_row
+                        let content_x = w.content_row.x();
+                        let content_w = w.content_row.w();
+                        let max_width = content_w / 2;
+
+                        let new_width = match w.tree_position {
+                            TreePanelPosition::Left => {
+                                (mouse_x - content_x).clamp(100, max_width)
+                            }
+                            TreePanelPosition::Right => {
+                                (content_x + content_w - mouse_x).clamp(100, max_width)
+                            }
+                            _ => unreachable!(),
+                        };
+                        w.content_row.fixed(w.tree_panel.widget(), new_width);
+                        w.content_row.recalc();
+                        if let Some(ref mut tb) = state.tab_bar {
+                            tb.handle_resize();
+                        }
+                        w.wind.redraw();
+                    }
                 }
             }
         }

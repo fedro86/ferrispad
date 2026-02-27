@@ -88,6 +88,10 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
             tp.hide();
             content_row.fixed(tp.widget(), 0);
 
+            // Draggable divider (4px, hidden until tree panel is shown)
+            tp.create_divider(*sender);
+            content_row.fixed(tp.divider.as_ref().unwrap(), 0);
+
             // Editor column: tab bar + editor (takes remaining width)
             let mut editor_col = Flex::default().column();
             editor_col.set_margin(0);
@@ -120,8 +124,12 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
             editor_container = EditorContainer::new(&editor_col);
             editor_col.end();
 
-            // Tree panel after editor in the row
+            // Draggable divider before tree panel (4px, hidden until tree panel is shown)
             let mut tp = TreePanel::new(*sender);
+            tp.create_divider(*sender);
+            content_row.fixed(tp.divider.as_ref().unwrap(), 0);
+
+            // Tree panel after divider in the row
             tp.hide();
             content_row.fixed(tp.widget(), 0);
 

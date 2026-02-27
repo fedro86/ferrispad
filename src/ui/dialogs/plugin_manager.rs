@@ -17,7 +17,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::app::plugins::PluginManager;
+use crate::app::plugins::{PluginManager, plugin_display_name};
 use crate::app::services::plugin_registry::{
     fetch_plugin_registry, install_plugin, is_plugin_installed, is_update_available,
     AvailablePluginInfo,
@@ -730,20 +730,7 @@ fn create_available_plugin_row(
                         // Cross-tab sync: hide old row if this is an update
                         // Try multiple key formats: registry name uses "python-lint",
                         // but installed plugins use display name "Python Lint"
-                        let display_name = info
-                            .name
-                            .split('-')
-                            .map(|word| {
-                                let mut chars = word.chars();
-                                match chars.next() {
-                                    Some(first) => {
-                                        first.to_uppercase().chain(chars).collect::<String>()
-                                    }
-                                    None => String::new(),
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                            .join(" ");
+                        let display_name = plugin_display_name(&info.name);
 
                         // Try display name first, then registry name
                         // Must split borrows to avoid RefCell double-borrow panic

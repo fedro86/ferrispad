@@ -7,7 +7,7 @@ use fltk::{
     prelude::*,
 };
 
-use crate::app::plugins::PluginManager;
+use crate::app::plugins::{PluginManager, plugin_display_name};
 use crate::app::services::shortcut_registry::ShortcutRegistry;
 use crate::app::{AppSettings, Message};
 
@@ -352,18 +352,22 @@ pub fn build_menu(
 /// Remove all menu entries for a plugin by name.
 /// This handles both flat toggles and submenu items.
 fn remove_plugin_menu_entries(menu: &mut MenuBar, name: &str) {
-    // Remove flat toggle if exists
-    let flat_label = format!("Plugins/{}", name);
-    loop {
-        let idx = menu.find_index(&flat_label);
-        if idx < 0 {
-            break;
+    let display = plugin_display_name(name);
+
+    // Remove flat toggle if exists (try both raw name and display name)
+    for label_name in [name, display.as_str()] {
+        let flat_label = format!("Plugins/{}", label_name);
+        loop {
+            let idx = menu.find_index(&flat_label);
+            if idx < 0 {
+                break;
+            }
+            menu.remove(idx);
         }
-        menu.remove(idx);
     }
 
-    // Remove submenu items by trying common patterns
-    let submenu_prefix = format!("Plugins/{}/", name);
+    // Remove submenu items by trying common patterns (both raw and display name)
+    let submenu_prefix = format!("Plugins/{}/", display);
 
     // Remove known entries: Enable, Settings...
     for suffix in ["Enable", "Settings..."] {
@@ -470,7 +474,8 @@ pub fn rebuild_plugins_menu_with_orphans(
                         MenuFlag::Toggle
                     };
 
-                    let label = format!("Plugins/{}", plugin.name);
+                    let display = plugin_display_name(&plugin.name);
+                    let label = format!("Plugins/{}", display);
                     let plugin_name = plugin.name.clone();
                     let s = *sender;
 
@@ -484,7 +489,8 @@ pub fn rebuild_plugins_menu_with_orphans(
                     insert_pos += 1;
                 } else {
                     // Plugin with menu items: create submenu
-                    let submenu_base = format!("Plugins/{}", plugin.name);
+                    let display = plugin_display_name(&plugin.name);
+                    let submenu_base = format!("Plugins/{}", display);
 
                     // Enable toggle as first item in submenu, with divider below it
                     let enable_label = format!("{}/Enable", submenu_base);
@@ -720,9 +726,9 @@ pub fn update_plugin_menus_for_file(
             name if name.contains("javascript") || name.contains("js") => &[".js", ".jsx", ".mjs"],
             name if name.contains("typescript") || name.contains("ts") => &[".ts", ".tsx"],
             name if name.contains("markdown") || name.contains("md") => &[".md", ".markdown"],
+            name if name.contains("yaml") || name.contains("yml") => &[".yaml", ".yml", ".json"],
             name if name.contains("json") => &[".json"],
             name if name.contains("toml") => &[".toml"],
-            name if name.contains("yaml") || name.contains("yml") => &[".yaml", ".yml"],
             name if name.contains("html") => &[".html", ".htm"],
             name if name.contains("css") => &[".css", ".scss", ".sass", ".less"],
             name if name.contains("lua") => &[".lua"],
@@ -733,8 +739,9 @@ pub fn update_plugin_menus_for_file(
         };
 
         // Update each menu item for this plugin
+        let display = plugin_display_name(&plugin.name);
         for item in &plugin.menu_items {
-            let menu_path = format!("Plugins/{}/{}", plugin.name, item.label);
+            let menu_path = format!("Plugins/{}/{}", display, item.label);
             update_menu_for_extensions(menu, &menu_path, file_path, extensions);
         }
     }

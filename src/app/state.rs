@@ -637,9 +637,11 @@ impl AppState {
             self.rebuild_tab_bar();
 
             // Call plugin hooks after document is loaded
-            self.plugins.call_hook(PluginHook::OnDocumentOpen {
+            let open_result = self.plugins.call_hook(PluginHook::OnDocumentOpen {
                 path: Some(path.clone()),
             });
+            self.process_widget_requests(&open_result, "");
+            self.process_hook_result(open_result, "");
 
             // Run lint hook for immediate feedback on open
             let lint_result = self.plugins.call_hook(PluginHook::OnDocumentLint {
@@ -661,9 +663,11 @@ impl AppState {
             self.update_menus_for_file_type();
 
             // Call plugin hooks after document is loaded
-            self.plugins.call_hook(PluginHook::OnDocumentOpen {
+            let open_result = self.plugins.call_hook(PluginHook::OnDocumentOpen {
                 path: Some(path.clone()),
             });
+            self.process_widget_requests(&open_result, "");
+            self.process_hook_result(open_result, "");
 
             // Run lint hook for immediate feedback on open
             let lint_result = self.plugins.call_hook(PluginHook::OnDocumentLint {
@@ -762,9 +766,11 @@ impl AppState {
             self.rebuild_tab_bar();
 
             // Call plugin hooks
-            self.plugins.call_hook(PluginHook::OnDocumentOpen {
+            let open_result = self.plugins.call_hook(PluginHook::OnDocumentOpen {
                 path: Some(path),
             });
+            self.process_widget_requests(&open_result, "");
+            self.process_hook_result(open_result, "");
         } else {
             // Single document mode - just load the tail
             if let Some(doc) = self.tab_manager.active_doc_mut() {
@@ -775,9 +781,11 @@ impl AppState {
             }
             self.update_window_title();
 
-            self.plugins.call_hook(PluginHook::OnDocumentOpen {
+            let open_result = self.plugins.call_hook(PluginHook::OnDocumentOpen {
                 path: Some(path),
             });
+            self.process_widget_requests(&open_result, "");
+            self.process_hook_result(open_result, "");
         }
     }
 
@@ -826,9 +834,11 @@ impl AppState {
             self.rebuild_tab_bar();
 
             // Call plugin hooks
-            self.plugins.call_hook(PluginHook::OnDocumentOpen {
+            let open_result = self.plugins.call_hook(PluginHook::OnDocumentOpen {
                 path: Some(path),
             });
+            self.process_widget_requests(&open_result, "");
+            self.process_hook_result(open_result, "");
         } else {
             // Single document mode - just load the chunk
             if let Some(doc) = self.tab_manager.active_doc_mut() {
@@ -839,9 +849,11 @@ impl AppState {
             }
             self.update_window_title();
 
-            self.plugins.call_hook(PluginHook::OnDocumentOpen {
+            let open_result = self.plugins.call_hook(PluginHook::OnDocumentOpen {
                 path: Some(path),
             });
+            self.process_widget_requests(&open_result, "");
+            self.process_hook_result(open_result, "");
         }
     }
 
@@ -2006,11 +2018,17 @@ impl AppState {
     /// Handle a plugin's custom menu action.
     /// Calls the `on_menu_action` hook on the specified plugin.
     pub fn handle_plugin_menu_action(&mut self, plugin_name: &str, action: &str) {
+        // Toggle: if any tree view is open, hide it and return
+        if let Some(existing_id) = self.widget_manager.any_tree_view_session() {
+            self.sender.send(Message::TreeViewHide(existing_id));
+            return;
+        }
+
         // Get current document info for the hook
         let path = self.tab_manager.active_doc().and_then(|d| {
             d.file_path.as_ref().map(|p| p.clone())
         });
-        let content = self.active_buffer().text();
+        let content = buffer_text_no_leak(&self.active_buffer());
 
         // Call the hook on the specific plugin
         let hook = PluginHook::OnMenuAction {
@@ -2083,6 +2101,17 @@ impl AppState {
                 eprintln!("[plugin:{}] open_file (no project root): {}", plugin_name, file_path);
                 self.open_file(file_path.clone());
             }
+        }
+
+        // Handle clipboard_text request
+        if let Some(ref text) = result.clipboard_text {
+            fltk::app::copy2(text);
+        }
+
+        // Handle goto_line request
+        if let Some(line) = result.goto_line {
+            eprintln!("[debug:click] process_hook_result: goto_line={}", line);
+            self.goto_line(line);
         }
     }
 
@@ -2397,6 +2426,7 @@ impl AppState {
                     right_content,
                     node_path: None,
                     input_text: None,
+                    content: None,
                 },
                 path: self.tab_manager.active_doc().and_then(|d| d.file_path.clone()),
             },
@@ -2476,6 +2506,16 @@ impl AppState {
         let current_path = self.tab_manager.active_doc()
             .and_then(|d| d.file_path.clone());
 
+        // Pass buffer content directly so plugins see unsaved changes
+        let buffer_content = {
+            let buf = self.active_buffer();
+            buffer_text_no_leak(&buf)
+        };
+
+        // DEBUG: click-to-line chain
+        eprintln!("[debug:click] node_path={:?}, content_len={}, current_path={:?}",
+            node_path, buffer_content.len(), current_path);
+
         // Call plugin's on_widget_action hook
         let result = self.plugins.call_hook_on_plugin(
             &plugin_name,
@@ -2487,10 +2527,17 @@ impl AppState {
                     right_content: None,
                     node_path: Some(node_path),
                     input_text: None,
+                    content: Some(buffer_content),
                 },
                 path: current_path,
             },
         );
+
+        if let Some(ref result) = result {
+            // DEBUG: click-to-line chain
+            eprintln!("[debug:click] hook returned goto_line={:?}, open_file={:?}, clipboard={:?}",
+                result.goto_line, result.open_file, result.clipboard_text);
+        }
 
         if let Some(result) = result {
             // Process widget requests (split view, tree view)
@@ -2532,6 +2579,7 @@ impl AppState {
                     right_content: None,
                     node_path: Some(node_path),
                     input_text,
+                    content: None,
                 },
                 path: current_path,
             },
@@ -2545,13 +2593,20 @@ impl AppState {
 
     /// Process widget requests from a hook result
     pub fn process_widget_requests(&mut self, result: &super::plugins::HookResult, plugin_name: &str) {
+        // Use source_plugin from broadcast hooks when caller passes ""
+        let effective_name = if plugin_name.is_empty() {
+            result.source_plugin.as_deref().unwrap_or("")
+        } else {
+            plugin_name
+        };
+
         // Check for split view request
         if let Some(ref split_request) = result.split_view {
             if split_request.is_valid() {
-                let session_id = self.widget_manager.create_split_view_session(plugin_name);
+                let session_id = self.widget_manager.create_split_view_session(effective_name);
                 self.sender.send(Message::SplitViewShow {
                     session_id,
-                    plugin_name: plugin_name.to_string(),
+                    plugin_name: effective_name.to_string(),
                     request: split_request.clone(),
                 });
             }
@@ -2560,10 +2615,10 @@ impl AppState {
         // Check for tree view request
         if let Some(ref tree_request) = result.tree_view {
             if tree_request.is_valid() {
-                let session_id = self.widget_manager.create_tree_view_session(plugin_name);
+                let session_id = self.widget_manager.create_tree_view_session(effective_name);
                 self.sender.send(Message::TreeViewShow {
                     session_id,
-                    plugin_name: plugin_name.to_string(),
+                    plugin_name: effective_name.to_string(),
                     request: tree_request.clone(),
                 });
             }

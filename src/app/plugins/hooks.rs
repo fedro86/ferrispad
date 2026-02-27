@@ -158,6 +158,8 @@ pub struct WidgetActionData {
     pub node_path: Option<Vec<String>>,
     /// User input text for context menu actions (rename, new file, new folder)
     pub input_text: Option<String>,
+    /// Buffer content passed directly (avoids stale disk reads for unsaved files)
+    pub content: Option<String>,
 }
 
 /// A status message to display to the user
@@ -186,9 +188,17 @@ pub struct HookResult {
     pub tree_view: Option<TreeViewRequest>,
     /// Request to open a file (from tree view clicks, etc.)
     pub open_file: Option<String>,
+    /// Text to copy to the system clipboard (e.g., from tree node context actions)
+    pub clipboard_text: Option<String>,
+    /// Navigate editor to this line number (1-indexed)
+    pub goto_line: Option<u32>,
     /// Whether at least one plugin actually produced lint results (returned a table).
     /// When false, no plugin linted this file (all returned nil/skipped).
     pub had_lint_results: bool,
+    /// Name of the plugin that produced widget requests (tree_view / split_view).
+    /// Set by `call_hook` broadcast so `process_widget_requests` can create sessions
+    /// with the correct plugin name even when the caller passes "".
+    pub source_plugin: Option<String>,
 }
 
 #[cfg(test)]

@@ -3,12 +3,16 @@
 //! Used for showing file browsers, YAML/JSON viewers, and outline views.
 //! Plugin-driven via the Widget API.
 
+use std::cell::Cell;
+use std::rc::Rc;
+
 use fltk::{
     app::Sender,
     button::Button,
-    enums::{Align, Color, Event, Font, FrameType, Key, Shortcut},
+    enums::{Align, Color, Cursor, Event, Font, FrameType, Key, Shortcut},
     frame::Frame,
     group::Flex,
+    input::Input,
     menu::{MenuButton, MenuFlag},
     prelude::*,
     tree::{Tree, TreeItem, TreeReason},
@@ -21,8 +25,14 @@ use super::dialogs::{darken, lighten, DialogTheme, SCROLLBAR_SIZE};
 /// Height of the tree panel header (matches TAB_BAR_HEIGHT)
 const HEADER_HEIGHT: i32 = 32;
 
+/// Height of the search bar row
+const SEARCH_HEIGHT: i32 = 24;
+
 /// Default height of the tree panel
 const DEFAULT_HEIGHT: i32 = 200;
+
+/// Placeholder text for the search input (magnifying glass + hint)
+const SEARCH_PLACEHOLDER: &str = "\u{1F50D} Find...";
 
 /// Tree panel widget for showing hierarchical data
 pub struct TreePanel {
@@ -30,6 +40,10 @@ pub struct TreePanel {
     pub container: Flex,
     /// Header frame showing title
     header: Frame,
+    /// Search row containing the search input
+    search_row: Flex,
+    /// Search input below header
+    search_input: Input,
     /// Tree widget
     tree: Tree,
     /// Refresh button in header
@@ -54,6 +68,13 @@ pub struct TreePanel {
     context_menu: Vec<ContextMenuItem>,
     /// Reusable context menu widget (created once, parented to container)
     ctx_menu: MenuButton,
+    /// Draggable divider between tree panel and editor (4px, managed externally).
+    /// None until `create_divider()` is called from main_window.rs.
+    pub divider: Option<Frame>,
+    /// Stored root node for search/filter rebuilds
+    current_nodes: Option<TreeNode>,
+    /// Stored expand depth for search/filter rebuilds
+    current_expand_depth: i32,
 }
 
 impl TreePanel {
@@ -93,10 +114,29 @@ impl TreePanel {
         close_btn.set_label_color(Color::from_rgb(180, 180, 180));
         close_btn.set_label_size(11);
 
+        // Title takes remaining space; only buttons are fixed
         header_row.fixed(&refresh_btn, 24);
         header_row.fixed(&close_btn, 24);
         header_row.end();
         container.fixed(&header_row, HEADER_HEIGHT);
+
+        // Search row (separate from header, below it)
+        let mut search_row = Flex::default().row();
+        search_row.set_frame(FrameType::FlatBox);
+        search_row.set_margin(0);
+        search_row.set_pad(0);
+        search_row.set_color(Color::from_rgb(50, 50, 50));
+
+        let mut search_input = Input::default();
+        search_input.set_frame(FrameType::FlatBox);
+        search_input.set_color(Color::from_rgb(50, 50, 50));
+        search_input.set_text_color(Color::from_rgb(160, 160, 160));
+        search_input.set_text_size(13);
+        search_input.set_value(SEARCH_PLACEHOLDER);
+        search_input.set_tooltip("Search tree...");
+
+        search_row.end();
+        container.fixed(&search_row, SEARCH_HEIGHT);
 
         // Tree widget
         let mut tree = Tree::default();
@@ -119,9 +159,45 @@ impl TreePanel {
         container.end();
         container.hide();
 
+        // Search input callback — placeholder text + search on each key press
+        let search_sender = sender;
+        let active_text_color = Color::from_rgb(220, 220, 220);
+        let dim_color = Color::from_rgb(160, 160, 160);
+        search_input.handle(move |input, ev| {
+            match ev {
+                Event::Focus => {
+                    // Clear placeholder on focus
+                    if input.value() == SEARCH_PLACEHOLDER {
+                        input.set_value("");
+                        input.set_text_color(active_text_color);
+                    }
+                    false // let FLTK handle focus
+                }
+                Event::Unfocus => {
+                    // Restore placeholder if empty
+                    if input.value().is_empty() {
+                        input.set_value(SEARCH_PLACEHOLDER);
+                        input.set_text_color(dim_color);
+                    }
+                    false
+                }
+                Event::KeyUp => {
+                    let query = input.value();
+                    // Don't search for placeholder text
+                    if query != SEARCH_PLACEHOLDER {
+                        search_sender.send(Message::TreeViewSearch { query });
+                    }
+                    false
+                }
+                _ => false,
+            }
+        });
+
         Self {
             container,
             header,
+            search_row,
+            search_input,
             tree,
             refresh_btn,
             close_btn,
@@ -134,8 +210,64 @@ impl TreePanel {
             context_path: None,
             context_menu: Vec::new(),
             ctx_menu,
+            divider: None,
+            current_nodes: None,
+            current_expand_depth: 2,
         }
     }
+
+    /// Create the draggable divider widget. Must be called within the parent
+    /// Flex group (content_row) so the divider is properly parented.
+    /// Call this after inserting the tree panel container into the layout.
+    pub fn create_divider(&mut self, sender: Sender<Message>) {
+        let mut divider = Frame::default();
+        divider.set_frame(FrameType::FlatBox);
+        divider.set_color(Color::from_rgb(80, 80, 80));
+        divider.hide();
+
+        let dragging = Rc::new(Cell::new(false));
+        let drag_flag = dragging.clone();
+        divider.handle(move |div, ev| {
+            match ev {
+                Event::Enter => {
+                    if let Some(mut win) = div.window() {
+                        win.set_cursor(Cursor::WE);
+                    }
+                    true
+                }
+                Event::Leave => {
+                    if !drag_flag.get() && let Some(mut win) = div.window() {
+                        win.set_cursor(Cursor::Default);
+                    }
+                    true
+                }
+                Event::Push => {
+                    drag_flag.set(true);
+                    true
+                }
+                Event::Drag => {
+                    if drag_flag.get() {
+                        let mouse_x = fltk::app::event_x();
+                        sender.send(Message::TreeViewResize(mouse_x));
+                    }
+                    true
+                }
+                Event::Released => {
+                    drag_flag.set(false);
+                    if let Some(mut win) = div.window() {
+                        win.set_cursor(Cursor::Default);
+                    }
+                    true
+                }
+                _ => false,
+            }
+        });
+
+        self.divider = Some(divider);
+    }
+
+    /// Width of the draggable divider
+    pub const DIVIDER_WIDTH: i32 = 4;
 
     /// Get a reference to the container widget for layout
     pub fn widget(&self) -> &Flex {
@@ -149,6 +281,12 @@ impl TreePanel {
         self.double_click = request.click_mode == TreeClickMode::DoubleClick;
         self.context_path = request.context_path.clone();
         self.context_menu = request.context_menu.clone();
+
+        // Store root node for search/filter rebuilds
+        self.current_nodes = request.root.clone();
+        self.current_expand_depth = request.expand_depth;
+        self.search_input.set_value(SEARCH_PLACEHOLDER);
+        self.search_input.set_text_color(Color::from_rgb(160, 160, 160));
 
         // Update header title
         if !request.title.is_empty() {
@@ -496,6 +634,9 @@ impl TreePanel {
         self.double_click = true;
         self.context_path = None;
         self.context_menu.clear();
+        self.current_nodes = None;
+        self.search_input.set_value(SEARCH_PLACEHOLDER);
+        self.search_input.set_text_color(Color::from_rgb(160, 160, 160));
     }
 
     /// Check if the panel is visible
@@ -516,7 +657,7 @@ impl TreePanel {
     /// Get the current panel height for flex layout (bottom position)
     pub fn current_height(&self) -> i32 {
         if self.visible {
-            HEADER_HEIGHT + DEFAULT_HEIGHT
+            HEADER_HEIGHT + SEARCH_HEIGHT + DEFAULT_HEIGHT
         } else {
             0
         }
@@ -528,6 +669,94 @@ impl TreePanel {
             Self::DEFAULT_WIDTH
         } else {
             0
+        }
+    }
+
+    /// Apply search filter to the tree. Rebuilds the tree showing only matching nodes.
+    pub fn apply_search(&mut self, query: &str) {
+        let root = match &self.current_nodes {
+            Some(r) => r.clone(),
+            None => return,
+        };
+
+        self.tree.clear();
+
+        if query.is_empty() {
+            // Restore full tree
+            self.add_tree_node(None, &root, self.current_expand_depth, 0);
+        } else {
+            let query_lower = query.to_lowercase();
+            // Build filtered tree showing only matching nodes and their ancestors
+            self.add_filtered_tree_node(None, &root, &query_lower, 0);
+        }
+
+        self.tree.redraw();
+    }
+
+    /// Recursively check if any node in the subtree matches the query
+    fn node_subtree_matches(node: &TreeNode, query: &str) -> bool {
+        if node.label.to_lowercase().contains(query) {
+            return true;
+        }
+        node.children.iter().any(|child| Self::node_subtree_matches(child, query))
+    }
+
+    /// Add a filtered tree node — only includes subtrees containing matches.
+    /// All matching nodes and their ancestors are shown; matches are expanded.
+    fn add_filtered_tree_node(
+        &mut self,
+        parent_path: Option<&str>,
+        node: &TreeNode,
+        query: &str,
+        current_depth: i32,
+    ) {
+        let self_matches = node.label.to_lowercase().contains(query);
+        let children_match: Vec<bool> = node.children.iter()
+            .map(|c| Self::node_subtree_matches(c, query))
+            .collect();
+        let any_child_matches = children_match.iter().any(|&m| m);
+
+        // Skip this subtree entirely if nothing matches
+        if !self_matches && !any_child_matches {
+            return;
+        }
+
+        // Determine icon
+        let icon = if let Some(ref icon_hint) = node.icon {
+            match icon_hint.as_str() {
+                "folder" => "\u{1F4C1} ",
+                "file" => "\u{1F4C4} ",
+                "error" => "\u{274C} ",
+                "warning" => "\u{26A0} ",
+                "info" => "\u{2139} ",
+                _ => "",
+            }
+        } else if node.has_children() {
+            "\u{1F4C1} "
+        } else {
+            "\u{1F4C4} "
+        };
+
+        let label = format!("{}{}", icon, node.label);
+        let item_path = if let Some(pp) = parent_path {
+            format!("{}/{}", pp, label)
+        } else {
+            label.clone()
+        };
+
+        self.tree.add(&item_path);
+
+        if let Some(mut item) = self.tree.find_item(&item_path) {
+            item.set_label_fgcolor(self.item_fg);
+            // Expand nodes that have matching descendants
+            item.open();
+
+            // Recurse only into children that have matches
+            for (i, child) in node.children.iter().enumerate() {
+                if self_matches || children_match[i] {
+                    self.add_filtered_tree_node(Some(&item_path), child, query, current_depth + 1);
+                }
+            }
         }
     }
 
@@ -547,6 +776,26 @@ impl TreePanel {
         self.refresh_btn.set_label_color(theme.text_dim);
         self.close_btn.set_color(theme.bg);
         self.close_btn.set_label_color(theme.text_dim);
+
+        // Search row background matches header
+        self.search_row.set_color(theme.bg);
+
+        // Search input styling
+        let search_bg = if theme.is_dark() {
+            let (sr, sg, sb) = lighten(r, g, b, 0.05);
+            Color::from_rgb(sr, sg, sb)
+        } else {
+            let (sr, sg, sb) = darken(r, g, b, 0.95);
+            Color::from_rgb(sr, sg, sb)
+        };
+        self.search_input.set_color(search_bg);
+        self.search_input.set_frame(FrameType::FlatBox);
+        // Update text color: dim for placeholder, normal for active search
+        if self.search_input.value() == SEARCH_PLACEHOLDER {
+            self.search_input.set_text_color(theme.text_dim);
+        } else {
+            self.search_input.set_text_color(theme.text);
+        }
 
         // Selection: more visible shift so it stands out from the menu background
         let selection = if theme.is_dark() {
