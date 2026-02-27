@@ -661,31 +661,6 @@ pub fn update_menu_for_extensions(
     set_menu_item_enabled(menu, menu_path, enabled)
 }
 
-/// Update multiple menu items based on file extension.
-/// Useful for plugins that register multiple actions for a specific file type.
-///
-/// # Example
-/// ```ignore
-/// // Enable all Python Lint menu items for Python files
-/// update_menus_for_extensions(
-///     menu,
-///     &["Plugins/Python Lint/Run Lint", "Plugins/Python Lint/Format"],
-///     file_path,
-///     &[".py", ".pyi"]
-/// );
-/// ```
-pub fn update_menus_for_extensions(
-    menu: &mut MenuBar,
-    menu_paths: &[&str],
-    file_path: Option<&str>,
-    extensions: &[&str],
-) {
-    let enabled = file_matches_extensions(file_path, extensions);
-    for path in menu_paths {
-        set_menu_item_enabled(menu, path, enabled);
-    }
-}
-
 // ============================================================================
 // Specific Menu Update Functions
 // ============================================================================
@@ -699,52 +674,6 @@ pub fn update_preview_menu(menu: &mut MenuBar, file_path: Option<&str>) {
         file_path,
         &[".md", ".markdown"],
     );
-}
-
-/// Update plugin menu items based on the current file type.
-/// Each plugin can specify which file extensions its menu items should be active for.
-///
-/// # Arguments
-/// * `menu` - The menu bar to update
-/// * `plugins` - Reference to the plugin manager to get plugin info
-/// * `file_path` - The current file path (if any)
-pub fn update_plugin_menus_for_file(
-    menu: &mut MenuBar,
-    plugins: &crate::app::plugins::PluginManager,
-    file_path: Option<&str>,
-) {
-    for plugin in plugins.list_plugins() {
-        if !plugin.enabled || plugin.menu_items.is_empty() {
-            continue;
-        }
-
-        // Determine which extensions this plugin supports based on its name/type
-        // This could be extended to read from plugin.toml in the future
-        let extensions: &[&str] = match plugin.name.to_lowercase().as_str() {
-            name if name.contains("python") => &[".py", ".pyi", ".pyw"],
-            name if name.contains("rust") => &[".rs"],
-            name if name.contains("javascript") || name.contains("js") => &[".js", ".jsx", ".mjs"],
-            name if name.contains("typescript") || name.contains("ts") => &[".ts", ".tsx"],
-            name if name.contains("markdown") || name.contains("md") => &[".md", ".markdown"],
-            name if name.contains("yaml") || name.contains("yml") => &[".yaml", ".yml", ".json"],
-            name if name.contains("json") => &[".json"],
-            name if name.contains("toml") => &[".toml"],
-            name if name.contains("html") => &[".html", ".htm"],
-            name if name.contains("css") => &[".css", ".scss", ".sass", ".less"],
-            name if name.contains("lua") => &[".lua"],
-            name if name.contains("go") => &[".go"],
-            name if name.contains("c++") || name.contains("cpp") => &[".cpp", ".cc", ".cxx", ".hpp", ".h"],
-            name if name.contains("c") && !name.contains("css") => &[".c", ".h"],
-            _ => continue, // Unknown plugin type - leave all items enabled
-        };
-
-        // Update each menu item for this plugin
-        let display = plugin_display_name(&plugin.name);
-        for item in &plugin.menu_items {
-            let menu_path = format!("Plugins/{}/{}", display, item.label);
-            update_menu_for_extensions(menu, &menu_path, file_path, extensions);
-        }
-    }
 }
 
 #[cfg(test)]

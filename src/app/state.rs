@@ -415,9 +415,6 @@ impl AppState {
 
         // Update built-in menus
         crate::ui::menu::update_preview_menu(&mut self.menu, file_path);
-
-        // Update plugin menus based on file type
-        crate::ui::menu::update_plugin_menus_for_file(&mut self.menu, &self.plugins, file_path);
     }
 
     /// Update the Preview in Browser menu item based on current file type.
@@ -1111,6 +1108,20 @@ impl AppState {
         }
         self.update_window_title();
         self.rebuild_tab_bar();
+
+        // Call on_document_open hook for the active document so plugins
+        // can initialize state (e.g. register shortcuts). Only the active
+        // document is notified to avoid slow startup with many tabs.
+        if let Some(doc) = self.tab_manager.active_doc() {
+            if let Some(ref path) = doc.file_path {
+                let path = path.clone();
+                let open_result = self.plugins.call_hook(PluginHook::OnDocumentOpen {
+                    path: Some(path),
+                });
+                self.process_widget_requests(&open_result, "");
+                self.process_hook_result(open_result, "");
+            }
+        }
 
         session::clear_session();
     }

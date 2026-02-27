@@ -122,6 +122,19 @@ fn main() {
     // Restore session if enabled (before CLI args so args can override)
     state.restore_session();
 
+    // Populate plugins menu with loaded plugins (before wind.end()/show()
+    // so FLTK registers shortcuts the same way as built-in menu items)
+    ui::menu::rebuild_plugins_menu(
+        &mut state.menu,
+        &state.sender,
+        &state.settings.borrow(),
+        &state.plugins,
+        &state.shortcut_registry,
+    );
+
+    // Update menus based on active file type (preview)
+    state.update_menus_for_file_type();
+
     // Open file from CLI args if provided
     let args: Vec<String> = env::args().collect();
     if let Some(path) = args.iter().skip(1).find(|arg| !arg.starts_with("-psn")) {
@@ -187,18 +200,6 @@ fn main() {
     // Set up diagnostic panel click and hover handlers
     w.diagnostic_panel.setup_click_handler();
     w.diagnostic_panel.setup_hover_handler();
-
-    // Populate plugins menu with loaded plugins
-    ui::menu::rebuild_plugins_menu(
-        &mut state.menu,
-        &state.sender,
-        &state.settings.borrow(),
-        &state.plugins,
-        &state.shortcut_registry,
-    );
-
-    // Update menus based on active file type (preview, plugin items)
-    state.update_menus_for_file_type();
 
     // Check plugin permissions now that UI is ready (dialog needs event loop)
     sender.send(Message::CheckPluginPermissions);
