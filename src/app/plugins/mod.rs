@@ -326,6 +326,8 @@ impl PluginManager {
                     result.diagnostics.extend(hook_output.diagnostics);
                     // Collect line annotations from all plugins
                     result.line_annotations.extend(hook_output.line_annotations);
+                    // Propagate lint flag: true if ANY plugin produced results
+                    result.had_lint_results |= hook_output.had_lint_results;
                     // Use the last plugin's status message (or first non-None)
                     if hook_output.status_message.is_some() {
                         result.status_message = hook_output.status_message;
@@ -442,6 +444,7 @@ impl PluginManager {
 
                 // Parse diagnostics and highlights from the returned table
                 if let mlua::Value::Table(return_table) = value {
+                    result.had_lint_results = true;
                     self.parse_lint_result(&return_table, &plugin.name, &mut result);
                 }
                 return Ok(result);

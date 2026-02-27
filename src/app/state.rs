@@ -2316,15 +2316,19 @@ impl AppState {
 
     /// Process lint result from plugin hook: send diagnostics, annotations, and toast
     fn process_lint_result(&mut self, result: super::plugins::HookResult) {
-        // Always send diagnostics (even empty) to update or clear the panel
-        self.sender.send(Message::DiagnosticsUpdate(result.diagnostics));
+        // Only send diagnostics if at least one plugin actually linted this file.
+        // When no plugin matched (all returned nil), skip the update so the
+        // diagnostic panel doesn't show a misleading "All checks passed".
+        if result.had_lint_results {
+            self.sender.send(Message::DiagnosticsUpdate(result.diagnostics));
 
-        // Update or clear annotations
-        if !result.line_annotations.is_empty() {
-            self.update_annotations(result.line_annotations);
-        } else {
-            // Clear any existing annotations when no issues found
-            self.clear_annotations();
+            // Update or clear annotations
+            if !result.line_annotations.is_empty() {
+                self.update_annotations(result.line_annotations);
+            } else {
+                // Clear any existing annotations when no issues found
+                self.clear_annotations();
+            }
         }
 
         if let Some(status) = result.status_message {

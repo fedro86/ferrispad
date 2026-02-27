@@ -184,6 +184,9 @@ pub struct HookResult {
     pub tree_view: Option<TreeViewRequest>,
     /// Request to open a file (from tree view clicks, etc.)
     pub open_file: Option<String>,
+    /// Whether at least one plugin actually produced lint results (returned a table).
+    /// When false, no plugin linted this file (all returned nil/skipped).
+    pub had_lint_results: bool,
 }
 
 #[cfg(test)]
