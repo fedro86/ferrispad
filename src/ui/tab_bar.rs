@@ -160,6 +160,8 @@ struct TabBarState {
     total_items: usize,
     /// Number of items visible in current layout
     visible_items: usize,
+    /// Raw pointer to a pre-created MenuButton for context menus (Wayland-friendly)
+    ctx_menu_ptr: fltk::app::WidgetPtr,
 }
 
 pub struct TabBar {
@@ -169,6 +171,13 @@ pub struct TabBar {
 
 impl TabBar {
     pub fn new(x: i32, y: i32, w: i32, sender: Sender<Message>) -> Self {
+        // Pre-create a hidden MenuButton for context menus.
+        // Parented to the current group (main window) so Wayland's
+        // xdg_positioner can anchor popups to the correct surface.
+        let mut ctx_menu = MenuButton::new(1, 1, 1, 1, None);
+        ctx_menu.hide();
+        let ctx_menu_ptr = ctx_menu.as_widget_ptr();
+
         let state = Rc::new(RefCell::new(TabBarState {
             tabs: Vec::new(),
             groups: Vec::new(),
@@ -189,6 +198,7 @@ impl TabBar {
             scroll_offset: 0,
             total_items: 0,
             visible_items: 0,
+            ctx_menu_ptr,
         }));
 
         let mut widget = Widget::new(x, y, w, TAB_BAR_HEIGHT, None);
@@ -1133,12 +1143,18 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
 
 // --- Context menu ---
 
-fn show_context_menu(st: &TabBarState, tab_index: Option<usize>, group_id: Option<GroupId>) {
+/// Build the context menu (adds items) but does NOT call popup().
+/// The caller must drop any RefCell borrows before calling popup()
+/// because popup() runs a nested event loop that may re-enter the handler.
+fn build_context_menu(st: &TabBarState, tab_index: Option<usize>, group_id: Option<GroupId>) -> MenuButton {
     let sender = st.sender;
-    // Position at mouse cursor with a 1x1 anchor so Wayland has a valid rectangle
     let mx = fltk::app::event_x();
     let my = fltk::app::event_y();
-    let mut menu = MenuButton::new(mx, my, 1, 1, None);
+    // Reuse the pre-created MenuButton (parented to main window) so Wayland's
+    // xdg_positioner can anchor the popup to the correct surface.
+    let mut menu = unsafe { MenuButton::from_widget_ptr(st.ctx_menu_ptr) };
+    menu.clear();
+    menu.resize(mx, my, 1, 1);
     let sc = Shortcut::None;
     let fl = MenuFlag::Normal;
 
@@ -1181,7 +1197,7 @@ fn show_context_menu(st: &TabBarState, tab_index: Option<usize>, group_id: Optio
         menu.add_emit("Close group", sc, fl, sender, Message::TabGroupClose(gid));
     }
 
-    menu.popup();
+    menu
 }
 
 // --- Event handling ---
@@ -1208,11 +1224,14 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                     let sender = st.sender;
 
                     if button == 3 {
-                        // Right-click context menu
+                        // Right-click context menu — build menu while borrowed,
+                        // then drop borrow before popup() (nested event loop).
                         let group_id = st.tabs[index].group_id;
                         drop(st);
                         let st2 = state.borrow();
-                        show_context_menu(&st2, Some(index), group_id);
+                        let mut menu = build_context_menu(&st2, Some(index), group_id);
+                        drop(st2);
+                        menu.popup();
                         return true;
                     }
 
@@ -1245,7 +1264,9 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                     } else if button == 3 {
                         drop(st);
                         let st2 = state.borrow();
-                        show_context_menu(&st2, None, Some(gid));
+                        let mut menu = build_context_menu(&st2, None, Some(gid));
+                        drop(st2);
+                        menu.popup();
                     }
                     true
                 }
@@ -1260,7 +1281,9 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                     } else if button == 3 {
                         drop(st);
                         let st2 = state.borrow();
-                        show_context_menu(&st2, None, Some(gid));
+                        let mut menu = build_context_menu(&st2, None, Some(gid));
+                        drop(st2);
+                        menu.popup();
                     }
                     true
                 }
