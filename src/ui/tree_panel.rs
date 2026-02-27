@@ -6,7 +6,7 @@
 use fltk::{
     app::Sender,
     button::Button,
-    enums::{Align, Color, Font, FrameType},
+    enums::{Align, Color, Event, Font, FrameType, Key},
     frame::Frame,
     group::Flex,
     prelude::*,
@@ -203,41 +203,44 @@ impl TreePanel {
         }
     }
 
+    /// Build the node path from the currently selected tree item.
+    /// Returns the path segments (excluding the root label and FLTK ROOT).
+    fn selected_node_path(tree: &Tree) -> Option<Vec<String>> {
+        let item = tree.first_selected_item()?;
+        let mut path = Vec::new();
+        let mut current = Some(item);
+        while let Some(item) = current {
+            if let Some(label) = item.label() {
+                let clean_label = label
+                    .trim_start_matches("\u{1F4C1} ")
+                    .trim_start_matches("\u{1F4C4} ")
+                    .trim_start_matches("\u{274C} ")
+                    .trim_start_matches("\u{26A0} ")
+                    .trim_start_matches("\u{2139} ")
+                    .to_string();
+                if clean_label != "ROOT" {
+                    path.push(clean_label);
+                }
+            }
+            current = item.parent();
+        }
+        path.reverse();
+        // Skip the first element (project root node label)
+        if path.len() > 1 {
+            path.remove(0);
+        }
+        Some(path)
+    }
+
     /// Set up tree callbacks
     fn setup_callbacks(&mut self, session_id: u32) {
         let sender = self.sender;
         let on_click_action = self.on_click_action.clone();
 
-        // Tree selection callback — open files on double-click only
-        // Reselected fires when the same item is clicked again;
-        // event_clicks() is true on the second rapid click (FLTK double-click).
+        // Tree callback — open files on double-click
         self.tree.set_callback(move |tree| {
             if tree.callback_reason() == TreeReason::Reselected && fltk::app::event_clicks() {
-                if let Some(item) = tree.first_selected_item() {
-                    // Build node path from item
-                    let mut path = Vec::new();
-                    let mut current = Some(item);
-                    while let Some(item) = current {
-                        if let Some(label) = item.label() {
-                            let clean_label = label
-                                .trim_start_matches("\u{1F4C1} ")
-                                .trim_start_matches("\u{1F4C4} ")
-                                .trim_start_matches("\u{274C} ")
-                                .trim_start_matches("\u{26A0} ")
-                                .trim_start_matches("\u{2139} ")
-                                .to_string();
-                            if clean_label != "ROOT" {
-                                path.push(clean_label);
-                            }
-                        }
-                        current = item.parent();
-                    }
-                    path.reverse();
-                    // Skip the first element (project root node label)
-                    if path.len() > 1 {
-                        path.remove(0);
-                    }
-
+                if let Some(path) = Self::selected_node_path(tree) {
                     if on_click_action.is_some() {
                         sender.send(Message::TreeViewNodeClicked {
                             session_id,
@@ -248,10 +251,28 @@ impl TreePanel {
             }
         });
 
-        // Close button callback
+        // Enter key — open selected file
         let sender2 = self.sender;
+        let on_click_action2 = self.on_click_action.clone();
+        self.tree.handle(move |tree, ev| {
+            if ev == Event::KeyDown && fltk::app::event_key() == Key::Enter {
+                if let Some(path) = Self::selected_node_path(tree) {
+                    if on_click_action2.is_some() {
+                        sender2.send(Message::TreeViewNodeClicked {
+                            session_id,
+                            node_path: path,
+                        });
+                        return true; // consumed
+                    }
+                }
+            }
+            false // let Tree handle other events
+        });
+
+        // Close button callback
+        let sender3 = self.sender;
         self.close_btn.set_callback(move |_| {
-            sender2.send(Message::TreeViewHide(session_id));
+            sender3.send(Message::TreeViewHide(session_id));
         });
     }
 
