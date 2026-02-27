@@ -150,4 +150,11 @@ pub enum Message {
         session_id: u32,
         node_path: Vec<String>,
     },
+    /// User triggered a context menu action on a tree node
+    TreeViewContextAction {
+        session_id: u32,
+        action: String,
+        node_path: Vec<String>,
+        input_text: Option<String>,
+    },
 }

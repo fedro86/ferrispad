@@ -2396,6 +2396,7 @@ impl AppState {
                 data: WidgetActionData {
                     right_content,
                     node_path: None,
+                    input_text: None,
                 },
                 path: self.tab_manager.active_doc().and_then(|d| d.file_path.clone()),
             },
@@ -2443,6 +2444,8 @@ impl AppState {
                 on_click_action: request.on_click_action.clone(),
                 expand_depth: request.expand_depth,
                 click_mode: request.click_mode,
+                context_path: request.context_path.clone(),
+                context_menu: request.context_menu.clone(),
             }
         } else {
             request.clone()
@@ -2483,6 +2486,7 @@ impl AppState {
                 data: WidgetActionData {
                     right_content: None,
                     node_path: Some(node_path),
+                    input_text: None,
                 },
                 path: current_path,
             },
@@ -2493,6 +2497,48 @@ impl AppState {
             self.process_widget_requests(&result, &plugin_name);
 
             // Process the result (diagnostics, open_file, etc.)
+            self.process_hook_result(result, &plugin_name);
+        }
+    }
+
+    /// Handle tree view context menu action (new file, rename, delete, etc.)
+    pub fn handle_tree_view_context_action(
+        &mut self,
+        session_id: u32,
+        action: String,
+        node_path: Vec<String>,
+        input_text: Option<String>,
+    ) {
+        // Get session info
+        let session = match self.widget_manager.get_session(session_id) {
+            Some(s) => s.clone(),
+            None => return,
+        };
+
+        let plugin_name = session.plugin_name.clone();
+
+        // Get current document path for project root detection
+        let current_path = self.tab_manager.active_doc()
+            .and_then(|d| d.file_path.clone());
+
+        // Call plugin's on_widget_action hook with the context action
+        let result = self.plugins.call_hook_on_plugin(
+            &plugin_name,
+            PluginHook::OnWidgetAction {
+                widget_type: "tree_view".to_string(),
+                action,
+                session_id,
+                data: WidgetActionData {
+                    right_content: None,
+                    node_path: Some(node_path),
+                    input_text,
+                },
+                path: current_path,
+            },
+        );
+
+        if let Some(result) = result {
+            self.process_widget_requests(&result, &plugin_name);
             self.process_hook_result(result, &plugin_name);
         }
     }

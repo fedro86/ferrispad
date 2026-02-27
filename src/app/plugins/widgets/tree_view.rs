@@ -15,6 +15,67 @@ pub enum TreeClickMode {
     DoubleClick,
 }
 
+/// Target node type for a context menu item
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContextMenuTarget {
+    /// Show only for folder nodes
+    Folder,
+    /// Show only for file (leaf) nodes
+    File,
+    /// Show only when right-clicking empty area (no node)
+    Empty,
+    /// Show for all node types and empty area
+    All,
+}
+
+/// A context menu item defined by a plugin
+#[derive(Debug, Clone)]
+pub struct ContextMenuItem {
+    /// Display label (e.g., "New File...", "Delete")
+    pub label: String,
+    /// Action name sent back to plugin (e.g., "new_file", "delete")
+    pub action: String,
+    /// Which node types this item appears for
+    pub target: ContextMenuTarget,
+    /// If set, show an input dialog with this prompt before sending the action
+    pub input_prompt: Option<String>,
+    /// If set, show a confirmation dialog with this message before sending
+    pub confirm_prompt: Option<String>,
+    /// If true, pre-fill the input dialog with the current node name (for rename)
+    pub input_prefill_node_name: bool,
+    /// If true, copy the node's full path to clipboard (no action sent to plugin)
+    pub clipboard: bool,
+}
+
+impl ContextMenuItem {
+    /// Parse a context menu item from a Lua table
+    pub fn from_lua_table(table: &mlua::Table) -> Option<Self> {
+        let label: String = table.get("label").ok()?;
+        let action: String = table.get("action").unwrap_or_default();
+        let target_str: String = table.get("target").unwrap_or_else(|_| "all".to_string());
+        let target = match target_str.as_str() {
+            "folder" => ContextMenuTarget::Folder,
+            "file" => ContextMenuTarget::File,
+            "empty" => ContextMenuTarget::Empty,
+            _ => ContextMenuTarget::All,
+        };
+        let input_prompt: Option<String> = table.get("input").ok();
+        let confirm_prompt: Option<String> = table.get("confirm").ok();
+        let input_prefill_node_name: bool = table.get("prefill_name").unwrap_or(false);
+        let clipboard: bool = table.get("clipboard").unwrap_or(false);
+
+        Some(Self {
+            label,
+            action,
+            target,
+            input_prompt,
+            confirm_prompt,
+            input_prefill_node_name,
+            clipboard,
+        })
+    }
+}
+
 /// A request to show a tree view, returned from plugin hooks
 #[derive(Debug, Clone, Default)]
 pub struct TreeViewRequest {
@@ -30,6 +91,10 @@ pub struct TreeViewRequest {
     pub expand_depth: i32,
     /// Click mode: "single" or "double" (default)
     pub click_mode: TreeClickMode,
+    /// Project root path for reconstructing full paths (e.g., for Copy Path)
+    pub context_path: Option<String>,
+    /// Plugin-defined context menu items
+    pub context_menu: Vec<ContextMenuItem>,
 }
 
 /// A node in the tree
@@ -86,6 +151,20 @@ impl TreeViewRequest {
             _ => TreeClickMode::DoubleClick,
         };
 
+        // Context path (project root) for full path reconstruction
+        let context_path: Option<String> = table.get("context_path").ok();
+
+        // Parse context menu items
+        let context_menu = if let Ok(mlua::Value::Table(menu_table)) = table.get::<mlua::Value>("context_menu") {
+            menu_table
+                .pairs::<i32, mlua::Table>()
+                .flatten()
+                .filter_map(|(_, item_table)| ContextMenuItem::from_lua_table(&item_table))
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         Some(Self {
             title,
             root,
@@ -93,6 +172,8 @@ impl TreeViewRequest {
             on_click_action,
             expand_depth,
             click_mode,
+            context_path,
+            context_menu,
         })
     }
 

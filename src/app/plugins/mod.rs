@@ -503,6 +503,9 @@ impl PluginManager {
                     }
                     data_table.set("node_path", path_table)?;
                 }
+                if let Some(ref text) = data.input_text {
+                    data_table.set("input_text", text.as_str())?;
+                }
 
                 let value = runtime.call_hook(
                     &plugin.table,

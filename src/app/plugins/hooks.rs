@@ -156,6 +156,8 @@ pub struct WidgetActionData {
     pub right_content: Option<String>,
     /// For tree view: path to the clicked node
     pub node_path: Option<Vec<String>>,
+    /// User input text for context menu actions (rename, new file, new folder)
+    pub input_text: Option<String>,
 }
 
 /// A status message to display to the user

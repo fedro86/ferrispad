@@ -535,6 +535,9 @@ fn main() {
                 Message::TreeViewNodeClicked { session_id, node_path } => {
                     state.handle_tree_view_node_click(session_id, node_path);
                 }
+                Message::TreeViewContextAction { session_id, action, node_path, input_text } => {
+                    state.handle_tree_view_context_action(session_id, action, node_path, input_text);
+                }
             }
         }
         state.auto_save_session_if_needed();
