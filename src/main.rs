@@ -510,6 +510,9 @@ fn main() {
                             w.content_row.recalc();
                         }
                     }
+                    if let Some(ref mut tb) = state.tab_bar {
+                        tb.handle_resize();
+                    }
                     w.wind.redraw();
                 }
                 Message::TreeViewHide(session_id) => {
@@ -523,6 +526,9 @@ fn main() {
                             w.content_row.fixed(w.tree_panel.widget(), 0);
                             w.content_row.recalc();
                         }
+                    }
+                    if let Some(ref mut tb) = state.tab_bar {
+                        tb.handle_resize();
                     }
                     w.wind.redraw();
                 }
