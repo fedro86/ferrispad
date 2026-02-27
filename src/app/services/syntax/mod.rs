@@ -7,7 +7,7 @@ use std::path::Path;
 use fltk::enums::Font;
 use fltk::text::StyleTableEntryExt;
 use syntect::highlighting::{HighlightState, Highlighter, HighlightIterator, ThemeSet};
-use syntect::parsing::{ParseState, ScopeStack, SyntaxSet};
+use syntect::parsing::{ParseState, ScopeStack, SyntaxDefinition, SyntaxSet};
 
 use checkpoint::{SparseCheckpoints, CHECKPOINT_INTERVAL};
 use highlighter::LinesWithEndings;
@@ -60,7 +60,13 @@ pub struct IncrementalHighlightResult {
 
 impl SyntaxHighlighter {
     pub fn new(theme: SyntaxTheme, font: Font, font_size: i32) -> Self {
-        let syntax_set = SyntaxSet::load_defaults_newlines();
+        let mut builder = SyntaxSet::load_defaults_newlines().into_builder();
+        const TOML_SYNTAX: &str =
+            include_str!("../../../../assets/syntaxes/TOML.sublime-syntax");
+        if let Ok(toml_def) = SyntaxDefinition::load_from_str(TOML_SYNTAX, true, None) {
+            builder.add(toml_def);
+        }
+        let syntax_set = builder.build();
         let theme_set = ThemeSet::load_defaults();
         let theme_name = theme.theme_key().to_string();
         let style_map = StyleMap::new(font, font_size);
