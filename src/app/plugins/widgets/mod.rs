@@ -14,7 +14,7 @@ pub mod split_view;
 pub mod tree_view;
 
 pub use split_view::{HighlightColor, LineHighlight, SplitPane, SplitViewAction, SplitViewRequest};
-pub use tree_view::{TreeNode, TreeViewRequest};
+pub use tree_view::{TreeClickMode, TreeNode, TreeViewRequest};
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};

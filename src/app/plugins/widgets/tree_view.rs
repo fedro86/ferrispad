@@ -5,6 +5,16 @@
 //! - YAML/JSON viewers
 //! - Outline views
 
+/// Click mode for tree view node activation
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TreeClickMode {
+    /// Activate node on single click
+    SingleClick,
+    /// Activate node on double click (default)
+    #[default]
+    DoubleClick,
+}
+
 /// A request to show a tree view, returned from plugin hooks
 #[derive(Debug, Clone, Default)]
 pub struct TreeViewRequest {
@@ -18,6 +28,8 @@ pub struct TreeViewRequest {
     pub on_click_action: Option<String>,
     /// How many levels to auto-expand (0 = none, -1 = all)
     pub expand_depth: i32,
+    /// Click mode: "single" or "double" (default)
+    pub click_mode: TreeClickMode,
 }
 
 /// A node in the tree
@@ -68,12 +80,19 @@ impl TreeViewRequest {
         // Expand depth
         let expand_depth: i32 = table.get("expand_depth").unwrap_or(1);
 
+        // Click mode: "single" or "double" (default)
+        let click_mode = match table.get::<String>("click_mode") {
+            Ok(ref s) if s == "single" => TreeClickMode::SingleClick,
+            _ => TreeClickMode::DoubleClick,
+        };
+
         Some(Self {
             title,
             root,
             yaml_content,
             on_click_action,
             expand_depth,
+            click_mode,
         })
     }
 

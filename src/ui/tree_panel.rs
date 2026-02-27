@@ -13,7 +13,7 @@ use fltk::{
     tree::{Tree, TreeReason},
 };
 
-use crate::app::plugins::widgets::{TreeNode, TreeViewRequest};
+use crate::app::plugins::widgets::{TreeClickMode, TreeNode, TreeViewRequest};
 use crate::app::Message;
 use super::dialogs::{darken, lighten, DialogTheme, SCROLLBAR_SIZE};
 
@@ -41,6 +41,8 @@ pub struct TreePanel {
     visible: bool,
     /// Action to send on node click
     on_click_action: Option<String>,
+    /// Whether to require double-click (true) or single-click (false)
+    double_click: bool,
     /// Item text color for per-item styling
     item_fg: Color,
 }
@@ -103,6 +105,7 @@ impl TreePanel {
             session_id: None,
             visible: false,
             on_click_action: None,
+            double_click: true,
             item_fg: Color::from_rgb(220, 220, 220),
         }
     }
@@ -116,6 +119,7 @@ impl TreePanel {
     pub fn show_request(&mut self, session_id: u32, request: &TreeViewRequest) {
         self.session_id = Some(session_id);
         self.on_click_action = request.on_click_action.clone();
+        self.double_click = request.click_mode == TreeClickMode::DoubleClick;
 
         // Update header title
         if !request.title.is_empty() {
@@ -236,10 +240,16 @@ impl TreePanel {
     fn setup_callbacks(&mut self, session_id: u32) {
         let sender = self.sender;
         let on_click_action = self.on_click_action.clone();
+        let double_click = self.double_click;
 
-        // Tree callback — open files on double-click
+        // Tree callback — activate on single-click (Selected) or double-click (Reselected + event_clicks)
         self.tree.set_callback(move |tree| {
-            if tree.callback_reason() == TreeReason::Reselected && fltk::app::event_clicks() {
+            let activate = if double_click {
+                tree.callback_reason() == TreeReason::Reselected && fltk::app::event_clicks()
+            } else {
+                tree.callback_reason() == TreeReason::Selected
+            };
+            if activate {
                 if let Some(path) = Self::selected_node_path(tree) {
                     if on_click_action.is_some() {
                         sender.send(Message::TreeViewNodeClicked {
@@ -283,6 +293,7 @@ impl TreePanel {
         self.session_id = None;
         self.tree.clear();
         self.on_click_action = None;
+        self.double_click = true;
     }
 
     /// Check if the panel is visible

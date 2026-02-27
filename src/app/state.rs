@@ -2438,6 +2438,7 @@ impl AppState {
                 yaml_content: None,
                 on_click_action: request.on_click_action.clone(),
                 expand_depth: request.expand_depth,
+                click_mode: request.click_mode,
             }
         } else {
             request.clone()
