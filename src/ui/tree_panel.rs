@@ -108,6 +108,7 @@ impl TreePanel {
         tree.set_margin_left(10);
         tree.set_item_draw_mode(fltk::tree::TreeItemDrawMode::LabelAndWidget);
         tree.set_item_reselect_mode(fltk::tree::TreeItemReselectMode::Always);
+        tree.set_select_frame(FrameType::FlatBox);
         tree.set_show_root(false);
 
         // Reusable context menu — parented to container so Wayland can
