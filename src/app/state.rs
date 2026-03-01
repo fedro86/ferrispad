@@ -2116,7 +2116,7 @@ impl AppState {
 
         // Handle clipboard_text request
         if let Some(ref text) = result.clipboard_text {
-            fltk::app::copy2(text);
+            crate::app::infrastructure::platform::copy_to_clipboard(text);
         }
 
         // Handle goto_line request

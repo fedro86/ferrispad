@@ -396,8 +396,10 @@ impl TreePanel {
             current = it.parent();
         }
         path.reverse();
-        // Skip the first element (project root node label)
-        if path.len() > 1 {
+        // Skip the first element (project root node label).
+        // When clicking the root itself, this produces an empty vec,
+        // which means "root directory" to the plugin/clipboard logic.
+        if !path.is_empty() {
             path.remove(0);
         }
         Some(path)
@@ -582,7 +584,7 @@ impl TreePanel {
             if let Some(item_def) = visible_items.iter().find(|d| d.label == chosen_label) {
                 if item_def.clipboard {
                     if let Some(ref fp) = full_path {
-                        fltk::app::copy2(fp);
+                        crate::app::infrastructure::platform::copy_to_clipboard(fp);
                     }
                 } else if let Some(ref prompt) = item_def.input_prompt {
                     let prefill = if item_def.input_prefill_node_name {
