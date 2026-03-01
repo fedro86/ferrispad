@@ -387,10 +387,19 @@ impl PluginManager {
                         || clean_msg.contains("not approved")
                     {
                         // Create file:// URL to the plugin directory
-                        let plugin_dir = plugin.path.to_string_lossy();
+                        // On Windows paths are C:\..., need file:///C:/...
+                        let plugin_url = {
+                            let p = plugin.path.to_string_lossy();
+                            let slash_path = p.replace('\\', "/");
+                            if slash_path.starts_with('/') {
+                                format!("file://{}", slash_path)
+                            } else {
+                                format!("file:///{}", slash_path)
+                            }
+                        };
                         (
                             Some("Double-click to open plugin folder".to_string()),
-                            Some(format!("file://{}", plugin_dir)),
+                            Some(plugin_url),
                         )
                     } else {
                         (None, None)

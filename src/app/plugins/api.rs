@@ -12,13 +12,79 @@
 
 use mlua::{Lua, Result as LuaResult, UserData, UserDataMethods};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::security::{
     find_project_root, validate_command_arg, validate_path, PathValidation,
     DEFAULT_COMMAND_TIMEOUT,
 };
+
+/// Resolve a user-supplied path against project_root and validate it stays inside the sandbox.
+/// Returns `Ok(Some(canonical))` on success, `Ok(None)` if the path is blocked or invalid.
+fn resolve_and_validate(path: &str, project_root: &Path) -> mlua::Result<Option<PathBuf>> {
+    match validate_path(path, project_root) {
+        PathValidation::Valid(canonical) => Ok(Some(canonical)),
+        PathValidation::NotFound => {
+            // For write ops the parent exists but the leaf doesn't — still valid
+            Ok(Some(if Path::new(path).is_absolute() {
+                PathBuf::from(path)
+            } else {
+                project_root.join(path)
+            }))
+        }
+        PathValidation::OutsideProjectRoot
+        | PathValidation::TraversalAttempt
+        | PathValidation::InvalidPath(_) => {
+            eprintln!(
+                "[plugin:security] path blocked: '{}' outside project root",
+                path
+            );
+            Ok(None)
+        }
+    }
+}
+
+/// Recursively scan a directory, collecting entries up to `max_depth`.
+/// Paths are returned with `/` separators on all platforms.
+fn scan_dir_recursive(
+    root: &Path,
+    current: &Path,
+    max_depth: u32,
+    current_depth: u32,
+    results: &mut Vec<(String, String, bool)>, // (name, rel_path, is_dir)
+) {
+    if current_depth > max_depth {
+        return;
+    }
+
+    let entries = match std::fs::read_dir(current) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+
+    let mut sorted: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+    sorted.sort_by_key(|e| e.file_name());
+
+    for entry in sorted {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let path = entry.path();
+        let is_dir = path.is_dir();
+
+        // Build relative path with forward slashes
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+
+        results.push((name, rel, is_dir));
+
+        if is_dir {
+            scan_dir_recursive(root, &path, max_depth, current_depth + 1, results);
+        }
+    }
+}
 
 /// Editor state passed to plugin hooks.
 /// This is a snapshot of the current document state.
@@ -423,6 +489,159 @@ impl UserData for EditorApi {
                 .map(|v| v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false))
         });
+
+        // ── Cross-platform filesystem API ───────────────────────────────
+        // All paths are sandboxed to project_root via validate_path().
+
+        // Check if a path is a regular file (not a directory)
+        // Returns false for directories, non-existent paths, and paths outside project root
+        methods.add_method("is_file", |_, this, path: String| {
+            let Some(ref project_root) = this.project_root else {
+                return Ok(Path::new(&path).is_file());
+            };
+            match resolve_and_validate(&path, project_root)? {
+                Some(p) => Ok(p.is_file()),
+                None => Ok(false),
+            }
+        });
+
+        // List entries in a single directory (non-recursive)
+        // Returns array of { name = "...", is_dir = bool } or nil on failure
+        methods.add_method("list_dir", |lua, this, path: String| {
+            let Some(ref project_root) = this.project_root else {
+                return Ok(mlua::Value::Nil);
+            };
+            let resolved = match resolve_and_validate(&path, project_root)? {
+                Some(p) => p,
+                None => return Ok(mlua::Value::Nil),
+            };
+            let entries = match std::fs::read_dir(&resolved) {
+                Ok(e) => e,
+                Err(_) => return Ok(mlua::Value::Nil),
+            };
+
+            let result = lua.create_table()?;
+            let mut idx = 1;
+            let mut sorted: Vec<_> = entries.filter_map(|e| e.ok()).collect();
+            sorted.sort_by_key(|e| e.file_name());
+
+            for entry in sorted {
+                let t = lua.create_table()?;
+                t.set("name", entry.file_name().to_string_lossy().as_ref().to_owned())?;
+                t.set("is_dir", entry.path().is_dir())?;
+                result.set(idx, t)?;
+                idx += 1;
+            }
+            Ok(mlua::Value::Table(result))
+        });
+
+        // Recursively scan a directory up to max_depth (default 5, cap 10)
+        // Returns array of { name, rel_path, is_dir } or nil on failure
+        methods.add_method("scan_dir", |lua, this, (path, max_depth): (String, Option<u32>)| {
+            let Some(ref project_root) = this.project_root else {
+                return Ok(mlua::Value::Nil);
+            };
+            let resolved = match resolve_and_validate(&path, project_root)? {
+                Some(p) => p,
+                None => return Ok(mlua::Value::Nil),
+            };
+            if !resolved.is_dir() {
+                return Ok(mlua::Value::Nil);
+            }
+
+            let depth = max_depth.unwrap_or(5).min(10);
+            let mut raw: Vec<(String, String, bool)> = Vec::new();
+            scan_dir_recursive(&resolved, &resolved, depth, 1, &mut raw);
+
+            let result = lua.create_table()?;
+            for (i, (name, rel_path, is_dir)) in raw.iter().enumerate() {
+                let t = lua.create_table()?;
+                t.set("name", name.as_str())?;
+                t.set("rel_path", rel_path.as_str())?;
+                t.set("is_dir", *is_dir)?;
+                result.set(i + 1, t)?;
+            }
+            Ok(mlua::Value::Table(result))
+        });
+
+        // Create a new empty file. Fails if the file already exists (no truncation).
+        // Returns (true, "") on success, (false, error_msg) on failure.
+        methods.add_method("create_file", |_, this, path: String| {
+            let Some(ref project_root) = this.project_root else {
+                return Ok((false, "No project root".to_string()));
+            };
+            let resolved = match resolve_and_validate(&path, project_root)? {
+                Some(p) => p,
+                None => return Ok((false, "Path outside project root".to_string())),
+            };
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&resolved)
+            {
+                Ok(_) => Ok((true, String::new())),
+                Err(e) => Ok((false, e.to_string())),
+            }
+        });
+
+        // Create a directory (and all missing parents).
+        // Returns (true, "") on success, (false, error_msg) on failure.
+        methods.add_method("create_dir", |_, this, path: String| {
+            let Some(ref project_root) = this.project_root else {
+                return Ok((false, "No project root".to_string()));
+            };
+            let resolved = match resolve_and_validate(&path, project_root)? {
+                Some(p) => p,
+                None => return Ok((false, "Path outside project root".to_string())),
+            };
+            match std::fs::create_dir_all(&resolved) {
+                Ok(_) => Ok((true, String::new())),
+                Err(e) => Ok((false, e.to_string())),
+            }
+        });
+
+        // Rename (move) a file or directory. Both paths must be inside project root.
+        // Returns (true, "") on success, (false, error_msg) on failure.
+        methods.add_method("rename", |_, this, (old, new): (String, String)| {
+            let Some(ref project_root) = this.project_root else {
+                return Ok((false, "No project root".to_string()));
+            };
+            let old_resolved = match resolve_and_validate(&old, project_root)? {
+                Some(p) => p,
+                None => return Ok((false, "Source path outside project root".to_string())),
+            };
+            let new_resolved = match resolve_and_validate(&new, project_root)? {
+                Some(p) => p,
+                None => return Ok((false, "Destination path outside project root".to_string())),
+            };
+            match std::fs::rename(&old_resolved, &new_resolved) {
+                Ok(_) => Ok((true, String::new())),
+                Err(e) => Ok((false, e.to_string())),
+            }
+        });
+
+        // Remove a file or directory (recursive for directories).
+        // Returns (true, "") on success, (false, error_msg) on failure.
+        methods.add_method("remove", |_, this, path: String| {
+            let Some(ref project_root) = this.project_root else {
+                return Ok((false, "No project root".to_string()));
+            };
+            let resolved = match resolve_and_validate(&path, project_root)? {
+                Some(p) => p,
+                None => return Ok((false, "Path outside project root".to_string())),
+            };
+            let result = if resolved.is_dir() {
+                std::fs::remove_dir_all(&resolved)
+            } else if resolved.is_file() {
+                std::fs::remove_file(&resolved)
+            } else {
+                return Ok((false, "Path does not exist".to_string()));
+            };
+            match result {
+                Ok(_) => Ok((true, String::new())),
+                Err(e) => Ok((false, e.to_string())),
+            }
+        });
     }
 }
 
@@ -460,5 +679,256 @@ mod tests {
         let api = EditorApi::with_content("/test/file.txt".to_string(), "hello world".to_string());
         assert_eq!(api.file_path, Some("/test/file.txt".to_string()));
         assert_eq!(api.text, Some("hello world".to_string()));
+    }
+
+    // ── Filesystem API tests ────────────────────────────────────────
+
+    use mlua::ObjectLike;
+    use tempfile::tempdir;
+
+    /// Helper: create an EditorApi with a temp dir as project root
+    fn api_with_root(root: &Path) -> EditorApi {
+        EditorApi {
+            project_root: Some(root.to_path_buf()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_resolve_and_validate_inside() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("file.txt"), "hi").unwrap();
+
+        let result = resolve_and_validate("file.txt", root).unwrap();
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_resolve_and_validate_outside_blocked() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        let result = resolve_and_validate("/etc/passwd", root).unwrap();
+        assert!(result.is_none(), "Path outside project root should be None");
+    }
+
+    #[test]
+    fn test_scan_dir_recursive_depth() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        // Create: root/a/b/c/d.txt (depth 3 dirs + 1 file)
+        let deep = root.join("a").join("b").join("c");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::write(deep.join("d.txt"), "deep").unwrap();
+
+        // max_depth=2 should NOT reach c/ or d.txt
+        let mut results = Vec::new();
+        scan_dir_recursive(root, root, 2, 1, &mut results);
+        let paths: Vec<&str> = results.iter().map(|(_, r, _)| r.as_str()).collect();
+        assert!(paths.contains(&"a"), "Should find a/");
+        assert!(paths.contains(&"a/b"), "Should find a/b/");
+        assert!(!paths.contains(&"a/b/c"), "Depth 2 should not reach a/b/c/");
+        assert!(!paths.contains(&"a/b/c/d.txt"), "Depth 2 should not reach a/b/c/d.txt");
+    }
+
+    #[test]
+    fn test_scan_dir_recursive_full() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub").join("hello.txt"), "hi").unwrap();
+        std::fs::write(root.join("top.txt"), "top").unwrap();
+
+        let mut results = Vec::new();
+        scan_dir_recursive(root, root, 5, 1, &mut results);
+
+        let names: Vec<&str> = results.iter().map(|(n, _, _)| n.as_str()).collect();
+        assert!(names.contains(&"sub"));
+        assert!(names.contains(&"hello.txt"));
+        assert!(names.contains(&"top.txt"));
+
+        // Check is_dir flag
+        let sub_entry = results.iter().find(|(n, _, _)| n == "sub").unwrap();
+        assert!(sub_entry.2, "sub should be a directory");
+        let file_entry = results.iter().find(|(n, _, _)| n == "top.txt").unwrap();
+        assert!(!file_entry.2, "top.txt should not be a directory");
+    }
+
+    // The following tests exercise the methods via mlua to confirm they work end-to-end.
+
+    #[test]
+    fn test_lua_is_file() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("exists.txt"), "data").unwrap();
+        std::fs::create_dir(root.join("adir")).unwrap();
+
+        let lua = mlua::Lua::new();
+        let api = api_with_root(root);
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+            let is_file: mlua::Function = ud.get("is_file").unwrap();
+
+            let yes: bool = is_file.call((&ud, root.join("exists.txt").to_str().unwrap().to_string())).unwrap();
+            assert!(yes, "exists.txt should be a file");
+
+            let no: bool = is_file.call((&ud, root.join("adir").to_str().unwrap().to_string())).unwrap();
+            assert!(!no, "adir is a directory, not a file");
+
+            let no2: bool = is_file.call((&ud, root.join("nope.txt").to_str().unwrap().to_string())).unwrap();
+            assert!(!no2, "nope.txt does not exist");
+            Ok(())
+        }).unwrap();
+    }
+
+    #[test]
+    fn test_lua_list_dir() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("a.txt"), "").unwrap();
+        std::fs::create_dir(root.join("sub")).unwrap();
+
+        let lua = mlua::Lua::new();
+        let api = api_with_root(root);
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+            let list_dir: mlua::Function = ud.get("list_dir").unwrap();
+
+            let tbl: mlua::Table = list_dir.call((&ud, root.to_str().unwrap().to_string())).unwrap();
+            let len = tbl.len().unwrap();
+            assert!(len >= 2, "Should have at least 2 entries, got {}", len);
+            Ok(())
+        }).unwrap();
+    }
+
+    #[test]
+    fn test_lua_create_file_and_remove() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        let lua = mlua::Lua::new();
+        let api = api_with_root(root);
+        let file_path = root.join("new.txt");
+        let file_str = file_path.to_str().unwrap().to_string();
+
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+
+            // create_file
+            let create: mlua::Function = ud.get("create_file").unwrap();
+            let (ok, err): (bool, String) = create.call((&ud, file_str.clone())).unwrap();
+            assert!(ok, "create_file should succeed: {}", err);
+            assert!(file_path.exists());
+
+            // create_file again should fail (create_new)
+            let (ok2, _): (bool, String) = create.call((&ud, file_str.clone())).unwrap();
+            assert!(!ok2, "create_file on existing file should fail");
+
+            // remove
+            let remove: mlua::Function = ud.get("remove").unwrap();
+            let (ok3, err3): (bool, String) = remove.call((&ud, file_str.clone())).unwrap();
+            assert!(ok3, "remove should succeed: {}", err3);
+            assert!(!file_path.exists());
+            Ok(())
+        }).unwrap();
+    }
+
+    #[test]
+    fn test_lua_create_dir_and_rename() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        let lua = mlua::Lua::new();
+        let api = api_with_root(root);
+        let dir_path = root.join("nested").join("deep");
+        let dir_str = dir_path.to_str().unwrap().to_string();
+        let renamed = root.join("nested").join("renamed");
+        let renamed_str = renamed.to_str().unwrap().to_string();
+
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+
+            // create_dir (nested)
+            let mkdir: mlua::Function = ud.get("create_dir").unwrap();
+            let (ok, err): (bool, String) = mkdir.call((&ud, dir_str.clone())).unwrap();
+            assert!(ok, "create_dir should succeed: {}", err);
+            assert!(dir_path.is_dir());
+
+            // rename
+            let rename_fn: mlua::Function = ud.get("rename").unwrap();
+            let (ok2, err2): (bool, String) = rename_fn.call((&ud, dir_str, renamed_str)).unwrap();
+            assert!(ok2, "rename should succeed: {}", err2);
+            assert!(renamed.is_dir());
+            assert!(!dir_path.exists());
+            Ok(())
+        }).unwrap();
+    }
+
+    #[test]
+    fn test_lua_remove_dir_recursive() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let sub = root.join("to_delete");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("child.txt"), "data").unwrap();
+
+        let lua = mlua::Lua::new();
+        let api = api_with_root(root);
+
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+            let remove: mlua::Function = ud.get("remove").unwrap();
+            let (ok, err): (bool, String) = remove.call((&ud, sub.to_str().unwrap().to_string())).unwrap();
+            assert!(ok, "remove dir should succeed: {}", err);
+            assert!(!sub.exists());
+            Ok(())
+        }).unwrap();
+    }
+
+    #[test]
+    fn test_lua_scan_dir() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir(root.join("src")).unwrap();
+        std::fs::write(root.join("src").join("main.rs"), "fn main(){}").unwrap();
+        std::fs::write(root.join("README.md"), "# Hi").unwrap();
+
+        let lua = mlua::Lua::new();
+        let api = api_with_root(root);
+
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+            let scan: mlua::Function = ud.get("scan_dir").unwrap();
+            let tbl: mlua::Table = scan.call((&ud, root.to_str().unwrap().to_string())).unwrap();
+
+            let len = tbl.len().unwrap();
+            assert!(len >= 3, "Should have src/, src/main.rs, README.md; got {}", len);
+            Ok(())
+        }).unwrap();
+    }
+
+    #[test]
+    fn test_lua_blocked_outside_root() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        let lua = mlua::Lua::new();
+        let api = api_with_root(root);
+
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+
+            // create_file outside root
+            let create: mlua::Function = ud.get("create_file").unwrap();
+            let (ok, _): (bool, String) = create.call((&ud, "/tmp/should_not_exist_ferrispad_test.txt".to_string())).unwrap();
+            assert!(!ok, "create_file outside root should fail");
+
+            // remove outside root
+            let remove: mlua::Function = ud.get("remove").unwrap();
+            let (ok2, _): (bool, String) = remove.call((&ud, "/etc/passwd".to_string())).unwrap();
+            assert!(!ok2, "remove outside root should fail");
+            Ok(())
+        }).unwrap();
     }
 }
