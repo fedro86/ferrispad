@@ -156,6 +156,7 @@ pub enum Message {
         action: String,
         node_path: Vec<String>,
         input_text: Option<String>,
+        target_path: Option<Vec<String>>,
     },
     /// User typed in the tree view search bar
     TreeViewSearch {

@@ -559,6 +559,13 @@ impl PluginManager {
                 if let Some(ref text) = data.input_text {
                     data_table.set("input_text", text.as_str())?;
                 }
+                if let Some(ref target) = data.target_path {
+                    let target_table = lua.create_table()?;
+                    for (i, segment) in target.iter().enumerate() {
+                        target_table.set(i + 1, segment.as_str())?;
+                    }
+                    data_table.set("target_path", target_table)?;
+                }
 
                 let value = runtime.call_hook(
                     &plugin.table,

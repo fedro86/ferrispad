@@ -4,6 +4,7 @@
 //! Plugin-driven via the Widget API.
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use fltk::{
@@ -81,6 +82,14 @@ pub struct TreePanel {
     /// Used to re-apply per-item colors after selection (FLTK's fl_contrast
     /// can override per-item labelfgcolor for selected items).
     colored_items: Rc<RefCell<Vec<(String, Color)>>>,
+    /// Node path of the item being dragged (set on Push, used on Released)
+    drag_source_path: Rc<RefCell<Option<Vec<String>>>>,
+    /// Whether a drag is in progress (Push captured source, Drag detected movement)
+    dragging: Rc<Cell<bool>>,
+    /// Set of expanded folder paths (semantic node paths like "src/ui/dialogs").
+    /// Maintained via TreeReason::Opened/Closed callbacks. Used to preserve
+    /// expansion state across tree rebuilds (refresh, move, rename, etc.).
+    expanded_paths: Rc<RefCell<HashSet<String>>>,
 }
 
 impl TreePanel {
@@ -221,6 +230,9 @@ impl TreePanel {
             current_expand_depth: 2,
             is_dark: true,
             colored_items: Rc::new(RefCell::new(Vec::new())),
+            drag_source_path: Rc::new(RefCell::new(None)),
+            dragging: Rc::new(Cell::new(false)),
+            expanded_paths: Rc::new(RefCell::new(HashSet::new())),
         }
     }
 
@@ -282,8 +294,20 @@ impl TreePanel {
         &self.container
     }
 
+    /// Convert a semantic node path (e.g., ["src", "ui"]) to a key for the
+    /// expanded_paths set.
+    fn node_path_key(node_path: &[String]) -> String {
+        node_path.join("/")
+    }
+
     /// Show the tree panel with content from a plugin request
     pub fn show_request(&mut self, session_id: u32, request: &TreeViewRequest) {
+        // On first show, clear expanded_paths so it gets populated from expand_depth.
+        // On refresh (already visible), keep the existing set.
+        if !self.visible {
+            self.expanded_paths.borrow_mut().clear();
+        }
+
         self.session_id = Some(session_id);
         self.on_click_action = request.on_click_action.clone();
         self.double_click = request.click_mode == TreeClickMode::DoubleClick;
@@ -393,15 +417,31 @@ impl TreePanel {
                 self.colored_items.borrow_mut().push((item_path.clone(), color));
             }
 
-            // Set expansion state
-            let should_expand = if expand_depth < 0 {
+            // Build semantic node path for this item (e.g., "src/ui/dialogs")
+            // by stripping icons from the FLTK path components and skipping root
+            let semantic_path: Vec<String> = item_path
+                .split('/')
+                .skip(1) // skip project root label
+                .map(|s| Self::strip_icon(s))
+                .collect();
+            let semantic_key = semantic_path.join("/");
+
+            // Decide expansion: if expanded_paths is populated (refresh),
+            // use it; otherwise fall back to expand_depth (first show).
+            let has_saved_state = !self.expanded_paths.borrow().is_empty();
+            let should_expand = if !node.has_children() {
+                false
+            } else if has_saved_state {
+                self.expanded_paths.borrow().contains(&semantic_key)
+            } else if expand_depth < 0 {
                 true // -1 means expand all
             } else {
                 current_depth < expand_depth
             };
 
-            if should_expand && node.has_children() {
+            if should_expand {
                 item.open();
+                self.expanded_paths.borrow_mut().insert(semantic_key);
             } else {
                 item.close();
             }
@@ -409,6 +449,12 @@ impl TreePanel {
             // Add children recursively, passing our full path
             for child in &node.children {
                 self.add_tree_node(Some(&item_path), child, expand_depth, current_depth + 1);
+            }
+
+            // Re-apply open state after children are added (FLTK may reset
+            // the state when children are added to a closed node via add())
+            if should_expand && node.has_children() {
+                item.open();
             }
         }
     }
@@ -468,12 +514,30 @@ impl TreePanel {
         let on_click_action = self.on_click_action.clone();
         let double_click = self.double_click;
 
-        // Tree callback — activate on single-click (Selected) or double-click (Reselected + event_clicks)
+        // Tree callback — activate on click + track expand/collapse
+        let expanded_paths = self.expanded_paths.clone();
         self.tree.set_callback(move |tree| {
+            let reason = tree.callback_reason();
+
+            // Track user-initiated expand/collapse for state preservation
+            if reason == TreeReason::Opened || reason == TreeReason::Closed {
+                if let Some(item) = tree.callback_item() {
+                    if let Some(node_path) = Self::node_path_for_item(&item) {
+                        let key = Self::node_path_key(&node_path);
+                        if reason == TreeReason::Opened {
+                            expanded_paths.borrow_mut().insert(key);
+                        } else {
+                            expanded_paths.borrow_mut().remove(&key);
+                        }
+                    }
+                }
+                return;
+            }
+
             let activate = if double_click {
-                tree.callback_reason() == TreeReason::Reselected && fltk::app::event_clicks()
+                reason == TreeReason::Reselected && fltk::app::event_clicks()
             } else {
-                tree.callback_reason() == TreeReason::Selected
+                reason == TreeReason::Selected
             };
             if activate {
                 if let Some(path) = Self::selected_node_path(tree) {
@@ -487,51 +551,108 @@ impl TreePanel {
             }
         });
 
-        // Enter key + right-click context menu + color re-apply on selection
+        // Drag-and-drop + Enter key + right-click context menu + color re-apply
         let sender2 = self.sender;
         let on_click_action2 = self.on_click_action.clone();
         let context_path = self.context_path.clone();
         let context_menu = self.context_menu.clone();
         let ctx_menu_ptr = self.ctx_menu.as_widget_ptr();
         let colored_items = self.colored_items.clone();
+        let drag_source = self.drag_source_path.clone();
+        let dragging = self.dragging.clone();
         self.tree.handle(move |tree, ev| {
-            // Re-apply per-item colors after click events.
-            // FLTK's fl_contrast() can override per-item labelfgcolor for
-            // selected items; a 0ms timeout re-applies after FLTK processes
-            // the selection.
-            if ev == Event::Push {
-                let ci = colored_items.clone();
-                let tp = tree.as_widget_ptr();
-                fltk::app::add_timeout3(0.0, move |_| {
-                    let t = unsafe { Tree::from_widget_ptr(tp) };
-                    for (path, color) in ci.borrow().iter() {
-                        if let Some(mut item) = t.find_item(path) {
-                            item.set_label_fgcolor(*color);
+            match ev {
+                // Left-click: record potential drag source BEFORE FLTK processes
+                Event::Push if fltk::app::event_button() == 1 => {
+                    // Capture the item under the mouse as potential drag source
+                    let item = tree.find_clicked(true);
+                    if let Some(ref it) = item {
+                        *drag_source.borrow_mut() = Self::node_path_for_item(it);
+                    } else {
+                        *drag_source.borrow_mut() = None;
+                    }
+                    dragging.set(false);
+
+                    // Re-apply per-item colors after FLTK processes the selection
+                    let ci = colored_items.clone();
+                    let tp = tree.as_widget_ptr();
+                    fltk::app::add_timeout3(0.0, move |_| {
+                        let t = unsafe { Tree::from_widget_ptr(tp) };
+                        for (path, color) in ci.borrow().iter() {
+                            if let Some(mut item) = t.find_item(path) {
+                                item.set_label_fgcolor(*color);
+                            }
+                        }
+                    });
+
+                    false // let FLTK handle normal selection
+                }
+
+                // Right-click context menu
+                Event::Push if fltk::app::event_button() == 3 => {
+                    Self::show_context_menu(tree, session_id, sender2, &context_path, &context_menu, ctx_menu_ptr);
+                    true
+                }
+
+                // Mouse movement with button held: mark as dragging
+                Event::Drag => {
+                    if drag_source.borrow().is_some() {
+                        dragging.set(true);
+                    }
+                    false // don't consume — let FLTK handle scroll etc.
+                }
+
+                // Mouse released: if dragging, detect drop target and send move
+                Event::Released if dragging.get() => {
+                    dragging.set(false);
+                    let source_node_path = drag_source.borrow_mut().take();
+
+                    if let Some(source_node_path) = source_node_path {
+                        if !source_node_path.is_empty() {
+                            // Find the item under the mouse at drop time
+                            let target_node_path = match tree.find_clicked(true) {
+                                Some(ref item) => Self::node_path_for_item(item).unwrap_or_default(),
+                                None => vec![], // Dropped on empty area → project root
+                            };
+
+                            // Don't move onto self
+                            if source_node_path != target_node_path {
+                                sender2.send(Message::TreeViewContextAction {
+                                    session_id,
+                                    action: "move".to_string(),
+                                    node_path: source_node_path,
+                                    input_text: None,
+                                    target_path: Some(target_node_path),
+                                });
+                                return true;
+                            }
                         }
                     }
-                });
-            }
-
-            // Enter key — open selected file
-            if ev == Event::KeyDown && fltk::app::event_key() == Key::Enter {
-                if let Some(path) = Self::selected_node_path(tree) {
-                    if on_click_action2.is_some() {
-                        sender2.send(Message::TreeViewNodeClicked {
-                            session_id,
-                            node_path: path,
-                        });
-                        return true;
-                    }
+                    false
                 }
-            }
 
-            // Right-click context menu
-            if ev == Event::Push && fltk::app::event_button() == 3 {
-                Self::show_context_menu(tree, session_id, sender2, &context_path, &context_menu, ctx_menu_ptr);
-                return true;
-            }
+                // Normal release (no drag): clear source
+                Event::Released => {
+                    *drag_source.borrow_mut() = None;
+                    false
+                }
 
-            false
+                // Enter key — open selected file
+                Event::KeyDown if fltk::app::event_key() == Key::Enter => {
+                    if let Some(path) = Self::selected_node_path(tree) {
+                        if on_click_action2.is_some() {
+                            sender2.send(Message::TreeViewNodeClicked {
+                                session_id,
+                                node_path: path,
+                            });
+                            return true;
+                        }
+                    }
+                    false
+                }
+
+                _ => false,
+            }
         });
 
         // Refresh button callback — re-scan the same folder, don't re-detect project root
@@ -542,6 +663,7 @@ impl TreePanel {
                 action: "refresh".to_string(),
                 node_path: vec![],
                 input_text: None,
+                target_path: None,
             });
         });
 
@@ -657,6 +779,7 @@ impl TreePanel {
                                 action: item_def.action.clone(),
                                 node_path: node_path.clone(),
                                 input_text: Some(input),
+                                target_path: None,
                             });
                         }
                     }
@@ -668,6 +791,7 @@ impl TreePanel {
                             action: item_def.action.clone(),
                             node_path: node_path.clone(),
                             input_text: None,
+                            target_path: None,
                         });
                     }
                 } else {
@@ -677,6 +801,7 @@ impl TreePanel {
                         action: item_def.action.clone(),
                         node_path: node_path.clone(),
                         input_text: None,
+                        target_path: None,
                     });
                 }
             }
@@ -697,6 +822,9 @@ impl TreePanel {
         self.current_nodes = None;
         self.search_input.set_value(SEARCH_PLACEHOLDER);
         self.search_input.set_text_color(Color::from_rgb(160, 160, 160));
+        *self.drag_source_path.borrow_mut() = None;
+        self.dragging.set(false);
+        self.expanded_paths.borrow_mut().clear();
     }
 
     /// Check if the panel is visible

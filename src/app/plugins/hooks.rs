@@ -160,6 +160,8 @@ pub struct WidgetActionData {
     pub input_text: Option<String>,
     /// Buffer content passed directly (avoids stale disk reads for unsaved files)
     pub content: Option<String>,
+    /// For tree view drag-and-drop: path to the drop target node
+    pub target_path: Option<Vec<String>>,
 }
 
 /// A status message to display to the user

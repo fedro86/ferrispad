@@ -2478,6 +2478,7 @@ impl AppState {
                     node_path: None,
                     input_text: None,
                     content: None,
+                    target_path: None,
                 },
                 path: self.tab_manager.active_doc().and_then(|d| d.file_path.clone()),
             },
@@ -2579,6 +2580,7 @@ impl AppState {
                     node_path: Some(node_path),
                     input_text: None,
                     content: Some(buffer_content),
+                    target_path: None,
                 },
                 path: current_path,
             },
@@ -2606,6 +2608,7 @@ impl AppState {
         action: String,
         node_path: Vec<String>,
         input_text: Option<String>,
+        target_path: Option<Vec<String>>,
     ) {
         // Get session info
         let session = match self.widget_manager.get_session(session_id) {
@@ -2631,6 +2634,7 @@ impl AppState {
                     node_path: Some(node_path),
                     input_text,
                     content: None,
+                    target_path,
                 },
                 path: current_path,
             },
