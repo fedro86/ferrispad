@@ -12,6 +12,7 @@
 
 pub mod annotations;
 pub mod api;
+pub mod diff;
 pub mod hooks;
 pub mod loader;
 pub mod runtime;
@@ -30,7 +31,7 @@ pub use loader::{get_plugin_dir, ConfigParamDef, PluginConfigDef, PluginMenuItem
 pub use widgets::{SplitViewRequest, TreeViewRequest, WidgetManager};
 // Re-export widget types for public API (may not be used internally yet)
 #[allow(unused_imports)]
-pub use widgets::{HighlightColor, LineHighlight, SplitPane, SplitViewAction, TreeNode};
+pub use widgets::{HighlightColor, IntralineSpan, LineHighlight, SplitPane, SplitViewAction, TreeNode};
 
 use loader::{discover_plugins, load_plugin_toml, PluginPermissions};
 use runtime::LuaRuntime;

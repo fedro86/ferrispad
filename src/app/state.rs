@@ -70,8 +70,6 @@ pub struct AppState {
     session_dirty: bool,
     /// Widget manager for plugin-created widgets
     pub widget_manager: WidgetManager,
-    /// Split panel for diff/suggestion views
-    pub split_panel: Option<SplitPanel>,
 }
 
 impl AppState {
@@ -165,7 +163,6 @@ impl AppState {
             last_auto_save: Instant::now(),
             session_dirty: false,
             widget_manager: WidgetManager::new(),
-            split_panel: None,
         }
     }
 
@@ -1313,6 +1310,8 @@ impl AppState {
             tab_bar.apply_theme(self.dark_mode, bg);
         }
 
+        // Split panel theme is applied via Message::SplitViewShow (panel lives in MainWidgets)
+
         self.highlight.rehighlight_all_documents(&mut self.tab_manager, &self.sender);
         self.bind_active_buffer();
 
@@ -1746,6 +1745,8 @@ impl AppState {
             tab_bar.apply_theme(is_dark, bg);
         }
 
+        // Split panel theme is applied via show_split_view (panel lives in MainWidgets)
+
         self.show_linenumbers = new_settings.line_numbers_enabled;
         self.update_linenumber_width();
         self.update_menu_checkbox("View/Toggle Line Numbers", self.show_linenumbers);
@@ -2029,10 +2030,19 @@ impl AppState {
     /// Handle a plugin's custom menu action.
     /// Calls the `on_menu_action` hook on the specified plugin.
     pub fn handle_plugin_menu_action(&mut self, plugin_name: &str, action: &str) {
-        // Toggle: if any tree view is open, hide it and return
+        eprintln!("[debug:menu] handle_plugin_menu_action plugin='{}' action='{}'", plugin_name, action);
+
+        // Toggle: if the SAME plugin already has a tree view open, hide it and return.
+        // This lets tree-view plugins (e.g. file-explorer) toggle their panel,
+        // without blocking other plugins' menu actions.
         if let Some(existing_id) = self.widget_manager.any_tree_view_session() {
-            self.sender.send(Message::TreeViewHide(existing_id));
-            return;
+            if let Some(session) = self.widget_manager.get_session(existing_id) {
+                if session.plugin_name == plugin_name {
+                    eprintln!("[debug:menu] toggle: hiding tree view for same plugin '{}'", plugin_name);
+                    self.sender.send(Message::TreeViewHide(existing_id));
+                    return;
+                }
+            }
         }
 
         // Get current document info for the hook
@@ -2040,6 +2050,7 @@ impl AppState {
             d.file_path.as_ref().map(|p| p.clone())
         });
         let content = buffer_text_no_leak(&self.active_buffer());
+        eprintln!("[debug:menu] path={:?}, content_len={}", path, content.len());
 
         // Call the hook on the specific plugin
         let hook = PluginHook::OnMenuAction {
@@ -2051,6 +2062,14 @@ impl AppState {
         let result = self.plugins.call_hook_on_plugin(plugin_name, hook);
 
         if let Some(result) = result {
+            eprintln!(
+                "[debug:menu] hook returned: split_view={}, tree_view={}, status_msg={:?}, modified_content={}",
+                result.split_view.is_some(),
+                result.tree_view.is_some(),
+                result.status_message.as_ref().map(|m| &m.text),
+                result.modified_content.is_some(),
+            );
+
             // Process widget requests (split view, tree view)
             self.process_widget_requests(&result, plugin_name);
 
@@ -2384,27 +2403,49 @@ impl AppState {
         session_id: u32,
         _plugin_name: &str,
         request: &super::plugins::SplitViewRequest,
+        split_panel: &mut SplitPanel,
     ) {
-        // Create split panel if it doesn't exist
-        if self.split_panel.is_none() {
-            let mut panel = SplitPanel::new(self.sender);
-            panel.apply_theme(self.dark_mode);
-            self.split_panel = Some(panel);
-        }
+        let theme_bg = self.highlight.highlighter().theme_background();
+        let theme_fg = self.highlight.highlighter().theme_foreground();
+        split_panel.apply_theme(self.dark_mode, theme_bg);
 
-        if let Some(ref mut panel) = self.split_panel {
-            panel.show_request(session_id, request);
-            // Note: In a full implementation, we'd integrate this into the Flex layout
-            // For now, the panel manages its own visibility
-        }
+        // Get syntax name from active document
+        let syntax_name = self.tab_manager.active_doc().and_then(|d| d.syntax_name.clone());
+
+        // Run syntect on both panes if syntax is known
+        let left_syntax = syntax_name.as_ref().map(|name| {
+            self.highlight.highlight_full(&request.left.content, name)
+        });
+        let right_syntax = syntax_name.as_ref().map(|name| {
+            self.highlight.highlight_full(&request.right.content, name)
+        });
+
+        // Get the style table for color lookup (maps style char → foreground RGB)
+        let style_table = self.highlight.style_table();
+
+        // Get font settings
+        let settings = self.settings.borrow();
+        let font = settings.font.to_fltk_font();
+        let font_size = settings.font_size as i32;
+        drop(settings);
+
+        split_panel.show_request_with_syntax(
+            session_id,
+            request,
+            left_syntax.as_ref(),
+            right_syntax.as_ref(),
+            &style_table,
+            theme_bg,
+            theme_fg,
+            font,
+            font_size,
+        );
     }
 
     /// Hide the split view panel
-    pub fn hide_split_view(&mut self, session_id: u32) {
-        if let Some(ref mut panel) = self.split_panel {
-            if panel.session_id() == Some(session_id) {
-                panel.hide();
-            }
+    pub fn hide_split_view(&mut self, session_id: u32, split_panel: &mut SplitPanel) {
+        if split_panel.session_id() == Some(session_id) {
+            split_panel.hide();
         }
 
         // Clean up session
@@ -2412,7 +2453,7 @@ impl AppState {
     }
 
     /// Handle split view accept action
-    pub fn handle_split_view_accept(&mut self, session_id: u32) {
+    pub fn handle_split_view_accept(&mut self, session_id: u32, split_panel: &mut SplitPanel) {
         // Get session info
         let session = match self.widget_manager.get_session(session_id) {
             Some(s) => s.clone(),
@@ -2420,11 +2461,7 @@ impl AppState {
         };
 
         // Get the right pane content
-        let right_content = if let Some(ref panel) = self.split_panel {
-            Some(panel.right_content())
-        } else {
-            None
-        };
+        let right_content = Some(split_panel.right_content());
 
         // Call plugin's on_widget_action hook
         let result = self.plugins.call_hook_on_plugin(
@@ -2454,13 +2491,13 @@ impl AppState {
         }
 
         // Hide the panel
-        self.hide_split_view(session_id);
+        self.hide_split_view(session_id, split_panel);
     }
 
     /// Handle split view reject action
-    pub fn handle_split_view_reject(&mut self, session_id: u32) {
+    pub fn handle_split_view_reject(&mut self, session_id: u32, split_panel: &mut SplitPanel) {
         // Just hide the panel, no content changes
-        self.hide_split_view(session_id);
+        self.hide_split_view(session_id, split_panel);
     }
 
     /// Show a tree view panel from a plugin request

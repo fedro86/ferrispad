@@ -7,7 +7,7 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 mod app;
 mod ui;
 
-use fltk::{app as fltk_app, prelude::*};
+use fltk::{app as fltk_app, group::Flex, prelude::*};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::env;
@@ -23,6 +23,9 @@ use crate::ui::dialogs::find::{show_find_dialog, show_replace_dialog};
 use crate::ui::dialogs::goto_line::show_goto_line_dialog;
 use crate::ui::dialogs::update::check_for_updates_ui;
 use crate::ui::main_window::build_main_window;
+use crate::app::plugins::widgets::SplitDisplayMode;
+use crate::ui::split_panel::SplitPanel;
+use crate::ui::tab_bar::TAB_BAR_HEIGHT;
 use crate::ui::tree_panel::TreePanel;
 use crate::ui::menu::build_menu;
 #[cfg(target_os = "windows")]
@@ -245,6 +248,14 @@ fn main() {
         }
     }
 
+    // Resolve the parent Flex that owns the split panel.
+    // For Left/Right tree positions it's right_col; for Bottom it's the outer flex.
+    macro_rules! split_parent {
+        ($w:expr) => {
+            $w.right_col.as_mut().map(|rc| rc as &mut Flex).unwrap_or(&mut $w.flex)
+        };
+    }
+
     // Main event loop with message dispatch
     while app.wait() {
         if let Some(msg) = receiver.recv() {
@@ -265,6 +276,24 @@ fn main() {
 
                 // Tabs
                 Message::TabSwitch(id) => {
+                    // If diff tab is active in tab mode, collapse the split panel first
+                    if let Some(ref mut tb) = state.tab_bar {
+                        if tb.is_diff_tab_active() && w.split_panel.is_tab_mode() {
+                            // Collapse split panel to 0 and hide it
+                            w.split_panel.container.hide();
+                            let parent = split_parent!(w);
+                            parent.fixed(w.split_panel.widget(), 0);
+                            if let Some(ref mut div) = w.split_panel.divider {
+                                div.hide();
+                                parent.fixed(div, 0);
+                            }
+                            parent.recalc();
+                            // Mark diff tab as inactive (keep it in the tab bar)
+                            if let Some(sid) = tb.diff_tab_session_id() {
+                                tb.set_diff_tab(sid, w.split_panel.diff_title(), false);
+                            }
+                        }
+                    }
                     state.switch_to_document(id);
                     state.rebuild_tab_bar();
                     // Auto-scroll to make the active tab visible
@@ -333,9 +362,12 @@ fn main() {
                 Message::ToggleWordWrap => state.toggle_word_wrap(),
                 Message::ToggleDarkMode => {
                     state.toggle_dark_mode();
+                    let theme_bg = state.highlight.highlighter().theme_background();
                     if w.tree_panel.is_visible() {
-                        let theme_bg = state.highlight.highlighter().theme_background();
                         w.tree_panel.apply_theme(state.dark_mode, theme_bg);
+                    }
+                    if w.split_panel.is_visible() {
+                        w.split_panel.apply_theme(state.dark_mode, theme_bg);
                     }
                 }
                 Message::ToggleHighlighting => state.toggle_highlighting(),
@@ -482,20 +514,151 @@ fn main() {
                     if let Some(ref mut tab_bar) = state.tab_bar {
                         tab_bar.handle_resize();
                     }
+                    // Recalculate split panel height in tab mode
+                    if w.split_panel.is_visible() && w.split_panel.is_tab_mode() {
+                        let parent = split_parent!(w);
+                        let full_height = parent.h() - TAB_BAR_HEIGHT;
+                        parent.fixed(w.split_panel.widget(), full_height);
+                        parent.recalc();
+                        w.wind.redraw();
+                    }
                 }
 
                 // Widget API - Split View
                 Message::SplitViewShow { session_id, plugin_name, request } => {
-                    state.show_split_view(session_id, &plugin_name, &request);
+                    let is_tab_mode = request.display_mode == SplitDisplayMode::Tab;
+                    state.show_split_view(session_id, &plugin_name, &request, &mut w.split_panel);
+
+                    let parent = split_parent!(w);
+                    if is_tab_mode {
+                        // Tab mode: fill editor area (parent.h - TAB_BAR_HEIGHT)
+                        let full_height = parent.h() - TAB_BAR_HEIGHT;
+                        parent.fixed(w.split_panel.widget(), full_height);
+                        // Hide divider (no resize in tab mode)
+                        if let Some(ref mut div) = w.split_panel.divider {
+                            div.hide();
+                            parent.fixed(div, 0);
+                        }
+                        // Show diff tab in tab bar
+                        if let Some(ref mut tb) = state.tab_bar {
+                            tb.set_diff_tab(session_id, w.split_panel.diff_title(), true);
+                        }
+                    } else {
+                        // Panel mode (existing behavior)
+                        let height = w.split_panel.current_height();
+                        parent.fixed(w.split_panel.widget(), height);
+                        if let Some(ref mut div) = w.split_panel.divider {
+                            div.show();
+                            parent.fixed(div, SplitPanel::DIVIDER_HEIGHT);
+                        }
+                    }
+                    parent.recalc();
+                    w.wind.redraw();
                 }
                 Message::SplitViewHide(session_id) => {
-                    state.hide_split_view(session_id);
+                    state.hide_split_view(session_id, &mut w.split_panel);
+                    let parent = split_parent!(w);
+                    parent.fixed(w.split_panel.widget(), 0);
+                    if let Some(ref mut div) = w.split_panel.divider {
+                        div.hide();
+                        parent.fixed(div, 0);
+                    }
+                    if let Some(ref mut tb) = state.tab_bar {
+                        tb.clear_diff_tab();
+                    }
+                    parent.recalc();
+                    w.wind.redraw();
                 }
                 Message::SplitViewAccept(session_id) => {
-                    state.handle_split_view_accept(session_id);
+                    state.handle_split_view_accept(session_id, &mut w.split_panel);
+                    let parent = split_parent!(w);
+                    parent.fixed(w.split_panel.widget(), 0);
+                    if let Some(ref mut div) = w.split_panel.divider {
+                        div.hide();
+                        parent.fixed(div, 0);
+                    }
+                    if let Some(ref mut tb) = state.tab_bar {
+                        tb.clear_diff_tab();
+                    }
+                    parent.recalc();
+                    w.wind.redraw();
                 }
                 Message::SplitViewReject(session_id) => {
-                    state.handle_split_view_reject(session_id);
+                    state.handle_split_view_reject(session_id, &mut w.split_panel);
+                    let parent = split_parent!(w);
+                    parent.fixed(w.split_panel.widget(), 0);
+                    if let Some(ref mut div) = w.split_panel.divider {
+                        div.hide();
+                        parent.fixed(div, 0);
+                    }
+                    if let Some(ref mut tb) = state.tab_bar {
+                        tb.clear_diff_tab();
+                    }
+                    parent.recalc();
+                    w.wind.redraw();
+                }
+                Message::SplitViewResize(mouse_y) => {
+                    if !w.split_panel.is_tab_mode() {
+                        let parent = split_parent!(w);
+                        let col_y = parent.y();
+                        let col_h = parent.h();
+                        let new_height = (col_y + col_h - mouse_y).clamp(100, col_h / 2);
+                        parent.fixed(w.split_panel.widget(), new_height);
+                        parent.recalc();
+                        w.wind.redraw();
+                    }
+                }
+
+                Message::DiffTabActivate(session_id) => {
+                    // Re-show the split panel in tab mode
+                    if w.split_panel.session_id() == Some(session_id) {
+                        w.split_panel.show_existing();
+                        let parent = split_parent!(w);
+                        let full_height = parent.h() - TAB_BAR_HEIGHT;
+                        parent.fixed(w.split_panel.widget(), full_height);
+                        if let Some(ref mut div) = w.split_panel.divider {
+                            div.hide();
+                            parent.fixed(div, 0);
+                        }
+                        if let Some(ref mut tb) = state.tab_bar {
+                            tb.set_diff_tab(session_id, w.split_panel.diff_title(), true);
+                        }
+                        parent.recalc();
+                        w.wind.redraw();
+                    }
+                }
+                Message::SplitViewToggleMode(session_id) => {
+                    if w.split_panel.session_id() == Some(session_id) {
+                        let parent = split_parent!(w);
+                        if w.split_panel.is_tab_mode() {
+                            // Switch from tab mode to panel mode
+                            w.split_panel.set_tab_mode(false);
+                            let height = w.split_panel.current_height();
+                            parent.fixed(w.split_panel.widget(), height);
+                            if let Some(ref mut div) = w.split_panel.divider {
+                                div.show();
+                                parent.fixed(div, SplitPanel::DIVIDER_HEIGHT);
+                            }
+                            if let Some(ref mut tb) = state.tab_bar {
+                                tb.clear_diff_tab();
+                            }
+                        } else {
+                            // Switch from panel mode to tab mode
+                            w.split_panel.set_tab_mode(true);
+                            let full_height = parent.h() - TAB_BAR_HEIGHT;
+                            parent.fixed(w.split_panel.widget(), full_height);
+                            if let Some(ref mut div) = w.split_panel.divider {
+                                div.hide();
+                                parent.fixed(div, 0);
+                            }
+                            if let Some(ref mut tb) = state.tab_bar {
+                                tb.set_diff_tab(session_id, w.split_panel.diff_title(), true);
+                            }
+                        }
+                        w.split_panel.refresh_action_buttons();
+                        parent.recalc();
+                        w.wind.redraw();
+                    }
                 }
 
                 // Widget API - Tree View

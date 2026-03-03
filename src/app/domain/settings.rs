@@ -77,6 +77,17 @@ pub enum FontChoice {
     HelveticaMono,
 }
 
+impl FontChoice {
+    /// Convert to the corresponding FLTK Font.
+    pub fn to_fltk_font(self) -> fltk::enums::Font {
+        match self {
+            FontChoice::ScreenBold => fltk::enums::Font::ScreenBold,
+            FontChoice::Courier => fltk::enums::Font::Courier,
+            FontChoice::HelveticaMono => fltk::enums::Font::Screen,
+        }
+    }
+}
+
 /// Available syntax highlighting themes from syntect
 /// Each theme has a display name and the internal syntect theme key
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

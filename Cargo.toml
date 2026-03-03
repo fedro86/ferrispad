@@ -34,6 +34,7 @@ ed25519-dalek = { version = "2.1", features = ["std"] }
 sha2 = "0.10"
 base64 = "0.22"
 hex = "0.4"
+similar = "2"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 tikv-jemallocator = "0.6"

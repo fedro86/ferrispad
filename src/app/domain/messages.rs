@@ -163,4 +163,12 @@ pub enum Message {
     },
     /// User dragged the tree panel divider to resize
     TreeViewResize(i32),
+
+    /// User dragged the split panel divider to resize
+    SplitViewResize(i32),
+
+    /// User clicked the diff tab in the tab bar
+    DiffTabActivate(u32),
+    /// Toggle split view between panel and tab display mode
+    SplitViewToggleMode(u32),
 }

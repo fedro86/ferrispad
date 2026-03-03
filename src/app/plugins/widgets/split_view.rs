@@ -7,6 +7,16 @@
 
 use serde::{Deserialize, Serialize};
 
+/// How the split view is displayed: as a panel below the editor or as a full tab.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SplitDisplayMode {
+    /// Panel mode: split panel appears below the editor (default)
+    #[default]
+    Panel,
+    /// Tab mode: split panel fills the entire editor area, accessible via a tab
+    Tab,
+}
+
 /// A request to show a split view, returned from plugin hooks
 #[derive(Debug, Clone, Default)]
 pub struct SplitViewRequest {
@@ -18,6 +28,8 @@ pub struct SplitViewRequest {
     pub right: SplitPane,
     /// Action buttons to show (e.g., Accept, Reject)
     pub actions: Vec<SplitViewAction>,
+    /// Display mode: panel (below editor) or tab (full editor area)
+    pub display_mode: SplitDisplayMode,
 }
 
 /// Content and settings for one pane of a split view
@@ -36,6 +48,15 @@ pub struct SplitPane {
     pub highlights: Vec<LineHighlight>,
 }
 
+/// A byte range within a line for intraline emphasis highlighting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntralineSpan {
+    /// Start byte offset (0-indexed, inclusive)
+    pub start: u32,
+    /// End byte offset (0-indexed, exclusive)
+    pub end: u32,
+}
+
 /// A line highlight for diff visualization
 #[derive(Debug, Clone)]
 pub struct LineHighlight {
@@ -43,6 +64,8 @@ pub struct LineHighlight {
     pub line: u32,
     /// Highlight color
     pub color: HighlightColor,
+    /// Intraline emphasis spans (byte offsets within the line)
+    pub spans: Vec<IntralineSpan>,
 }
 
 /// Colors for diff highlighting
@@ -129,11 +152,22 @@ impl SplitViewRequest {
             Vec::new()
         };
 
+        // Parse display mode
+        let display_mode = if let Ok(mode_str) = table.get::<String>("display_mode") {
+            match mode_str.as_str() {
+                "tab" => SplitDisplayMode::Tab,
+                _ => SplitDisplayMode::Panel,
+            }
+        } else {
+            SplitDisplayMode::Panel
+        };
+
         Some(Self {
             title,
             left,
             right,
             actions,
+            display_mode,
         })
     }
 
@@ -189,7 +223,22 @@ impl LineHighlight {
             return None;
         };
 
-        Some(Self { line, color })
+        // Parse optional intraline spans array
+        let spans = if let Ok(mlua::Value::Table(spans_table)) = table.get::<mlua::Value>("spans") {
+            spans_table
+                .pairs::<i32, mlua::Table>()
+                .flatten()
+                .filter_map(|(_, span_table)| {
+                    let start: u32 = span_table.get("start").ok()?;
+                    let end: u32 = span_table.get("end").ok()?;
+                    Some(IntralineSpan { start, end })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        Some(Self { line, color, spans })
     }
 }
 

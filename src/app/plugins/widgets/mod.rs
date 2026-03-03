@@ -13,7 +13,7 @@
 pub mod split_view;
 pub mod tree_view;
 
-pub use split_view::{HighlightColor, LineHighlight, SplitPane, SplitViewAction, SplitViewRequest};
+pub use split_view::{HighlightColor, IntralineSpan, LineHighlight, SplitDisplayMode, SplitPane, SplitViewAction, SplitViewRequest};
 pub use tree_view::{ContextMenuItem, ContextMenuTarget, TreeClickMode, TreeNode, TreeViewRequest};
 
 use std::collections::HashMap;

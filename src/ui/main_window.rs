@@ -15,6 +15,7 @@ use super::diagnostic_panel::DiagnosticPanel;
 use super::editor_container::EditorContainer;
 use super::tab_bar::{TabBar, TAB_BAR_HEIGHT};
 use super::toast::Toast;
+use super::split_panel::SplitPanel;
 use super::tree_panel::TreePanel;
 
 pub struct MainWidgets {
@@ -25,10 +26,13 @@ pub struct MainWidgets {
     pub toast: Toast,
     pub update_banner_frame: Frame,
     pub editor_container: EditorContainer,
+    pub split_panel: SplitPanel,
     pub diagnostic_panel: DiagnosticPanel,
     pub tree_panel: TreePanel,
     /// Inner row flex for left/right tree panel positioning
     pub content_row: Flex,
+    /// Column flex holding editor + split panel (for Left/Right tree positions)
+    pub right_col: Option<Flex>,
     /// Current tree panel position setting
     pub tree_position: TreePanelPosition,
 }
@@ -80,6 +84,8 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
     let tree_panel;
     let tab_bar;
     let editor_container;
+    let split_panel;
+    let right_col;
 
     match tree_position {
         TreePanelPosition::Left => {
@@ -92,7 +98,12 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
             tp.create_divider(*sender);
             content_row.fixed(tp.divider.as_ref().unwrap(), 0);
 
-            // Editor column: tab bar + editor (takes remaining width)
+            // Right column: editor + split divider + split panel
+            let mut rc = Flex::default().column();
+            rc.set_margin(0);
+            rc.set_pad(0);
+
+            // Editor column: tab bar + editor (takes remaining height)
             let mut editor_col = Flex::default().column();
             editor_col.set_margin(0);
             editor_col.set_pad(0);
@@ -106,10 +117,25 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
             editor_container = EditorContainer::new(&editor_col);
             editor_col.end();
 
+            // Split divider BEFORE split panel so it appears above in column
+            let split_div = SplitPanel::new_divider(*sender);
+            rc.fixed(&split_div, 0);
+            let mut sp = SplitPanel::new(*sender);
+            sp.divider = Some(split_div);
+            rc.fixed(sp.widget(), 0);
+
+            rc.end();
             content_row.end();
             tree_panel = tp;
+            split_panel = sp;
+            right_col = Some(rc);
         }
         TreePanelPosition::Right => {
+            // Right column (left side here): editor + split divider + split panel
+            let mut rc = Flex::default().column();
+            rc.set_margin(0);
+            rc.set_pad(0);
+
             // Editor column first
             let mut editor_col = Flex::default().column();
             editor_col.set_margin(0);
@@ -124,6 +150,15 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
             editor_container = EditorContainer::new(&editor_col);
             editor_col.end();
 
+            // Split divider BEFORE split panel so it appears above in column
+            let split_div = SplitPanel::new_divider(*sender);
+            rc.fixed(&split_div, 0);
+            let mut sp = SplitPanel::new(*sender);
+            sp.divider = Some(split_div);
+            rc.fixed(sp.widget(), 0);
+
+            rc.end();
+
             // Draggable divider before tree panel (4px, hidden until tree panel is shown)
             let mut tp = TreePanel::new(*sender);
             tp.create_divider(*sender);
@@ -135,6 +170,8 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
 
             content_row.end();
             tree_panel = tp;
+            split_panel = sp;
+            right_col = Some(rc);
         }
         TreePanelPosition::Bottom => {
             // No tree panel in the row — just tab bar + editor
@@ -153,6 +190,15 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
             tp.hide();
             flex.fixed(tp.widget(), 0);
             tree_panel = tp;
+
+            // Split divider BEFORE split panel so it appears above in column
+            let split_div = SplitPanel::new_divider(*sender);
+            flex.fixed(&split_div, 0);
+            let mut sp = SplitPanel::new(*sender);
+            sp.divider = Some(split_div);
+            flex.fixed(sp.widget(), 0);
+            split_panel = sp;
+            right_col = None;
         }
     }
 
@@ -172,9 +218,11 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
         toast,
         update_banner_frame,
         editor_container,
+        split_panel,
         diagnostic_panel,
         tree_panel,
         content_row,
+        right_col,
         tree_position,
     }
 }

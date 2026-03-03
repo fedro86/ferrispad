@@ -333,20 +333,35 @@ impl UserData for EditorApi {
                     let start = Instant::now();
                     let timeout = DEFAULT_COMMAND_TIMEOUT;
 
+                    // Take stdout/stderr handles BEFORE the poll loop.
+                    // Drain them in background threads so the child never blocks
+                    // on a full pipe buffer (classic deadlock: child blocks writing
+                    // to a full pipe, parent waits for child to exit before reading).
+                    let stdout_handle = child.stdout.take();
+                    let stderr_handle = child.stderr.take();
+
+                    let stdout_thread = std::thread::spawn(move || {
+                        let mut s = String::new();
+                        if let Some(mut out) = stdout_handle {
+                            let _ = out.read_to_string(&mut s);
+                        }
+                        s
+                    });
+
+                    let stderr_thread = std::thread::spawn(move || {
+                        let mut s = String::new();
+                        if let Some(mut err) = stderr_handle {
+                            let _ = err.read_to_string(&mut s);
+                        }
+                        s
+                    });
+
                     // Poll until complete or timeout
                     loop {
                         match child.try_wait() {
                             Ok(Some(status)) => {
-                                // Process completed - read output from pipes
-                                let mut stdout_str = String::new();
-                                let mut stderr_str = String::new();
-
-                                if let Some(mut stdout) = child.stdout.take() {
-                                    let _ = stdout.read_to_string(&mut stdout_str);
-                                }
-                                if let Some(mut stderr) = child.stderr.take() {
-                                    let _ = stderr.read_to_string(&mut stderr_str);
-                                }
+                                let stdout_str = stdout_thread.join().unwrap_or_default();
+                                let stderr_str = stderr_thread.join().unwrap_or_default();
 
                                 let result = lua.create_table()?;
                                 result.set("stdout", stdout_str)?;
@@ -488,6 +503,64 @@ impl UserData for EditorApi {
                 .get(&key)
                 .map(|v| v.eq_ignore_ascii_case("true"))
                 .unwrap_or(false))
+        });
+
+        // ── Diff API ──────────────────────────────────────────────────────
+        // Pure computation — no file/command access, no security concerns.
+
+        // Compute an aligned diff between old_text and new_text.
+        // Returns: { left_content, right_content, left_highlights, right_highlights }
+        // Highlights include intraline `spans` for character-level emphasis.
+        methods.add_method("diff_text", |lua, _this, (old_text, new_text): (String, String)| {
+            use super::diff::compute_aligned_diff;
+
+            let result = compute_aligned_diff(&old_text, &new_text);
+
+            let table = lua.create_table()?;
+            table.set("left_content", result.left_content)?;
+            table.set("right_content", result.right_content)?;
+
+            // Convert left highlights
+            let left_hl_table = lua.create_table()?;
+            for (i, hl) in result.left_highlights.iter().enumerate() {
+                let hl_table = lua.create_table()?;
+                hl_table.set("line", hl.line)?;
+                hl_table.set("color", hl.color)?;
+                if !hl.spans.is_empty() {
+                    let spans_table = lua.create_table()?;
+                    for (j, span) in hl.spans.iter().enumerate() {
+                        let span_table = lua.create_table()?;
+                        span_table.set("start", span.start)?;
+                        span_table.set("end", span.end)?;
+                        spans_table.set(j + 1, span_table)?;
+                    }
+                    hl_table.set("spans", spans_table)?;
+                }
+                left_hl_table.set(i + 1, hl_table)?;
+            }
+            table.set("left_highlights", left_hl_table)?;
+
+            // Convert right highlights
+            let right_hl_table = lua.create_table()?;
+            for (i, hl) in result.right_highlights.iter().enumerate() {
+                let hl_table = lua.create_table()?;
+                hl_table.set("line", hl.line)?;
+                hl_table.set("color", hl.color)?;
+                if !hl.spans.is_empty() {
+                    let spans_table = lua.create_table()?;
+                    for (j, span) in hl.spans.iter().enumerate() {
+                        let span_table = lua.create_table()?;
+                        span_table.set("start", span.start)?;
+                        span_table.set("end", span.end)?;
+                        spans_table.set(j + 1, span_table)?;
+                    }
+                    hl_table.set("spans", spans_table)?;
+                }
+                right_hl_table.set(i + 1, hl_table)?;
+            }
+            table.set("right_highlights", right_hl_table)?;
+
+            Ok(mlua::Value::Table(table))
         });
 
         // ── Cross-platform filesystem API ───────────────────────────────

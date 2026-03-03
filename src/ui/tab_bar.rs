@@ -49,11 +49,18 @@ struct GroupInfo {
     collapsed: bool,
 }
 
+struct DiffTabInfo {
+    session_id: u32,
+    title: String,
+    is_active: bool,
+}
+
 #[derive(Clone)]
 enum LayoutItem {
     Tab { index: usize, x: i32, width: i32 },
     GroupLabel { group_id: GroupId, x: i32, width: i32 },
     CollapsedChip { group_id: GroupId, x: i32, width: i32, count: usize, name: String, color: GroupColor },
+    DiffTab { x: i32, width: i32 },
     PlusButton { x: i32 },
     ScrollLeft { x: i32, enabled: bool },
     ScrollRight { x: i32, enabled: bool },
@@ -63,6 +70,7 @@ enum HitResult {
     Tab { index: usize, is_close: bool },
     GroupLabel(GroupId),
     CollapsedChip(GroupId),
+    DiffTab { is_close: bool },
     PlusButton,
     ScrollLeft,
     ScrollRight,
@@ -150,6 +158,8 @@ struct TabBarState {
     hover_collapsed_chip: Option<GroupId>,
     hover_scroll_left: bool,
     hover_scroll_right: bool,
+    hover_diff_tab: bool,
+    diff_tab: Option<DiffTabInfo>,
     drag_source: Option<DragSource>,
     drag_target: Option<DragTarget>,
     sender: Sender<Message>,
@@ -191,6 +201,8 @@ impl TabBar {
             hover_collapsed_chip: None,
             hover_scroll_left: false,
             hover_scroll_right: false,
+            hover_diff_tab: false,
+            diff_tab: None,
             drag_source: None,
             drag_target: None,
             sender,
@@ -232,12 +244,13 @@ impl TabBar {
         st.widget_w = self.widget.w();
         st.tabs.clear();
         st.groups.clear();
+        let diff_tab_active = st.diff_tab.as_ref().is_some_and(|dt| dt.is_active);
         for doc in documents {
             st.tabs.push(TabInfo {
                 id: doc.id,
                 display_name: doc.display_name.clone(),
                 is_dirty: doc.is_dirty(),
-                is_active: active_id == Some(doc.id),
+                is_active: !diff_tab_active && active_id == Some(doc.id),
                 group_id: doc.group_id,
             });
         }
@@ -355,6 +368,47 @@ impl TabBar {
             drop(st);
             self.widget.redraw();
         }
+    }
+
+    /// Set or update the diff tab in the tab bar
+    pub fn set_diff_tab(&mut self, session_id: u32, title: &str, is_active: bool) {
+        let mut st = self.state.borrow_mut();
+        st.diff_tab = Some(DiffTabInfo {
+            session_id,
+            title: title.to_string(),
+            is_active,
+        });
+        // When diff tab becomes active, deactivate all document tabs
+        if is_active {
+            for tab in &mut st.tabs {
+                tab.is_active = false;
+            }
+        }
+        compute_layout(&mut st);
+        drop(st);
+        self.widget.redraw();
+    }
+
+    /// Clear (remove) the diff tab from the tab bar
+    pub fn clear_diff_tab(&mut self) {
+        let mut st = self.state.borrow_mut();
+        if st.diff_tab.is_some() {
+            st.diff_tab = None;
+            st.hover_diff_tab = false;
+            compute_layout(&mut st);
+            drop(st);
+            self.widget.redraw();
+        }
+    }
+
+    /// Get the session ID of the diff tab, if present
+    pub fn diff_tab_session_id(&self) -> Option<u32> {
+        self.state.borrow().diff_tab.as_ref().map(|dt| dt.session_id)
+    }
+
+    /// Check if the diff tab is currently active
+    pub fn is_diff_tab_active(&self) -> bool {
+        self.state.borrow().diff_tab.as_ref().is_some_and(|dt| dt.is_active)
     }
 }
 
@@ -474,8 +528,19 @@ fn compute_layout(st: &mut TabBarState) {
 
     st.total_items = scrollable_items.len();
 
+    // Calculate space needed for diff tab (if present)
+    let diff_tab_width = if let Some(ref dt) = st.diff_tab {
+        draw::set_font(Font::Helvetica, 12);
+        let (tw, _) = draw::measure(&dt.title, true);
+        // Tab width = text + padding + close button, clamped to tab range
+        (tw + TAB_H_PADDING * 2 + CLOSE_BTN_MARGIN + CLOSE_BTN_SIZE).clamp(MIN_TAB_WIDTH, MAX_TAB_WIDTH)
+    } else {
+        0
+    };
+    let diff_tab_space = if diff_tab_width > 0 { diff_tab_width + TAB_GAP } else { 0 };
+
     // Calculate space needed for plus button
-    let plus_btn_space = PLUS_BTN_WIDTH + PLUS_BTN_MARGIN * 2;
+    let plus_btn_space = PLUS_BTN_WIDTH + PLUS_BTN_MARGIN * 2 + diff_tab_space;
 
     // Check if we need scroll arrows
     // First, compute minimum width needed for all items at MIN_TAB_WIDTH
@@ -634,6 +699,15 @@ fn compute_layout(st: &mut TabBarState) {
         });
     }
 
+    // Diff tab (if present) anchored before plus button
+    if diff_tab_width > 0 {
+        let diff_x = widget_w - PLUS_BTN_WIDTH - PLUS_BTN_MARGIN * 2 - diff_tab_width;
+        st.layout.push(LayoutItem::DiffTab {
+            x: diff_x,
+            width: diff_tab_width,
+        });
+    }
+
     // Plus button anchored to the right edge
     let plus_x = widget_w - PLUS_BTN_WIDTH - PLUS_BTN_MARGIN;
     st.layout.push(LayoutItem::PlusButton { x: plus_x });
@@ -668,6 +742,17 @@ fn hit_test_layout(items: &[LayoutItem], wy: i32, mx: i32, my: i32) -> HitResult
             LayoutItem::CollapsedChip { group_id, x, width, .. } => {
                 if mx >= *x && mx < *x + *width {
                     return HitResult::CollapsedChip(*group_id);
+                }
+            }
+            LayoutItem::DiffTab { x, width } => {
+                if mx >= *x && mx < *x + *width {
+                    let close_x = *x + *width - CLOSE_BTN_MARGIN - CLOSE_BTN_SIZE;
+                    let close_y = wy + (TAB_BAR_HEIGHT - CLOSE_BTN_SIZE) / 2;
+                    let is_close = mx >= close_x
+                        && mx <= close_x + CLOSE_BTN_SIZE
+                        && my >= close_y
+                        && my <= close_y + CLOSE_BTN_SIZE;
+                    return HitResult::DiffTab { is_close };
                 }
             }
             LayoutItem::PlusButton { x } => {
@@ -1001,6 +1086,70 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                     draw::draw_text2(&label, cx, chip_y, *width, chip_h, Align::Center);
                 }
             }
+            LayoutItem::DiffTab { x, width } => {
+                if let Some(ref dt) = st.diff_tab {
+                    let tx = wx + *x;
+                    let tab_width = *width;
+
+                    // Tab background with a subtle accent tint
+                    if dt.is_active {
+                        // Active: match editor background with slight tint
+                        let tinted = if st.is_dark {
+                            Color::from_rgb(
+                                st.theme_bg.r.saturating_add(8),
+                                st.theme_bg.g.saturating_add(4),
+                                st.theme_bg.b.saturating_add(15),
+                            )
+                        } else {
+                            Color::from_rgb(
+                                st.theme_bg.r.saturating_sub(2),
+                                st.theme_bg.g.saturating_sub(2),
+                                st.theme_bg.b,
+                            )
+                        };
+                        draw_rounded_top_rect(tx, wy + 2, tab_width, wh - 2, CORNER_RADIUS, tinted);
+                    } else {
+                        let inactive_h = wh - 4;
+                        draw_rounded_top_rect(tx, wy + 4, tab_width, inactive_h, CORNER_RADIUS, colors.inactive_bg);
+                    }
+
+                    // Text label
+                    let text_color = if dt.is_active { colors.active_text } else { colors.inactive_text };
+                    let text_area_width = tab_width - TAB_H_PADDING - CLOSE_BTN_MARGIN - CLOSE_BTN_SIZE - TAB_H_PADDING;
+                    let display_text = truncate_to_fit(&dt.title, text_area_width);
+
+                    draw::set_draw_color(text_color);
+                    draw::set_font(Font::Helvetica, 12);
+                    let text_x = tx + TAB_H_PADDING;
+                    let text_y = wy + (wh + 12) / 2;
+                    draw::draw_text(&display_text, text_x, text_y);
+
+                    // Close button
+                    let close_x = tx + tab_width - CLOSE_BTN_MARGIN - CLOSE_BTN_SIZE;
+                    let close_y = wy + (wh - CLOSE_BTN_SIZE) / 2;
+
+                    // Hover highlight background (like regular tabs)
+                    if st.hover_diff_tab {
+                        draw::set_draw_color(colors.close_hover_bg);
+                        draw::draw_rectf(close_x - 2, close_y - 2, CLOSE_BTN_SIZE + 4, CLOSE_BTN_SIZE + 4);
+                    }
+
+                    // Always draw X when active or hovered (matching regular tab behavior)
+                    if dt.is_active || st.hover_diff_tab {
+                        let close_color = if dt.is_active { colors.active_text } else { colors.inactive_text };
+                        draw::set_draw_color(close_color);
+                        draw::set_font(Font::HelveticaBold, 20);
+                        draw::draw_text2(
+                            "\u{00d7}",
+                            close_x,
+                            close_y,
+                            CLOSE_BTN_SIZE,
+                            CLOSE_BTN_SIZE,
+                            Align::Center,
+                        );
+                    }
+                }
+            }
             LayoutItem::PlusButton { x } => {
                 let px = wx + *x;
                 let circle_size = 22;
@@ -1299,6 +1448,19 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                     }
                     true
                 }
+                HitResult::DiffTab { is_close } if button == 1 => {
+                    if let Some(ref dt) = st.diff_tab {
+                        let session_id = dt.session_id;
+                        let sender = st.sender;
+                        drop(st);
+                        if is_close {
+                            sender.send(Message::SplitViewReject(session_id));
+                        } else {
+                            sender.send(Message::DiffTabActivate(session_id));
+                        }
+                    }
+                    true
+                }
                 HitResult::ScrollLeft if button == 1 => {
                     drop(st);
                     let mut st_mut = state.borrow_mut();
@@ -1531,14 +1693,15 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
 
             let hit = hit_test_layout(&st.layout, wid.y(), mx, my);
 
-            let (new_hover, new_close, new_hover_plus, new_hover_group, new_hover_chip, new_scroll_left, new_scroll_right) = match hit {
-                HitResult::Tab { index, is_close } => (Some(index), is_close, false, None, None, false, false),
-                HitResult::PlusButton => (None, false, true, None, None, false, false),
-                HitResult::GroupLabel(gid) => (None, false, false, Some(gid), None, false, false),
-                HitResult::CollapsedChip(gid) => (None, false, false, None, Some(gid), false, false),
-                HitResult::ScrollLeft => (None, false, false, None, None, true, false),
-                HitResult::ScrollRight => (None, false, false, None, None, false, true),
-                HitResult::None => (None, false, false, None, None, false, false),
+            let (new_hover, new_close, new_hover_plus, new_hover_group, new_hover_chip, new_scroll_left, new_scroll_right, new_hover_diff) = match hit {
+                HitResult::Tab { index, is_close } => (Some(index), is_close, false, None, None, false, false, false),
+                HitResult::PlusButton => (None, false, true, None, None, false, false, false),
+                HitResult::GroupLabel(gid) => (None, false, false, Some(gid), None, false, false, false),
+                HitResult::CollapsedChip(gid) => (None, false, false, None, Some(gid), false, false, false),
+                HitResult::DiffTab { .. } => (None, false, false, None, None, false, false, true),
+                HitResult::ScrollLeft => (None, false, false, None, None, true, false, false),
+                HitResult::ScrollRight => (None, false, false, None, None, false, true, false),
+                HitResult::None => (None, false, false, None, None, false, false, false),
             };
 
             if new_hover != st.hover_tab_index
@@ -1548,6 +1711,7 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                 || new_hover_chip != st.hover_collapsed_chip
                 || new_scroll_left != st.hover_scroll_left
                 || new_scroll_right != st.hover_scroll_right
+                || new_hover_diff != st.hover_diff_tab
             {
                 st.hover_tab_index = new_hover;
                 st.hover_close = new_close;
@@ -1556,6 +1720,7 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                 st.hover_collapsed_chip = new_hover_chip;
                 st.hover_scroll_left = new_scroll_left;
                 st.hover_scroll_right = new_scroll_right;
+                st.hover_diff_tab = new_hover_diff;
                 drop(st);
                 wid.redraw();
             }
@@ -1567,7 +1732,7 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
             st.drag_target = None;
             if st.hover_tab_index.is_some() || st.hover_close || st.hover_plus
                 || st.hover_group_label.is_some() || st.hover_collapsed_chip.is_some()
-                || st.hover_scroll_left || st.hover_scroll_right
+                || st.hover_scroll_left || st.hover_scroll_right || st.hover_diff_tab
             {
                 st.hover_tab_index = None;
                 st.hover_close = false;
@@ -1576,6 +1741,7 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                 st.hover_collapsed_chip = None;
                 st.hover_scroll_left = false;
                 st.hover_scroll_right = false;
+                st.hover_diff_tab = false;
                 drop(st);
                 wid.redraw();
             }
