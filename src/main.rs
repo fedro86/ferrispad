@@ -66,6 +66,11 @@ fn main() {
     let app = fltk_app::App::default().with_scheme(fltk_app::AppScheme::Gtk);
     fltk_app::set_scrollbar_size(12);
     fltk_app::set_visible_focus(false);
+    // Lower FLTK's CIELAB contrast threshold from default 39 to 10.
+    // The default overrides our custom tree label colors (git status amber/green/red)
+    // when selected in light mode. Level 10 preserves them while still protecting
+    // against truly unreadable combinations (e.g., white-on-white).
+    fltk::app::set_contrast_level(10);
 
     // Set subtle rounded corners for RFlatBox widgets globally (min is 5, default is 15)
     fltk_app::set_frame_border_radius_max(5);

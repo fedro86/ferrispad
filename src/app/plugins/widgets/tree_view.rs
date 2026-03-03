@@ -110,6 +110,8 @@ pub struct TreeNode {
     pub expanded: bool,
     /// Optional icon hint (e.g., "file", "folder", "error")
     pub icon: Option<String>,
+    /// Optional semantic color name for the label (e.g., "modified", "added", "untracked", "conflict", "ignored")
+    pub label_color: Option<String>,
 }
 
 impl Default for TreeNode {
@@ -120,6 +122,7 @@ impl Default for TreeNode {
             children: Vec::new(),
             expanded: false,
             icon: None,
+            label_color: None,
         }
     }
 }
@@ -209,6 +212,7 @@ impl TreeNode {
         let data: Option<String> = table.get("data").ok();
         let expanded: bool = table.get("expanded").unwrap_or(false);
         let icon: Option<String> = table.get("icon").ok();
+        let label_color: Option<String> = table.get("label_color").ok();
 
         // Parse children recursively
         let children = if let Ok(mlua::Value::Table(children_table)) = table.get::<mlua::Value>("children") {
@@ -227,6 +231,7 @@ impl TreeNode {
             children,
             expanded,
             icon,
+            label_color,
         }
     }
 

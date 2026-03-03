@@ -3,7 +3,7 @@
 //! Used for showing file browsers, YAML/JSON viewers, and outline views.
 //! Plugin-driven via the Widget API.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use fltk::{
@@ -75,6 +75,12 @@ pub struct TreePanel {
     current_nodes: Option<TreeNode>,
     /// Stored expand depth for search/filter rebuilds
     current_expand_depth: i32,
+    /// Whether the current theme is dark (for resolving semantic label colors)
+    is_dark: bool,
+    /// Map of FLTK tree item paths to their resolved custom colors.
+    /// Used to re-apply per-item colors after selection (FLTK's fl_contrast
+    /// can override per-item labelfgcolor for selected items).
+    colored_items: Rc<RefCell<Vec<(String, Color)>>>,
 }
 
 impl TreePanel {
@@ -213,6 +219,8 @@ impl TreePanel {
             divider: None,
             current_nodes: None,
             current_expand_depth: 2,
+            is_dark: true,
+            colored_items: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
@@ -295,8 +303,9 @@ impl TreePanel {
             self.header.set_label("  Tree View");
         }
 
-        // Clear existing tree
+        // Clear existing tree and color tracking
         self.tree.clear();
+        self.colored_items.borrow_mut().clear();
 
         // Populate tree from root node
         if let Some(ref root) = request.root {
@@ -310,6 +319,28 @@ impl TreePanel {
         self.container.show();
         self.visible = true;
         self.container.redraw();
+    }
+
+    /// Resolve a semantic label color name to an FLTK Color, theme-aware.
+    fn resolve_label_color(&self, name: &str) -> Option<Color> {
+        let (r, g, b) = if self.is_dark {
+            match name {
+                "modified" => (229, 192, 123),
+                "added" | "untracked" => (152, 195, 121),
+                "conflict" => (224, 108, 117),
+                "ignored" => (120, 120, 120),
+                _ => return None,
+            }
+        } else {
+            match name {
+                "modified" => (190, 140, 40),
+                "added" | "untracked" => (60, 140, 50),
+                "conflict" => (190, 50, 50),
+                "ignored" => (160, 160, 160),
+                _ => return None,
+            }
+        };
+        Some(Color::from_rgb(r, g, b))
     }
 
     /// Add a node to the tree recursively.
@@ -351,8 +382,16 @@ impl TreePanel {
 
         // Find the item we just added
         if let Some(mut item) = self.tree.find_item(&item_path) {
-            // Set text color per-item (tree-level default doesn't propagate)
-            item.set_label_fgcolor(self.item_fg);
+            // Set text color: use semantic label_color if set, else default item_fg
+            let custom_color = node.label_color.as_deref()
+                .and_then(|name| self.resolve_label_color(name));
+            let fg = custom_color.unwrap_or(self.item_fg);
+            item.set_label_fgcolor(fg);
+
+            // Track custom-colored items for re-apply after selection
+            if let Some(color) = custom_color {
+                self.colored_items.borrow_mut().push((item_path.clone(), color));
+            }
 
             // Set expansion state
             let should_expand = if expand_depth < 0 {
@@ -448,13 +487,31 @@ impl TreePanel {
             }
         });
 
-        // Enter key + right-click context menu
+        // Enter key + right-click context menu + color re-apply on selection
         let sender2 = self.sender;
         let on_click_action2 = self.on_click_action.clone();
         let context_path = self.context_path.clone();
         let context_menu = self.context_menu.clone();
         let ctx_menu_ptr = self.ctx_menu.as_widget_ptr();
+        let colored_items = self.colored_items.clone();
         self.tree.handle(move |tree, ev| {
+            // Re-apply per-item colors after click events.
+            // FLTK's fl_contrast() can override per-item labelfgcolor for
+            // selected items; a 0ms timeout re-applies after FLTK processes
+            // the selection.
+            if ev == Event::Push {
+                let ci = colored_items.clone();
+                let tp = tree.as_widget_ptr();
+                fltk::app::add_timeout3(0.0, move |_| {
+                    let t = unsafe { Tree::from_widget_ptr(tp) };
+                    for (path, color) in ci.borrow().iter() {
+                        if let Some(mut item) = t.find_item(path) {
+                            item.set_label_fgcolor(*color);
+                        }
+                    }
+                });
+            }
+
             // Enter key — open selected file
             if ev == Event::KeyDown && fltk::app::event_key() == Key::Enter {
                 if let Some(path) = Self::selected_node_path(tree) {
@@ -632,6 +689,7 @@ impl TreePanel {
         self.visible = false;
         self.session_id = None;
         self.tree.clear();
+        self.colored_items.borrow_mut().clear();
         self.on_click_action = None;
         self.double_click = true;
         self.context_path = None;
@@ -682,6 +740,7 @@ impl TreePanel {
         };
 
         self.tree.clear();
+        self.colored_items.borrow_mut().clear();
 
         if query.is_empty() {
             // Restore full tree
@@ -749,7 +808,16 @@ impl TreePanel {
         self.tree.add(&item_path);
 
         if let Some(mut item) = self.tree.find_item(&item_path) {
-            item.set_label_fgcolor(self.item_fg);
+            // Set text color: use semantic label_color if set, else default item_fg
+            let custom_color = node.label_color.as_deref()
+                .and_then(|name| self.resolve_label_color(name));
+            let fg = custom_color.unwrap_or(self.item_fg);
+            item.set_label_fgcolor(fg);
+
+            // Track custom-colored items for re-apply after selection
+            if let Some(color) = custom_color {
+                self.colored_items.borrow_mut().push((item_path.clone(), color));
+            }
             // Expand nodes that have matching descendants
             item.open();
 
@@ -764,7 +832,8 @@ impl TreePanel {
 
     /// Apply theme colors derived from the syntax theme background.
     /// Uses DialogTheme for consistent color derivation across the app.
-    pub fn apply_theme(&mut self, _is_dark: bool, theme_bg: (u8, u8, u8)) {
+    pub fn apply_theme(&mut self, is_dark: bool, theme_bg: (u8, u8, u8)) {
+        self.is_dark = is_dark;
         let theme = DialogTheme::from_theme_bg(theme_bg);
         let (r, g, b) = theme_bg;
 
@@ -799,12 +868,11 @@ impl TreePanel {
             self.search_input.set_text_color(theme.text);
         }
 
-        // Selection: more visible shift so it stands out from the menu background
         let selection = if theme.is_dark() {
             let (sr, sg, sb) = lighten(r, g, b, 0.10);
             Color::from_rgb(sr, sg, sb)
         } else {
-            let (sr, sg, sb) = darken(r, g, b, 0.95);
+            let (sr, sg, sb) = darken(r, g, b, 0.90);
             Color::from_rgb(sr, sg, sb)
         };
         self.tree.set_selection_color(selection);
@@ -814,12 +882,19 @@ impl TreePanel {
         self.item_fg = theme.text;
         self.tree.set_item_label_fgcolor(theme.text);
 
-        // Re-style existing items (theme toggle while tree is visible)
-        let fg = self.item_fg;
-        let mut item = self.tree.first();
-        while let Some(mut it) = item {
-            it.set_label_fgcolor(fg);
-            item = it.next();
+        // Re-build tree from stored nodes so label_color is re-resolved for the new theme.
+        // Falls back to iterating items if no stored nodes (shouldn't happen).
+        if let Some(ref root) = self.current_nodes.clone() {
+            self.tree.clear();
+            self.colored_items.borrow_mut().clear();
+            self.add_tree_node(None, &root, self.current_expand_depth, 0);
+        } else {
+            let fg = self.item_fg;
+            let mut item = self.tree.first();
+            while let Some(mut it) = item {
+                it.set_label_fgcolor(fg);
+                item = it.next();
+            }
         }
         self.tree.set_connector_color(theme.text_dim);
 

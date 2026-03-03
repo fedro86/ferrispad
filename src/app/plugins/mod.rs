@@ -489,9 +489,15 @@ impl PluginManager {
                 let value =
                     runtime.call_hook(&plugin.table, hook_name, (api, path.clone(), content.clone()))?;
 
-                // Parse diagnostics and highlights from the returned table
+                // Parse diagnostics and highlights from the returned table.
+                // Only mark had_lint_results if the table contains actual lint data
+                // (diagnostics or highlights), not just widget requests like tree_view.
                 if let mlua::Value::Table(return_table) = value {
-                    result.had_lint_results = true;
+                    let has_lint_data = return_table.contains_key("diagnostics").unwrap_or(false)
+                        || return_table.raw_len() > 0;  // old format: array of diagnostics
+                    if has_lint_data {
+                        result.had_lint_results = true;
+                    }
                     self.parse_lint_result(&return_table, &plugin.name, &mut result);
                 }
                 return Ok(result);

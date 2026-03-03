@@ -190,6 +190,24 @@ impl SyntaxDiffMap {
         ch
     }
 
+    /// Return the DiffBg variant index for each entry (parallel to entries vec).
+    /// First 6 entries are always [0,1,2,3,4,5]; additional entries
+    /// carry the DiffBg index from their combo key.
+    fn diff_bg_indices(&self) -> Vec<u8> {
+        let mut indices: Vec<u8> = (0..6.min(self.entries.len() as u8)).collect();
+        // For entries beyond the 6 base ones, look up via combos
+        // Combos map (fr,fg,fb, diff_idx) → char. Invert: char → diff_idx.
+        let mut char_to_diff: HashMap<char, u8> = HashMap::new();
+        for (&(_fr, _fg, _fb, diff_idx), &ch) in &self.combos {
+            char_to_diff.insert(ch, diff_idx);
+        }
+        for i in 6..self.entries.len() {
+            let ch = (b'A' + i as u8) as char;
+            indices.push(*char_to_diff.get(&ch).unwrap_or(&0));
+        }
+        indices
+    }
+
     /// Consume into the final style table.
     fn into_entries(self) -> Vec<StyleTableEntryExt> {
         self.entries
@@ -318,6 +336,9 @@ pub struct SplitPanel {
     editor_font_size: i32,
     /// Cached style table for reapplying on mode toggle (font changes)
     cached_style_table: Vec<StyleTableEntryExt>,
+    /// DiffBg variant index for each cached style entry (parallel vec).
+    /// Used to rebuild bgcolors on theme change.
+    cached_diff_bg_indices: Vec<u8>,
 }
 
 impl SplitPanel {
@@ -497,6 +518,7 @@ impl SplitPanel {
             editor_font: Font::Courier,
             editor_font_size: 13,
             cached_style_table: Vec::new(),
+            cached_diff_bg_indices: Vec::new(),
         }
     }
 
@@ -650,6 +672,8 @@ impl SplitPanel {
             &mut sdm,
         );
 
+        // Cache diff bg indices before consuming the map
+        self.cached_diff_bg_indices = sdm.diff_bg_indices();
         let final_table = sdm.into_entries();
 
         // Cache and apply the style table to both displays
@@ -921,6 +945,48 @@ impl SplitPanel {
 
         self.style_text_display_scrollbars(&mut self.left_display.clone(), &theme);
         self.style_text_display_scrollbars(&mut self.right_display.clone(), &theme);
+
+        // Rebuild diff background colors in the cached style table.
+        // Each entry's bgcolor needs updating based on its DiffBg variant.
+        if !self.cached_style_table.is_empty() && self.cached_diff_bg_indices.len() == self.cached_style_table.len() {
+            let is_dark = theme.is_dark();
+            let diff_bgs: [Color; 6] = [
+                // Normal
+                Color::from_rgb(r, g, b),
+                // Added
+                if is_dark { Color::from_rgb(20, 60, 20) } else { Color::from_rgb(200, 255, 200) },
+                // Removed
+                if is_dark { Color::from_rgb(60, 20, 20) } else { Color::from_rgb(255, 200, 200) },
+                // Modified
+                if is_dark { Color::from_rgb(60, 50, 10) } else { Color::from_rgb(255, 255, 200) },
+                // AddedEmphasis
+                if is_dark { Color::from_rgb(40, 100, 40) } else { Color::from_rgb(150, 255, 150) },
+                // RemovedEmphasis
+                if is_dark { Color::from_rgb(100, 40, 40) } else { Color::from_rgb(255, 150, 150) },
+            ];
+
+            // Update the foreground of the 6 base entries to theme fg
+            let theme_fg = theme.text;
+            for entry in self.cached_style_table.iter_mut().take(6) {
+                entry.color = theme_fg;
+            }
+
+            // Update all entries' bgcolor based on their DiffBg variant
+            for (entry, &diff_idx) in self.cached_style_table.iter_mut().zip(self.cached_diff_bg_indices.iter()) {
+                if (diff_idx as usize) < diff_bgs.len() {
+                    entry.bgcolor = diff_bgs[diff_idx as usize];
+                }
+            }
+
+            self.left_display.set_highlight_data_ext(
+                self.left_style_buffer.clone(),
+                self.cached_style_table.clone(),
+            );
+            self.right_display.set_highlight_data_ext(
+                self.right_style_buffer.clone(),
+                self.cached_style_table.clone(),
+            );
+        }
     }
 
     /// Update header and action bar colors based on tab mode.

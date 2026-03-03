@@ -505,6 +505,47 @@ impl UserData for EditorApi {
                 .unwrap_or(false))
         });
 
+        // ── Git Status API ────────────────────────────────────────────────
+        // Controlled read-only access to git status. No execute permission needed.
+
+        // Query git status for a directory. Returns a table mapping relative file
+        // paths to status codes ("M", "A", "??", "D", "R", "UU"), or nil on error.
+        methods.add_method("git_status", |lua, _this, path: String| {
+            let output = match Command::new("git")
+                .args(["-C", &path, "status", "--porcelain=v1", "-uall"])
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .output()
+            {
+                Ok(o) if o.status.success() => o,
+                _ => return Ok(mlua::Value::Nil),
+            };
+
+            let stdout = match String::from_utf8(output.stdout) {
+                Ok(s) => s,
+                Err(_) => return Ok(mlua::Value::Nil),
+            };
+
+            let result = lua.create_table()?;
+            for line in stdout.lines() {
+                if line.len() < 4 {
+                    continue;
+                }
+                // Porcelain v1 format: XY <space> <path>
+                let status = line[..2].trim().to_string();
+                let file_path = &line[3..];
+                // Handle renames: "R  old -> new" — use the new path
+                let effective_path = if let Some(arrow_pos) = file_path.find(" -> ") {
+                    &file_path[arrow_pos + 4..]
+                } else {
+                    file_path
+                };
+                result.set(effective_path.to_string(), status)?;
+            }
+
+            Ok(mlua::Value::Table(result))
+        });
+
         // ── Diff API ──────────────────────────────────────────────────────
         // Pure computation — no file/command access, no security concerns.
 

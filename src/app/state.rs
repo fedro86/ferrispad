@@ -2375,6 +2375,9 @@ impl AppState {
 
     /// Process lint result from plugin hook: send diagnostics, annotations, and toast
     fn process_lint_result(&mut self, result: super::plugins::HookResult) {
+        // Process any widget requests (e.g., tree view updates from on_document_lint)
+        self.process_widget_requests(&result, "");
+
         // Only send diagnostics if at least one plugin actually linted this file.
         // When no plugin matched (all returned nil), skip the update so the
         // diagnostic panel doesn't show a misleading "All checks passed".
