@@ -19,8 +19,14 @@ pub fn parse_yaml_to_tree(yaml_content: &str, root_label: &str) -> TreeNode {
         Ok(value) => {
             let mut root = TreeNode::new(root_label);
             root.expanded = true;
-            root.icon = Some("folder".to_string());
+            root.icon = Some("none".to_string());
             root.children = value_to_children(&value);
+            // Append type indicator to root label
+            match &value {
+                Value::Mapping(map) => root.label = format!("{} {{{}}}", root_label, map.len()),
+                Value::Sequence(seq) => root.label = format!("{} [{}]", root_label, seq.len()),
+                _ => {}
+            }
             root
         }
         Err(e) => {
@@ -39,11 +45,16 @@ fn value_to_children(value: &Value) -> Vec<TreeNode> {
                 .map(|(k, v)| {
                     let key_str = value_to_string(k);
                     let mut node = TreeNode::new(&key_str);
+                    node.icon = Some("none".to_string());
 
                     match v {
-                        Value::Mapping(_) | Value::Sequence(_) => {
-                            // Has nested content
-                            node.icon = Some("folder".to_string());
+                        Value::Mapping(m) => {
+                            node.label = format!("{} {{{}}}", key_str, m.len());
+                            node.expanded = true;
+                            node.children = value_to_children(v);
+                        }
+                        Value::Sequence(s) => {
+                            node.label = format!("{} [{}]", key_str, s.len());
                             node.expanded = true;
                             node.children = value_to_children(v);
                         }
@@ -52,7 +63,6 @@ fn value_to_children(value: &Value) -> Vec<TreeNode> {
                             let value_str = value_to_string(v);
                             node.label = format!("{}: {}", key_str, value_str);
                             node.data = Some(value_str);
-                            node.icon = Some("file".to_string());
                         }
                     }
                     node
@@ -64,18 +74,23 @@ fn value_to_children(value: &Value) -> Vec<TreeNode> {
                 .enumerate()
                 .map(|(i, v)| {
                     let mut node = TreeNode::new(format!("[{}]", i));
+                    node.icon = Some("none".to_string());
 
                     match v {
-                        Value::Mapping(_) | Value::Sequence(_) => {
-                            node.icon = Some("folder".to_string());
+                        Value::Mapping(m) => {
+                            node.label = format!("{} {{{}}}", i, m.len());
                             node.expanded = false; // Arrays collapsed by default
+                            node.children = value_to_children(v);
+                        }
+                        Value::Sequence(s) => {
+                            node.label = format!("{} [{}]", i, s.len());
+                            node.expanded = false;
                             node.children = value_to_children(v);
                         }
                         _ => {
                             let value_str = value_to_string(v);
                             node.label = format!("[{}]: {}", i, value_str);
                             node.data = Some(value_str);
-                            node.icon = Some("file".to_string());
                         }
                     }
                     node
@@ -117,7 +132,7 @@ name: test
 version: 1.0.0
 "#;
         let tree = parse_yaml_to_tree(yaml, "config.yaml");
-        assert_eq!(tree.label, "config.yaml");
+        assert_eq!(tree.label, "config.yaml {2}");
         assert_eq!(tree.children.len(), 2);
         assert!(tree.children[0].label.contains("name"));
         assert!(tree.children[1].label.contains("version"));
@@ -133,7 +148,7 @@ database:
         let tree = parse_yaml_to_tree(yaml, "config.yaml");
         assert_eq!(tree.children.len(), 1);
         let db = &tree.children[0];
-        assert_eq!(db.label, "database");
+        assert_eq!(db.label, "database {2}");
         assert_eq!(db.children.len(), 2);
     }
 
@@ -147,7 +162,7 @@ items:
 "#;
         let tree = parse_yaml_to_tree(yaml, "config.yaml");
         let items = &tree.children[0];
-        assert_eq!(items.label, "items");
+        assert_eq!(items.label, "items [3]");
         assert_eq!(items.children.len(), 3);
     }
 

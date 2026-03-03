@@ -385,6 +385,7 @@ impl TreePanel {
                 "error" => "\u{274C} ",   // Red X
                 "warning" => "\u{26A0} ", // Warning
                 "info" => "\u{2139} ",    // Info
+                "none" => "",             // No icon (e.g., YAML/JSON structured data)
                 _ => "",
             }
         } else if node.has_children() {
@@ -501,11 +502,12 @@ impl TreePanel {
             .to_string()
     }
 
-    /// Check if a tree item represents a folder (has folder icon)
+    /// Check if a tree item represents a folder/container (has folder icon or has children)
     fn is_folder_item(item: &TreeItem) -> bool {
         item.label()
             .map(|l| l.starts_with("\u{1F4C1}"))
             .unwrap_or(false)
+            || item.children() > 0
     }
 
     /// Set up tree callbacks
