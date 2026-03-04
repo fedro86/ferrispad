@@ -4,6 +4,7 @@ use fltk::{
     enums::FrameType,
     frame::Frame,
     group::Group,
+    input::Input,
     menu::Choice,
     prelude::*,
     window::Window,
@@ -17,7 +18,7 @@ use super::DialogTheme;
 
 // Layout constants
 const DIALOG_WIDTH: i32 = 620;
-const DIALOG_HEIGHT: i32 = 580;
+const DIALOG_HEIGHT: i32 = 650;
 const COL_WIDTH: i32 = 280;
 const LEFT_COL: i32 = 15;
 const RIGHT_COL: i32 = 320;
@@ -303,6 +304,37 @@ pub fn show_settings_dialog(
     info_frame.set_label_size(11);
     info_frame.set_label_color(theme.text_dim);
     info_frame.set_align(fltk::enums::Align::Left | fltk::enums::Align::Inside | fltk::enums::Align::Wrap);
+    y += 35 + SECTION_GAP;
+
+    // Large Files section
+    let mut large_files_label = Frame::default().with_pos(RIGHT_COL, y).with_size(COL_WIDTH, LABEL_HEIGHT)
+        .with_label("Large Files:")
+        .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    large_files_label.set_label_color(theme.text);
+    y += LABEL_HEIGHT + 5;
+
+    let mut warning_label = Frame::default().with_pos(RIGHT_COL + 10, y).with_size(150, ITEM_HEIGHT)
+        .with_label("Show warning above (MB):")
+        .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    warning_label.set_label_color(theme.text);
+    warning_label.set_label_size(12);
+    let mut warning_input = Input::default().with_pos(RIGHT_COL + 165, y).with_size(60, ITEM_HEIGHT);
+    warning_input.set_value(&current_settings.large_file_warning_mb.to_string());
+    warning_input.set_color(theme.input_bg);
+    warning_input.set_text_color(theme.text);
+    warning_input.set_frame(FrameType::FlatBox);
+    y += ITEM_HEIGHT + 5;
+
+    let mut max_edit_label = Frame::default().with_pos(RIGHT_COL + 10, y).with_size(150, ITEM_HEIGHT)
+        .with_label("Max editable size (MB):")
+        .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    max_edit_label.set_label_color(theme.text);
+    max_edit_label.set_label_size(12);
+    let mut max_edit_input = Input::default().with_pos(RIGHT_COL + 165, y).with_size(60, ITEM_HEIGHT);
+    max_edit_input.set_value(&current_settings.max_editable_size_mb.to_string());
+    max_edit_input.set_color(theme.input_bg);
+    max_edit_input.set_text_color(theme.text);
+    max_edit_input.set_frame(FrameType::FlatBox);
 
     vpack.end();
 
@@ -330,7 +362,21 @@ pub fn show_settings_dialog(
 
     let dialog_save = dialog.clone();
     let current = current_settings.clone();
+    let warning_input_save = warning_input.clone();
+    let max_edit_input_save = max_edit_input.clone();
     save_btn.set_callback(move |_| {
+        // Parse large file thresholds with clamping
+        let max_editable_mb = max_edit_input_save.value().trim().parse::<u32>()
+            .unwrap_or(150)
+            .clamp(1, 10000);
+        let mut large_file_warning_mb = warning_input_save.value().trim().parse::<u32>()
+            .unwrap_or(50)
+            .clamp(1, 10000);
+        // Ensure warning <= max_editable
+        if large_file_warning_mb > max_editable_mb {
+            large_file_warning_mb = max_editable_mb;
+        }
+
         let new_settings = AppSettings {
             theme_mode: if theme_light.value() {
                 ThemeMode::Light
@@ -395,6 +441,8 @@ pub fn show_settings_dialog(
             plugin_configs: current.plugin_configs.clone(),
             // Preserve shortcut overrides (editable via Edit > Key Shortcuts)
             shortcut_overrides: current.shortcut_overrides.clone(),
+            large_file_warning_mb,
+            max_editable_size_mb: max_editable_mb,
         };
 
         *result_save.borrow_mut() = Some(new_settings);

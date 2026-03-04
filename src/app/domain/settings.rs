@@ -232,6 +232,14 @@ pub struct AppSettings {
     /// Keys: "File/Save" for built-ins, "plugin:name:action" for plugins
     #[serde(default)]
     pub shortcut_overrides: HashMap<String, ShortcutOverride>,
+
+    /// File size (MB) above which a warning is shown before loading (default 50)
+    #[serde(default = "default_large_file_warning_mb")]
+    pub large_file_warning_mb: u32,
+
+    /// File size (MB) above which editing is blocked — read-only/tail only (default 150)
+    #[serde(default = "default_max_editable_size_mb")]
+    pub max_editable_size_mb: u32,
 }
 
 fn default_line_numbers() -> bool {
@@ -290,6 +298,14 @@ fn default_run_all_checks_shortcut() -> String {
     "Ctrl+Shift+L".to_string()
 }
 
+fn default_large_file_warning_mb() -> u32 {
+    50
+}
+
+fn default_max_editable_size_mb() -> u32 {
+    150
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -318,6 +334,8 @@ impl Default for AppSettings {
             run_all_checks_shortcut: default_run_all_checks_shortcut(),
             plugin_configs: HashMap::new(),
             shortcut_overrides: HashMap::new(),
+            large_file_warning_mb: default_large_file_warning_mb(),
+            max_editable_size_mb: default_max_editable_size_mb(),
         }
     }
 }

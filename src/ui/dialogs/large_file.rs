@@ -7,7 +7,7 @@ use fltk::{
     app,
     button::Button,
     dialog,
-    enums::Align,
+    enums::{Align, FrameType},
     frame::Frame,
     group::Flex,
     input::Input,
@@ -16,6 +16,7 @@ use fltk::{
     text::TextBuffer,
     window::Window,
 };
+use super::{DialogTheme, darken, lighten};
 use std::cell::RefCell;
 use std::io::{self, Read};
 use std::path::Path;
@@ -60,19 +61,22 @@ pub enum TooLargeAction {
     OpenChunk(usize, usize),
 }
 
-/// Show dialog for file that exceeds FLTK limit, offering view and tail options
-pub fn show_file_too_large_dialog(path: &Path, size: u64) -> TooLargeAction {
+/// Show dialog for file that exceeds the configured max editable size, offering view and tail options
+pub fn show_file_too_large_dialog(path: &Path, size: u64, theme_bg: (u8, u8, u8), max_editable_mb: u32) -> TooLargeAction {
     let filename = path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("file")
         .to_string();
 
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
     // Use Rc<RefCell> to store the result from button callbacks
     let result = Rc::new(RefCell::new(TooLargeAction::Cancel));
 
     let mut dialog = Window::new(100, 100, 450, 280, "File Too Large");
     dialog.make_modal(true);
+    dialog.set_color(theme.bg);
 
     let mut main_flex = Flex::new(15, 15, 420, 250, None);
     main_flex.set_type(fltk::group::FlexType::Column);
@@ -81,21 +85,31 @@ pub fn show_file_too_large_dialog(path: &Path, size: u64) -> TooLargeAction {
     // Message
     let msg = format!(
         "\"{}\" is {} which exceeds the maximum\n\
-        editable file size (150 MB).\n\n\
+        editable file size ({} MB).\n\n\
         Choose an option:",
         filename,
-        format_size(size)
+        format_size(size),
+        max_editable_mb
     );
     let mut msg_frame = Frame::default().with_label(&msg);
     msg_frame.set_align(Align::Left | Align::Inside | Align::Wrap);
+    msg_frame.set_label_color(theme.text);
+    msg_frame.set_frame(FrameType::FlatBox);
+    msg_frame.set_color(theme.bg);
     main_flex.fixed(&msg_frame, 80);
 
     // View Read-Only button
     let mut view_btn = Button::default().with_label("View Read-Only (browse entire file, no editing)");
+    view_btn.set_frame(FrameType::RFlatBox);
+    view_btn.set_color(theme.button_bg);
+    view_btn.set_label_color(theme.text);
     main_flex.fixed(&view_btn, 30);
 
     // Open Tail button
     let mut tail_btn = Button::default().with_label("Open Tail (last 10,000 lines, editable)");
+    tail_btn.set_frame(FrameType::RFlatBox);
+    tail_btn.set_color(theme.button_bg);
+    tail_btn.set_label_color(theme.text);
     main_flex.fixed(&tail_btn, 30);
 
     // Open Lines row
@@ -104,19 +118,29 @@ pub fn show_file_too_large_dialog(path: &Path, size: u64) -> TooLargeAction {
     lines_row.set_spacing(5);
 
     let mut lines_btn = Button::default().with_label("Open Lines:");
+    lines_btn.set_frame(FrameType::RFlatBox);
+    lines_btn.set_color(theme.button_bg);
+    lines_btn.set_label_color(theme.text);
     lines_row.fixed(&lines_btn, 100);
 
     let mut start_input = Input::default();
     start_input.set_value("1");
     start_input.set_tooltip("Start line");
+    start_input.set_color(theme.input_bg);
+    start_input.set_text_color(theme.text);
+    start_input.set_frame(FrameType::FlatBox);
     lines_row.fixed(&start_input, 80);
 
-    let dash_label = Frame::default().with_label("-");
+    let mut dash_label = Frame::default().with_label("-");
+    dash_label.set_label_color(theme.text);
     lines_row.fixed(&dash_label, 20);
 
     let mut end_input = Input::default();
     end_input.set_value("10000");
     end_input.set_tooltip("End line");
+    end_input.set_color(theme.input_bg);
+    end_input.set_text_color(theme.text);
+    end_input.set_frame(FrameType::FlatBox);
     lines_row.fixed(&end_input, 80);
 
     Frame::default(); // Spacer
@@ -126,8 +150,27 @@ pub fn show_file_too_large_dialog(path: &Path, size: u64) -> TooLargeAction {
 
     Frame::default(); // Spacer
 
-    // Cancel button
+    // Cancel button — visually distinct (secondary)
+    // Derive cancel bg from theme_bg the same way DialogTheme derives dialog bg
     let mut cancel_btn = Button::default().with_label("Cancel");
+    let (r, g, b) = theme_bg;
+    let brightness = (r as u32 + g as u32 + b as u32) / 3;
+    let is_dark = brightness < 128;
+    let (bg_r, bg_g, bg_b) = if is_dark {
+        darken(r, g, b, 0.65)
+    } else {
+        darken(r, g, b, 0.85)
+    };
+    let cancel_bg = if is_dark {
+        let (cr, cg, cb) = lighten(bg_r, bg_g, bg_b, 0.10);
+        fltk::enums::Color::from_rgb(cr, cg, cb)
+    } else {
+        let (cr, cg, cb) = darken(bg_r, bg_g, bg_b, 0.90);
+        fltk::enums::Color::from_rgb(cr, cg, cb)
+    };
+    cancel_btn.set_frame(FrameType::RFlatBox);
+    cancel_btn.set_color(cancel_bg);
+    cancel_btn.set_label_color(theme.text_dim);
     main_flex.fixed(&cancel_btn, 30);
 
     main_flex.end();

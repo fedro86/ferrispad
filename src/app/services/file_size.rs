@@ -9,14 +9,6 @@
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
 
-/// Files larger than this show a warning before loading (50 MB)
-pub const LARGE_FILE_THRESHOLD: u64 = 50 * 1024 * 1024;
-
-/// Maximum file size that can be loaded for editing (150 MB)
-/// Files larger than this open in read-only viewer with option to
-/// select specific lines to edit.
-pub const MAX_EDITABLE_SIZE: u64 = 150 * 1024 * 1024;
-
 /// Default number of lines to read in tail mode
 pub const TAIL_LINE_COUNT: usize = 10_000;
 
@@ -31,14 +23,20 @@ pub enum FileSizeCheck {
     TooLarge(u64),
 }
 
-/// Check file size and return appropriate category
-pub fn check_file_size(path: &Path) -> io::Result<FileSizeCheck> {
+/// Check file size and return appropriate category.
+///
+/// Both thresholds are in megabytes.
+/// If `warning_mb >= max_editable_mb` the Large tier is effectively skipped.
+pub fn check_file_size(path: &Path, warning_mb: u64, max_editable_mb: u64) -> io::Result<FileSizeCheck> {
     let metadata = std::fs::metadata(path)?;
     let size = metadata.len();
 
-    Ok(if size > MAX_EDITABLE_SIZE {
+    let max_editable = max_editable_mb * 1024 * 1024;
+    let warning = warning_mb * 1024 * 1024;
+
+    Ok(if size > max_editable {
         FileSizeCheck::TooLarge(size)
-    } else if size > LARGE_FILE_THRESHOLD {
+    } else if size > warning {
         FileSizeCheck::Large(size)
     } else {
         FileSizeCheck::Normal(size)
@@ -197,31 +195,63 @@ mod tests {
     }
 
     #[test]
-    fn test_thresholds() {
+    fn test_thresholds_default() {
         // Normal: under 50 MB
         assert!(matches!(
-            check_file_size_from_value(30 * 1024 * 1024),
+            check_file_size_from_value(30 * 1024 * 1024, 50, 150),
             FileSizeCheck::Normal(_)
         ));
 
         // Large: 50 MB to 150 MB (show warning but allow editing)
         assert!(matches!(
-            check_file_size_from_value(100 * 1024 * 1024),
+            check_file_size_from_value(100 * 1024 * 1024, 50, 150),
             FileSizeCheck::Large(_)
         ));
 
         // Too large: over 150 MB (read-only viewer only)
         assert!(matches!(
-            check_file_size_from_value(200 * 1024 * 1024),
+            check_file_size_from_value(200 * 1024 * 1024, 50, 150),
+            FileSizeCheck::TooLarge(_)
+        ));
+    }
+
+    #[test]
+    fn test_thresholds_custom() {
+        // Custom: warning at 10 MB, max at 20 MB
+        assert!(matches!(
+            check_file_size_from_value(5 * 1024 * 1024, 10, 20),
+            FileSizeCheck::Normal(_)
+        ));
+        assert!(matches!(
+            check_file_size_from_value(15 * 1024 * 1024, 10, 20),
+            FileSizeCheck::Large(_)
+        ));
+        assert!(matches!(
+            check_file_size_from_value(25 * 1024 * 1024, 10, 20),
+            FileSizeCheck::TooLarge(_)
+        ));
+    }
+
+    #[test]
+    fn test_thresholds_warning_equals_max() {
+        // When warning >= max, Large tier is skipped
+        assert!(matches!(
+            check_file_size_from_value(40 * 1024 * 1024, 50, 50),
+            FileSizeCheck::Normal(_)
+        ));
+        assert!(matches!(
+            check_file_size_from_value(60 * 1024 * 1024, 50, 50),
             FileSizeCheck::TooLarge(_)
         ));
     }
 
     // Helper for testing without actual files
-    fn check_file_size_from_value(size: u64) -> FileSizeCheck {
-        if size > MAX_EDITABLE_SIZE {
+    fn check_file_size_from_value(size: u64, warning_mb: u64, max_editable_mb: u64) -> FileSizeCheck {
+        let max_editable = max_editable_mb * 1024 * 1024;
+        let warning = warning_mb * 1024 * 1024;
+        if size > max_editable {
             FileSizeCheck::TooLarge(size)
-        } else if size > LARGE_FILE_THRESHOLD {
+        } else if size > warning {
             FileSizeCheck::Large(size)
         } else {
             FileSizeCheck::Normal(size)

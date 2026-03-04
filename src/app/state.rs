@@ -586,13 +586,17 @@ impl AppState {
         }
 
         // Pre-flight size check to prevent crashes on huge files
-        match check_file_size(path_ref) {
+        let warning_mb = self.settings.borrow().large_file_warning_mb as u64;
+        let max_editable_mb = self.settings.borrow().max_editable_size_mb as u64;
+        match check_file_size(path_ref, warning_mb, max_editable_mb) {
             Ok(FileSizeCheck::TooLarge(size)) => {
-                match show_file_too_large_dialog(path_ref, size) {
+                let theme_bg = self.highlight.highlighter().theme_background();
+                let max_mb = self.settings.borrow().max_editable_size_mb;
+                match show_file_too_large_dialog(path_ref, size, theme_bg, max_mb) {
                     TooLargeAction::Cancel => return,
                     TooLargeAction::ViewReadOnly => {
                         // Open read-only viewer (memory-mapped, no editing)
-                        crate::ui::dialogs::readonly_viewer::show_readonly_viewer(path_ref);
+                        crate::ui::dialogs::readonly_viewer::show_readonly_viewer(path_ref, theme_bg);
                         return;
                     }
                     TooLargeAction::OpenTail => {
@@ -1118,7 +1122,9 @@ impl AppState {
             if let Some(ref path) = doc_session.file_path {
                 // Skip files that are too large (don't show dialogs at startup)
                 let path_ref = std::path::Path::new(path);
-                if let Ok(FileSizeCheck::TooLarge(size)) = check_file_size(path_ref) {
+                let warning_mb = self.settings.borrow().large_file_warning_mb as u64;
+                let max_editable_mb = self.settings.borrow().max_editable_size_mb as u64;
+                if let Ok(FileSizeCheck::TooLarge(size)) = check_file_size(path_ref, warning_mb, max_editable_mb) {
                     eprintln!(
                         "[session] Skipping '{}' ({}) - exceeds size limit",
                         path,
