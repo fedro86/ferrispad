@@ -422,6 +422,15 @@ impl AppState {
     fn refresh_tree_view_for_active_doc(&mut self) {
         let existing_id = self.widget_manager.any_tree_view_session();
 
+        // Persistent tree views (e.g., file explorer) survive tab switches
+        if let Some(id) = existing_id {
+            if self.widget_manager.get_session(id)
+                .map_or(false, |s| s.persistent)
+            {
+                return;
+            }
+        }
+
         // If active doc has a cached tree, show it — even if no session exists
         // (e.g., tree was system-hidden for a non-YAML file).
         // Skip if user explicitly closed the tree (tree_view_active == false).
@@ -432,7 +441,8 @@ impl AppState {
                 if let Some(id) = existing_id {
                     self.widget_manager.remove_session(id);
                 }
-                let new_id = self.widget_manager.create_tree_view_session(&cached_plugin);
+                let persistent = cached_request.persistent;
+                let new_id = self.widget_manager.create_tree_view_session(&cached_plugin, persistent);
                 self.sender.send(Message::TreeViewShow {
                     session_id: new_id,
                     plugin_name: cached_plugin,
@@ -2602,6 +2612,7 @@ impl AppState {
                 click_mode: request.click_mode,
                 context_path: request.context_path.clone(),
                 context_menu: request.context_menu.clone(),
+                persistent: request.persistent,
             }
         } else {
             request.clone()
@@ -2756,7 +2767,7 @@ impl AppState {
         // Check for tree view request
         if let Some(ref tree_request) = result.tree_view {
             if tree_request.is_valid() {
-                let session_id = self.widget_manager.create_tree_view_session(effective_name);
+                let session_id = self.widget_manager.create_tree_view_session(effective_name, tree_request.persistent);
                 self.sender.send(Message::TreeViewShow {
                     session_id,
                     plugin_name: effective_name.to_string(),

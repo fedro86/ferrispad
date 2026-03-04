@@ -95,6 +95,8 @@ pub struct TreeViewRequest {
     pub context_path: Option<String>,
     /// Plugin-defined context menu items
     pub context_menu: Vec<ContextMenuItem>,
+    /// If true, this tree view persists across tab switches (e.g., file explorer)
+    pub persistent: bool,
 }
 
 /// A node in the tree
@@ -168,6 +170,9 @@ impl TreeViewRequest {
             Vec::new()
         };
 
+        // Persistent flag: tree survives tab switches (e.g., file explorer)
+        let persistent: bool = table.get("persistent").unwrap_or(false);
+
         Some(Self {
             title,
             root,
@@ -177,6 +182,7 @@ impl TreeViewRequest {
             click_mode,
             context_path,
             context_menu,
+            persistent,
         })
     }
 

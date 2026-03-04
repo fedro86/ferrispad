@@ -38,6 +38,8 @@ pub struct WidgetSession {
     /// Type of widget
     #[allow(dead_code)]  // Used for widget-type-specific behavior in future
     pub widget_type: WidgetType,
+    /// If true, this session persists across tab switches (e.g., file explorer)
+    pub persistent: bool,
 }
 
 /// Type of widget being managed
@@ -82,13 +84,14 @@ impl WidgetManager {
                 id,
                 plugin_name: plugin_name.to_string(),
                 widget_type: WidgetType::SplitView,
+                persistent: false,
             },
         );
         id
     }
 
     /// Create a new tree view session
-    pub fn create_tree_view_session(&mut self, plugin_name: &str) -> u32 {
+    pub fn create_tree_view_session(&mut self, plugin_name: &str, persistent: bool) -> u32 {
         let id = next_session_id();
         self.sessions.insert(
             id,
@@ -96,6 +99,7 @@ impl WidgetManager {
                 id,
                 plugin_name: plugin_name.to_string(),
                 widget_type: WidgetType::TreeView,
+                persistent,
             },
         );
         id
@@ -158,7 +162,7 @@ mod tests {
         let mut manager = WidgetManager::new();
 
         let split_id = manager.create_split_view_session("test-plugin");
-        let tree_id = manager.create_tree_view_session("test-plugin");
+        let tree_id = manager.create_tree_view_session("test-plugin", false);
 
         assert!(manager.has_session(split_id));
         assert!(manager.has_session(tree_id));
@@ -180,7 +184,7 @@ mod tests {
         let mut manager = WidgetManager::new();
 
         manager.create_split_view_session("plugin-a");
-        manager.create_tree_view_session("plugin-a");
+        manager.create_tree_view_session("plugin-a", false);
         manager.create_split_view_session("plugin-b");
 
         manager.clear_plugin_sessions("plugin-a");
