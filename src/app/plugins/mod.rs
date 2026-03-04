@@ -448,7 +448,7 @@ impl PluginManager {
                 runtime.call_hook(&plugin.table, hook_name, api)?
             }
 
-            PluginHook::OnDocumentOpen { path } => {
+            PluginHook::OnDocumentOpen { path, .. } => {
                 let value = runtime.call_hook(&plugin.table, hook_name, (api, path.clone()))?;
                 if let mlua::Value::Table(return_table) = value {
                     self.parse_lint_result(&return_table, &plugin.name, &mut result);
@@ -815,12 +815,14 @@ impl PluginManager {
         let mut api = match hook {
             PluginHook::Init | PluginHook::Shutdown => EditorApi::default(),
 
-            PluginHook::OnDocumentOpen { path } => {
-                // Read file content so api:get_text() works for tree viewer plugins
-                let content = path.as_deref()
-                    .and_then(|p| std::fs::read_to_string(p).ok());
-                match content {
-                    Some(text) => EditorApi::with_path_and_content(path.clone(), text),
+            PluginHook::OnDocumentOpen { path, content } => {
+                // Use passed content (avoids disk re-read for large files).
+                // Fall back to disk read for callers that don't provide content.
+                let text = content.clone().or_else(|| {
+                    path.as_deref().and_then(|p| std::fs::read_to_string(p).ok())
+                });
+                match text {
+                    Some(t) => EditorApi::with_path_and_content(path.clone(), t),
                     None => EditorApi::with_path(path.clone()),
                 }
             }

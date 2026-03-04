@@ -23,6 +23,7 @@ use super::domain::document::DocumentId;
 use super::domain::messages::Message;
 use super::domain::settings::{AppSettings, FontChoice, SyntaxTheme, ThemeMode};
 use super::infrastructure::buffer::buffer_text_no_leak;
+use super::infrastructure::defer::defer_send;
 use super::infrastructure::platform::detect_system_dark_mode;
 use super::services::file_size::{check_file_size, format_size, read_chunk, read_tail, FileSizeCheck, TAIL_LINE_COUNT};
 use super::services::session::{self, SessionRestore};
@@ -40,6 +41,10 @@ use crate::ui::theme::{apply_theme, apply_syntax_theme_colors};
 use crate::ui::tree_panel::TreePanel;
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
+
+/// Files larger than this threshold defer plugin hooks / tree refresh
+/// to the next event loop iteration so the UI stays responsive.
+const DEFERRED_THRESHOLD: usize = 512_000; // 500 KB
 
 pub struct AppState {
     pub tab_manager: TabManager,
@@ -70,6 +75,9 @@ pub struct AppState {
     session_dirty: bool,
     /// Widget manager for plugin-created widgets
     pub widget_manager: WidgetManager,
+    /// Whether the tree view is logically active (opened and not user-closed).
+    /// Stays true when the tree is hidden for a non-tree-view file type.
+    tree_view_active: bool,
 }
 
 impl AppState {
@@ -163,6 +171,7 @@ impl AppState {
             last_auto_save: Instant::now(),
             session_dirty: false,
             widget_manager: WidgetManager::new(),
+            tree_view_active: false,
         }
     }
 
@@ -399,6 +408,80 @@ impl AppState {
 
         // Update menus based on file type (preview, plugin items)
         self.update_menus_for_file_type();
+
+        // If a tree view is currently visible, refresh it for the new document.
+        // YAML/JSON files get a new tree; other files close the stale tree.
+        self.refresh_tree_view_for_active_doc();
+    }
+
+    /// Refresh the tree view panel for the current active document.
+    /// If a tree view is visible, re-fires `on_document_open` so the plugin
+    /// can return a new tree (for supported files) or nothing (closing the panel).
+    /// Uses a per-document cache to skip Lua + YAML parsing on tab switch when
+    /// content hasn't changed. Large files are deferred via the event loop.
+    fn refresh_tree_view_for_active_doc(&mut self) {
+        let existing_id = self.widget_manager.any_tree_view_session();
+
+        // If active doc has a cached tree, show it — even if no session exists
+        // (e.g., tree was system-hidden for a non-YAML file).
+        // Skip if user explicitly closed the tree (tree_view_active == false).
+        if self.tree_view_active {
+            if let Some((cached_plugin, cached_request)) = self.tab_manager.active_doc()
+                .and_then(|doc| doc.cached_tree.clone())
+            {
+                if let Some(id) = existing_id {
+                    self.widget_manager.remove_session(id);
+                }
+                let new_id = self.widget_manager.create_tree_view_session(&cached_plugin);
+                self.sender.send(Message::TreeViewShow {
+                    session_id: new_id,
+                    plugin_name: cached_plugin,
+                    request: cached_request,
+                });
+                return;
+            }
+        }
+
+        // No cached tree (or tree_view_active is false) — need an existing session to proceed
+        let existing_id = match existing_id {
+            Some(id) => id,
+            None => {
+                // No session. If tree is logically active, trigger deferred refresh
+                // so the plugin can evaluate this unseen file.
+                if self.tree_view_active {
+                    let path = self.tab_manager.active_doc().and_then(|doc| doc.file_path.clone());
+                    self.sender.send(Message::TreeViewLoading);
+                    defer_send(self.sender, 0.0, Message::DeferredTreeRefresh { path, content: String::new() });
+                }
+                return;
+            }
+        };
+
+        // Cache miss: always defer to avoid blocking tab switch with buffer read + plugin hook
+        let path = self.tab_manager.active_doc().and_then(|doc| doc.file_path.clone());
+        self.widget_manager.remove_session(existing_id);
+        self.sender.send(Message::TreeViewLoading);
+        defer_send(self.sender, 0.0, Message::DeferredTreeRefresh { path, content: String::new() });
+    }
+
+    /// Execute the tree view refresh (called directly or from deferred message).
+    /// If the plugin does not return a tree view (e.g., non-YAML file), hides
+    /// the tree panel so it doesn't stay open with stale/loading content.
+    pub fn run_tree_refresh(&mut self, path: Option<String>, content: String) {
+        let open_result = self.plugins.call_hook(PluginHook::OnDocumentOpen {
+            path,
+            content: Some(content),
+        });
+        self.process_widget_requests(&open_result, "");
+        self.process_hook_result(open_result, "");
+
+        // If the plugin didn't produce a new tree view, hide the panel.
+        // This handles switching from a YAML/JSON tab to a file type that
+        // doesn't have a tree view (e.g., Rust, Python).
+        // Session was already removed, so pass 0 (remove_session is a no-op).
+        if self.widget_manager.any_tree_view_session().is_none() {
+            self.sender.send(Message::TreeViewHide(0));
+        }
     }
 
     /// Update all file-type-dependent menu items based on the current file.
@@ -488,21 +571,8 @@ impl AppState {
             self.switch_to_document(active_id);
         }
         self.rebuild_tab_bar();
-        // Ask glibc to return freed C++ (FLTK) pages to the OS.
-        // jemalloc handles Rust allocations; glibc handles C++ allocations
-        // and won't return pages without an explicit trim.
-        #[cfg(target_os = "linux")]
-        {
-            // SAFETY: malloc_trim is a glibc extension that releases free memory
-            // back to the OS. It's safe to call at any time - worst case it does
-            // nothing if there's no memory to release. The pad=0 argument means
-            // "release as much as possible". This helps prevent RSS bloat after
-            // closing large documents.
-            unsafe {
-                unsafe extern "C" { fn malloc_trim(pad: std::ffi::c_int) -> std::ffi::c_int; }
-                malloc_trim(0);
-            }
-        }
+        // Defer malloc_trim so FLTK can free widgets first, and rapid closes batch naturally.
+        defer_send(self.sender, 0.1, Message::MallocTrim);
         false
     }
 
@@ -631,18 +701,13 @@ impl AppState {
             self.rebuild_tab_bar();
 
             // Call plugin hooks after document is loaded
-            let open_result = self.plugins.call_hook(PluginHook::OnDocumentOpen {
-                path: Some(path.clone()),
-            });
-            self.process_widget_requests(&open_result, "");
-            self.process_hook_result(open_result, "");
-
-            // Run lint hook for immediate feedback on open
-            let lint_result = self.plugins.call_hook(PluginHook::OnDocumentLint {
-                path,
-                content,
-            });
-            self.process_lint_result(lint_result);
+            // For large files, defer hooks so the event loop can show the
+            // "Highlighting large file..." banner before the synchronous work.
+            if content.len() > DEFERRED_THRESHOLD {
+                defer_send(self.sender, 0.0, Message::DeferredPluginHooks { path, content });
+            } else {
+                self.run_open_hooks(path, content);
+            }
         } else {
             if let Some(doc) = self.tab_manager.active_doc_mut() {
                 doc.buffer.set_text(&content);
@@ -657,19 +722,26 @@ impl AppState {
             self.update_menus_for_file_type();
 
             // Call plugin hooks after document is loaded
-            let open_result = self.plugins.call_hook(PluginHook::OnDocumentOpen {
-                path: Some(path.clone()),
-            });
-            self.process_widget_requests(&open_result, "");
-            self.process_hook_result(open_result, "");
-
-            // Run lint hook for immediate feedback on open
-            let lint_result = self.plugins.call_hook(PluginHook::OnDocumentLint {
-                path,
-                content,
-            });
-            self.process_lint_result(lint_result);
+            if content.len() > DEFERRED_THRESHOLD {
+                defer_send(self.sender, 0.0, Message::DeferredPluginHooks { path, content });
+            } else {
+                self.run_open_hooks(path, content);
+            }
         }
+    }
+
+    /// Run OnDocumentOpen and OnDocumentLint plugin hooks for a file.
+    /// Extracted so it can be called directly (small files) or deferred via
+    /// `DeferredPluginHooks` message (large files, to let the banner show first).
+    pub fn run_open_hooks(&mut self, path: String, content: String) {
+        // OnDocumentOpen + widget processing (shared with run_tree_refresh)
+        self.run_tree_refresh(Some(path.clone()), content.clone());
+
+        let lint_result = self.plugins.call_hook(PluginHook::OnDocumentLint {
+            path,
+            content,
+        });
+        self.process_lint_result(lint_result);
     }
 
     /// Open large file from a pre-populated TextBuffer (memory-optimized).
@@ -762,6 +834,7 @@ impl AppState {
             // Call plugin hooks
             let open_result = self.plugins.call_hook(PluginHook::OnDocumentOpen {
                 path: Some(path),
+                content: None,
             });
             self.process_widget_requests(&open_result, "");
             self.process_hook_result(open_result, "");
@@ -777,6 +850,7 @@ impl AppState {
 
             let open_result = self.plugins.call_hook(PluginHook::OnDocumentOpen {
                 path: Some(path),
+                content: None,
             });
             self.process_widget_requests(&open_result, "");
             self.process_hook_result(open_result, "");
@@ -830,6 +904,7 @@ impl AppState {
             // Call plugin hooks
             let open_result = self.plugins.call_hook(PluginHook::OnDocumentOpen {
                 path: Some(path),
+                content: None,
             });
             self.process_widget_requests(&open_result, "");
             self.process_hook_result(open_result, "");
@@ -845,6 +920,7 @@ impl AppState {
 
             let open_result = self.plugins.call_hook(PluginHook::OnDocumentOpen {
                 path: Some(path),
+                content: None,
             });
             self.process_widget_requests(&open_result, "");
             self.process_hook_result(open_result, "");
@@ -1114,6 +1190,7 @@ impl AppState {
                 let path = path.clone();
                 let open_result = self.plugins.call_hook(PluginHook::OnDocumentOpen {
                     path: Some(path),
+                    content: None,
                 });
                 self.process_widget_requests(&open_result, "");
                 self.process_hook_result(open_result, "");
@@ -1257,8 +1334,10 @@ impl AppState {
             self.editor.set_linenumber_width(0);
             return;
         }
-        let line_count = self.active_buffer().count_lines(0, self.active_buffer().length());
-        let digits = ((line_count + 1) as f64).log10().floor() as i32 + 1;
+        let line_count = self.tab_manager.active_doc()
+            .map(|d| d.cached_line_count)
+            .unwrap_or(0);
+        let digits = ((line_count as i32 + 1) as f64).log10().floor() as i32 + 1;
         let width = (digits * 8 + 16).max(40);
         self.editor.set_linenumber_width(width);
     }
@@ -2032,17 +2111,12 @@ impl AppState {
     pub fn handle_plugin_menu_action(&mut self, plugin_name: &str, action: &str) {
         eprintln!("[debug:menu] handle_plugin_menu_action plugin='{}' action='{}'", plugin_name, action);
 
-        // Toggle: if the SAME plugin already has a tree view open, hide it and return.
-        // This lets tree-view plugins (e.g. file-explorer) toggle their panel,
-        // without blocking other plugins' menu actions.
+        // If any tree view is already open, remove it so process_widget_requests
+        // will create a fresh one (refresh, not toggle off).
+        // The user can close the tree via the X button.
         if let Some(existing_id) = self.widget_manager.any_tree_view_session() {
-            if let Some(session) = self.widget_manager.get_session(existing_id) {
-                if session.plugin_name == plugin_name {
-                    eprintln!("[debug:menu] toggle: hiding tree view for same plugin '{}'", plugin_name);
-                    self.sender.send(Message::TreeViewHide(existing_id));
-                    return;
-                }
-            }
+            eprintln!("[debug:menu] removing existing tree view session {} before refresh", existing_id);
+            self.sender.send(Message::TreeViewHide(existing_id));
         }
 
         // Get current document info for the hook
@@ -2508,7 +2582,7 @@ impl AppState {
     pub fn show_tree_view(
         &mut self,
         session_id: u32,
-        _plugin_name: &str,
+        plugin_name: &str,
         request: &super::plugins::TreeViewRequest,
         tree_panel: &mut TreePanel,
     ) {
@@ -2533,6 +2607,12 @@ impl AppState {
             request.clone()
         };
 
+        // Cache the parsed tree on the active document for instant tab-switch
+        if let Some(doc) = self.tab_manager.active_doc_mut() {
+            doc.cached_tree = Some((plugin_name.to_string(), final_request.clone()));
+        }
+
+        self.tree_view_active = true;
         tree_panel.show_request(session_id, &final_request);
     }
 
@@ -2542,6 +2622,12 @@ impl AppState {
 
         // Clean up session
         self.widget_manager.remove_session(session_id);
+
+        // session_id 0 = system hide (file type mismatch), keep tree_view_active true
+        // session_id > 0 = user clicked X, deactivate tree view
+        if session_id > 0 {
+            self.tree_view_active = false;
+        }
     }
 
     /// Handle tree view node click

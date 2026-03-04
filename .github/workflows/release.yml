@@ -246,8 +246,108 @@ jobs:
           name: macos-dmg
           path: ${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-macos.dmg
 
-  create-release:
+  sign-binaries:
     needs: [build-linux, build-windows, build-macos]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${VERSION#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Checkout ferrispad-plugins (signer tool)
+        uses: actions/checkout@v4
+        with:
+          repository: fedro86/ferrispad-plugins
+          path: ferrispad-plugins
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache signer build
+        uses: actions/cache@v4
+        with:
+          path: ferrispad-plugins/tools/signer/target
+          key: signer-${{ runner.os }}-${{ hashFiles('ferrispad-plugins/tools/signer/Cargo.lock') }}
+
+      - name: Build signer tool
+        run: cd ferrispad-plugins/tools/signer && cargo build --release
+
+      - name: Decode signing key
+        run: |
+          mkdir -p signing-tmp
+          echo "${{ secrets.SIGNING_KEY }}" | base64 -d > signing-tmp/plugin_signing_key.bin
+          chmod 600 signing-tmp/plugin_signing_key.bin
+          # Create public key from private key (signer only needs private key for signing)
+          # The signer derives the public key internally from ed25519 private key
+
+      - name: Download Linux binary
+        if: needs.build-linux.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-bin
+          path: binaries
+
+      - name: Download Windows binary
+        if: needs.build-windows.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-bin
+          path: binaries
+
+      - name: Download macOS binary
+        if: needs.build-macos.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-bin
+          path: binaries
+
+      - name: Sign binaries
+        env:
+          SIGNING_KEY_PATH: ${{ github.workspace }}/signing-tmp
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          SIGNER="ferrispad-plugins/tools/signer/target/release/plugin-signer"
+
+          # Sign Linux binary
+          LINUX_BIN="binaries/${{ env.PROJECT_NAME }}-v${VERSION}-linux-amd64"
+          if [ -f "$LINUX_BIN" ]; then
+            $SIGNER sign-release "$LINUX_BIN" "$VERSION" "linux-amd64"
+            echo "Signed Linux binary"
+          fi
+
+          # Sign Windows binary
+          WINDOWS_BIN="binaries/${{ env.PROJECT_NAME }}-v${VERSION}-windows-x64.exe"
+          if [ -f "$WINDOWS_BIN" ]; then
+            $SIGNER sign-release "$WINDOWS_BIN" "$VERSION" "windows-x64.exe"
+            echo "Signed Windows binary"
+          fi
+
+          # Sign macOS binary
+          MACOS_BIN="binaries/${{ env.PROJECT_NAME }}-v${VERSION}-macos-universal"
+          if [ -f "$MACOS_BIN" ]; then
+            $SIGNER sign-release "$MACOS_BIN" "$VERSION" "macos-universal"
+            echo "Signed macOS binary"
+          fi
+
+          echo "--- Signature files ---"
+          ls -la binaries/*.sig 2>/dev/null || echo "No .sig files found"
+
+      - name: Clean up signing key
+        if: always()
+        run: rm -rf signing-tmp
+
+      - name: Upload signature artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: signatures
+          path: binaries/*.sig
+
+  create-release:
+    needs: [build-linux, build-windows, build-macos, sign-binaries]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -312,3 +412,4 @@ jobs:
             artifacts/windows-bin/*
             artifacts/macos-dmg/*
             artifacts/macos-bin/*
+            artifacts/signatures/*

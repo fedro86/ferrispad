@@ -7,7 +7,7 @@ use fltk::text::TextBuffer;
 
 use super::messages::Message;
 use crate::app::controllers::tabs::GroupId;
-use crate::app::plugins::Diagnostic;
+use crate::app::plugins::{Diagnostic, TreeViewRequest};
 use crate::app::services::syntax::checkpoint::SparseCheckpoints;
 use crate::app::services::text_ops::extract_filename;
 
@@ -148,6 +148,10 @@ pub struct Document {
     pub diagnostics: Vec<Diagnostic>,
     /// Whether this document has been linted at least once
     pub has_been_linted: bool,
+    /// Cached tree view (plugin_name, request) — invalidated on content change
+    pub cached_tree: Option<(String, TreeViewRequest)>,
+    /// Cached line count — updated on every edit, avoids O(n) scan on tab switch
+    pub cached_line_count: usize,
     /// Pointer to the heap-allocated closure passed to FLTK's modify callback.
     /// Must be freed in cleanup() after removing the callback.
     modify_cb_data: *mut c_void,
@@ -181,6 +185,8 @@ impl Document {
             group_id: None,
             diagnostics: Vec::new(),
             has_been_linted: false,
+            cached_tree: None,
+            cached_line_count: 0,
             modify_cb_data,
         }
     }
@@ -214,6 +220,8 @@ impl Document {
             group_id: None,
             diagnostics: Vec::new(),
             has_been_linted: false,
+            cached_tree: None,
+            cached_line_count: content.lines().count(),
             modify_cb_data,
         }
     }
@@ -249,6 +257,8 @@ impl Document {
         }
         has_unsaved_changes.set(false);
 
+        let cached_line_count = buffer.count_lines(0, buffer.length()) as usize;
+
         Self {
             id,
             buffer,
@@ -262,6 +272,8 @@ impl Document {
             group_id: None,
             diagnostics: Vec::new(),
             has_been_linted: false,
+            cached_tree: None,
+            cached_line_count,
             modify_cb_data,
         }
     }

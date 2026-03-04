@@ -35,6 +35,12 @@ const DEFAULT_HEIGHT: i32 = 200;
 /// Placeholder text for the search input (magnifying glass + hint)
 const SEARCH_PLACEHOLDER: &str = "\u{1F50D} Find...";
 
+/// Maximum tree depth rendered in the FLTK widget.
+/// Deeper nodes are omitted from the UI to avoid multi-second freezes on
+/// deeply nested YAML/JSON files (172K nodes → ~9.5s).  The underlying
+/// `TreeNode` data model is unchanged.
+const MAX_TREE_DEPTH: i32 = 6;
+
 /// Tree panel widget for showing hierarchical data
 pub struct TreePanel {
     /// The outer container (Flex column)
@@ -345,6 +351,15 @@ impl TreePanel {
         self.container.redraw();
     }
 
+    /// Show a "Loading..." placeholder in the tree panel.
+    /// Keeps the panel visible (no hide/show flash) while new content is being prepared.
+    pub fn show_loading(&mut self) {
+        self.header.set_label("  Loading...");
+        self.tree.clear();
+        self.colored_items.borrow_mut().clear();
+        self.container.redraw();
+    }
+
     /// Resolve a semantic label color name to an FLTK Color, theme-aware.
     fn resolve_label_color(&self, name: &str) -> Option<Color> {
         let (r, g, b) = if self.is_dark {
@@ -403,10 +418,7 @@ impl TreePanel {
             label.clone()
         };
 
-        self.tree.add(&item_path);
-
-        // Find the item we just added
-        if let Some(mut item) = self.tree.find_item(&item_path) {
+        if let Some(mut item) = self.tree.add(&item_path) {
             // Set text color: use semantic label_color if set, else default item_fg
             let custom_color = node.label_color.as_deref()
                 .and_then(|name| self.resolve_label_color(name));
@@ -447,9 +459,11 @@ impl TreePanel {
                 item.close();
             }
 
-            // Add children recursively, passing our full path
-            for child in &node.children {
-                self.add_tree_node(Some(&item_path), child, expand_depth, current_depth + 1);
+            // Add children recursively, passing our full path (depth-limited)
+            if current_depth + 1 < MAX_TREE_DEPTH {
+                for child in &node.children {
+                    self.add_tree_node(Some(&item_path), child, expand_depth, current_depth + 1);
+                }
             }
 
             // Re-apply open state after children are added (FLTK may reset
@@ -935,9 +949,7 @@ impl TreePanel {
             label.clone()
         };
 
-        self.tree.add(&item_path);
-
-        if let Some(mut item) = self.tree.find_item(&item_path) {
+        if let Some(mut item) = self.tree.add(&item_path) {
             // Set text color: use semantic label_color if set, else default item_fg
             let custom_color = node.label_color.as_deref()
                 .and_then(|name| self.resolve_label_color(name));
@@ -951,10 +963,12 @@ impl TreePanel {
             // Expand nodes that have matching descendants
             item.open();
 
-            // Recurse only into children that have matches
-            for (i, child) in node.children.iter().enumerate() {
-                if self_matches || children_match[i] {
-                    self.add_filtered_tree_node(Some(&item_path), child, query, current_depth + 1);
+            // Recurse only into children that have matches (depth-limited)
+            if current_depth + 1 < MAX_TREE_DEPTH {
+                for (i, child) in node.children.iter().enumerate() {
+                    if self_matches || children_match[i] {
+                        self.add_filtered_tree_node(Some(&item_path), child, query, current_depth + 1);
+                    }
                 }
             }
         }

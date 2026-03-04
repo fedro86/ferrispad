@@ -162,11 +162,25 @@ pub enum Message {
     TreeViewSearch {
         query: String,
     },
+
+    /// Deferred plugin hooks for large files (run after event loop processes banner)
+    DeferredPluginHooks { path: String, content: String },
+    /// Deferred tree view refresh on tab switch (avoids blocking UI for large files)
+    DeferredTreeRefresh { path: Option<String>, content: String },
+    /// Show "Loading..." placeholder in tree panel (keeps panel visible during refresh)
+    TreeViewLoading,
+    /// Deferred session restore (runs after window is shown so UI is visible immediately)
+    DeferredSessionRestore,
+    /// Open a file from CLI args (deferred so session restore runs first)
+    DeferredOpenFile(String),
     /// User dragged the tree panel divider to resize
     TreeViewResize(i32),
 
     /// User dragged the split panel divider to resize
     SplitViewResize(i32),
+
+    /// Deferred malloc_trim to return freed C++ pages to the OS without blocking UI
+    MallocTrim,
 
     /// User clicked the diff tab in the tab bar
     DiffTabActivate(u32),

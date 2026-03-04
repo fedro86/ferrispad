@@ -65,6 +65,8 @@ pub enum PluginHook {
     /// Called after a document is opened
     OnDocumentOpen {
         path: Option<String>,
+        /// Pre-loaded content to avoid disk re-read (None = fall back to disk read)
+        content: Option<String>,
     },
 
     /// Called before a document is saved.

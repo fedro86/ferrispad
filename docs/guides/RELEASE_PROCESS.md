@@ -223,14 +223,36 @@ Please test and report issues:
 **Feedback**: Please report issues at https://github.com/fedro86/ferrispad/issues
 ```
 
-### 6. Sign the Release Binaries
+### 6. Sign the Release Binaries (Automated)
 
 **Important:** FerrisPad's auto-updater verifies signatures before installing updates. Without signatures, users cannot auto-update.
 
-After the GitHub Actions build completes:
+Signing is **fully automated** by the `sign-binaries` job in the GitHub Actions workflow. After the build jobs complete, the workflow:
 
-1. **Download the binaries** from the GitHub release
-2. **Sign each binary** using the signing tool:
+1. Checks out the `ferrispad-plugins` repo and builds the signer tool
+2. Decodes the `SIGNING_KEY` secret to a temporary file
+3. Signs all platform binaries using `plugin-signer sign-release`
+4. Uploads `.sig` files as release artifacts alongside the binaries
+5. Cleans up the key material
+
+**No manual action is needed** — `.sig` files appear automatically in the GitHub release.
+
+#### GitHub Secret Setup (One-Time)
+
+The `SIGNING_KEY` secret must be configured in the repository:
+
+```bash
+# Encode the existing signing key as base64
+base64 < ~/.config/ferrispad/signing/plugin_signing_key.bin
+
+# Add to GitHub: Settings → Secrets and variables → Actions → New repository secret
+# Name: SIGNING_KEY
+# Value: (paste the base64 output)
+```
+
+#### Manual Signing Fallback
+
+If CI signing fails or you need to sign manually:
 
 ```bash
 cd ~/code-folder/continuous_learning/ferrispad-plugins/tools/signer
@@ -238,14 +260,14 @@ cd ~/code-folder/continuous_learning/ferrispad-plugins/tools/signer
 # Sign Linux binary
 ./target/release/plugin-signer sign-release ~/Downloads/FerrisPad-linux-amd64 0.9.1 linux-amd64
 
-# Sign macOS binary (extract from DMG first)
+# Sign macOS binary
 ./target/release/plugin-signer sign-release ~/Downloads/FerrisPad-macos-universal 0.9.1 macos-universal
 
-# Sign Windows binary (extract from ZIP first)
+# Sign Windows binary
 ./target/release/plugin-signer sign-release ~/Downloads/FerrisPad-windows-x64.exe 0.9.1 windows-x64.exe
 ```
 
-3. **Upload the `.sig` files** to the GitHub release alongside the binaries
+Then upload the `.sig` files to the GitHub release manually.
 
 **Platform identifiers** (must match exactly):
 | Platform | Identifier |
@@ -254,7 +276,7 @@ cd ~/code-folder/continuous_learning/ferrispad-plugins/tools/signer
 | macOS | `macos-universal` |
 | Windows | `windows-x64.exe` |
 
-**Note:** The signing key is stored at `~/.config/ferrispad/signing/plugin_signing_key.bin`. Keep this key secure and backed up.
+**Note:** The signing key is stored at `~/.config/ferrispad/signing/plugin_signing_key.bin`. Keep this key secure and backed up. The CI uses a base64-encoded copy stored as a GitHub Secret.
 
 ### 7. Verify the Release
 
@@ -317,8 +339,7 @@ Before creating a new release, update:
 - [ ] Commit all changes
 - [ ] Create and push tag
 - [ ] Wait for GitHub Actions to build binaries
-- [ ] **Sign all binaries** with `plugin-signer sign-release`
-- [ ] **Upload `.sig` files** to the GitHub release
+- [ ] **Verify `.sig` files** are attached to the release (automated by CI)
 - [ ] Auto-populate release notes from CHANGELOG.md (use `gh` one-liner)
 
 ## Benefits of GitHub Actions

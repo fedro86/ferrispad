@@ -17,6 +17,7 @@ use crate::app::services::updater::{check_for_updates, current_timestamp, should
 use crate::app::services::shortcut_registry::ShortcutRegistry;
 use crate::app::state::AppState;
 use crate::app::domain::settings::TreePanelPosition;
+use crate::app::infrastructure::defer::defer_send;
 use crate::app::{detect_system_dark_mode, AppSettings, Message, ThemeMode};
 use crate::ui::dialogs::about::show_about_dialog;
 use crate::ui::dialogs::find::{show_find_dialog, show_replace_dialog};
@@ -127,9 +128,6 @@ fn main() {
     // Apply initial settings (theme, font, line numbers, word wrap)
     state.apply_settings(settings.clone());
 
-    // Restore session if enabled (before CLI args so args can override)
-    state.restore_session();
-
     // Populate plugins menu with loaded plugins (before wind.end()/show()
     // so FLTK registers shortcuts the same way as built-in menu items)
     ui::menu::rebuild_plugins_menu(
@@ -143,10 +141,13 @@ fn main() {
     // Update menus based on active file type (preview)
     state.update_menus_for_file_type();
 
-    // Open file from CLI args if provided
+    // Defer session restore and CLI file open until after the window is shown,
+    // so the UI appears immediately instead of blocking on large file reads.
+    defer_send(sender, 0.0, Message::DeferredSessionRestore);
+    // CLI args open after session restore (slight delay to ensure ordering)
     let args: Vec<String> = env::args().collect();
     if let Some(path) = args.iter().skip(1).find(|arg| !arg.starts_with("-psn")) {
-        state.open_file(path.clone());
+        defer_send(sender, 0.01, Message::DeferredOpenFile(path.clone()));
     }
 
     // Window event handler for close and resize.
@@ -201,9 +202,6 @@ fn main() {
     if tabs_enabled {
         state.rebuild_tab_bar();
     }
-
-    // Start deferred highlighting for session-restored documents
-    state.start_queued_highlights();
 
     // Set up diagnostic panel click and hover handlers
     w.diagnostic_panel.setup_click_handler();
@@ -399,6 +397,12 @@ fn main() {
 
                 // Syntax highlighting (debounced)
                 Message::BufferModified(id, pos) => {
+                    // Invalidate cached tree view so next tab switch re-parses
+                    // and update cached line count to avoid O(n) scan on tab switch
+                    if let Some(doc) = state.tab_manager.doc_by_id_mut(id) {
+                        doc.cached_tree = None;
+                        doc.cached_line_count = doc.buffer.count_lines(0, doc.buffer.length()) as usize;
+                    }
                     state.schedule_rehighlight(id, pos);
                     state.mark_session_dirty();
                 }
@@ -497,6 +501,57 @@ fn main() {
                 }
                 Message::ManualHighlight => {
                     state.request_manual_highlight();
+                }
+
+                // Deferred plugin hooks (large files)
+                Message::DeferredPluginHooks { path, content } => {
+                    state.run_open_hooks(path, content);
+                }
+
+                // Deferred tree view refresh on tab switch (cache miss)
+                Message::DeferredTreeRefresh { path, content } => {
+                    // Flush so "Loading..." is visible before blocking work
+                    fltk::app::flush();
+                    // If content is empty, read from active buffer now (deferred from tab switch)
+                    let content = if content.is_empty() {
+                        state.tab_manager.active_doc()
+                            .map(|d| crate::app::infrastructure::buffer::buffer_text_no_leak(&d.buffer))
+                            .unwrap_or_default()
+                    } else {
+                        content
+                    };
+                    state.run_tree_refresh(path, content);
+                }
+
+                // Deferred session restore (window is already visible)
+                Message::DeferredSessionRestore => {
+                    // Show toast before the synchronous work so the user sees feedback.
+                    // We render directly because messages queued during restore_session
+                    // won't be processed until it returns.
+                    w.toast.show(crate::ui::toast::ToastLevel::Info, "Restoring session...");
+                    let height = w.toast.current_height();
+                    w.flex.fixed(w.toast.widget(), height);
+                    w.flex.recalc();
+                    fltk::app::flush();
+
+                    state.restore_session();
+
+                    // Hide toast
+                    w.toast.hide();
+                    w.flex.fixed(w.toast.widget(), 0);
+                    w.flex.recalc();
+
+                    // Rebuild tab bar now that documents are loaded
+                    if tabs_enabled {
+                        state.rebuild_tab_bar();
+                    }
+                    // Start deferred highlighting for large session-restored files
+                    state.start_queued_highlights();
+                }
+
+                // Deferred CLI file open (after session restore)
+                Message::DeferredOpenFile(path) => {
+                    state.open_file(path);
                 }
 
                 // Toast notifications
@@ -713,6 +768,9 @@ fn main() {
                     }
                     w.wind.redraw();
                 }
+                Message::TreeViewLoading => {
+                    w.tree_panel.show_loading();
+                }
                 Message::TreeViewNodeClicked { session_id, node_path } => {
                     state.handle_tree_view_node_click(session_id, node_path);
                 }
@@ -721,6 +779,18 @@ fn main() {
                 }
                 Message::TreeViewSearch { query } => {
                     w.tree_panel.apply_search(&query);
+                }
+                Message::MallocTrim => {
+                    #[cfg(target_os = "linux")]
+                    {
+                        // SAFETY: malloc_trim is a glibc extension that releases free memory
+                        // back to the OS. Safe to call at any time; pad=0 means release as
+                        // much as possible.
+                        unsafe {
+                            unsafe extern "C" { fn malloc_trim(pad: std::ffi::c_int) -> std::ffi::c_int; }
+                            malloc_trim(0);
+                        }
+                    }
                 }
                 Message::TreeViewResize(mouse_x) => {
                     if matches!(w.tree_position, TreePanelPosition::Left | TreePanelPosition::Right) {
