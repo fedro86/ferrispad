@@ -1,4 +1,5 @@
 use fltk::{
+    app,
     enums::{Color, FrameType},
     frame::Frame,
     menu::MenuBar,
@@ -100,6 +101,15 @@ pub fn apply_syntax_theme_colors(
             }
         }
     }
+
+    // Override FL_BACKGROUND_COLOR so the corner square between scrollbars
+    // uses the themed track color instead of FLTK's default gray.
+    let bits = track.bits();
+    app::background(
+        ((bits >> 24) & 0xFF) as u8,
+        ((bits >> 16) & 0xFF) as u8,
+        ((bits >> 8) & 0xFF) as u8,
+    );
 
     editor.redraw();
 }
