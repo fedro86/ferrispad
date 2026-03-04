@@ -509,6 +509,11 @@ impl PluginManager {
 
                 // Parse highlights from the returned table
                 if let mlua::Value::Table(return_table) = value {
+                    let has_lint_data = return_table.contains_key("diagnostics").unwrap_or(false)
+                        || return_table.raw_len() > 0;
+                    if has_lint_data {
+                        result.had_lint_results = true;
+                    }
                     self.parse_lint_result(&return_table, &plugin.name, &mut result);
                 }
                 return Ok(result);
@@ -530,6 +535,11 @@ impl PluginManager {
                     // Check for modified_content
                     if let Ok(mlua::Value::String(s)) = return_table.get::<mlua::Value>("modified_content") {
                         result.modified_content = Some(s.to_str()?.to_string());
+                    }
+                    let has_lint_data = return_table.contains_key("diagnostics").unwrap_or(false)
+                        || return_table.raw_len() > 0;
+                    if has_lint_data {
+                        result.had_lint_results = true;
                     }
                     self.parse_lint_result(&return_table, &plugin.name, &mut result);
                 }

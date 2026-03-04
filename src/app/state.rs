@@ -734,18 +734,11 @@ impl AppState {
         }
     }
 
-    /// Run OnDocumentOpen and OnDocumentLint plugin hooks for a file.
+    /// Run OnDocumentOpen plugin hooks for a file.
     /// Extracted so it can be called directly (small files) or deferred via
     /// `DeferredPluginHooks` message (large files, to let the banner show first).
     pub fn run_open_hooks(&mut self, path: String, content: String) {
-        // OnDocumentOpen + widget processing (shared with run_tree_refresh)
-        self.run_tree_refresh(Some(path.clone()), content.clone());
-
-        let lint_result = self.plugins.call_hook(PluginHook::OnDocumentLint {
-            path,
-            content,
-        });
-        self.process_lint_result(lint_result);
+        self.run_tree_refresh(Some(path), content);
     }
 
     /// Open large file from a pre-populated TextBuffer (memory-optimized).
@@ -2172,8 +2165,9 @@ impl AppState {
             buf.set_text(&modified_content);
         }
 
-        // Update diagnostics
-        if !result.diagnostics.is_empty() {
+        // Update diagnostics — send even when empty if a lint plugin ran,
+        // so the diagnostic panel shows "All checks passed"
+        if !result.diagnostics.is_empty() || result.had_lint_results {
             self.sender.send(Message::DiagnosticsUpdate(result.diagnostics));
         }
 
