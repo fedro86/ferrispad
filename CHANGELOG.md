@@ -5,20 +5,7 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.1-rc.2] - 2026-03-05
-
-### Added
-- **Persistent Tree View Flag**: File explorer stays open across tab switches.
-- **Tree View Auto-Reopen**: Tree view reopens on tab switch with caching and deferred hooks.
-- **Configurable Large File Thresholds**: Adjust large file size limits in Settings dialog.
-- **"All Checks Passed" Feedback**: Manual lint triggers now show success confirmation.
-
-### Fixed
-- **Session Merge Resurrects Closed Tabs**: Tagging session.json with process ID prevents closed tabs from reappearing on next launch.
-- **Success Diagnostic Bar Auto-Dismiss**: Diagnostic bar auto-dismisses and coexists with tree view.
-- **Themed Scrollbar Corner Square**: Scrollbar corner now uses theme colors instead of FLTK default gray.
-
-## [0.9.1-rc.1] - 2026-03-03
+## [0.9.1] - 2026-03-05
 
 ### Added
 - **Lua Plugin System**: Full Lua 5.4 scripting with statically linked mlua, 8 synchronous hooks (`on_document_open`, `on_document_save`, `on_document_close`, `on_document_lint`, `on_highlight_request`, `on_widget_action`, `init`, `shutdown`).
@@ -44,8 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Independent Syntax Theme Selection**: Choose syntax theme independently with live preview.
 - **Configurable Tab Size**: User-configurable tab width setting.
 - **External Browser Markdown Preview**: Stable file naming for browser preview.
+- **Persistent Tree View Flag**: File explorer stays open across tab switches.
+- **Tree View Auto-Reopen**: Tree view reopens on tab switch with caching and deferred hooks.
+- **Configurable Large File Thresholds**: Adjust large file size limits in Settings dialog.
+- **"All Checks Passed" Feedback**: Manual lint triggers now show success confirmation.
 
 ### Fixed
+- **Session Merge Resurrects Closed Tabs**: Tagging session.json with process ID prevents closed tabs from reappearing on next launch.
 - **Clipboard Copy Path on Wayland**: Fixed Copy Path not working on Wayland sessions.
 - **Plugin Shortcuts After Session Restore**: Shortcuts now work correctly after restoring a session.
 - **Wayland Popup Menu Positioning**: Fixed RefCell panic in tab bar and proper popup anchoring.
@@ -60,6 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Diagnostic Tooltip Updates**: Tooltip refreshes after clicking diagnostic item.
 - **Dirty Flag on Tab Switch**: Fixed incorrect dirty flag state.
 - **Plugin Manager Cross-Tab Sync**: Correct registry name format on uninstall, no ghost rows on update.
+- **Success Diagnostic Bar Auto-Dismiss**: Diagnostic bar auto-dismisses and coexists with tree view.
+- **Themed Scrollbar Corner Square**: Scrollbar corner now uses theme colors instead of FLTK default gray.
 
 ### Changed
 - **Clean Architecture Reorganization**: Moved `src/app/` into domain/controllers/services/infrastructure/plugins layers.
@@ -329,8 +323,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FLTK-based GUI
 - Rust implementation for speed and safety
 
-[0.9.1-rc.2]: https://github.com/fedro86/ferrispad/compare/0.9.1-rc.1...0.9.1-rc.2
-[0.9.1-rc.1]: https://github.com/fedro86/ferrispad/compare/0.9.0...0.9.1-rc.1
+[0.9.1]: https://github.com/fedro86/ferrispad/compare/0.9.0...0.9.1
 [0.9.0]: https://github.com/fedro86/ferrispad/compare/0.1.8...0.9.0
 [0.1.8]: https://github.com/fedro86/ferrispad/compare/0.1.7...0.1.8
 [0.1.7]: https://github.com/fedro86/ferrispad/compare/0.1.6...0.1.7
