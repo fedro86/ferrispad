@@ -1213,7 +1213,14 @@ impl AppState {
             }
         }
 
-        session::clear_session();
+        // Re-save immediately so on-disk state matches restored state.
+        // This ensures the session survives even if the app exits before auto-save.
+        let session_mode = self.settings.borrow().session_restore;
+        let _ = session::save_session(
+            &self.tab_manager,
+            session_mode,
+            self.last_open_directory.as_deref(),
+        );
     }
 
     /// Handle quit request. Returns `true` if the app should exit.

@@ -14,6 +14,7 @@ use std::env;
 
 use crate::app::controllers::update::BannerWidgets;
 use crate::app::services::updater::{check_for_updates, current_timestamp, should_check_now, UpdateCheckResult};
+use crate::app::services::session;
 use crate::app::services::shortcut_registry::ShortcutRegistry;
 use crate::app::state::AppState;
 use crate::app::domain::settings::TreePanelPosition;
@@ -259,6 +260,9 @@ fn main() {
         };
     }
 
+    // Track whether file_quit() completed successfully
+    let mut quit_clean = false;
+
     // Main event loop with message dispatch
     while app.wait() {
         if let Some(msg) = receiver.recv() {
@@ -270,6 +274,7 @@ fn main() {
                 Message::FileSaveAs => { state.file_save_as(); state.mark_session_dirty(); }
                 Message::FileQuit | Message::WindowClose => {
                     if state.file_quit() {
+                        quit_clean = true;
                         fltk_app::quit();
                     } else {
                         // User cancelled the quit — reset the flag
@@ -306,16 +311,25 @@ fn main() {
                 }
                 Message::TabClose(id) => {
                     if state.close_tab(id) {
-                        fltk_app::quit();
+                        if state.file_quit() {
+                            quit_clean = true;
+                            fltk_app::quit();
+                        }
+                    } else {
+                        state.mark_session_dirty();
                     }
-                    state.mark_session_dirty();
                 }
                 Message::TabCloseActive => {
                     if let Some(id) = state.tab_manager.active_id()
-                        && state.close_tab(id) {
+                        && state.close_tab(id)
+                    {
+                        if state.file_quit() {
+                            quit_clean = true;
                             fltk_app::quit();
                         }
-                    state.mark_session_dirty();
+                    } else {
+                        state.mark_session_dirty();
+                    }
                 }
                 Message::TabMove(from, to) => {
                     state.tab_manager.move_tab(from, to);
@@ -834,5 +848,15 @@ fn main() {
             }
         }
         state.auto_save_session_if_needed();
+    }
+
+    // Safety-net: save session if file_quit() was never called or didn't complete
+    if !quit_clean {
+        let session_mode = state.settings.borrow().session_restore;
+        let _ = session::save_session(
+            &state.tab_manager,
+            session_mode,
+            state.last_open_directory.as_deref(),
+        ).inspect_err(|e| eprintln!("Post-loop session save failed: {}", e));
     }
 }
