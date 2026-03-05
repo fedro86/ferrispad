@@ -10,6 +10,15 @@ pub enum AppError {
 
     #[error("Update error: {0}")]
     Update(String),
+
+    #[error("Network error: {0}")]
+    Network(String),
+
+    #[error("Signature verification failed: {0}")]
+    SignatureInvalid(String),
+
+    #[error("Checksum mismatch for {0}: expected {1}, got {2}")]
+    ChecksumMismatch(String, String, String),
 }
 
 #[cfg(test)]

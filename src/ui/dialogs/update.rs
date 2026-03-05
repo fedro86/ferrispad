@@ -124,17 +124,18 @@ pub fn show_update_available_dialog(release: updater::ReleaseInfo, settings: &Rc
     dialog.end();
 
     // Install Now button
-    if let Some(asset) = direct_asset.cloned() {
+    if direct_asset.is_some() {
         let mut progress_bar = progress.clone();
         let mut status = status_frame.clone();
         let mut btn_row = button_row.clone();
+        let release_for_install = release.clone();
         install_btn.set_callback(move |_| {
             progress_bar.show();
             status.show();
             status.set_label("Starting download...");
             btn_row.deactivate();
 
-            let download_url = asset.browser_download_url.clone();
+            let release_clone = release_for_install.clone();
             let p_bar = progress_bar.clone();
             let s_frame_download = status.clone();
             let s_frame_install = status.clone();
@@ -145,12 +146,19 @@ pub fn show_update_available_dialog(release: updater::ReleaseInfo, settings: &Rc
                 let temp_dir = std::env::temp_dir();
                 let temp_file = temp_dir.join("ferrispad_update");
 
-                let result = updater::download_file(&download_url, &temp_file, |p| {
+                // Use verified download
+                let result = updater::download_and_verify(&release_clone, &temp_file, |p| {
                     let mut p_val = p_bar.clone();
                     let mut s_val = s_frame_download.clone();
                     app::awake_callback(move || {
                         p_val.set_value(p as f64);
-                        s_val.set_label(&format!("Downloading: {:.0}%", p * 100.0));
+                        if p < 0.5 {
+                            s_val.set_label(&format!("Downloading: {:.0}%", p * 200.0));
+                        } else if p < 0.9 {
+                            s_val.set_label("Verifying signature...");
+                        } else {
+                            s_val.set_label("Verified! Writing to disk...");
+                        }
                     });
                 });
 
@@ -186,7 +194,7 @@ pub fn show_update_available_dialog(release: updater::ReleaseInfo, settings: &Rc
                         let mut br = btn_row_download_err.clone();
                         let mut s_err = s_frame_download.clone();
                         app::awake_callback(move || {
-                            s_err.set_label("Download failed");
+                            s_err.set_label("Download/verification failed");
                             dialog::alert_default(&format!("Failed to download update: {}", e));
                             br.activate();
                         });

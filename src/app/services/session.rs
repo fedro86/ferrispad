@@ -126,7 +126,10 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
                 }
 
                 let temp_file = if is_dirty || !has_path {
-                    let hash = make_hash(&doc.display_name, doc.id.0);
+                    // Use file_path if available (stable across sessions),
+                    // otherwise fall back to display_name + id (stable within session)
+                    let hash_key = doc.file_path.as_deref().unwrap_or(&doc.display_name);
+                    let hash = make_hash(hash_key, doc.id.0);
                     let filename = format!("{:016x}.tmp", hash);
                     let temp_path = dir.join(&filename);
                     fs::write(&temp_path, &content)?;
@@ -153,10 +156,19 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
     let session_file = dir.join("session.json");
     if let Ok(existing_json) = fs::read_to_string(&session_file)
         && let Ok(existing) = serde_json::from_str::<SessionData>(&existing_json) {
-            // Collect file paths this instance knows about (owned to avoid borrow conflict)
+            // Clone to owned HashSets to allow mutable push below (borrow checker requirement)
             let our_paths: HashSet<String> = doc_sessions
                 .iter()
                 .filter_map(|d| d.file_path.clone())
+                .collect();
+            let our_temp_files: HashSet<String> = doc_sessions
+                .iter()
+                .filter_map(|d| d.temp_file.clone())
+                .collect();
+            let our_untitled_names: HashSet<String> = doc_sessions
+                .iter()
+                .filter(|d| d.file_path.is_none())
+                .map(|d| d.display_name.clone())
                 .collect();
 
             for doc in existing.documents {
@@ -166,8 +178,16 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
                         doc_sessions.push(doc);
                     }
                     None if mode == SessionRestore::Full && doc.temp_file.is_some() => {
-                        // Untitled doc with content from another instance — keep it
-                        doc_sessions.push(doc);
+                        // Untitled doc from another instance — only keep if not a duplicate
+                        // Check both temp file and display name to catch the same doc
+                        // that may have gotten a new temp file hash due to id change
+                        let temp_dup = doc.temp_file.as_ref()
+                            .is_some_and(|tf| our_temp_files.contains(tf));
+                        let name_dup = our_untitled_names.contains(&doc.display_name);
+
+                        if !temp_dup && !name_dup {
+                            doc_sessions.push(doc);
+                        }
                     }
                     _ => {} // duplicate or empty — skip
                 }
@@ -186,7 +206,32 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
 
     fs::write(&session_file, json)?;
 
+    // Clean up orphaned temp files (not referenced in current session)
+    cleanup_orphaned_temp_files(&session_data, &dir);
+
     Ok(())
+}
+
+/// Remove .tmp files that are no longer referenced by any document in the session.
+fn cleanup_orphaned_temp_files(session: &SessionData, dir: &std::path::Path) {
+    // Collect all referenced temp files
+    let referenced: HashSet<&str> = session
+        .documents
+        .iter()
+        .filter_map(|d| d.temp_file.as_deref())
+        .collect();
+
+    // Find and delete orphaned .tmp files
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                if filename.ends_with(".tmp") && !referenced.contains(filename) {
+                    let _ = fs::remove_file(&path);
+                }
+            }
+        }
+    }
 }
 
 /// Load session data from disk.
@@ -235,16 +280,13 @@ pub fn read_temp_file(temp_file: &str) -> Option<String> {
     fs::read_to_string(&path).ok()
 }
 
+/// Create a stable hash for temp file naming.
+/// Uses only name and id - NOT timestamp - so the same document
+/// always gets the same temp filename across auto-saves.
 fn make_hash(name: &str, id: u64) -> u64 {
     let mut hasher = DefaultHasher::new();
     name.hash(&mut hasher);
     id.hash(&mut hasher);
-    // Include a timestamp-like value to avoid collisions across sessions
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
-        .hash(&mut hasher);
     hasher.finish()
 }
 

@@ -223,15 +223,71 @@ Please test and report issues:
 **Feedback**: Please report issues at https://github.com/fedro86/ferrispad/issues
 ```
 
-### 6. Verify the Release
+### 6. Sign the Release Binaries (Automated)
 
-After adding release notes:
+**Important:** FerrisPad's auto-updater verifies signatures before installing updates. Without signatures, users cannot auto-update.
 
-1. Verify all three binaries are attached
+Signing is **fully automated** by the `sign-binaries` job in the GitHub Actions workflow. After the build jobs complete, the workflow:
+
+1. Checks out the `ferrispad-plugins` repo and builds the signer tool
+2. Decodes the `SIGNING_KEY` secret to a temporary file
+3. Signs all platform binaries using `plugin-signer sign-release`
+4. Uploads `.sig` files as release artifacts alongside the binaries
+5. Cleans up the key material
+
+**No manual action is needed** — `.sig` files appear automatically in the GitHub release.
+
+#### GitHub Secret Setup (One-Time)
+
+The `SIGNING_KEY` secret must be configured in the repository:
+
+```bash
+# Encode the existing signing key as base64
+base64 < ~/.config/ferrispad/signing/plugin_signing_key.bin
+
+# Add to GitHub: Settings → Secrets and variables → Actions → New repository secret
+# Name: SIGNING_KEY
+# Value: (paste the base64 output)
+```
+
+#### Manual Signing Fallback
+
+If CI signing fails or you need to sign manually:
+
+```bash
+cd ~/code-folder/continuous_learning/ferrispad-plugins/tools/signer
+
+# Sign Linux binary
+./target/release/plugin-signer sign-release ~/Downloads/FerrisPad-linux-amd64 0.9.1 linux-amd64
+
+# Sign macOS binary
+./target/release/plugin-signer sign-release ~/Downloads/FerrisPad-macos-universal 0.9.1 macos-universal
+
+# Sign Windows binary
+./target/release/plugin-signer sign-release ~/Downloads/FerrisPad-windows-x64.exe 0.9.1 windows-x64.exe
+```
+
+Then upload the `.sig` files to the GitHub release manually.
+
+**Platform identifiers** (must match exactly):
+| Platform | Identifier |
+|----------|------------|
+| Linux | `linux-amd64` |
+| macOS | `macos-universal` |
+| Windows | `windows-x64.exe` |
+
+**Note:** The signing key is stored at `~/.config/ferrispad/signing/plugin_signing_key.bin`. Keep this key secure and backed up. The CI uses a base64-encoded copy stored as a GitHub Secret.
+
+### 7. Verify the Release
+
+After signing and uploading:
+
+1. Verify all three binaries AND their `.sig` files are attached
 2. Download and test each binary on its platform
-3. Check that the release notes render correctly
-4. For pre-releases, ensure the "Pre-release" badge is visible
-5. If everything looks good, the release is ready!
+3. Test the auto-updater from an older version to verify signature verification works
+4. Check that the release notes render correctly
+5. For pre-releases, ensure the "Pre-release" badge is visible
+6. If everything looks good, the release is ready!
 
 ## Manual Trigger
 
@@ -282,6 +338,8 @@ Before creating a new release, update:
 - [ ] `scripts/build-releases.sh` - VERSION variable (automated by bump-version.sh)
 - [ ] Commit all changes
 - [ ] Create and push tag
+- [ ] Wait for GitHub Actions to build binaries
+- [ ] **Verify `.sig` files** are attached to the release (automated by CI)
 - [ ] Auto-populate release notes from CHANGELOG.md (use `gh` one-liner)
 
 ## Benefits of GitHub Actions

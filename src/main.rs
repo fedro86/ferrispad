@@ -7,20 +7,27 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 mod app;
 mod ui;
 
-use fltk::{app as fltk_app, prelude::*};
+use fltk::{app as fltk_app, group::Flex, prelude::*};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::env;
 
 use crate::app::controllers::update::BannerWidgets;
 use crate::app::services::updater::{check_for_updates, current_timestamp, should_check_now, UpdateCheckResult};
+use crate::app::services::shortcut_registry::ShortcutRegistry;
 use crate::app::state::AppState;
+use crate::app::domain::settings::TreePanelPosition;
+use crate::app::infrastructure::defer::defer_send;
 use crate::app::{detect_system_dark_mode, AppSettings, Message, ThemeMode};
 use crate::ui::dialogs::about::show_about_dialog;
 use crate::ui::dialogs::find::{show_find_dialog, show_replace_dialog};
 use crate::ui::dialogs::goto_line::show_goto_line_dialog;
 use crate::ui::dialogs::update::check_for_updates_ui;
 use crate::ui::main_window::build_main_window;
+use crate::app::plugins::widgets::SplitDisplayMode;
+use crate::ui::split_panel::SplitPanel;
+use crate::ui::tab_bar::TAB_BAR_HEIGHT;
+use crate::ui::tree_panel::TreePanel;
 use crate::ui::menu::build_menu;
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
@@ -58,6 +65,17 @@ fn main() {
 
     let _ = fltk_app::lock();
     let app = fltk_app::App::default().with_scheme(fltk_app::AppScheme::Gtk);
+    fltk_app::set_scrollbar_size(12);
+    fltk_app::set_visible_focus(false);
+    // Lower FLTK's CIELAB contrast threshold from default 39 to 10.
+    // The default overrides our custom tree label colors (git status amber/green/red)
+    // when selected in light mode. Level 10 preserves them while still protecting
+    // against truly unreadable combinations (e.g., white-on-white).
+    fltk::app::set_contrast_level(10);
+
+    // Set subtle rounded corners for RFlatBox widgets globally (min is 5, default is 15)
+    fltk_app::set_frame_border_radius_max(5);
+
     let (sender, receiver) = fltk_app::channel::<Message>();
 
     // Load settings
@@ -69,11 +87,22 @@ fn main() {
         ThemeMode::SystemDefault => detect_system_dark_mode(),
     };
 
+    // Read tree panel position from file-explorer plugin config
+    let tree_position = settings
+        .plugin_configs
+        .get("file-explorer")
+        .and_then(|c| c.params.get("position"))
+        .map(|s| TreePanelPosition::from_config_str(s))
+        .unwrap_or_default();
+
     // Build UI widgets (tab bar included only when tabs enabled)
-    let mut w = build_main_window(tabs_enabled, &sender);
+    let mut w = build_main_window(tabs_enabled, &sender, tree_position);
+
+    // Build shortcut registry from settings
+    let shortcut_registry = ShortcutRegistry::from_settings(&settings.shortcut_overrides);
 
     // Build menu (all items are one-liner message sends)
-    build_menu(&mut w.menu, &sender, &settings, initial_dark_mode, tabs_enabled);
+    build_menu(&mut w.menu, &sender, &settings, initial_dark_mode, tabs_enabled, &shortcut_registry);
 
     // Initialize state
     let app_settings = Rc::new(RefCell::new(settings.clone()));
@@ -99,22 +128,47 @@ fn main() {
     // Apply initial settings (theme, font, line numbers, word wrap)
     state.apply_settings(settings.clone());
 
-    // Restore session if enabled (before CLI args so args can override)
-    state.restore_session();
+    // Populate plugins menu with loaded plugins (before wind.end()/show()
+    // so FLTK registers shortcuts the same way as built-in menu items)
+    ui::menu::rebuild_plugins_menu(
+        &mut state.menu,
+        &state.sender,
+        &state.settings.borrow(),
+        &state.plugins,
+        &state.shortcut_registry,
+    );
 
-    // Open file from CLI args if provided
+    // Update menus based on active file type (preview)
+    state.update_menus_for_file_type();
+
+    // Defer session restore and CLI file open until after the window is shown,
+    // so the UI appears immediately instead of blocking on large file reads.
+    defer_send(sender, 0.0, Message::DeferredSessionRestore);
+    // CLI args open after session restore (slight delay to ensure ordering)
     let args: Vec<String> = env::args().collect();
     if let Some(path) = args.iter().skip(1).find(|arg| !arg.starts_with("-psn")) {
-        state.open_file(path.clone());
+        defer_send(sender, 0.01, Message::DeferredOpenFile(path.clone()));
     }
 
-    // Window close button -> signal quit so nested dialog loops break out,
-    // then send the message for the main event loop to handle.
-    w.wind.set_callback({
+    // Window event handler for close and resize.
+    // Using handle() with Event::Close to catch close even when menu is open.
+    w.wind.handle({
         let s = sender;
-        move |_| {
-            fltk::app::program_should_quit(true);
-            s.send(Message::WindowClose);
+        move |wind, event| {
+            match event {
+                fltk::enums::Event::Close => {
+                    fltk::app::program_should_quit(true);
+                    s.send(Message::WindowClose);
+                    // Hide the window to break out of any modal loops (like open menus)
+                    wind.hide();
+                    true
+                }
+                fltk::enums::Event::Resize => {
+                    s.send(Message::WindowResize);
+                    false // Let FLTK handle the resize too
+                }
+                _ => false,
+            }
         }
     });
 
@@ -149,8 +203,27 @@ fn main() {
         state.rebuild_tab_bar();
     }
 
-    // Start deferred highlighting for session-restored documents
-    state.start_queued_highlights();
+    // Set up diagnostic panel click and hover handlers
+    w.diagnostic_panel.setup_click_handler();
+    w.diagnostic_panel.setup_hover_handler();
+
+    // Check plugin permissions now that UI is ready (dialog needs event loop)
+    sender.send(Message::CheckPluginPermissions);
+
+    // Background plugin update check
+    {
+        use crate::app::services::plugin_update_checker::should_check_plugin_updates;
+
+        let settings_lock = app_settings.borrow();
+        let plugins_enabled = settings_lock.plugins_enabled;
+        let auto_check_plugin_updates = settings_lock.auto_check_plugin_updates;
+        let should_check = should_check_plugin_updates(settings_lock.last_plugin_update_check);
+        drop(settings_lock);
+
+        if plugins_enabled && auto_check_plugin_updates && should_check {
+            state.sender.send(Message::CheckPluginUpdates);
+        }
+    }
 
     // Background update check via channel
     {
@@ -178,6 +251,14 @@ fn main() {
         }
     }
 
+    // Resolve the parent Flex that owns the split panel.
+    // For Left/Right tree positions it's right_col; for Bottom it's the outer flex.
+    macro_rules! split_parent {
+        ($w:expr) => {
+            $w.right_col.as_mut().map(|rc| rc as &mut Flex).unwrap_or(&mut $w.flex)
+        };
+    }
+
     // Main event loop with message dispatch
     while app.wait() {
         if let Some(msg) = receiver.recv() {
@@ -198,8 +279,30 @@ fn main() {
 
                 // Tabs
                 Message::TabSwitch(id) => {
+                    // If diff tab is active in tab mode, collapse the split panel first
+                    if let Some(ref mut tb) = state.tab_bar {
+                        if tb.is_diff_tab_active() && w.split_panel.is_tab_mode() {
+                            // Collapse split panel to 0 and hide it
+                            w.split_panel.container.hide();
+                            let parent = split_parent!(w);
+                            parent.fixed(w.split_panel.widget(), 0);
+                            if let Some(ref mut div) = w.split_panel.divider {
+                                div.hide();
+                                parent.fixed(div, 0);
+                            }
+                            parent.recalc();
+                            // Mark diff tab as inactive (keep it in the tab bar)
+                            if let Some(sid) = tb.diff_tab_session_id() {
+                                tb.set_diff_tab(sid, w.split_panel.diff_title(), false);
+                            }
+                        }
+                    }
                     state.switch_to_document(id);
                     state.rebuild_tab_bar();
+                    // Auto-scroll to make the active tab visible
+                    if let Some(ref mut tab_bar) = state.tab_bar {
+                        tab_bar.ensure_active_visible(Some(id));
+                    }
                 }
                 Message::TabClose(id) => {
                     if state.close_tab(id) {
@@ -237,6 +340,11 @@ fn main() {
                     state.rebuild_tab_bar();
                     state.mark_session_dirty();
                 }
+                Message::TabMoveToGroup(doc_id, to, group_id) => {
+                    state.tab_manager.move_tab_to_group(doc_id, to, group_id);
+                    state.rebuild_tab_bar();
+                    state.mark_session_dirty();
+                }
 
                 // Edit
                 Message::EditUndo => { let _ = state.active_buffer().undo(); }
@@ -255,7 +363,16 @@ fn main() {
                 // View
                 Message::ToggleLineNumbers => state.toggle_line_numbers(),
                 Message::ToggleWordWrap => state.toggle_word_wrap(),
-                Message::ToggleDarkMode => state.toggle_dark_mode(),
+                Message::ToggleDarkMode => {
+                    state.toggle_dark_mode();
+                    let theme_bg = state.highlight.highlighter().theme_background();
+                    if w.tree_panel.is_visible() {
+                        w.tree_panel.apply_theme(state.dark_mode, theme_bg);
+                    }
+                    if w.split_panel.is_visible() {
+                        w.split_panel.apply_theme(state.dark_mode, theme_bg);
+                    }
+                }
                 Message::ToggleHighlighting => state.toggle_highlighting(),
                 Message::TogglePreview => state.preview_in_browser(),
 
@@ -264,12 +381,28 @@ fn main() {
                 Message::SetFontSize(size) => state.set_font_size(size),
 
                 // Settings & Help
-                Message::OpenSettings => state.open_settings(),
+                Message::OpenSettings => {
+                    state.open_settings();
+                    if w.tree_panel.is_visible() {
+                        let theme_bg = state.highlight.highlighter().theme_background();
+                        w.tree_panel.apply_theme(state.dark_mode, theme_bg);
+                    }
+                }
                 Message::CheckForUpdates => check_for_updates_ui(&state.settings),
-                Message::ShowAbout => show_about_dialog(),
+                Message::ShowAbout => {
+                    let theme_bg = state.highlight.highlighter().theme_background();
+                    show_about_dialog(theme_bg);
+                }
+                Message::ShowKeyShortcuts => state.show_key_shortcuts(),
 
                 // Syntax highlighting (debounced)
                 Message::BufferModified(id, pos) => {
+                    // Invalidate cached tree view so next tab switch re-parses
+                    // and update cached line count to avoid O(n) scan on tab switch
+                    if let Some(doc) = state.tab_manager.doc_by_id_mut(id) {
+                        doc.cached_tree = None;
+                        doc.cached_line_count = doc.buffer.count_lines(0, doc.buffer.length()) as usize;
+                    }
                     state.schedule_rehighlight(id, pos);
                     state.mark_session_dirty();
                 }
@@ -312,6 +445,392 @@ fn main() {
                 }
 
                 Message::PreviewSyntaxTheme(theme) => state.preview_syntax_theme(theme),
+
+                // Plugin system
+                Message::PluginsToggleGlobal => state.handle_plugins_toggle_global(),
+                Message::PluginToggle(name) => state.handle_plugin_toggle(name),
+                Message::PluginsReloadAll => state.handle_plugins_reload(),
+                Message::CheckPluginPermissions => state.check_plugin_permissions_deferred(),
+                Message::PluginMenuAction { plugin_name, action } => {
+                    state.handle_plugin_menu_action(&plugin_name, &action);
+                }
+                Message::ShowPluginManager => state.show_plugin_manager(),
+                Message::ShowPluginSettings => state.show_plugin_settings(),
+                Message::ShowPluginConfig(name) => state.show_plugin_config(&name),
+                Message::CheckPluginUpdates => state.check_plugin_updates(),
+                Message::PluginUpdatesChecked(updates) => state.handle_plugin_updates_checked(updates),
+
+                // Diagnostics
+                Message::DiagnosticsUpdate(diagnostics) => {
+                    let is_success = diagnostics.is_empty();
+                    // Store diagnostics in the active document for persistence
+                    state.store_diagnostics(diagnostics.clone());
+                    w.diagnostic_panel.update_diagnostics(diagnostics);
+                    let height = w.diagnostic_panel.current_height();
+                    w.flex.fixed(w.diagnostic_panel.widget(), height);
+                    w.flex.recalc();
+                    w.wind.redraw();
+                    // Auto-dismiss the green "All checks passed" bar after 5 seconds
+                    if is_success {
+                        defer_send(sender, 5.0, Message::DiagnosticsAutoDismiss);
+                    }
+                }
+                Message::DiagnosticsClear => {
+                    w.diagnostic_panel.clear();
+                    let height = w.diagnostic_panel.current_height();
+                    w.flex.fixed(w.diagnostic_panel.widget(), height);
+                    w.flex.recalc();
+                    w.wind.redraw();
+                }
+                Message::DiagnosticsAutoDismiss => {
+                    // Only dismiss if still showing the success bar (no new errors appeared)
+                    if w.diagnostic_panel.is_showing_success() {
+                        w.diagnostic_panel.clear();
+                        let height = w.diagnostic_panel.current_height();
+                        w.flex.fixed(w.diagnostic_panel.widget(), height);
+                        w.flex.recalc();
+                        w.wind.redraw();
+                    }
+                }
+                Message::DiagnosticGoto(_idx) => {
+                    // idx is 1-based browser index, get line from diagnostics
+                    if let Some(line) = w.diagnostic_panel.selected_line() {
+                        state.goto_line(line);
+                    }
+                }
+                Message::DiagnosticOpenDocs(_idx) => {
+                    // Double-click: open documentation URL or file path
+                    if let Some(url) = w.diagnostic_panel.selected_url() {
+                        if let Err(e) = open::that(&url) {
+                            eprintln!("[diagnostic] Failed to open URL: {}", e);
+                        }
+                    }
+                }
+
+                // Line annotations (gutter + inline highlights)
+                Message::AnnotationsUpdate(annotations) => {
+                    state.update_annotations(annotations);
+                }
+                Message::AnnotationsClear => {
+                    state.clear_annotations();
+                }
+                Message::ManualHighlight => {
+                    state.request_manual_highlight();
+                }
+
+                // Deferred plugin hooks (large files)
+                Message::DeferredPluginHooks { path, content } => {
+                    state.run_open_hooks(path, content);
+                }
+
+                // Deferred tree view refresh on tab switch (cache miss)
+                Message::DeferredTreeRefresh { path, content } => {
+                    // Flush so "Loading..." is visible before blocking work
+                    fltk::app::flush();
+                    // If content is empty, read from active buffer now (deferred from tab switch)
+                    let content = if content.is_empty() {
+                        state.tab_manager.active_doc()
+                            .map(|d| crate::app::infrastructure::buffer::buffer_text_no_leak(&d.buffer))
+                            .unwrap_or_default()
+                    } else {
+                        content
+                    };
+                    state.run_tree_refresh(path, content);
+                }
+
+                // Deferred session restore (window is already visible)
+                Message::DeferredSessionRestore => {
+                    // Show toast before the synchronous work so the user sees feedback.
+                    // We render directly because messages queued during restore_session
+                    // won't be processed until it returns.
+                    w.toast.show(crate::ui::toast::ToastLevel::Info, "Restoring session...");
+                    let height = w.toast.current_height();
+                    w.flex.fixed(w.toast.widget(), height);
+                    w.flex.recalc();
+                    fltk::app::flush();
+
+                    state.restore_session();
+
+                    // Hide toast
+                    w.toast.hide();
+                    w.flex.fixed(w.toast.widget(), 0);
+                    w.flex.recalc();
+
+                    // Rebuild tab bar now that documents are loaded
+                    if tabs_enabled {
+                        state.rebuild_tab_bar();
+                    }
+                    // Start deferred highlighting for large session-restored files
+                    state.start_queued_highlights();
+                }
+
+                // Deferred CLI file open (after session restore)
+                Message::DeferredOpenFile(path) => {
+                    state.open_file(path);
+                }
+
+                // Toast notifications
+                Message::ToastShow(level, msg) => {
+                    w.toast.show(level, &msg);
+                    let height = w.toast.current_height();
+                    w.flex.fixed(w.toast.widget(), height);
+                    w.flex.recalc();
+                    w.wind.redraw();
+                }
+                Message::ToastHide => {
+                    w.toast.hide();
+                    w.flex.fixed(w.toast.widget(), 0);
+                    w.flex.recalc();
+                    w.wind.redraw();
+                }
+
+                // Window events
+                Message::WindowResize => {
+                    if let Some(ref mut tab_bar) = state.tab_bar {
+                        tab_bar.handle_resize();
+                    }
+                    // Recalculate split panel height in tab mode
+                    if w.split_panel.is_visible() && w.split_panel.is_tab_mode() {
+                        let parent = split_parent!(w);
+                        let full_height = parent.h() - TAB_BAR_HEIGHT;
+                        parent.fixed(w.split_panel.widget(), full_height);
+                        parent.recalc();
+                        w.wind.redraw();
+                    }
+                }
+
+                // Widget API - Split View
+                Message::SplitViewShow { session_id, plugin_name, request } => {
+                    let is_tab_mode = request.display_mode == SplitDisplayMode::Tab;
+                    state.show_split_view(session_id, &plugin_name, &request, &mut w.split_panel);
+
+                    let parent = split_parent!(w);
+                    if is_tab_mode {
+                        // Tab mode: fill editor area (parent.h - TAB_BAR_HEIGHT)
+                        let full_height = parent.h() - TAB_BAR_HEIGHT;
+                        parent.fixed(w.split_panel.widget(), full_height);
+                        // Hide divider (no resize in tab mode)
+                        if let Some(ref mut div) = w.split_panel.divider {
+                            div.hide();
+                            parent.fixed(div, 0);
+                        }
+                        // Show diff tab in tab bar
+                        if let Some(ref mut tb) = state.tab_bar {
+                            tb.set_diff_tab(session_id, w.split_panel.diff_title(), true);
+                        }
+                    } else {
+                        // Panel mode (existing behavior)
+                        let height = w.split_panel.current_height();
+                        parent.fixed(w.split_panel.widget(), height);
+                        if let Some(ref mut div) = w.split_panel.divider {
+                            div.show();
+                            parent.fixed(div, SplitPanel::DIVIDER_HEIGHT);
+                        }
+                    }
+                    parent.recalc();
+                    w.wind.redraw();
+                }
+                Message::SplitViewHide(session_id) => {
+                    state.hide_split_view(session_id, &mut w.split_panel);
+                    let parent = split_parent!(w);
+                    parent.fixed(w.split_panel.widget(), 0);
+                    if let Some(ref mut div) = w.split_panel.divider {
+                        div.hide();
+                        parent.fixed(div, 0);
+                    }
+                    if let Some(ref mut tb) = state.tab_bar {
+                        tb.clear_diff_tab();
+                    }
+                    parent.recalc();
+                    w.wind.redraw();
+                }
+                Message::SplitViewAccept(session_id) => {
+                    state.handle_split_view_accept(session_id, &mut w.split_panel);
+                    let parent = split_parent!(w);
+                    parent.fixed(w.split_panel.widget(), 0);
+                    if let Some(ref mut div) = w.split_panel.divider {
+                        div.hide();
+                        parent.fixed(div, 0);
+                    }
+                    if let Some(ref mut tb) = state.tab_bar {
+                        tb.clear_diff_tab();
+                    }
+                    parent.recalc();
+                    w.wind.redraw();
+                }
+                Message::SplitViewReject(session_id) => {
+                    state.handle_split_view_reject(session_id, &mut w.split_panel);
+                    let parent = split_parent!(w);
+                    parent.fixed(w.split_panel.widget(), 0);
+                    if let Some(ref mut div) = w.split_panel.divider {
+                        div.hide();
+                        parent.fixed(div, 0);
+                    }
+                    if let Some(ref mut tb) = state.tab_bar {
+                        tb.clear_diff_tab();
+                    }
+                    parent.recalc();
+                    w.wind.redraw();
+                }
+                Message::SplitViewResize(mouse_y) => {
+                    if !w.split_panel.is_tab_mode() {
+                        let parent = split_parent!(w);
+                        let col_y = parent.y();
+                        let col_h = parent.h();
+                        let new_height = (col_y + col_h - mouse_y).clamp(100, col_h / 2);
+                        parent.fixed(w.split_panel.widget(), new_height);
+                        parent.recalc();
+                        w.wind.redraw();
+                    }
+                }
+
+                Message::DiffTabActivate(session_id) => {
+                    // Re-show the split panel in tab mode
+                    if w.split_panel.session_id() == Some(session_id) {
+                        w.split_panel.show_existing();
+                        let parent = split_parent!(w);
+                        let full_height = parent.h() - TAB_BAR_HEIGHT;
+                        parent.fixed(w.split_panel.widget(), full_height);
+                        if let Some(ref mut div) = w.split_panel.divider {
+                            div.hide();
+                            parent.fixed(div, 0);
+                        }
+                        if let Some(ref mut tb) = state.tab_bar {
+                            tb.set_diff_tab(session_id, w.split_panel.diff_title(), true);
+                        }
+                        parent.recalc();
+                        w.wind.redraw();
+                    }
+                }
+                Message::SplitViewToggleMode(session_id) => {
+                    if w.split_panel.session_id() == Some(session_id) {
+                        let parent = split_parent!(w);
+                        if w.split_panel.is_tab_mode() {
+                            // Switch from tab mode to panel mode
+                            w.split_panel.set_tab_mode(false);
+                            let height = w.split_panel.current_height();
+                            parent.fixed(w.split_panel.widget(), height);
+                            if let Some(ref mut div) = w.split_panel.divider {
+                                div.show();
+                                parent.fixed(div, SplitPanel::DIVIDER_HEIGHT);
+                            }
+                            if let Some(ref mut tb) = state.tab_bar {
+                                tb.clear_diff_tab();
+                            }
+                        } else {
+                            // Switch from panel mode to tab mode
+                            w.split_panel.set_tab_mode(true);
+                            let full_height = parent.h() - TAB_BAR_HEIGHT;
+                            parent.fixed(w.split_panel.widget(), full_height);
+                            if let Some(ref mut div) = w.split_panel.divider {
+                                div.hide();
+                                parent.fixed(div, 0);
+                            }
+                            if let Some(ref mut tb) = state.tab_bar {
+                                tb.set_diff_tab(session_id, w.split_panel.diff_title(), true);
+                            }
+                        }
+                        w.split_panel.refresh_action_buttons();
+                        parent.recalc();
+                        w.wind.redraw();
+                    }
+                }
+
+                // Widget API - Tree View
+                Message::TreeViewShow { session_id, plugin_name, request } => {
+                    state.show_tree_view(session_id, &plugin_name, &request, &mut w.tree_panel);
+                    match w.tree_position {
+                        TreePanelPosition::Bottom => {
+                            let height = w.tree_panel.current_height();
+                            w.flex.fixed(w.tree_panel.widget(), height);
+                            w.flex.recalc();
+                        }
+                        TreePanelPosition::Left | TreePanelPosition::Right => {
+                            let width = w.tree_panel.current_width();
+                            w.content_row.fixed(w.tree_panel.widget(), width);
+                            // Show divider
+                            if let Some(ref mut div) = w.tree_panel.divider {
+                                div.show();
+                                w.content_row.fixed(div, TreePanel::DIVIDER_WIDTH);
+                            }
+                            w.content_row.recalc();
+                        }
+                    }
+                    if let Some(ref mut tb) = state.tab_bar {
+                        tb.handle_resize();
+                    }
+                    w.wind.redraw();
+                }
+                Message::TreeViewHide(session_id) => {
+                    state.hide_tree_view(session_id, &mut w.tree_panel);
+                    match w.tree_position {
+                        TreePanelPosition::Bottom => {
+                            w.flex.fixed(w.tree_panel.widget(), 0);
+                            w.flex.recalc();
+                        }
+                        TreePanelPosition::Left | TreePanelPosition::Right => {
+                            w.content_row.fixed(w.tree_panel.widget(), 0);
+                            // Hide divider
+                            if let Some(ref mut div) = w.tree_panel.divider {
+                                div.hide();
+                                w.content_row.fixed(div, 0);
+                            }
+                            w.content_row.recalc();
+                        }
+                    }
+                    if let Some(ref mut tb) = state.tab_bar {
+                        tb.handle_resize();
+                    }
+                    w.wind.redraw();
+                }
+                Message::TreeViewLoading => {
+                    w.tree_panel.show_loading();
+                }
+                Message::TreeViewNodeClicked { session_id, node_path } => {
+                    state.handle_tree_view_node_click(session_id, node_path);
+                }
+                Message::TreeViewContextAction { session_id, action, node_path, input_text, target_path } => {
+                    state.handle_tree_view_context_action(session_id, action, node_path, input_text, target_path);
+                }
+                Message::TreeViewSearch { query } => {
+                    w.tree_panel.apply_search(&query);
+                }
+                Message::MallocTrim => {
+                    #[cfg(target_os = "linux")]
+                    {
+                        // SAFETY: malloc_trim is a glibc extension that releases free memory
+                        // back to the OS. Safe to call at any time; pad=0 means release as
+                        // much as possible.
+                        unsafe {
+                            unsafe extern "C" { fn malloc_trim(pad: std::ffi::c_int) -> std::ffi::c_int; }
+                            malloc_trim(0);
+                        }
+                    }
+                }
+                Message::TreeViewResize(mouse_x) => {
+                    if matches!(w.tree_position, TreePanelPosition::Left | TreePanelPosition::Right) {
+                        // Calculate new width based on mouse position relative to content_row
+                        let content_x = w.content_row.x();
+                        let content_w = w.content_row.w();
+                        let max_width = content_w / 2;
+
+                        let new_width = match w.tree_position {
+                            TreePanelPosition::Left => {
+                                (mouse_x - content_x).clamp(100, max_width)
+                            }
+                            TreePanelPosition::Right => {
+                                (content_x + content_w - mouse_x).clamp(100, max_width)
+                            }
+                            _ => unreachable!(),
+                        };
+                        w.content_row.fixed(w.tree_panel.widget(), new_width);
+                        w.content_row.recalc();
+                        if let Some(ref mut tb) = state.tab_bar {
+                            tb.handle_resize();
+                        }
+                        w.wind.redraw();
+                    }
+                }
             }
         }
         state.auto_save_session_if_needed();

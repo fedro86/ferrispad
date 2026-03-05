@@ -4,7 +4,7 @@ use fltk::{
     frame::Frame,
     group::Flex,
     prelude::*,
-    text::{StyleTableEntry, TextEditor},
+    text::{StyleTableEntryExt, TextEditor},
     window::Window,
 };
 
@@ -13,6 +13,7 @@ use crate::app::domain::document::DocumentId;
 use crate::app::domain::messages::Message;
 use crate::app::domain::settings::SyntaxTheme;
 use crate::app::infrastructure::buffer::buffer_text_no_leak;
+use crate::app::infrastructure::defer::defer_send;
 use crate::app::services::syntax::SyntaxHighlighter;
 
 const LARGE_FILE_THRESHOLD: usize = 5000;
@@ -51,7 +52,7 @@ impl HighlightController {
         &self.highlighter
     }
 
-    pub fn style_table(&self) -> Vec<StyleTableEntry> {
+    pub fn style_table(&self) -> Vec<StyleTableEntryExt> {
         self.highlighter.style_table()
     }
 
@@ -61,6 +62,20 @@ impl HighlightController {
 
     pub fn set_font(&mut self, font: Font, size: i32) {
         self.highlighter.set_font(font, size);
+    }
+
+    /// Get or insert a marker style for an RGB color.
+    pub fn get_or_insert_marker_rgb(&mut self, r: u8, g: u8, b: u8) -> char {
+        self.highlighter.get_or_insert_marker_rgb(r, g, b)
+    }
+
+    /// Perform a full syntax highlight on text.
+    pub fn highlight_full(
+        &mut self,
+        text: &str,
+        syntax_name: &str,
+    ) -> crate::app::services::syntax::FullHighlightResult {
+        self.highlighter.highlight_full(text, syntax_name)
     }
 
     // --- Highlight methods ---
@@ -91,10 +106,7 @@ impl HighlightController {
 
         self.highlighter.start_chunked(id, text, syntax_name);
 
-        let s = *sender;
-        fltk::app::add_timeout3(0.0, move |_| {
-            s.send(Message::ContinueHighlight);
-        });
+        defer_send(*sender, 0.0, Message::ContinueHighlight);
     }
 
     pub fn start_queued_highlights(
@@ -112,10 +124,7 @@ impl HighlightController {
         widgets.flex.fixed(widgets.banner_frame, 30);
         widgets.window.redraw();
 
-        let s = *sender;
-        fltk::app::add_timeout3(0.0, move |_| {
-            s.send(Message::ContinueHighlight);
-        });
+        defer_send(*sender, 0.0, Message::ContinueHighlight);
     }
 
     pub fn detect_and_highlight(
@@ -160,10 +169,7 @@ impl HighlightController {
                     && self.highlighter.chunked_doc_id().is_none();
                 self.highlight_queue.push(id);
                 if was_empty {
-                    let s = *sender;
-                    fltk::app::add_timeout3(0.0, move |_| {
-                        s.send(Message::ContinueHighlight);
-                    });
+                    defer_send(*sender, 0.0, Message::ContinueHighlight);
                 }
             }
         } else if let Some(doc) = tab_manager.doc_by_id_mut(id) {
@@ -196,10 +202,7 @@ impl HighlightController {
                         && self.highlighter.chunked_doc_id().is_none();
                     self.highlight_queue.push(id);
                     if was_empty {
-                        let s = *sender;
-                        fltk::app::add_timeout3(0.0, move |_| {
-                            s.send(Message::ContinueHighlight);
-                        });
+                        defer_send(*sender, 0.0, Message::ContinueHighlight);
                     }
                 }
                 return;
@@ -233,7 +236,7 @@ impl HighlightController {
                 if let Some(doc) = tab_manager.doc_by_id(id) {
                     let style_buf = doc.style_buffer.clone();
                     let table = self.highlighter.style_table();
-                    widgets.editor.set_highlight_data(style_buf, table);
+                    widgets.editor.set_highlight_data_ext(style_buf, table);
                 }
                 self.highlighter.reset_style_table_changed();
             }
@@ -274,10 +277,7 @@ impl HighlightController {
 
         if !self.rehighlight_timer_active {
             self.rehighlight_timer_active = true;
-            let s = *sender;
-            fltk::app::add_timeout3(0.05, move |_| {
-                s.send(Message::DoRehighlight);
-            });
+            defer_send(*sender, 0.05, Message::DoRehighlight);
         }
     }
 
@@ -325,7 +325,7 @@ impl HighlightController {
                 if let Some(doc) = tab_manager.doc_by_id(doc_id) {
                     let style_buf = doc.style_buffer.clone();
                     let table = self.highlighter.style_table();
-                    widgets.editor.set_highlight_data(style_buf, table);
+                    widgets.editor.set_highlight_data_ext(style_buf, table);
                 }
                 widgets.editor.redraw();
             }
@@ -336,10 +336,7 @@ impl HighlightController {
                 }
                 self.start_next_queued_highlight(tab_manager, sender, widgets);
             } else {
-                let s = *sender;
-                fltk::app::add_timeout3(0.0, move |_| {
-                    s.send(Message::ContinueHighlight);
-                });
+                defer_send(*sender, 0.0, Message::ContinueHighlight);
             }
         }
     }
@@ -350,6 +347,8 @@ impl HighlightController {
         sender: &Sender<Message>,
         widgets: &mut HighlightWidgets,
     ) {
+        // Process exactly ONE document per call, then yield to the event loop.
+        // This prevents a tight loop from freezing the UI when many files are queued.
         while let Some(id) = self.highlight_queue.first().copied() {
             self.highlight_queue.remove(0);
 
@@ -361,9 +360,11 @@ impl HighlightController {
                             let line_count = text.lines().count();
                             (name.clone(), text, line_count)
                         }
+                        // No syntax — skip this doc and try next (loop continues)
                         None => continue,
                     }
                 } else {
+                    // Doc closed — skip and try next
                     continue;
                 }
             };
@@ -378,11 +379,17 @@ impl HighlightController {
                     if let Some(doc) = tab_manager.doc_by_id(id) {
                         let style_buf = doc.style_buffer.clone();
                         let table = self.highlighter.style_table();
-                        widgets.editor.set_highlight_data(style_buf, table);
+                        widgets.editor.set_highlight_data_ext(style_buf, table);
                     }
                     widgets.editor.redraw();
                 }
-                continue;
+                // Yield to event loop before processing next queued doc
+                if !self.highlight_queue.is_empty() {
+                    defer_send(*sender, 0.0, Message::ContinueHighlight);
+                } else {
+                    self.hide_highlight_banner(widgets);
+                }
+                return;
             }
 
             self.start_chunked_highlight(id, text, &syntax_name, sender, widgets);
@@ -423,10 +430,7 @@ impl HighlightController {
                     && self.highlighter.chunked_doc_id().is_none();
                 self.highlight_queue.push(id);
                 if was_empty {
-                    let s = *sender;
-                    fltk::app::add_timeout3(0.0, move |_| {
-                        s.send(Message::ContinueHighlight);
-                    });
+                    defer_send(*sender, 0.0, Message::ContinueHighlight);
                 }
             }
         }

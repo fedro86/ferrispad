@@ -132,6 +132,23 @@ impl TabManager {
         id
     }
 
+    /// Add a document from a pre-populated TextBuffer (memory-optimized path).
+    ///
+    /// Use this for large files where the buffer was streamed directly
+    /// to avoid a full copy of the content.
+    pub fn add_from_buffer(
+        &mut self,
+        path: String,
+        buffer: TextBuffer,
+        skip_style_init: bool,
+    ) -> DocumentId {
+        let id = self.next_document_id();
+        let doc = Document::new_from_buffer(id, path, buffer, self.sender, skip_style_init);
+        self.documents.push(doc);
+        self.active_id = Some(id);
+        id
+    }
+
     pub fn active_doc(&self) -> Option<&Document> {
         let active_id = self.active_id?;
         self.documents.iter().find(|d| d.id == active_id)
@@ -199,6 +216,28 @@ impl TabManager {
             self.documents.insert(from, doc);
             return;
         }
+        self.documents.insert(insert_at, doc);
+    }
+
+    /// Move a tab to a new position and optionally change its group atomically.
+    /// This bypasses clamp_insert_outside_foreign_group when a target group is specified,
+    /// allowing the tab to be inserted inside the target group.
+    pub fn move_tab_to_group(&mut self, doc_id: DocumentId, to: usize, target_group: Option<GroupId>) {
+        let from = match self.documents.iter().position(|d| d.id == doc_id) {
+            Some(i) => i,
+            None => return,
+        };
+
+        // Remove the document
+        let mut doc = self.documents.remove(from);
+
+        // Set the new group
+        doc.group_id = target_group;
+
+        // Calculate insertion point (no clamping needed since we're joining the target group)
+        let insert_at = if to > from { to - 1 } else { to };
+        let insert_at = insert_at.min(self.documents.len());
+
         self.documents.insert(insert_at, doc);
     }
 

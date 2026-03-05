@@ -1,13 +1,13 @@
 pub mod checkpoint;
 mod highlighter;
-mod style_map;
+pub mod style_map;
 
 use std::path::Path;
 
 use fltk::enums::Font;
-use fltk::text::StyleTableEntry;
+use fltk::text::StyleTableEntryExt;
 use syntect::highlighting::{HighlightState, Highlighter, HighlightIterator, ThemeSet};
-use syntect::parsing::{ParseState, ScopeStack, SyntaxSet};
+use syntect::parsing::{ParseState, ScopeStack, SyntaxDefinition, SyntaxSet};
 
 use checkpoint::{SparseCheckpoints, CHECKPOINT_INTERVAL};
 use highlighter::LinesWithEndings;
@@ -60,7 +60,13 @@ pub struct IncrementalHighlightResult {
 
 impl SyntaxHighlighter {
     pub fn new(theme: SyntaxTheme, font: Font, font_size: i32) -> Self {
-        let syntax_set = SyntaxSet::load_defaults_newlines();
+        let mut builder = SyntaxSet::load_defaults_newlines().into_builder();
+        const TOML_SYNTAX: &str =
+            include_str!("../../../../assets/syntaxes/TOML.sublime-syntax");
+        if let Ok(toml_def) = SyntaxDefinition::load_from_str(TOML_SYNTAX, true, None) {
+            builder.add(toml_def);
+        }
+        let syntax_set = builder.build();
         let theme_set = ThemeSet::load_defaults();
         let theme_name = theme.theme_key().to_string();
         let style_map = StyleMap::new(font, font_size);
@@ -144,9 +150,21 @@ impl SyntaxHighlighter {
         }
     }
 
-    /// Switch to a specific theme. Clears the style map.
+    /// Switch to a specific theme. Clears the style map and updates theme colors.
     pub fn set_theme(&mut self, theme: SyntaxTheme) {
         self.theme_name = theme.theme_key().to_string();
+
+        // Get theme colors before clearing
+        let bg = self.theme_background();
+        let fg = self.theme_foreground();
+        let is_dark = (bg.0 as u32 + bg.1 as u32 + bg.2 as u32) / 3 < 128;
+
+        // Update style map with theme colors, then clear
+        self.style_map.set_theme_colors(
+            fltk::enums::Color::from_rgb(fg.0, fg.1, fg.2),
+            fltk::enums::Color::from_rgb(bg.0, bg.1, bg.2),
+            is_dark,
+        );
         self.style_map.clear();
     }
 
@@ -177,8 +195,8 @@ impl SyntaxHighlighter {
         self.style_map.update_font(font, size);
     }
 
-    /// Get the style table for FLTK's set_highlight_data.
-    pub fn style_table(&self) -> Vec<StyleTableEntry> {
+    /// Get the style table for FLTK's set_highlight_data_ext.
+    pub fn style_table(&self) -> Vec<StyleTableEntryExt> {
         self.style_map.entries().to_vec()
     }
 
@@ -190,6 +208,12 @@ impl SyntaxHighlighter {
     /// Mark the style table as up-to-date (call after set_highlight_data).
     pub fn reset_style_table_changed(&mut self) {
         self.style_map.reset_changed();
+    }
+
+    /// Get or insert a marker style for an RGB color.
+    /// Returns the style character for the bgcolor marker.
+    pub fn get_or_insert_marker_rgb(&mut self, r: u8, g: u8, b: u8) -> char {
+        self.style_map.get_or_insert_marker_rgb(r, g, b)
     }
 
     /// Begin chunked highlighting for a large file.

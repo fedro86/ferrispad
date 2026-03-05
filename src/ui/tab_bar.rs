@@ -12,7 +12,7 @@ use fltk::{
 
 use crate::app::{Document, DocumentId, GroupColor, GroupId, Message, TabGroup};
 
-pub const TAB_BAR_HEIGHT: i32 = 30;
+pub const TAB_BAR_HEIGHT: i32 = 32;
 
 const MIN_TAB_WIDTH: i32 = 60;
 const MAX_TAB_WIDTH: i32 = 200;
@@ -23,6 +23,9 @@ const CORNER_RADIUS: i32 = 6;
 const TAB_GAP: i32 = 1;
 const PLUS_BTN_WIDTH: i32 = 28;
 const PLUS_BTN_MARGIN: i32 = 4;
+
+const SCROLL_ARROW_WIDTH: i32 = 24;
+const SCROLL_ARROW_MARGIN: i32 = 6;
 
 const GROUP_LABEL_H_PAD: i32 = 8;
 const GROUP_LABEL_GAP: i32 = 4;
@@ -46,19 +49,31 @@ struct GroupInfo {
     collapsed: bool,
 }
 
+struct DiffTabInfo {
+    session_id: u32,
+    title: String,
+    is_active: bool,
+}
+
 #[derive(Clone)]
 enum LayoutItem {
     Tab { index: usize, x: i32, width: i32 },
     GroupLabel { group_id: GroupId, x: i32, width: i32 },
     CollapsedChip { group_id: GroupId, x: i32, width: i32, count: usize, name: String, color: GroupColor },
+    DiffTab { x: i32, width: i32 },
     PlusButton { x: i32 },
+    ScrollLeft { x: i32, enabled: bool },
+    ScrollRight { x: i32, enabled: bool },
 }
 
 enum HitResult {
     Tab { index: usize, is_close: bool },
     GroupLabel(GroupId),
     CollapsedChip(GroupId),
+    DiffTab { is_close: bool },
     PlusButton,
+    ScrollLeft,
+    ScrollRight,
     None,
 }
 
@@ -70,8 +85,63 @@ enum DragSource {
 
 #[derive(Clone, Copy, PartialEq)]
 enum DragTarget {
-    OnTab(usize),    // center zone → will group
-    InsertAt(usize), // edge zone → will reorder (index = insertion point)
+    OnTab(usize),           // center zone → will group
+    InsertAt(usize),        // edge zone → will reorder (index = insertion point)
+    OnCollapsedGroup(GroupId), // dropping onto a collapsed group chip → join that group
+}
+
+/// RGB color tuple for theme colors
+#[derive(Clone, Copy)]
+pub struct ThemeRgb {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+
+impl ThemeRgb {
+    pub fn new(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b }
+    }
+
+    pub fn from_tuple(rgb: (u8, u8, u8)) -> Self {
+        Self { r: rgb.0, g: rgb.1, b: rgb.2 }
+    }
+
+    /// Calculate brightness (0-255)
+    pub fn brightness(&self) -> u8 {
+        ((self.r as u32 + self.g as u32 + self.b as u32) / 3) as u8
+    }
+
+    /// Darken color by a factor (0.0 = black, 1.0 = unchanged)
+    pub fn darken(&self, factor: f32) -> Self {
+        Self {
+            r: (self.r as f32 * factor) as u8,
+            g: (self.g as f32 * factor) as u8,
+            b: (self.b as f32 * factor) as u8,
+        }
+    }
+
+    /// Lighten color towards white by a factor (0.0 = unchanged, 1.0 = white)
+    pub fn lighten(&self, factor: f32) -> Self {
+        Self {
+            r: self.r + ((255 - self.r) as f32 * factor) as u8,
+            g: self.g + ((255 - self.g) as f32 * factor) as u8,
+            b: self.b + ((255 - self.b) as f32 * factor) as u8,
+        }
+    }
+
+    /// Blend towards another color
+    pub fn blend(&self, other: &Self, factor: f32) -> Self {
+        Self {
+            r: (self.r as f32 + (other.r as f32 - self.r as f32) * factor) as u8,
+            g: (self.g as f32 + (other.g as f32 - self.g as f32) * factor) as u8,
+            b: (self.b as f32 + (other.b as f32 - self.b as f32) * factor) as u8,
+        }
+    }
+
+    pub fn to_fltk(&self) -> Color {
+        Color::from_rgb(self.r, self.g, self.b)
+    }
 }
 
 struct TabBarState {
@@ -79,15 +149,29 @@ struct TabBarState {
     groups: Vec<GroupInfo>,
     layout: Vec<LayoutItem>,
     is_dark: bool,
+    /// Editor background color from syntax theme
+    theme_bg: ThemeRgb,
     hover_tab_index: Option<usize>,
     hover_close: bool,
     hover_plus: bool,
     hover_group_label: Option<GroupId>,
     hover_collapsed_chip: Option<GroupId>,
+    hover_scroll_left: bool,
+    hover_scroll_right: bool,
+    hover_diff_tab: bool,
+    diff_tab: Option<DiffTabInfo>,
     drag_source: Option<DragSource>,
     drag_target: Option<DragTarget>,
     sender: Sender<Message>,
     widget_w: i32,
+    /// Index of first visible layout item (for scroll)
+    scroll_offset: usize,
+    /// Total number of scrollable items (tabs + collapsed chips)
+    total_items: usize,
+    /// Number of items visible in current layout
+    visible_items: usize,
+    /// Raw pointer to a pre-created MenuButton for context menus (Wayland-friendly)
+    ctx_menu_ptr: fltk::app::WidgetPtr,
 }
 
 pub struct TabBar {
@@ -97,20 +181,36 @@ pub struct TabBar {
 
 impl TabBar {
     pub fn new(x: i32, y: i32, w: i32, sender: Sender<Message>) -> Self {
+        // Pre-create a hidden MenuButton for context menus.
+        // Parented to the current group (main window) so Wayland's
+        // xdg_positioner can anchor popups to the correct surface.
+        let mut ctx_menu = MenuButton::new(1, 1, 1, 1, None);
+        ctx_menu.hide();
+        let ctx_menu_ptr = ctx_menu.as_widget_ptr();
+
         let state = Rc::new(RefCell::new(TabBarState {
             tabs: Vec::new(),
             groups: Vec::new(),
             layout: Vec::new(),
             is_dark: false,
+            theme_bg: ThemeRgb::new(255, 255, 255), // Default to white
             hover_tab_index: None,
             hover_close: false,
             hover_plus: false,
             hover_group_label: None,
             hover_collapsed_chip: None,
+            hover_scroll_left: false,
+            hover_scroll_right: false,
+            hover_diff_tab: false,
+            diff_tab: None,
             drag_source: None,
             drag_target: None,
             sender,
             widget_w: w,
+            scroll_offset: 0,
+            total_items: 0,
+            visible_items: 0,
+            ctx_menu_ptr,
         }));
 
         let mut widget = Widget::new(x, y, w, TAB_BAR_HEIGHT, None);
@@ -136,18 +236,21 @@ impl TabBar {
         active_id: Option<DocumentId>,
         _sender: &Sender<Message>,
         is_dark: bool,
+        theme_bg: (u8, u8, u8),
     ) {
         let mut st = self.state.borrow_mut();
         st.is_dark = is_dark;
+        st.theme_bg = ThemeRgb::from_tuple(theme_bg);
         st.widget_w = self.widget.w();
         st.tabs.clear();
         st.groups.clear();
+        let diff_tab_active = st.diff_tab.as_ref().is_some_and(|dt| dt.is_active);
         for doc in documents {
             st.tabs.push(TabInfo {
                 id: doc.id,
                 display_name: doc.display_name.clone(),
                 is_dirty: doc.is_dirty(),
-                is_active: active_id == Some(doc.id),
+                is_active: !diff_tab_active && active_id == Some(doc.id),
                 group_id: doc.group_id,
             });
         }
@@ -168,9 +271,144 @@ impl TabBar {
         self.widget.redraw();
     }
 
-    pub fn apply_theme(&mut self, is_dark: bool) {
-        self.state.borrow_mut().is_dark = is_dark;
+    pub fn apply_theme(&mut self, is_dark: bool, theme_bg: (u8, u8, u8)) {
+        let mut st = self.state.borrow_mut();
+        st.is_dark = is_dark;
+        st.theme_bg = ThemeRgb::from_tuple(theme_bg);
+        let ctx_ptr = st.ctx_menu_ptr;
+        drop(st);
+
+        // Style context menu to match the main menu bar
+        let mc = super::theme::menu_colors_from_bg(theme_bg);
+        let mut ctx_menu = unsafe { MenuButton::from_widget_ptr(ctx_ptr) };
+        ctx_menu.set_frame(fltk::enums::FrameType::FlatBox);
+        ctx_menu.set_down_frame(fltk::enums::FrameType::FlatBox);
+        ctx_menu.set_text_size(fltk::app::font_size());
+        ctx_menu.set_color(mc.color);
+        ctx_menu.set_text_color(mc.text_color);
+        ctx_menu.set_selection_color(mc.selection_color);
+
         self.widget.redraw();
+    }
+
+    /// Ensure the active tab is visible by adjusting scroll offset.
+    /// Call this after TabSwitch to auto-scroll to the active tab.
+    pub fn ensure_active_visible(&mut self, active_id: Option<DocumentId>) {
+        let Some(active_id) = active_id else { return };
+
+        let mut st = self.state.borrow_mut();
+
+        // Find the scrollable item index for this tab
+        let mut scrollable_idx = 0;
+        let mut i = 0;
+        let mut current_group: Option<GroupId> = None;
+
+        while i < st.tabs.len() {
+            let tab_group = st.tabs[i].group_id;
+
+            if tab_group != current_group {
+                current_group = tab_group;
+
+                if let Some(gid) = tab_group
+                    && let Some(ginfo) = st.groups.iter().find(|g| g.id == gid)
+                    && ginfo.collapsed {
+                        // This is a collapsed group - count all tabs in it
+                        let count = st.tabs[i..].iter().take_while(|t| t.group_id == Some(gid)).count();
+                        // Check if active tab is in this collapsed group
+                        let in_group = st.tabs[i..i+count].iter().any(|t| t.id == active_id);
+                        if in_group {
+                            // Scroll to show this collapsed chip
+                            if scrollable_idx < st.scroll_offset {
+                                st.scroll_offset = scrollable_idx;
+                            } else if scrollable_idx >= st.scroll_offset + st.visible_items && st.visible_items > 0 {
+                                st.scroll_offset = scrollable_idx.saturating_sub(st.visible_items - 1);
+                            }
+                            compute_layout(&mut st);
+                            drop(st);
+                            self.widget.redraw();
+                            return;
+                        }
+                        scrollable_idx += 1;
+                        i += count;
+                        continue;
+                    }
+            }
+
+            // Check if this is the active tab
+            if st.tabs[i].id == active_id {
+                // Scroll to show this tab
+                if scrollable_idx < st.scroll_offset {
+                    st.scroll_offset = scrollable_idx;
+                } else if scrollable_idx >= st.scroll_offset + st.visible_items && st.visible_items > 0 {
+                    st.scroll_offset = scrollable_idx.saturating_sub(st.visible_items - 1);
+                }
+                compute_layout(&mut st);
+                drop(st);
+                self.widget.redraw();
+                return;
+            }
+
+            scrollable_idx += 1;
+            i += 1;
+        }
+    }
+
+    /// Handle window resize - recalculate layout
+    pub fn handle_resize(&mut self) {
+        let mut st = self.state.borrow_mut();
+        let new_w = self.widget.w();
+        if new_w != st.widget_w {
+            st.widget_w = new_w;
+            // Clamp scroll offset if window got larger
+            let max_offset = st.total_items.saturating_sub(1);
+            if st.scroll_offset > max_offset {
+                st.scroll_offset = max_offset;
+            }
+            compute_layout(&mut st);
+            drop(st);
+            self.widget.redraw();
+        }
+    }
+
+    /// Set or update the diff tab in the tab bar
+    pub fn set_diff_tab(&mut self, session_id: u32, title: &str, is_active: bool) {
+        let mut st = self.state.borrow_mut();
+        st.diff_tab = Some(DiffTabInfo {
+            session_id,
+            title: title.to_string(),
+            is_active,
+        });
+        // When diff tab becomes active, deactivate all document tabs
+        if is_active {
+            for tab in &mut st.tabs {
+                tab.is_active = false;
+            }
+        }
+        compute_layout(&mut st);
+        drop(st);
+        self.widget.redraw();
+    }
+
+    /// Clear (remove) the diff tab from the tab bar
+    pub fn clear_diff_tab(&mut self) {
+        let mut st = self.state.borrow_mut();
+        if st.diff_tab.is_some() {
+            st.diff_tab = None;
+            st.hover_diff_tab = false;
+            compute_layout(&mut st);
+            drop(st);
+            self.widget.redraw();
+        }
+    }
+
+    /// Get the session ID of the diff tab, if present
+    pub fn diff_tab_session_id(&self) -> Option<u32> {
+        self.state.borrow().diff_tab.as_ref().map(|dt| dt.session_id)
+    }
+
+    /// Check if the diff tab is currently active
+    pub fn is_diff_tab_active(&self) -> bool {
+        self.state.borrow().diff_tab.as_ref().is_some_and(|dt| dt.is_active)
     }
 }
 
@@ -198,25 +436,42 @@ fn collapsed_chip_width(name: &str, count: usize) -> i32 {
     (tw + GROUP_LABEL_H_PAD * 2 + GROUP_DOT_RADIUS * 2 + 4).max(COLLAPSED_CHIP_MIN_W)
 }
 
+/// Represents a scrollable item (tab or collapsed group chip) for overflow calculation
+#[derive(Clone)]
+struct ScrollableItem {
+    layout_item: LayoutItem,
+    /// Width needed for this item (tab width or chip width)
+    width: i32,
+    /// Whether this is a tab (true) or collapsed chip (false)
+    is_tab: bool,
+    /// Group label that precedes this item (if any)
+    group_label: Option<LayoutItem>,
+    /// Width of the group label (if any)
+    group_label_width: i32,
+}
+
 fn compute_layout(st: &mut TabBarState) {
     st.layout.clear();
     let widget_w = st.widget_w;
 
     if st.tabs.is_empty() {
         st.layout.push(LayoutItem::PlusButton { x: PLUS_BTN_MARGIN });
+        st.total_items = 0;
+        st.visible_items = 0;
+        st.scroll_offset = 0;
         return;
     }
 
-    // First pass: determine which items exist and their fixed-width contributions
-    // Walk tabs in order, emitting group labels/chips as needed
-    let mut items_draft: Vec<LayoutItem> = Vec::new();
-    let mut visible_tab_count: i32 = 0;
-    let mut fixed_width: i32 = 0; // group labels + collapsed chips + plus btn + gaps
+    // First pass: build scrollable items (tabs + collapsed chips) with their group labels
+    let mut scrollable_items: Vec<ScrollableItem> = Vec::new();
     let mut current_group: Option<GroupId> = None;
     let mut i = 0;
 
     while i < st.tabs.len() {
         let tab_group = st.tabs[i].group_id;
+
+        let mut grp_label: Option<LayoutItem> = None;
+        let mut grp_label_w: i32 = 0;
 
         if tab_group != current_group {
             current_group = tab_group;
@@ -224,84 +479,238 @@ fn compute_layout(st: &mut TabBarState) {
             if let Some(gid) = tab_group
                 && let Some(ginfo) = st.groups.iter().find(|g| g.id == gid) {
                     if ginfo.collapsed {
-                        // Count how many tabs are in this group
+                        // Collapsed group is a single scrollable item
                         let count = st.tabs[i..].iter().take_while(|t| t.group_id == Some(gid)).count();
                         let cw = collapsed_chip_width(&ginfo.name, count);
-                        items_draft.push(LayoutItem::CollapsedChip {
-                            group_id: gid,
-                            x: 0, // filled in later
+                        scrollable_items.push(ScrollableItem {
+                            layout_item: LayoutItem::CollapsedChip {
+                                group_id: gid,
+                                x: 0,
+                                width: cw,
+                                count,
+                                name: ginfo.name.clone(),
+                                color: ginfo.color,
+                            },
                             width: cw,
-                            count,
-                            name: ginfo.name.clone(),
-                            color: ginfo.color,
+                            is_tab: false,
+                            group_label: None,
+                            group_label_width: 0,
                         });
-                        fixed_width += cw + TAB_GAP;
                         i += count;
                         continue;
                     } else {
-                        // Emit group label
+                        // Group label precedes the first tab of this group
                         let lw = group_label_width(&ginfo.name);
-                        items_draft.push(LayoutItem::GroupLabel {
+                        grp_label = Some(LayoutItem::GroupLabel {
                             group_id: gid,
                             x: 0,
                             width: lw,
                         });
-                        fixed_width += lw + GROUP_LABEL_GAP;
+                        grp_label_w = lw + GROUP_LABEL_GAP;
                     }
                 }
         }
 
-        // Emit tab placeholder
-        items_draft.push(LayoutItem::Tab {
-            index: i,
-            x: 0,
-            width: 0, // filled in later
+        // Tab is a scrollable item
+        scrollable_items.push(ScrollableItem {
+            layout_item: LayoutItem::Tab {
+                index: i,
+                x: 0,
+                width: 0,
+            },
+            width: 0, // Will be computed later
+            is_tab: true,
+            group_label: grp_label,
+            group_label_width: grp_label_w,
         });
-        visible_tab_count += 1;
         i += 1;
     }
 
-    // Plus button
-    fixed_width += PLUS_BTN_WIDTH + PLUS_BTN_MARGIN;
+    st.total_items = scrollable_items.len();
 
-    // Gaps between tabs
-    if visible_tab_count > 1 {
-        fixed_width += TAB_GAP * (visible_tab_count - 1);
-    }
-
-    // Compute tab width
-    let available = widget_w - fixed_width;
-    let tab_width = if visible_tab_count > 0 {
-        (available / visible_tab_count).clamp(MIN_TAB_WIDTH, MAX_TAB_WIDTH)
+    // Calculate space needed for diff tab (if present)
+    let diff_tab_width = if let Some(ref dt) = st.diff_tab {
+        draw::set_font(Font::Helvetica, 12);
+        let (tw, _) = draw::measure(&dt.title, true);
+        // Tab width = text + padding + close button, clamped to tab range
+        (tw + TAB_H_PADDING * 2 + CLOSE_BTN_MARGIN + CLOSE_BTN_SIZE).clamp(MIN_TAB_WIDTH, MAX_TAB_WIDTH)
     } else {
-        MAX_TAB_WIDTH
+        0
+    };
+    let diff_tab_space = if diff_tab_width > 0 { diff_tab_width + TAB_GAP } else { 0 };
+
+    // Calculate space needed for plus button
+    let plus_btn_space = PLUS_BTN_WIDTH + PLUS_BTN_MARGIN * 2 + diff_tab_space;
+
+    // Check if we need scroll arrows
+    // First, compute minimum width needed for all items at MIN_TAB_WIDTH
+    let min_total_width: i32 = scrollable_items.iter().map(|item| {
+        if item.is_tab {
+            item.group_label_width + MIN_TAB_WIDTH + TAB_GAP
+        } else {
+            item.width + TAB_GAP
+        }
+    }).sum::<i32>() + plus_btn_space;
+
+    let needs_scroll = min_total_width > widget_w;
+
+    // Reserve space for arrows if needed
+    // Left arrow: margin + width + margin (gap to tabs)
+    // Right arrow: margin + width + margin (gap to plus button)
+    let arrow_space = if needs_scroll {
+        (SCROLL_ARROW_MARGIN + SCROLL_ARROW_WIDTH + SCROLL_ARROW_MARGIN) * 2
+    } else {
+        0
     };
 
-    // Second pass: assign x positions
-    let mut cursor_x = 0i32;
-    for item in &mut items_draft {
-        match item {
-            LayoutItem::Tab { x, width, .. } => {
-                *x = cursor_x;
-                *width = tab_width;
-                cursor_x += tab_width + TAB_GAP;
+    // Clamp scroll_offset to valid range
+    // If scrolling is no longer needed, reset to 0 to show all tabs
+    if !needs_scroll {
+        st.scroll_offset = 0;
+    } else if st.scroll_offset >= scrollable_items.len() {
+        st.scroll_offset = scrollable_items.len().saturating_sub(1);
+    }
+
+    // Calculate available width for tabs (excluding arrows and plus button)
+    let available_for_tabs = widget_w - arrow_space - plus_btn_space;
+
+    // Compute tab width and visible count
+    let (tab_width, visible_count) = if !needs_scroll {
+        // No scrolling needed - all items will be shown, calculate tab width to fit them all
+        let total_tabs: i32 = scrollable_items.iter().filter(|i| i.is_tab).count() as i32;
+        let fixed_width: i32 = scrollable_items.iter().map(|item| {
+            if item.is_tab {
+                item.group_label_width + TAB_GAP
+            } else {
+                item.width + TAB_GAP
             }
-            LayoutItem::GroupLabel { x, width, .. } => {
-                *x = cursor_x;
+        }).sum();
+
+        let tw = if total_tabs > 0 {
+            let available_for_tab_bodies = available_for_tabs - fixed_width;
+            (available_for_tab_bodies / total_tabs).clamp(MIN_TAB_WIDTH, MAX_TAB_WIDTH)
+        } else {
+            MAX_TAB_WIDTH
+        };
+        (tw, scrollable_items.len())
+    } else {
+        // Scrolling needed - calculate how many items fit starting from scroll_offset
+        // First, estimate tab width based on visible range
+        let visible_tabs_in_range: i32 = scrollable_items.iter().skip(st.scroll_offset).filter(|i| i.is_tab).count() as i32;
+        let fixed_in_range: i32 = scrollable_items.iter().skip(st.scroll_offset).map(|item| {
+            if item.is_tab {
+                item.group_label_width
+            } else {
+                item.width + TAB_GAP
+            }
+        }).sum();
+
+        let tw = if visible_tabs_in_range > 0 {
+            let available_for_tab_bodies = available_for_tabs - fixed_in_range - (visible_tabs_in_range - 1).max(0) * TAB_GAP;
+            (available_for_tab_bodies / visible_tabs_in_range).clamp(MIN_TAB_WIDTH, MAX_TAB_WIDTH)
+        } else {
+            MAX_TAB_WIDTH
+        };
+
+        // Now determine how many items actually fit
+        let mut count = 0;
+        let mut used_width = 0;
+        for item in scrollable_items.iter().skip(st.scroll_offset) {
+            let item_width = if item.is_tab {
+                item.group_label_width + tw + TAB_GAP
+            } else {
+                item.width + TAB_GAP
+            };
+
+            if used_width + item_width > available_for_tabs && count > 0 {
+                break;
+            }
+            used_width += item_width;
+            count += 1;
+        }
+        (tw, count)
+    };
+
+    st.visible_items = visible_count;
+
+    // Build final layout
+    // When scrolling: left margin + arrow width + right margin (gap to first tab)
+    let mut cursor_x = if needs_scroll {
+        SCROLL_ARROW_MARGIN + SCROLL_ARROW_WIDTH + SCROLL_ARROW_MARGIN
+    } else {
+        0
+    };
+
+    // Add scroll left arrow if needed
+    if needs_scroll {
+        st.layout.push(LayoutItem::ScrollLeft {
+            x: SCROLL_ARROW_MARGIN,
+            enabled: st.scroll_offset > 0,
+        });
+    }
+
+    // Add visible items
+    for item in scrollable_items.iter().skip(st.scroll_offset).take(visible_count) {
+        // Add group label if present
+        if let Some(ref label) = item.group_label {
+            if let LayoutItem::GroupLabel { group_id, width, .. } = label {
+                st.layout.push(LayoutItem::GroupLabel {
+                    group_id: *group_id,
+                    x: cursor_x,
+                    width: *width,
+                });
                 cursor_x += *width + GROUP_LABEL_GAP;
             }
-            LayoutItem::CollapsedChip { x, width, .. } => {
-                *x = cursor_x;
+        }
+
+        // Add the item itself
+        match &item.layout_item {
+            LayoutItem::Tab { index, .. } => {
+                st.layout.push(LayoutItem::Tab {
+                    index: *index,
+                    x: cursor_x,
+                    width: tab_width,
+                });
+                cursor_x += tab_width + TAB_GAP;
+            }
+            LayoutItem::CollapsedChip { group_id, width, count, name, color, .. } => {
+                st.layout.push(LayoutItem::CollapsedChip {
+                    group_id: *group_id,
+                    x: cursor_x,
+                    width: *width,
+                    count: *count,
+                    name: name.clone(),
+                    color: *color,
+                });
                 cursor_x += *width + TAB_GAP;
             }
-            LayoutItem::PlusButton { .. } => {}
+            _ => {}
         }
     }
 
-    // Plus button at the end
-    items_draft.push(LayoutItem::PlusButton { x: cursor_x + PLUS_BTN_MARGIN });
+    // Add scroll right arrow if needed - anchored to the right side
+    if needs_scroll {
+        let can_scroll_right = st.scroll_offset + visible_count < scrollable_items.len();
+        // Right arrow position: widget_w - plus_btn_space - arrow_width - margin
+        let right_arrow_x = widget_w - plus_btn_space - SCROLL_ARROW_WIDTH - SCROLL_ARROW_MARGIN;
+        st.layout.push(LayoutItem::ScrollRight {
+            x: right_arrow_x,
+            enabled: can_scroll_right,
+        });
+    }
 
-    st.layout = items_draft;
+    // Diff tab (if present) anchored before plus button
+    if diff_tab_width > 0 {
+        let diff_x = widget_w - PLUS_BTN_WIDTH - PLUS_BTN_MARGIN * 2 - diff_tab_width;
+        st.layout.push(LayoutItem::DiffTab {
+            x: diff_x,
+            width: diff_tab_width,
+        });
+    }
+
+    // Plus button anchored to the right edge
+    let plus_x = widget_w - PLUS_BTN_WIDTH - PLUS_BTN_MARGIN;
+    st.layout.push(LayoutItem::PlusButton { x: plus_x });
 }
 
 // --- Hit-testing ---
@@ -335,9 +744,30 @@ fn hit_test_layout(items: &[LayoutItem], wy: i32, mx: i32, my: i32) -> HitResult
                     return HitResult::CollapsedChip(*group_id);
                 }
             }
+            LayoutItem::DiffTab { x, width } => {
+                if mx >= *x && mx < *x + *width {
+                    let close_x = *x + *width - CLOSE_BTN_MARGIN - CLOSE_BTN_SIZE;
+                    let close_y = wy + (TAB_BAR_HEIGHT - CLOSE_BTN_SIZE) / 2;
+                    let is_close = mx >= close_x
+                        && mx <= close_x + CLOSE_BTN_SIZE
+                        && my >= close_y
+                        && my <= close_y + CLOSE_BTN_SIZE;
+                    return HitResult::DiffTab { is_close };
+                }
+            }
             LayoutItem::PlusButton { x } => {
                 if mx >= *x && mx < *x + PLUS_BTN_WIDTH {
                     return HitResult::PlusButton;
+                }
+            }
+            LayoutItem::ScrollLeft { x, .. } => {
+                if mx >= *x && mx < *x + SCROLL_ARROW_WIDTH {
+                    return HitResult::ScrollLeft;
+                }
+            }
+            LayoutItem::ScrollRight { x, .. } => {
+                if mx >= *x && mx < *x + SCROLL_ARROW_WIDTH {
+                    return HitResult::ScrollRight;
                 }
             }
         }
@@ -347,33 +777,89 @@ fn hit_test_layout(items: &[LayoutItem], wy: i32, mx: i32, my: i32) -> HitResult
 
 // --- Colors ---
 
-struct ThemeColors {
-    bar_bg: Color,
-    active_bg: Color,
-    inactive_bg: Color,
-    active_text: Color,
-    inactive_text: Color,
-    close_hover_bg: Color,
+/// Theme colors for tab bar and menu bar styling.
+pub struct ThemeColors {
+    pub bar_bg: Color,
+    pub active_bg: Color,
+    pub inactive_bg: Color,
+    pub active_text: Color,
+    pub inactive_text: Color,
+    pub close_hover_bg: Color,
 }
 
+/// Calculate tab bar colors based on the editor's syntax theme background.
+/// - Active tab: matches editor background (seamless transition)
+/// - Bar background: slightly darker/lighter than editor
+/// - Inactive tab: between active and bar background
+///
+/// Also used by menu bar styling to maintain visual consistency.
+pub fn theme_colors_from_bg(theme_bg: &ThemeRgb) -> ThemeColors {
+    let is_dark = theme_bg.brightness() < 128;
+
+    // Active tab = editor background (creates seamless connection)
+    let active_bg = theme_bg.to_fltk();
+
+    // Bar background: darken for light themes, darken more for dark themes
+    let bar_bg_rgb = if is_dark {
+        theme_bg.darken(0.65) // Darker than editor
+    } else {
+        theme_bg.darken(0.85) // Slightly darker
+    };
+    let bar_bg = bar_bg_rgb.to_fltk();
+
+    // Inactive tab: blend between active (editor) and bar background
+    let inactive_bg_rgb = theme_bg.blend(&bar_bg_rgb, 0.5);
+    let inactive_bg = inactive_bg_rgb.to_fltk();
+
+    // Text colors based on brightness
+    let (active_text, inactive_text) = if is_dark {
+        (
+            Color::from_rgb(230, 230, 230),
+            Color::from_rgb(140, 140, 140),
+        )
+    } else {
+        (
+            Color::from_rgb(0, 0, 0),
+            Color::from_rgb(80, 80, 80),
+        )
+    };
+
+    // Close button hover: slightly different from inactive
+    let close_hover_bg = if is_dark {
+        theme_bg.lighten(0.15).to_fltk()
+    } else {
+        theme_bg.darken(0.78).to_fltk()
+    };
+
+    ThemeColors {
+        bar_bg,
+        active_bg,
+        inactive_bg,
+        active_text,
+        inactive_text,
+        close_hover_bg,
+    }
+}
+
+#[allow(dead_code)] // Keep for reference/fallback
 fn theme_colors(is_dark: bool) -> ThemeColors {
     if is_dark {
         ThemeColors {
-            bar_bg: Color::from_rgb(25, 25, 25),
-            active_bg: Color::from_rgb(50, 50, 50),
-            inactive_bg: Color::from_rgb(35, 35, 35),
+            bar_bg: Color::from_rgb(20, 20, 20),
+            active_bg: Color::from_rgb(30, 30, 30),
+            inactive_bg: Color::from_rgb(25, 25, 25),
             active_text: Color::from_rgb(230, 230, 230),
             inactive_text: Color::from_rgb(140, 140, 140),
-            close_hover_bg: Color::from_rgb(70, 70, 70),
+            close_hover_bg: Color::from_rgb(50, 50, 50),
         }
     } else {
         ThemeColors {
-            bar_bg: Color::from_rgb(200, 200, 200),
+            bar_bg: Color::from_rgb(215, 215, 215),
             active_bg: Color::from_rgb(255, 255, 255),
-            inactive_bg: Color::from_rgb(220, 220, 220),
+            inactive_bg: Color::from_rgb(235, 235, 235),
             active_text: Color::from_rgb(0, 0, 0),
             inactive_text: Color::from_rgb(80, 80, 80),
-            close_hover_bg: Color::from_rgb(190, 190, 190),
+            close_hover_bg: Color::from_rgb(200, 200, 200),
         }
     }
 }
@@ -443,7 +929,7 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
     let wy = wid.y();
     let ww = wid.w();
     let wh = wid.h();
-    let colors = theme_colors(st.is_dark);
+    let colors = theme_colors_from_bg(&st.theme_bg);
 
     // Background
     draw::set_draw_color(colors.bar_bg);
@@ -456,12 +942,12 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                 let tab_width = *width;
                 let tab = &st.tabs[*index];
 
-                // Tab background
+                // Tab background (2px gap at top for menu bar separation)
                 if tab.is_active {
-                    draw_rounded_top_rect(tx, wy, tab_width, wh, CORNER_RADIUS, colors.active_bg);
+                    draw_rounded_top_rect(tx, wy + 2, tab_width, wh - 2, CORNER_RADIUS, colors.active_bg);
                 } else {
-                    let inactive_h = wh - 2;
-                    draw_rounded_top_rect(tx, wy + 2, tab_width, inactive_h, CORNER_RADIUS, colors.inactive_bg);
+                    let inactive_h = wh - 4;
+                    draw_rounded_top_rect(tx, wy + 4, tab_width, inactive_h, CORNER_RADIUS, colors.inactive_bg);
                 }
 
                 // Group color underline
@@ -600,28 +1086,140 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                     draw::draw_text2(&label, cx, chip_y, *width, chip_h, Align::Center);
                 }
             }
+            LayoutItem::DiffTab { x, width } => {
+                if let Some(ref dt) = st.diff_tab {
+                    let tx = wx + *x;
+                    let tab_width = *width;
+
+                    // Tab background with a subtle accent tint
+                    if dt.is_active {
+                        // Active: match editor background with slight tint
+                        let tinted = if st.is_dark {
+                            Color::from_rgb(
+                                st.theme_bg.r.saturating_add(8),
+                                st.theme_bg.g.saturating_add(4),
+                                st.theme_bg.b.saturating_add(15),
+                            )
+                        } else {
+                            Color::from_rgb(
+                                st.theme_bg.r.saturating_sub(2),
+                                st.theme_bg.g.saturating_sub(2),
+                                st.theme_bg.b,
+                            )
+                        };
+                        draw_rounded_top_rect(tx, wy + 2, tab_width, wh - 2, CORNER_RADIUS, tinted);
+                    } else {
+                        let inactive_h = wh - 4;
+                        draw_rounded_top_rect(tx, wy + 4, tab_width, inactive_h, CORNER_RADIUS, colors.inactive_bg);
+                    }
+
+                    // Text label
+                    let text_color = if dt.is_active { colors.active_text } else { colors.inactive_text };
+                    let text_area_width = tab_width - TAB_H_PADDING - CLOSE_BTN_MARGIN - CLOSE_BTN_SIZE - TAB_H_PADDING;
+                    let display_text = truncate_to_fit(&dt.title, text_area_width);
+
+                    draw::set_draw_color(text_color);
+                    draw::set_font(Font::Helvetica, 12);
+                    let text_x = tx + TAB_H_PADDING;
+                    let text_y = wy + (wh + 12) / 2;
+                    draw::draw_text(&display_text, text_x, text_y);
+
+                    // Close button
+                    let close_x = tx + tab_width - CLOSE_BTN_MARGIN - CLOSE_BTN_SIZE;
+                    let close_y = wy + (wh - CLOSE_BTN_SIZE) / 2;
+
+                    // Hover highlight background (like regular tabs)
+                    if st.hover_diff_tab {
+                        draw::set_draw_color(colors.close_hover_bg);
+                        draw::draw_rectf(close_x - 2, close_y - 2, CLOSE_BTN_SIZE + 4, CLOSE_BTN_SIZE + 4);
+                    }
+
+                    // Always draw X when active or hovered (matching regular tab behavior)
+                    if dt.is_active || st.hover_diff_tab {
+                        let close_color = if dt.is_active { colors.active_text } else { colors.inactive_text };
+                        draw::set_draw_color(close_color);
+                        draw::set_font(Font::HelveticaBold, 20);
+                        draw::draw_text2(
+                            "\u{00d7}",
+                            close_x,
+                            close_y,
+                            CLOSE_BTN_SIZE,
+                            CLOSE_BTN_SIZE,
+                            Align::Center,
+                        );
+                    }
+                }
+            }
             LayoutItem::PlusButton { x } => {
                 let px = wx + *x;
-                let btn_h = wh - 4;
-                let btn_y = wy + 2;
+                let circle_size = 22;
+                let circle_x = px + (PLUS_BTN_WIDTH - circle_size) / 2;
+                let circle_y = wy + (wh - circle_size) / 2;
+                // Use active tab color as base, with slight adjustment for hover
                 let bg = if st.hover_plus {
-                    if st.is_dark {
-                        Color::from_rgb(60, 60, 60)
-                    } else {
-                        Color::from_rgb(210, 210, 210)
-                    }
-                } else if st.is_dark {
-                    Color::from_rgb(35, 35, 35)
+                    colors.close_hover_bg
                 } else {
-                    Color::from_rgb(220, 220, 220)
+                    colors.active_bg
                 };
-                draw_rounded_top_rect(px, btn_y, PLUS_BTN_WIDTH, btn_h, CORNER_RADIUS, bg);
+                draw::set_draw_color(bg);
+                draw::draw_pie(circle_x, circle_y, circle_size, circle_size, 0.0, 360.0);
                 let text_color = if st.hover_plus {
-                    if st.is_dark { Color::from_rgb(230, 230, 230) } else { Color::from_rgb(0, 0, 0) }
-                } else if st.is_dark { Color::from_rgb(140, 140, 140) } else { Color::from_rgb(80, 80, 80) };
+                    colors.active_text
+                } else {
+                    colors.inactive_text
+                };
                 draw::set_draw_color(text_color);
                 draw::set_font(Font::HelveticaBold, 16);
-                draw::draw_text2("+", px, btn_y, PLUS_BTN_WIDTH, btn_h, Align::Center);
+                draw::draw_text2("+", circle_x + 1, circle_y, circle_size, circle_size, Align::Center);
+            }
+            LayoutItem::ScrollLeft { x, enabled } => {
+                let ax = wx + *x;
+                let arrow_h = wh - 8;
+                let arrow_y = wy + 4;
+                let is_hover = st.hover_scroll_left && *enabled;
+
+                // Background
+                let bg = if is_hover {
+                    colors.close_hover_bg
+                } else {
+                    colors.inactive_bg
+                };
+                draw_rounded_rect(ax, arrow_y, SCROLL_ARROW_WIDTH, arrow_h, 4, bg);
+
+                // Arrow symbol
+                let text_color = if *enabled {
+                    if is_hover { colors.active_text } else { colors.inactive_text }
+                } else {
+                    // Disabled: very faded
+                    Color::from_rgb(100, 100, 100)
+                };
+                draw::set_draw_color(text_color);
+                draw::set_font(Font::HelveticaBold, 14);
+                draw::draw_text2("\u{25c0}", ax, arrow_y, SCROLL_ARROW_WIDTH, arrow_h, Align::Center);
+            }
+            LayoutItem::ScrollRight { x, enabled } => {
+                let ax = wx + *x;
+                let arrow_h = wh - 8;
+                let arrow_y = wy + 4;
+                let is_hover = st.hover_scroll_right && *enabled;
+
+                // Background
+                let bg = if is_hover {
+                    colors.close_hover_bg
+                } else {
+                    colors.inactive_bg
+                };
+                draw_rounded_rect(ax, arrow_y, SCROLL_ARROW_WIDTH, arrow_h, 4, bg);
+
+                // Arrow symbol
+                let text_color = if *enabled {
+                    if is_hover { colors.active_text } else { colors.inactive_text }
+                } else {
+                    Color::from_rgb(100, 100, 100)
+                };
+                draw::set_draw_color(text_color);
+                draw::set_font(Font::HelveticaBold, 14);
+                draw::draw_text2("\u{25b6}", ax, arrow_y, SCROLL_ARROW_WIDTH, arrow_h, Align::Center);
             }
         }
     }
@@ -680,18 +1278,44 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                     draw::draw_rectf(ix - 1, wy + 2, 3, wh - 4);
                 }
             }
+            DragTarget::OnCollapsedGroup(gid) => {
+                // Highlight the collapsed chip with a blue tint
+                if let Some(item) = st.layout.iter().find(|it| matches!(it, LayoutItem::CollapsedChip { group_id, .. } if group_id == gid))
+                    && let LayoutItem::CollapsedChip { x, width, .. } = item {
+                        let bg = colors.inactive_bg;
+                        let (br, bg_g, bb) = bg.to_rgb();
+                        let (tr, tg, tb) = if st.is_dark {
+                            (60u8, 120u8, 220u8)
+                        } else {
+                            (80u8, 160u8, 255u8)
+                        };
+                        // 50% blend: (bg + tint) / 2
+                        let blended = Color::from_rgb(
+                            ((br as u16 + tr as u16) / 2) as u8,
+                            ((bg_g as u16 + tg as u16) / 2) as u8,
+                            ((bb as u16 + tb as u16) / 2) as u8,
+                        );
+                        draw_rounded_rect(wx + *x, wy + 4, *width, wh - 6, CORNER_RADIUS, blended);
+                    }
+            }
         }
     }
 }
 
 // --- Context menu ---
 
-fn show_context_menu(st: &TabBarState, tab_index: Option<usize>, group_id: Option<GroupId>) {
+/// Build the context menu (adds items) but does NOT call popup().
+/// The caller must drop any RefCell borrows before calling popup()
+/// because popup() runs a nested event loop that may re-enter the handler.
+fn build_context_menu(st: &TabBarState, tab_index: Option<usize>, group_id: Option<GroupId>) -> MenuButton {
     let sender = st.sender;
-    // Position at mouse cursor with a 1x1 anchor so Wayland has a valid rectangle
     let mx = fltk::app::event_x();
     let my = fltk::app::event_y();
-    let mut menu = MenuButton::new(mx, my, 1, 1, None);
+    // Reuse the pre-created MenuButton (parented to main window) so Wayland's
+    // xdg_positioner can anchor the popup to the correct surface.
+    let mut menu = unsafe { MenuButton::from_widget_ptr(st.ctx_menu_ptr) };
+    menu.clear();
+    menu.resize(mx, my, 1, 1);
     let sc = Shortcut::None;
     let fl = MenuFlag::Normal;
 
@@ -734,7 +1358,7 @@ fn show_context_menu(st: &TabBarState, tab_index: Option<usize>, group_id: Optio
         menu.add_emit("Close group", sc, fl, sender, Message::TabGroupClose(gid));
     }
 
-    menu.popup();
+    menu
 }
 
 // --- Event handling ---
@@ -761,11 +1385,14 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                     let sender = st.sender;
 
                     if button == 3 {
-                        // Right-click context menu
+                        // Right-click context menu — build menu while borrowed,
+                        // then drop borrow before popup() (nested event loop).
                         let group_id = st.tabs[index].group_id;
                         drop(st);
                         let st2 = state.borrow();
-                        show_context_menu(&st2, Some(index), group_id);
+                        let mut menu = build_context_menu(&st2, Some(index), group_id);
+                        drop(st2);
+                        menu.popup();
                         return true;
                     }
 
@@ -798,7 +1425,9 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                     } else if button == 3 {
                         drop(st);
                         let st2 = state.borrow();
-                        show_context_menu(&st2, None, Some(gid));
+                        let mut menu = build_context_menu(&st2, None, Some(gid));
+                        drop(st2);
+                        menu.popup();
                     }
                     true
                 }
@@ -813,7 +1442,45 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                     } else if button == 3 {
                         drop(st);
                         let st2 = state.borrow();
-                        show_context_menu(&st2, None, Some(gid));
+                        let mut menu = build_context_menu(&st2, None, Some(gid));
+                        drop(st2);
+                        menu.popup();
+                    }
+                    true
+                }
+                HitResult::DiffTab { is_close } if button == 1 => {
+                    if let Some(ref dt) = st.diff_tab {
+                        let session_id = dt.session_id;
+                        let sender = st.sender;
+                        drop(st);
+                        if is_close {
+                            sender.send(Message::SplitViewReject(session_id));
+                        } else {
+                            sender.send(Message::DiffTabActivate(session_id));
+                        }
+                    }
+                    true
+                }
+                HitResult::ScrollLeft if button == 1 => {
+                    drop(st);
+                    let mut st_mut = state.borrow_mut();
+                    if st_mut.scroll_offset > 0 {
+                        st_mut.scroll_offset -= 1;
+                        compute_layout(&mut st_mut);
+                        drop(st_mut);
+                        wid.redraw();
+                    }
+                    true
+                }
+                HitResult::ScrollRight if button == 1 => {
+                    drop(st);
+                    let mut st_mut = state.borrow_mut();
+                    let max_offset = st_mut.total_items.saturating_sub(st_mut.visible_items);
+                    if st_mut.scroll_offset < max_offset {
+                        st_mut.scroll_offset += 1;
+                        compute_layout(&mut st_mut);
+                        drop(st_mut);
+                        wid.redraw();
                     }
                     true
                 }
@@ -846,6 +1513,15 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                                 } else {
                                     Some(DragTarget::OnTab(index))
                                 }
+                            } else {
+                                None
+                            }
+                        }
+                        HitResult::CollapsedChip(gid) => {
+                            // Check if source tab is not already in this group
+                            let src_group = st.tabs.get(src_idx).and_then(|t| t.group_id);
+                            if src_group != Some(gid) {
+                                Some(DragTarget::OnCollapsedGroup(gid))
                             } else {
                                 None
                             }
@@ -922,10 +1598,75 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                             sender.send(Message::TabGroupByDrag(source_id, target_id));
                         }
                         (DragSource::Tab(from), DragTarget::InsertAt(to)) => {
+                            // Check if we're inserting between tabs of the same group
+                            // If so, the dragged tab should join that group
+                            let source_tab = &st.tabs[from];
+                            let source_id = source_tab.id;
+
+                            // Get group of tab before and after insertion point (excluding source)
+                            let group_before = if to > 0 && to - 1 != from {
+                                st.tabs.get(to - 1).and_then(|t| t.group_id)
+                            } else if to > 1 && to - 1 == from {
+                                // Skip source, check one more before
+                                st.tabs.get(to - 2).and_then(|t| t.group_id)
+                            } else {
+                                None
+                            };
+
+                            let group_after = if to < st.tabs.len() && to != from {
+                                st.tabs.get(to).and_then(|t| t.group_id)
+                            } else if to + 1 < st.tabs.len() && to == from {
+                                // Skip source, check one more after
+                                st.tabs.get(to + 1).and_then(|t| t.group_id)
+                            } else {
+                                None
+                            };
+
+                            // Determine target group:
+                            // Only join a group if dropping BETWEEN two tabs of the SAME group
+                            // Dropping at the edge of a group should NOT auto-join
+                            let target_group = match (group_before, group_after) {
+                                (Some(gb), Some(ga)) if gb == ga => Some(gb),
+                                _ => None,
+                            };
+
+                            // Get source group for comparison
+                            let source_group = source_tab.group_id;
+
                             drop(st);
+
                             if from != to {
-                                sender.send(Message::TabMove(from, to));
+                                // Use atomic move+group operation to avoid clamp issues
+                                if let Some(target_gid) = target_group {
+                                    if source_group != Some(target_gid) {
+                                        // Moving to a different group - use atomic operation
+                                        sender.send(Message::TabMoveToGroup(source_id, to, Some(target_gid)));
+                                    } else {
+                                        // Same group - just move
+                                        sender.send(Message::TabMove(from, to));
+                                    }
+                                } else {
+                                    // No target group
+                                    if source_group.is_some() {
+                                        // Leaving a group - use atomic operation to remove from group
+                                        sender.send(Message::TabMoveToGroup(source_id, to, None));
+                                    } else {
+                                        // Not in a group, not joining one - simple move
+                                        sender.send(Message::TabMove(from, to));
+                                    }
+                                }
                             }
+                        }
+                        (DragSource::Tab(from), DragTarget::OnCollapsedGroup(gid)) => {
+                            // Dropping a tab onto a collapsed group → add to that group
+                            let source_tab = &st.tabs[from];
+                            let source_id = source_tab.id;
+                            // Find the last tab in the target group to insert after it
+                            let last_in_group = st.tabs.iter().rposition(|t| t.group_id == Some(gid));
+                            let insert_pos = last_in_group.map_or(from, |i| i + 1);
+                            drop(st);
+                            // Use atomic operation to move and join group
+                            sender.send(Message::TabMoveToGroup(source_id, insert_pos, Some(gid)));
                         }
                         (DragSource::Group(gid), DragTarget::InsertAt(to)) => {
                             drop(st);
@@ -952,12 +1693,15 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
 
             let hit = hit_test_layout(&st.layout, wid.y(), mx, my);
 
-            let (new_hover, new_close, new_hover_plus, new_hover_group, new_hover_chip) = match hit {
-                HitResult::Tab { index, is_close } => (Some(index), is_close, false, None, None),
-                HitResult::PlusButton => (None, false, true, None, None),
-                HitResult::GroupLabel(gid) => (None, false, false, Some(gid), None),
-                HitResult::CollapsedChip(gid) => (None, false, false, None, Some(gid)),
-                HitResult::None => (None, false, false, None, None),
+            let (new_hover, new_close, new_hover_plus, new_hover_group, new_hover_chip, new_scroll_left, new_scroll_right, new_hover_diff) = match hit {
+                HitResult::Tab { index, is_close } => (Some(index), is_close, false, None, None, false, false, false),
+                HitResult::PlusButton => (None, false, true, None, None, false, false, false),
+                HitResult::GroupLabel(gid) => (None, false, false, Some(gid), None, false, false, false),
+                HitResult::CollapsedChip(gid) => (None, false, false, None, Some(gid), false, false, false),
+                HitResult::DiffTab { .. } => (None, false, false, None, None, false, false, true),
+                HitResult::ScrollLeft => (None, false, false, None, None, true, false, false),
+                HitResult::ScrollRight => (None, false, false, None, None, false, true, false),
+                HitResult::None => (None, false, false, None, None, false, false, false),
             };
 
             if new_hover != st.hover_tab_index
@@ -965,12 +1709,18 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                 || new_hover_plus != st.hover_plus
                 || new_hover_group != st.hover_group_label
                 || new_hover_chip != st.hover_collapsed_chip
+                || new_scroll_left != st.hover_scroll_left
+                || new_scroll_right != st.hover_scroll_right
+                || new_hover_diff != st.hover_diff_tab
             {
                 st.hover_tab_index = new_hover;
                 st.hover_close = new_close;
                 st.hover_plus = new_hover_plus;
                 st.hover_group_label = new_hover_group;
                 st.hover_collapsed_chip = new_hover_chip;
+                st.hover_scroll_left = new_scroll_left;
+                st.hover_scroll_right = new_scroll_right;
+                st.hover_diff_tab = new_hover_diff;
                 drop(st);
                 wid.redraw();
             }
@@ -982,12 +1732,16 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
             st.drag_target = None;
             if st.hover_tab_index.is_some() || st.hover_close || st.hover_plus
                 || st.hover_group_label.is_some() || st.hover_collapsed_chip.is_some()
+                || st.hover_scroll_left || st.hover_scroll_right || st.hover_diff_tab
             {
                 st.hover_tab_index = None;
                 st.hover_close = false;
                 st.hover_plus = false;
                 st.hover_group_label = None;
                 st.hover_collapsed_chip = None;
+                st.hover_scroll_left = false;
+                st.hover_scroll_right = false;
+                st.hover_diff_tab = false;
                 drop(st);
                 wid.redraw();
             }

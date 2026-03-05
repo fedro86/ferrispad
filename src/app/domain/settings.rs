@@ -1,10 +1,67 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
 use crate::app::infrastructure::error::AppError;
 use crate::app::services::session::SessionRestore;
 use crate::app::services::updater::UpdateChannel;
+
+/// Per-plugin permission approvals stored in settings.
+/// Tracks which commands the user has approved or denied for each plugin.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PluginApprovals {
+    /// Commands the user has approved for this plugin
+    #[serde(default)]
+    pub approved_commands: Vec<String>,
+    /// Commands the user has explicitly denied
+    #[serde(default)]
+    pub denied_commands: Vec<String>,
+}
+
+/// A shortcut override entry stored in settings.
+/// Used by the centralized ShortcutRegistry to override default shortcuts.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ShortcutOverride {
+    /// Normalized shortcut string (e.g., "Ctrl+Shift+S"), empty = unbound
+    pub shortcut: String,
+    /// Whether this shortcut is enabled
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Per-plugin configuration (stored in settings.json)
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PluginConfig {
+    /// Plugin-specific parameters as key-value pairs
+    /// e.g., {"max_line_length": "120", "ignore_rules": "E501,W503"}
+    #[serde(default)]
+    pub params: HashMap<String, String>,
+}
+
+/// Position of a tree panel (used by plugins like file-explorer)
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum TreePanelPosition {
+    #[default]
+    Left,
+    Right,
+    Bottom,
+}
+
+impl TreePanelPosition {
+    /// Parse from a plugin config string value
+    pub fn from_config_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "right" => Self::Right,
+            "bottom" => Self::Bottom,
+            _ => Self::Left,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ThemeMode {
@@ -18,6 +75,17 @@ pub enum FontChoice {
     ScreenBold,
     Courier,
     HelveticaMono,
+}
+
+impl FontChoice {
+    /// Convert to the corresponding FLTK Font.
+    pub fn to_fltk_font(self) -> fltk::enums::Font {
+        match self {
+            FontChoice::ScreenBold => fltk::enums::Font::ScreenBold,
+            FontChoice::Courier => fltk::enums::Font::Courier,
+            FontChoice::HelveticaMono => fltk::enums::Font::Screen,
+        }
+    }
 }
 
 /// Available syntax highlighting themes from syntect
@@ -127,6 +195,51 @@ pub struct AppSettings {
     /// Tab size in spaces (default 4)
     #[serde(default = "default_tab_size")]
     pub tab_size: u32,
+
+    /// Whether the plugin system is enabled
+    #[serde(default = "default_plugins_enabled")]
+    pub plugins_enabled: bool,
+
+    /// Names of explicitly disabled plugins
+    #[serde(default)]
+    pub disabled_plugins: Vec<String>,
+
+    /// Per-plugin permission approvals (plugin_name -> approvals)
+    #[serde(default)]
+    pub plugin_approvals: HashMap<String, PluginApprovals>,
+
+    /// Whether to automatically check for plugin updates
+    #[serde(default = "default_auto_check_plugin_updates")]
+    pub auto_check_plugin_updates: bool,
+
+    /// Timestamp of last plugin update check (UNIX timestamp)
+    #[serde(default)]
+    pub last_plugin_update_check: i64,
+
+    /// Names of plugins to include in "Run All Checks" (empty = all enabled plugins)
+    #[serde(default)]
+    pub run_all_checks_plugins: Vec<String>,
+
+    /// Shortcut for "Run All Checks" command (default: "Ctrl+Shift+L")
+    #[serde(default = "default_run_all_checks_shortcut")]
+    pub run_all_checks_shortcut: String,
+
+    /// Per-plugin configuration (plugin_name -> config)
+    #[serde(default)]
+    pub plugin_configs: HashMap<String, PluginConfig>,
+
+    /// Centralized shortcut overrides (command_id -> override)
+    /// Keys: "File/Save" for built-ins, "plugin:name:action" for plugins
+    #[serde(default)]
+    pub shortcut_overrides: HashMap<String, ShortcutOverride>,
+
+    /// File size (MB) above which a warning is shown before loading (default 50)
+    #[serde(default = "default_large_file_warning_mb")]
+    pub large_file_warning_mb: u32,
+
+    /// File size (MB) above which editing is blocked — read-only/tail only (default 150)
+    #[serde(default = "default_max_editable_size_mb")]
+    pub max_editable_size_mb: u32,
 }
 
 fn default_line_numbers() -> bool {
@@ -173,6 +286,26 @@ fn default_tab_size() -> u32 {
     4
 }
 
+fn default_plugins_enabled() -> bool {
+    true
+}
+
+fn default_auto_check_plugin_updates() -> bool {
+    true
+}
+
+fn default_run_all_checks_shortcut() -> String {
+    "Ctrl+Shift+L".to_string()
+}
+
+fn default_large_file_warning_mb() -> u32 {
+    50
+}
+
+fn default_max_editable_size_mb() -> u32 {
+    150
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -192,6 +325,17 @@ impl Default for AppSettings {
             syntax_theme_light: default_syntax_theme_light(),
             syntax_theme_dark: default_syntax_theme_dark(),
             tab_size: default_tab_size(),
+            plugins_enabled: default_plugins_enabled(),
+            disabled_plugins: Vec::new(),
+            plugin_approvals: HashMap::new(),
+            auto_check_plugin_updates: default_auto_check_plugin_updates(),
+            last_plugin_update_check: 0,
+            run_all_checks_plugins: Vec::new(),
+            run_all_checks_shortcut: default_run_all_checks_shortcut(),
+            plugin_configs: HashMap::new(),
+            shortcut_overrides: HashMap::new(),
+            large_file_warning_mb: default_large_file_warning_mb(),
+            max_editable_size_mb: default_max_editable_size_mb(),
         }
     }
 }

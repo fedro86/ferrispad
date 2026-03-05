@@ -3,7 +3,10 @@ use fltk::enums::Font;
 use super::document::DocumentId;
 use super::settings::SyntaxTheme;
 use crate::app::controllers::tabs::{GroupColor, GroupId};
+use crate::app::plugins::{Diagnostic, LineAnnotation, SplitViewRequest, TreeViewRequest};
+use crate::app::services::plugin_update_checker::PluginUpdateInfo;
 use crate::app::services::updater::ReleaseInfo;
+use crate::ui::toast::ToastLevel;
 
 /// All messages that can be sent through the FLTK channel.
 /// Each menu callback sends one of these; the dispatch loop in main handles them.
@@ -36,6 +39,8 @@ pub enum Message {
     TabGroupToggle(GroupId),
     TabGroupByDrag(DocumentId, DocumentId),
     TabGroupMove(GroupId, usize),
+    /// Move a tab to a position and optionally change its group atomically
+    TabMoveToGroup(DocumentId, usize, Option<GroupId>),
 
     // Edit
     EditUndo,
@@ -63,6 +68,7 @@ pub enum Message {
     OpenSettings,
     CheckForUpdates,
     ShowAbout,
+    ShowKeyShortcuts,
 
     // Syntax highlighting
     BufferModified(DocumentId, i32),
@@ -76,4 +82,109 @@ pub enum Message {
 
     // Live preview from settings dialog
     PreviewSyntaxTheme(SyntaxTheme),
+
+    // Plugin system
+    PluginsToggleGlobal,
+    PluginToggle(String),
+    PluginsReloadAll,
+    CheckPluginPermissions,
+    /// A plugin's custom menu action was triggered
+    PluginMenuAction { plugin_name: String, action: String },
+    /// Open the plugin manager dialog
+    ShowPluginManager,
+    /// Open the plugin settings dialog (Run All Checks config)
+    ShowPluginSettings,
+    /// Open per-plugin configuration dialog
+    ShowPluginConfig(String),
+    /// Check for plugin updates (triggers background check)
+    CheckPluginUpdates,
+    /// Plugin update check completed with results
+    PluginUpdatesChecked(Vec<PluginUpdateInfo>),
+
+    // Diagnostics
+    DiagnosticsUpdate(Vec<Diagnostic>),
+    #[allow(dead_code)]  // Reserved for explicit clear from UI
+    DiagnosticsClear,
+    DiagnosticGoto(u32),  // Go to line number (single click)
+    DiagnosticOpenDocs(u32),  // Open documentation URL (double click)
+    DiagnosticsAutoDismiss,  // Auto-dismiss "All checks passed" green bar after timeout
+
+    // Line annotations (gutter + inline highlights)
+    #[allow(dead_code)]  // Reserved for future batch annotation updates
+    AnnotationsUpdate(Vec<LineAnnotation>),
+    #[allow(dead_code)]  // Reserved for explicit clear from UI
+    AnnotationsClear,
+    ManualHighlight,  // Triggered by Ctrl+Shift+L
+
+    // Toast notifications
+    ToastShow(ToastLevel, String),
+    ToastHide,
+
+    // Window events
+    WindowResize,
+
+    // Widget API - Split View
+    /// Show a split view requested by a plugin
+    SplitViewShow {
+        session_id: u32,
+        plugin_name: String,
+        request: SplitViewRequest,
+    },
+    /// Hide the current split view
+    SplitViewHide(u32),
+    /// User clicked Accept in split view
+    SplitViewAccept(u32),
+    /// User clicked Reject in split view
+    SplitViewReject(u32),
+
+    // Widget API - Tree View
+    /// Show a tree view requested by a plugin
+    TreeViewShow {
+        session_id: u32,
+        plugin_name: String,
+        request: TreeViewRequest,
+    },
+    /// Hide the current tree view
+    TreeViewHide(u32),
+    /// User clicked a node in the tree view
+    TreeViewNodeClicked {
+        session_id: u32,
+        node_path: Vec<String>,
+    },
+    /// User triggered a context menu action on a tree node
+    TreeViewContextAction {
+        session_id: u32,
+        action: String,
+        node_path: Vec<String>,
+        input_text: Option<String>,
+        target_path: Option<Vec<String>>,
+    },
+    /// User typed in the tree view search bar
+    TreeViewSearch {
+        query: String,
+    },
+
+    /// Deferred plugin hooks for large files (run after event loop processes banner)
+    DeferredPluginHooks { path: String, content: String },
+    /// Deferred tree view refresh on tab switch (avoids blocking UI for large files)
+    DeferredTreeRefresh { path: Option<String>, content: String },
+    /// Show "Loading..." placeholder in tree panel (keeps panel visible during refresh)
+    TreeViewLoading,
+    /// Deferred session restore (runs after window is shown so UI is visible immediately)
+    DeferredSessionRestore,
+    /// Open a file from CLI args (deferred so session restore runs first)
+    DeferredOpenFile(String),
+    /// User dragged the tree panel divider to resize
+    TreeViewResize(i32),
+
+    /// User dragged the split panel divider to resize
+    SplitViewResize(i32),
+
+    /// Deferred malloc_trim to return freed C++ pages to the OS without blocking UI
+    MallocTrim,
+
+    /// User clicked the diff tab in the tab bar
+    DiffTabActivate(u32),
+    /// Toggle split view between panel and tab display mode
+    SplitViewToggleMode(u32),
 }

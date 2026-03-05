@@ -6,5 +6,6 @@
 //! - Error types
 
 pub mod buffer;
+pub mod defer;
 pub mod error;
 pub mod platform;

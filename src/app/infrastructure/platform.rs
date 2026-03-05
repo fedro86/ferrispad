@@ -1,3 +1,35 @@
+/// Copy text to the system clipboard, using the correct mechanism per platform.
+///
+/// On Wayland, `fltk::app::copy2()` only sets the X11 selection (via XWayland),
+/// which doesn't persist once focus leaves the app. We detect Wayland and pipe
+/// through `wl-copy` instead. On X11 and other platforms, `copy2` works fine.
+pub fn copy_to_clipboard(text: &str) {
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var("WAYLAND_DISPLAY").is_ok() {
+            // Wayland: pipe text to wl-copy
+            use std::io::Write;
+            use std::process::{Command, Stdio};
+
+            if let Ok(mut child) = Command::new("wl-copy")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                if let Some(mut stdin) = child.stdin.take() {
+                    let _ = stdin.write_all(text.as_bytes());
+                }
+                let _ = child.wait();
+                return;
+            }
+            // Fall through to FLTK if wl-copy is not available
+            eprintln!("[clipboard] wl-copy not found, falling back to fltk::app::copy2");
+        }
+    }
+    fltk::app::copy2(text);
+}
+
 pub fn detect_system_dark_mode() -> bool {
     // Windows: Check registry for dark mode preference
     #[cfg(target_os = "windows")]

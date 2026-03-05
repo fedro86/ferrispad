@@ -7,6 +7,7 @@ use fltk::text::TextBuffer;
 
 use super::messages::Message;
 use crate::app::controllers::tabs::GroupId;
+use crate::app::plugins::{Diagnostic, TreeViewRequest};
 use crate::app::services::syntax::checkpoint::SparseCheckpoints;
 use crate::app::services::text_ops::extract_filename;
 
@@ -143,6 +144,14 @@ pub struct Document {
     pub checkpoints: SparseCheckpoints,
     pub syntax_name: Option<String>,
     pub group_id: Option<GroupId>,
+    /// Diagnostics from the last lint run (persisted across tab switches)
+    pub diagnostics: Vec<Diagnostic>,
+    /// Whether this document has been linted at least once
+    pub has_been_linted: bool,
+    /// Cached tree view (plugin_name, request) — invalidated on content change
+    pub cached_tree: Option<(String, TreeViewRequest)>,
+    /// Cached line count — updated on every edit, avoids O(n) scan on tab switch
+    pub cached_line_count: usize,
     /// Pointer to the heap-allocated closure passed to FLTK's modify callback.
     /// Must be freed in cleanup() after removing the callback.
     modify_cb_data: *mut c_void,
@@ -174,6 +183,10 @@ impl Document {
             checkpoints: SparseCheckpoints::new(),
             syntax_name: None,
             group_id: None,
+            diagnostics: Vec::new(),
+            has_been_linted: false,
+            cached_tree: None,
+            cached_line_count: 0,
             modify_cb_data,
         }
     }
@@ -205,6 +218,62 @@ impl Document {
             checkpoints: SparseCheckpoints::new(),
             syntax_name: None,
             group_id: None,
+            diagnostics: Vec::new(),
+            has_been_linted: false,
+            cached_tree: None,
+            cached_line_count: content.lines().count(),
+            modify_cb_data,
+        }
+    }
+
+    /// Create a document from a pre-populated TextBuffer (memory-optimized path).
+    ///
+    /// This avoids copying the file content: the buffer already contains the text
+    /// from streaming load. We only need to initialize the style buffer.
+    ///
+    /// Note: For large files (>100MB), we skip the style buffer initialization
+    /// to avoid another full-size allocation.
+    pub fn new_from_buffer(
+        id: DocumentId,
+        path: String,
+        buffer: TextBuffer,
+        sender: Sender<Message>,
+        skip_style_init: bool,
+    ) -> Self {
+        let display_name = extract_filename(&path);
+
+        let mut style_buffer = TextBuffer::default();
+        let has_unsaved_changes = Rc::new(Cell::new(false));
+
+        let modify_cb_data =
+            register_modify_callback(&buffer, &style_buffer, &has_unsaved_changes, id, sender);
+
+        // Initialize style buffer for syntax highlighting
+        // For large files, skip this to save memory (no highlighting anyway)
+        if !skip_style_init {
+            let content_len = buffer.length() as usize;
+            let default_style = "A".repeat(content_len);
+            style_buffer.set_text(&default_style);
+        }
+        has_unsaved_changes.set(false);
+
+        let cached_line_count = buffer.count_lines(0, buffer.length()) as usize;
+
+        Self {
+            id,
+            buffer,
+            style_buffer,
+            file_path: Some(path),
+            has_unsaved_changes,
+            display_name,
+            cursor_position: 0,
+            checkpoints: SparseCheckpoints::new(),
+            syntax_name: None,
+            group_id: None,
+            diagnostics: Vec::new(),
+            has_been_linted: false,
+            cached_tree: None,
+            cached_line_count,
             modify_cb_data,
         }
     }

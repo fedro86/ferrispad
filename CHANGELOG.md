@@ -5,6 +5,58 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1-rc.1] - 2026-03-03
+
+### Added
+- **Lua Plugin System**: Full Lua 5.4 scripting with statically linked mlua, 8 synchronous hooks (`on_document_open`, `on_document_save`, `on_document_close`, `on_document_lint`, `on_highlight_request`, `on_widget_action`, `init`, `shutdown`).
+- **Plugin Security Sandbox**: Path validation against project root, command approval flow, instruction counter limits, Lua garbage collection monitoring, and timeout enforcement.
+- **Plugin Signature Verification**: ed25519 cryptographic signing and verification for plugins via `plugin-signer` tool.
+- **Plugin Manager Dialog**: Browse, install, enable/disable, and configure plugins with cross-tab sync between Installed and Available tabs.
+- **Plugin Configuration System**: Per-plugin settings with `string`, `number`, `boolean`, and `choice` types, validation rules, and live config dialogs.
+- **Plugin Permission Approval Dialog**: Users explicitly approve plugin permissions (e.g., `run_command`) before granting access.
+- **Plugin Auto-Update Checking**: Background version checks against remote plugin registry.
+- **Plugin Menu Items**: Plugins can register menu actions with keyboard shortcuts.
+- **Widget API for Plugins**: Split view (diff/suggestions with intraline highlighting) and tree view (file browser, YAML viewer) widgets created from Lua.
+- **Plugin-Defined Context Menus**: Plugins can add context menu items to tree panel nodes.
+- **Tree Panel**: File explorer with drag-and-drop file moves, search filtering, click-to-line, git status indicators (modified/added/conflict colors), and type indicators for YAML/JSON ({N} and [N] counts).
+- **Split Panel**: Two-pane diff view with syntax highlighting, font matching, and resizable divider.
+- **Diagnostic Panel**: Hover tooltips with fix suggestions, double-click to open docs URL, toast notifications for diagnostic events.
+- **Plugin API**: `run_command`, `open_file`, `goto_line`, clipboard access, venv detection, cross-platform filesystem API, inline highlighting, custom RGB colors, line annotations, and gutter marks.
+- **Key Shortcuts Dialog**: Centralized keyboard shortcut viewer replacing per-plugin shortcut fields.
+- **Large File Handling**: Size validation to prevent crashes, tail mode for files >1.8GB, read-only viewer, progress dialog for 100MB+ files, memory-optimized loading.
+- **Toast Notifications**: Non-blocking notifications for plugin events and diagnostics.
+- **TOML Syntax Highlighting**: Added TOML to the supported syntax highlighting languages.
+- **Flat Themed Scrollbars**: Applied to main editor and all dialogs.
+- **Syntax Highlighting for Split View**: Diffs display with proper syntax coloring and font matching.
+- **Independent Syntax Theme Selection**: Choose syntax theme independently with live preview.
+- **Configurable Tab Size**: User-configurable tab width setting.
+- **External Browser Markdown Preview**: Stable file naming for browser preview.
+
+### Fixed
+- **Clipboard Copy Path on Wayland**: Fixed Copy Path not working on Wayland sessions.
+- **Plugin Shortcuts After Session Restore**: Shortcuts now work correctly after restoring a session.
+- **Wayland Popup Menu Positioning**: Fixed RefCell panic in tab bar and proper popup anchoring.
+- **Linting Fired for Any File Type**: Now correctly scopes linting to relevant file types.
+- **Tab Bar Layout on Tree Panel Toggle**: Recalculates layout when tree panel shows/hides.
+- **Tree Panel Themes**: Correct text color, flat selection style, and theme-derived selection color for dark/light modes.
+- **Tree Panel Layout**: Fixed gaps, scrollbar style, header height, and nested folder duplication.
+- **Tab Drag Between Groups**: Correctly joins target group when dragging tabs.
+- **Tab Bar Overflow**: Added scroll arrows for overflow handling.
+- **Temp File Duplicate Bug**: Fixed duplicate temp file creation.
+- **Dark Mode Text Color**: Improved UI theming consistency.
+- **Diagnostic Tooltip Updates**: Tooltip refreshes after clicking diagnostic item.
+- **Dirty Flag on Tab Switch**: Fixed incorrect dirty flag state.
+- **Plugin Manager Cross-Tab Sync**: Correct registry name format on uninstall, no ghost rows on update.
+
+### Changed
+- **Clean Architecture Reorganization**: Moved `src/app/` into domain/controllers/services/infrastructure/plugins layers.
+- **Dialog Redesign**: Theme-derived colors with VSCode-style layout across all dialogs.
+- **Flat Menu Bar**: Dynamic syntax theme colors applied to menu bar.
+- **Plugin Manager UX**: Flat buttons, toggle switches, details button, per-action shortcuts.
+- **Replaced reqwest with minreq**: Lighter HTTP client with rustls (no OpenSSL dependency).
+- System font size used instead of hardcoded 14px.
+- Disabled dotted visible focus indicator globally.
+
 ## [0.9.0] - 2026-02-19
 
 ### Added
@@ -264,6 +316,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FLTK-based GUI
 - Rust implementation for speed and safety
 
+[0.9.1-rc.1]: https://github.com/fedro86/ferrispad/compare/0.9.0...0.9.1-rc.1
 [0.9.0]: https://github.com/fedro86/ferrispad/compare/0.1.8...0.9.0
 [0.1.8]: https://github.com/fedro86/ferrispad/compare/0.1.7...0.1.8
 [0.1.7]: https://github.com/fedro86/ferrispad/compare/0.1.6...0.1.7
