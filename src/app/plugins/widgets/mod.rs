@@ -144,6 +144,20 @@ impl WidgetManager {
             .find(|s| s.widget_type == WidgetType::TreeView)
             .map(|s| s.id)
     }
+
+    /// Find a persistent tree view session (e.g., file explorer).
+    pub fn persistent_tree_session(&self) -> Option<u32> {
+        self.sessions.values()
+            .find(|s| s.widget_type == WidgetType::TreeView && s.persistent)
+            .map(|s| s.id)
+    }
+
+    /// Find a non-persistent tree view session (e.g., YAML viewer overlay).
+    pub fn non_persistent_tree_session(&self) -> Option<u32> {
+        self.sessions.values()
+            .find(|s| s.widget_type == WidgetType::TreeView && !s.persistent)
+            .map(|s| s.id)
+    }
 }
 
 #[cfg(test)]

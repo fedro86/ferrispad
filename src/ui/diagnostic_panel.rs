@@ -330,6 +330,11 @@ impl DiagnosticPanel {
         }
     }
 
+    /// Returns true if showing the green "All checks passed" success bar
+    pub fn is_showing_success(&self) -> bool {
+        self.container.visible() && self.diagnostics.is_empty()
+    }
+
     /// Get current panel height for flex layout
     pub fn current_height(&self) -> i32 {
         if !self.container.visible() {

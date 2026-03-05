@@ -420,16 +420,23 @@ impl AppState {
     /// Uses a per-document cache to skip Lua + YAML parsing on tab switch when
     /// content hasn't changed. Large files are deferred via the event loop.
     fn refresh_tree_view_for_active_doc(&mut self) {
-        let existing_id = self.widget_manager.any_tree_view_session();
-
-        // Persistent tree views (e.g., file explorer) survive tab switches
-        if let Some(id) = existing_id {
-            if self.widget_manager.get_session(id)
-                .map_or(false, |s| s.persistent)
-            {
+        // Handle persistent + non-persistent coexistence (e.g., file explorer + YAML viewer).
+        // When both exist, remove both and defer a refresh so the persistent plugin
+        // can recreate its tree. The YAML plugin will only create an overlay for YAML files.
+        if let Some(persistent_id) = self.widget_manager.persistent_tree_session() {
+            if let Some(non_persistent_id) = self.widget_manager.non_persistent_tree_session() {
+                self.widget_manager.remove_session(non_persistent_id);
+                self.widget_manager.remove_session(persistent_id);
+                let path = self.tab_manager.active_doc().and_then(|doc| doc.file_path.clone());
+                self.sender.send(Message::TreeViewLoading);
+                defer_send(self.sender, 0.0, Message::DeferredTreeRefresh { path, content: String::new() });
                 return;
             }
+            // Only persistent, no overlay — nothing to do
+            return;
         }
+
+        let existing_id = self.widget_manager.any_tree_view_session();
 
         // If active doc has a cached tree, show it — even if no session exists
         // (e.g., tree was system-hidden for a non-YAML file).
@@ -2124,8 +2131,14 @@ impl AppState {
         // will create a fresh one (refresh, not toggle off).
         // The user can close the tree via the X button.
         if let Some(existing_id) = self.widget_manager.any_tree_view_session() {
-            eprintln!("[debug:menu] removing existing tree view session {} before refresh", existing_id);
-            self.sender.send(Message::TreeViewHide(existing_id));
+            let is_persistent = self.widget_manager.get_session(existing_id)
+                .map_or(false, |s| s.persistent);
+            if !is_persistent {
+                eprintln!("[debug:menu] removing existing tree view session {} before refresh", existing_id);
+                self.sender.send(Message::TreeViewHide(existing_id));
+            } else {
+                eprintln!("[debug:menu] keeping persistent tree view session {}", existing_id);
+            }
         }
 
         // Get current document info for the hook

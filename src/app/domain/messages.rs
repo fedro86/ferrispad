@@ -107,6 +107,7 @@ pub enum Message {
     DiagnosticsClear,
     DiagnosticGoto(u32),  // Go to line number (single click)
     DiagnosticOpenDocs(u32),  // Open documentation URL (double click)
+    DiagnosticsAutoDismiss,  // Auto-dismiss "All checks passed" green bar after timeout
 
     // Line annotations (gutter + inline highlights)
     #[allow(dead_code)]  // Reserved for future batch annotation updates

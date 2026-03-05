@@ -462,6 +462,7 @@ fn main() {
 
                 // Diagnostics
                 Message::DiagnosticsUpdate(diagnostics) => {
+                    let is_success = diagnostics.is_empty();
                     // Store diagnostics in the active document for persistence
                     state.store_diagnostics(diagnostics.clone());
                     w.diagnostic_panel.update_diagnostics(diagnostics);
@@ -469,6 +470,10 @@ fn main() {
                     w.flex.fixed(w.diagnostic_panel.widget(), height);
                     w.flex.recalc();
                     w.wind.redraw();
+                    // Auto-dismiss the green "All checks passed" bar after 5 seconds
+                    if is_success {
+                        defer_send(sender, 5.0, Message::DiagnosticsAutoDismiss);
+                    }
                 }
                 Message::DiagnosticsClear => {
                     w.diagnostic_panel.clear();
@@ -476,6 +481,16 @@ fn main() {
                     w.flex.fixed(w.diagnostic_panel.widget(), height);
                     w.flex.recalc();
                     w.wind.redraw();
+                }
+                Message::DiagnosticsAutoDismiss => {
+                    // Only dismiss if still showing the success bar (no new errors appeared)
+                    if w.diagnostic_panel.is_showing_success() {
+                        w.diagnostic_panel.clear();
+                        let height = w.diagnostic_panel.current_height();
+                        w.flex.fixed(w.diagnostic_panel.widget(), height);
+                        w.flex.recalc();
+                        w.wind.redraw();
+                    }
                 }
                 Message::DiagnosticGoto(_idx) => {
                     // idx is 1-based browser index, get line from diagnostics
