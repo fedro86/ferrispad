@@ -12,6 +12,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::env;
 
+use crate::app::controllers::plugin::PluginController;
 use crate::app::controllers::update::BannerWidgets;
 use crate::app::services::updater::{check_for_updates, current_timestamp, should_check_now, UpdateCheckResult};
 use crate::app::services::session;
@@ -268,10 +269,28 @@ fn main() {
         if let Some(msg) = receiver.recv() {
             match msg {
                 // File
-                Message::FileNew => { state.file_new(); state.mark_session_dirty(); }
-                Message::FileOpen => { state.file_open(); state.mark_session_dirty(); }
-                Message::FileSave => { state.file_save(); state.mark_session_dirty(); }
-                Message::FileSaveAs => { state.file_save_as(); state.mark_session_dirty(); }
+                Message::FileNew => {
+                    let actions = state.file.file_new(&mut state.tab_manager, state.tabs_enabled);
+                    state.dispatch_file_actions(actions);
+                    state.session.mark_dirty();
+                }
+                Message::FileOpen => {
+                    let theme_bg = state.highlight.highlighter().theme_background();
+                    let actions = state.file.file_open(
+                        &mut state.tab_manager, &state.settings, theme_bg,
+                        state.tabs_enabled,
+                    );
+                    state.dispatch_file_actions(actions);
+                    state.session.mark_dirty();
+                }
+                Message::FileSave => { state.file_save(); state.session.mark_dirty(); }
+                Message::FileSaveAs => {
+                    let actions = state.file.file_save_as(
+                        &mut state.tab_manager, &state.plugins, state.tabs_enabled,
+                    );
+                    state.dispatch_file_actions(actions);
+                    state.session.mark_dirty();
+                }
                 Message::FileQuit | Message::WindowClose => {
                     if state.file_quit() {
                         quit_clean = true;
@@ -316,7 +335,7 @@ fn main() {
                             fltk_app::quit();
                         }
                     } else {
-                        state.mark_session_dirty();
+                        state.session.mark_dirty();
                     }
                 }
                 Message::TabCloseActive => {
@@ -328,36 +347,84 @@ fn main() {
                             fltk_app::quit();
                         }
                     } else {
-                        state.mark_session_dirty();
+                        state.session.mark_dirty();
                     }
                 }
                 Message::TabMove(from, to) => {
                     state.tab_manager.move_tab(from, to);
                     state.rebuild_tab_bar();
-                    state.mark_session_dirty();
+                    state.session.mark_dirty();
                 }
                 Message::TabNext => state.switch_to_next_tab(),
                 Message::TabPrevious => state.switch_to_previous_tab(),
 
                 // Tab Groups
-                Message::TabGroupCreate(doc_id) => { state.handle_group_create(doc_id); state.mark_session_dirty(); }
-                Message::TabGroupDelete(group_id) => { state.handle_group_delete(group_id); state.mark_session_dirty(); }
-                Message::TabGroupClose(group_id) => { state.handle_group_close(group_id); state.mark_session_dirty(); }
-                Message::TabGroupRename(group_id) => { state.handle_group_rename(group_id); state.mark_session_dirty(); }
-                Message::TabGroupRecolor(group_id, color) => { state.handle_group_recolor(group_id, color); state.mark_session_dirty(); }
-                Message::TabGroupAddTab(doc_id, group_id) => { state.handle_group_add_tab(doc_id, group_id); state.mark_session_dirty(); }
-                Message::TabGroupRemoveTab(doc_id) => { state.handle_group_remove_tab(doc_id); state.mark_session_dirty(); }
-                Message::TabGroupToggle(group_id) => { state.handle_group_toggle(group_id); state.mark_session_dirty(); }
-                Message::TabGroupByDrag(source_id, target_id) => { state.handle_group_by_drag(source_id, target_id); state.mark_session_dirty(); }
+                Message::TabGroupCreate(doc_id) => {
+                    state.tab_manager.create_group(&[doc_id]);
+                    state.rebuild_tab_bar();
+                    state.session.mark_dirty();
+                }
+                Message::TabGroupDelete(group_id) => {
+                    state.tab_manager.delete_group(group_id);
+                    state.rebuild_tab_bar();
+                    state.session.mark_dirty();
+                }
+                Message::TabGroupClose(group_id) => {
+                    state.handle_group_close(group_id);
+                    state.session.mark_dirty();
+                }
+                Message::TabGroupRename(group_id) => {
+                    let current_name = state.tab_manager.group_by_id(group_id)
+                        .map(|g| g.name.clone())
+                        .unwrap_or_default();
+                    if let Some(new_name) = fltk::dialog::input_default("Group name:", &current_name) {
+                        state.tab_manager.rename_group(group_id, new_name);
+                        state.rebuild_tab_bar();
+                    }
+                    state.session.mark_dirty();
+                }
+                Message::TabGroupRecolor(group_id, color) => {
+                    state.tab_manager.recolor_group(group_id, color);
+                    state.rebuild_tab_bar();
+                    state.session.mark_dirty();
+                }
+                Message::TabGroupAddTab(doc_id, group_id) => {
+                    state.tab_manager.set_tab_group(doc_id, Some(group_id));
+                    state.rebuild_tab_bar();
+                    state.session.mark_dirty();
+                }
+                Message::TabGroupRemoveTab(doc_id) => {
+                    state.tab_manager.set_tab_group(doc_id, None);
+                    state.rebuild_tab_bar();
+                    state.session.mark_dirty();
+                }
+                Message::TabGroupToggle(group_id) => {
+                    state.tab_manager.toggle_group_collapsed(group_id);
+                    state.rebuild_tab_bar();
+                    state.session.mark_dirty();
+                }
+                Message::TabGroupByDrag(source_id, target_id) => {
+                    let target_group = state.tab_manager.documents()
+                        .iter()
+                        .find(|d| d.id == target_id)
+                        .and_then(|d| d.group_id);
+                    if let Some(gid) = target_group {
+                        state.tab_manager.set_tab_group(source_id, Some(gid));
+                    } else {
+                        state.tab_manager.create_group(&[target_id, source_id]);
+                    }
+                    state.rebuild_tab_bar();
+                    state.session.mark_dirty();
+                }
                 Message::TabGroupMove(group_id, to) => {
                     state.tab_manager.move_group(group_id, to);
                     state.rebuild_tab_bar();
-                    state.mark_session_dirty();
+                    state.session.mark_dirty();
                 }
                 Message::TabMoveToGroup(doc_id, to, group_id) => {
                     state.tab_manager.move_tab_to_group(doc_id, to, group_id);
                     state.rebuild_tab_bar();
-                    state.mark_session_dirty();
+                    state.session.mark_dirty();
                 }
 
                 // Edit
@@ -375,31 +442,31 @@ fn main() {
                 Message::ShowGoToLine => show_goto_line_dialog(&state.active_buffer(), &mut state.editor),
 
                 // View
-                Message::ToggleLineNumbers => state.toggle_line_numbers(),
-                Message::ToggleWordWrap => state.toggle_word_wrap(),
+                Message::ToggleLineNumbers => state.view.toggle_line_numbers(&state.tab_manager),
+                Message::ToggleWordWrap => state.view.toggle_word_wrap(),
                 Message::ToggleDarkMode => {
                     state.toggle_dark_mode();
                     let theme_bg = state.highlight.highlighter().theme_background();
                     if w.tree_panel.is_visible() {
-                        w.tree_panel.apply_theme(state.dark_mode, theme_bg);
+                        w.tree_panel.apply_theme(state.view.dark_mode, theme_bg);
                     }
                     if w.split_panel.is_visible() {
-                        w.split_panel.apply_theme(state.dark_mode, theme_bg);
+                        w.split_panel.apply_theme(state.view.dark_mode, theme_bg);
                     }
                 }
                 Message::ToggleHighlighting => state.toggle_highlighting(),
                 Message::TogglePreview => state.preview_in_browser(),
 
                 // Format
-                Message::SetFont(font) => state.set_font(font),
-                Message::SetFontSize(size) => state.set_font_size(size),
+                Message::SetFont(font) => state.view.set_font(font),
+                Message::SetFontSize(size) => state.view.set_font_size(size),
 
                 // Settings & Help
                 Message::OpenSettings => {
                     state.open_settings();
                     if w.tree_panel.is_visible() {
                         let theme_bg = state.highlight.highlighter().theme_background();
-                        w.tree_panel.apply_theme(state.dark_mode, theme_bg);
+                        w.tree_panel.apply_theme(state.view.dark_mode, theme_bg);
                     }
                 }
                 Message::CheckForUpdates => check_for_updates_ui(&state.settings),
@@ -418,7 +485,7 @@ fn main() {
                         doc.cached_line_count = doc.buffer.count_lines(0, doc.buffer.length()) as usize;
                     }
                     state.schedule_rehighlight(id, pos);
-                    state.mark_session_dirty();
+                    state.session.mark_dirty();
                 }
                 Message::DoRehighlight => {
                     state.do_pending_rehighlight();
@@ -461,18 +528,55 @@ fn main() {
                 Message::PreviewSyntaxTheme(theme) => state.preview_syntax_theme(theme),
 
                 // Plugin system
-                Message::PluginsToggleGlobal => state.handle_plugins_toggle_global(),
-                Message::PluginToggle(name) => state.handle_plugin_toggle(name),
-                Message::PluginsReloadAll => state.handle_plugins_reload(),
-                Message::CheckPluginPermissions => state.check_plugin_permissions_deferred(),
-                Message::PluginMenuAction { plugin_name, action } => {
-                    state.handle_plugin_menu_action(&plugin_name, &action);
+                Message::PluginsToggleGlobal => {
+                    state.plugin_coord.handle_toggle_global(
+                        &mut state.plugins, &state.settings, &state.shortcut_registry,
+                    );
                 }
-                Message::ShowPluginManager => state.show_plugin_manager(),
-                Message::ShowPluginSettings => state.show_plugin_settings(),
-                Message::ShowPluginConfig(name) => state.show_plugin_config(&name),
-                Message::CheckPluginUpdates => state.check_plugin_updates(),
-                Message::PluginUpdatesChecked(updates) => state.handle_plugin_updates_checked(updates),
+                Message::PluginToggle(name) => {
+                    state.plugin_coord.handle_toggle(
+                        &mut state.plugins, &state.settings, &state.shortcut_registry, name,
+                    );
+                }
+                Message::PluginsReloadAll => {
+                    state.plugin_coord.handle_reload(
+                        &mut state.plugins, &state.settings, &state.shortcut_registry,
+                    );
+                }
+                Message::CheckPluginPermissions => {
+                    PluginController::check_permissions_deferred(&mut state.plugins, &state.settings);
+                }
+                Message::PluginMenuAction { plugin_name, action } => {
+                    state.widget.handle_plugin_menu_action(
+                        &plugin_name, &action,
+                        &mut state.plugins, &mut state.tab_manager,
+                        &mut state.highlight, &mut state.editor, &mut state.view,
+                    );
+                }
+                Message::ShowPluginManager => {
+                    let theme_bg = state.highlight.highlighter().theme_background();
+                    state.plugin_coord.show_manager(
+                        &mut state.plugins, &state.settings, &state.shortcut_registry, theme_bg,
+                    );
+                }
+                Message::ShowPluginSettings => {
+                    let theme_bg = state.highlight.highlighter().theme_background();
+                    state.plugin_coord.show_settings(
+                        &state.plugins, &state.settings, &state.shortcut_registry, theme_bg,
+                    );
+                }
+                Message::ShowPluginConfig(name) => {
+                    let theme_bg = state.highlight.highlighter().theme_background();
+                    state.plugin_coord.show_config(
+                        &mut state.plugins, &state.settings, &state.shortcut_registry, &name, theme_bg,
+                    );
+                }
+                Message::CheckPluginUpdates => {
+                    PluginController::check_updates(&state.sender);
+                }
+                Message::PluginUpdatesChecked(updates) => {
+                    PluginController::handle_updates_checked(&state.settings, &updates);
+                }
 
                 // Diagnostics
                 Message::DiagnosticsUpdate(diagnostics) => {
@@ -523,10 +627,10 @@ fn main() {
 
                 // Line annotations (gutter + inline highlights)
                 Message::AnnotationsUpdate(annotations) => {
-                    state.update_annotations(annotations);
+                    state.highlight.update_annotations(annotations, &state.tab_manager, &mut state.editor);
                 }
                 Message::AnnotationsClear => {
-                    state.clear_annotations();
+                    state.highlight.clear_annotations(&mut state.tab_manager, &mut state.editor);
                 }
                 Message::ManualHighlight => {
                     state.request_manual_highlight();
@@ -580,7 +684,12 @@ fn main() {
 
                 // Deferred CLI file open (after session restore)
                 Message::DeferredOpenFile(path) => {
-                    state.open_file(path);
+                    let theme_bg = state.highlight.highlighter().theme_background();
+                    let actions = state.file.open_file(
+                        path, &mut state.tab_manager, &state.settings,
+                        theme_bg, state.tabs_enabled,
+                    );
+                    state.dispatch_file_actions(actions);
                 }
 
                 // Toast notifications
@@ -616,7 +725,11 @@ fn main() {
                 // Widget API - Split View
                 Message::SplitViewShow { session_id, plugin_name, request } => {
                     let is_tab_mode = request.display_mode == SplitDisplayMode::Tab;
-                    state.show_split_view(session_id, &plugin_name, &request, &mut w.split_panel);
+                    let settings = state.settings.borrow().clone();
+                    state.widget.show_split_view(
+                        session_id, &plugin_name, &request, &mut w.split_panel,
+                        &mut state.highlight, &mut state.view, &state.tab_manager, &settings,
+                    );
 
                     let parent = split_parent!(w);
                     if is_tab_mode {
@@ -645,7 +758,7 @@ fn main() {
                     w.wind.redraw();
                 }
                 Message::SplitViewHide(session_id) => {
-                    state.hide_split_view(session_id, &mut w.split_panel);
+                    state.widget.hide_split_view(session_id, &mut w.split_panel);
                     let parent = split_parent!(w);
                     parent.fixed(w.split_panel.widget(), 0);
                     if let Some(ref mut div) = w.split_panel.divider {
@@ -659,7 +772,10 @@ fn main() {
                     w.wind.redraw();
                 }
                 Message::SplitViewAccept(session_id) => {
-                    state.handle_split_view_accept(session_id, &mut w.split_panel);
+                    state.widget.handle_split_view_accept(
+                        session_id, &mut w.split_panel,
+                        &mut state.plugins, &state.tab_manager, &mut state.editor,
+                    );
                     let parent = split_parent!(w);
                     parent.fixed(w.split_panel.widget(), 0);
                     if let Some(ref mut div) = w.split_panel.divider {
@@ -673,7 +789,7 @@ fn main() {
                     w.wind.redraw();
                 }
                 Message::SplitViewReject(session_id) => {
-                    state.handle_split_view_reject(session_id, &mut w.split_panel);
+                    state.widget.handle_split_view_reject(session_id, &mut w.split_panel);
                     let parent = split_parent!(w);
                     parent.fixed(w.split_panel.widget(), 0);
                     if let Some(ref mut div) = w.split_panel.divider {
@@ -752,7 +868,10 @@ fn main() {
 
                 // Widget API - Tree View
                 Message::TreeViewShow { session_id, plugin_name, request } => {
-                    state.show_tree_view(session_id, &plugin_name, &request, &mut w.tree_panel);
+                    state.widget.show_tree_view(
+                        session_id, &plugin_name, &request, &mut w.tree_panel,
+                        &state.highlight, &mut state.view, &mut state.tab_manager,
+                    );
                     match w.tree_position {
                         TreePanelPosition::Bottom => {
                             let height = w.tree_panel.current_height();
@@ -776,7 +895,7 @@ fn main() {
                     w.wind.redraw();
                 }
                 Message::TreeViewHide(session_id) => {
-                    state.hide_tree_view(session_id, &mut w.tree_panel);
+                    state.widget.hide_tree_view(session_id, &mut w.tree_panel);
                     match w.tree_position {
                         TreePanelPosition::Bottom => {
                             w.flex.fixed(w.tree_panel.widget(), 0);
@@ -801,10 +920,18 @@ fn main() {
                     w.tree_panel.show_loading();
                 }
                 Message::TreeViewNodeClicked { session_id, node_path } => {
-                    state.handle_tree_view_node_click(session_id, node_path);
+                    state.widget.handle_tree_view_node_click(
+                        session_id, node_path,
+                        &mut state.plugins, &mut state.tab_manager,
+                        &mut state.highlight, &mut state.editor, &mut state.view,
+                    );
                 }
                 Message::TreeViewContextAction { session_id, action, node_path, input_text, target_path } => {
-                    state.handle_tree_view_context_action(session_id, action, node_path, input_text, target_path);
+                    state.widget.handle_tree_view_context_action(
+                        session_id, action, node_path, input_text, target_path,
+                        &mut state.plugins, &mut state.tab_manager,
+                        &mut state.highlight, &mut state.editor, &mut state.view,
+                    );
                 }
                 Message::TreeViewSearch { query } => {
                     w.tree_panel.apply_search(&query);
@@ -847,7 +974,11 @@ fn main() {
                 }
             }
         }
-        state.auto_save_session_if_needed();
+        state.session.auto_save_if_needed(
+            &state.tab_manager,
+            &state.settings,
+            state.file.last_open_directory.as_deref(),
+        );
     }
 
     // Safety-net: save session if file_quit() was never called or didn't complete
@@ -856,7 +987,7 @@ fn main() {
         let _ = session::save_session(
             &state.tab_manager,
             session_mode,
-            state.last_open_directory.as_deref(),
+            state.file.last_open_directory.as_deref(),
         ).inspect_err(|e| eprintln!("Post-loop session save failed: {}", e));
     }
 }
