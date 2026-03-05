@@ -5,6 +5,19 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1-rc.2] - 2026-03-05
+
+### Added
+- **Persistent Tree View Flag**: File explorer stays open across tab switches.
+- **Tree View Auto-Reopen**: Tree view reopens on tab switch with caching and deferred hooks.
+- **Configurable Large File Thresholds**: Adjust large file size limits in Settings dialog.
+- **"All Checks Passed" Feedback**: Manual lint triggers now show success confirmation.
+
+### Fixed
+- **Session Merge Resurrects Closed Tabs**: Tagging session.json with process ID prevents closed tabs from reappearing on next launch.
+- **Success Diagnostic Bar Auto-Dismiss**: Diagnostic bar auto-dismisses and coexists with tree view.
+- **Themed Scrollbar Corner Square**: Scrollbar corner now uses theme colors instead of FLTK default gray.
+
 ## [0.9.1-rc.1] - 2026-03-03
 
 ### Added
@@ -316,6 +329,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FLTK-based GUI
 - Rust implementation for speed and safety
 
+[0.9.1-rc.2]: https://github.com/fedro86/ferrispad/compare/0.9.1-rc.1...0.9.1-rc.2
 [0.9.1-rc.1]: https://github.com/fedro86/ferrispad/compare/0.9.0...0.9.1-rc.1
 [0.9.0]: https://github.com/fedro86/ferrispad/compare/0.1.8...0.9.0
 [0.1.8]: https://github.com/fedro86/ferrispad/compare/0.1.7...0.1.8
