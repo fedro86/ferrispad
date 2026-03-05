@@ -33,6 +33,8 @@ pub struct SessionData {
     pub last_open_directory: Option<String>,
     #[serde(default)]
     pub groups: Vec<GroupSession>,
+    #[serde(default)]
+    pub instance_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -153,9 +155,13 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
 
     // Merge with existing session: keep docs from other instances that
     // aren't open in this one, so closing one instance doesn't erase another's tabs.
+    // Skip merge when we have 0 docs — the user closed all tabs intentionally.
+    let instance_id = std::process::id().to_string();
     let session_file = dir.join("session.json");
-    if let Ok(existing_json) = fs::read_to_string(&session_file)
-        && let Ok(existing) = serde_json::from_str::<SessionData>(&existing_json) {
+    if !doc_sessions.is_empty()
+        && let Ok(existing_json) = fs::read_to_string(&session_file)
+        && let Ok(existing) = serde_json::from_str::<SessionData>(&existing_json)
+        && existing.instance_id.as_deref() != Some(&instance_id) {
             // Clone to owned HashSets to allow mutable push below (borrow checker requirement)
             let our_paths: HashSet<String> = doc_sessions
                 .iter()
@@ -200,6 +206,7 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
         documents: doc_sessions,
         last_open_directory: last_open_directory.map(|s| s.to_string()),
         groups: group_sessions,
+        instance_id: Some(instance_id),
     };
 
     let json = serde_json::to_string_pretty(&session_data)?;
@@ -315,6 +322,7 @@ mod tests {
             }],
             last_open_directory: Some("/tmp".to_string()),
             groups: vec![],
+            instance_id: None,
         };
 
         let json = serde_json::to_string(&data).unwrap();
