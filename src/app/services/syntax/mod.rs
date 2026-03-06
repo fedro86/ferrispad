@@ -7,7 +7,7 @@ use std::path::Path;
 use fltk::enums::Font;
 use fltk::text::StyleTableEntryExt;
 use syntect::highlighting::{HighlightState, Highlighter, HighlightIterator, ThemeSet};
-use syntect::parsing::{ParseState, ScopeStack, SyntaxDefinition, SyntaxSet};
+use syntect::parsing::{ParseState, ScopeStack, SyntaxDefinition, SyntaxReference, SyntaxSet, SyntaxSetBuilder};
 
 use checkpoint::{SparseCheckpoints, CHECKPOINT_INTERVAL};
 use highlighter::LinesWithEndings;
@@ -17,6 +17,8 @@ use crate::app::domain::document::DocumentId;
 use crate::app::domain::settings::SyntaxTheme;
 
 const CHUNK_SIZE: usize = 2000;
+
+const TOML_SYNTAX: &str = include_str!("../../../../assets/syntaxes/TOML.sublime-syntax");
 
 struct ChunkedState {
     doc_id: DocumentId,
@@ -38,12 +40,67 @@ pub struct ChunkOutput {
     pub final_checkpoints: Option<SparseCheckpoints>,
 }
 
-pub struct SyntaxHighlighter {
+/// Lazily-loaded syntect internals. None until first highlight request.
+struct SyntaxHighlighterInner {
     syntax_set: SyntaxSet,
+    toml_syntax_set: SyntaxSet,
     theme_set: ThemeSet,
+    chunked: Option<ChunkedState>,
+}
+
+impl SyntaxHighlighterInner {
+    /// Find a syntax by name across both sets (TOML first, then defaults).
+    fn find_syntax_by_name(&self, name: &str) -> Option<&SyntaxReference> {
+        self.toml_syntax_set
+            .find_syntax_by_name(name)
+            .or_else(|| self.syntax_set.find_syntax_by_name(name))
+    }
+
+    /// Find a syntax by file extension across both sets.
+    fn find_syntax_by_extension(&self, ext: &str) -> Option<&SyntaxReference> {
+        self.toml_syntax_set
+            .find_syntax_by_extension(ext)
+            .or_else(|| self.syntax_set.find_syntax_by_extension(ext))
+    }
+
+    /// Get the SyntaxSet that owns a given syntax (needed for parse_line).
+    fn syntax_set_for(&self, syntax_name: &str) -> &SyntaxSet {
+        if self.toml_syntax_set.find_syntax_by_name(syntax_name).is_some() {
+            &self.toml_syntax_set
+        } else {
+            &self.syntax_set
+        }
+    }
+}
+
+fn init_inner() -> SyntaxHighlighterInner {
+    // Load pre-compiled defaults AS-IS (no builder conversion = no regex recompilation)
+    let syntax_set = SyntaxSet::load_defaults_newlines();
+
+    // Build a tiny separate set with ONLY the TOML syntax
+    let mut toml_builder = SyntaxSetBuilder::new();
+    if let Ok(toml_def) = SyntaxDefinition::load_from_str(TOML_SYNTAX, true, None) {
+        toml_builder.add(toml_def);
+    }
+    let toml_syntax_set = toml_builder.build();
+
+    let theme_set = ThemeSet::load_defaults();
+
+    SyntaxHighlighterInner {
+        syntax_set,
+        toml_syntax_set,
+        theme_set,
+        chunked: None,
+    }
+}
+
+pub struct SyntaxHighlighter {
+    inner: Option<SyntaxHighlighterInner>,
+    theme: SyntaxTheme,
     theme_name: String,
     style_map: StyleMap,
-    chunked: Option<ChunkedState>,
+    font: Font,
+    font_size: i32,
 }
 
 /// Result of a full highlight operation.
@@ -60,31 +117,37 @@ pub struct IncrementalHighlightResult {
 
 impl SyntaxHighlighter {
     pub fn new(theme: SyntaxTheme, font: Font, font_size: i32) -> Self {
-        let mut builder = SyntaxSet::load_defaults_newlines().into_builder();
-        const TOML_SYNTAX: &str =
-            include_str!("../../../../assets/syntaxes/TOML.sublime-syntax");
-        if let Ok(toml_def) = SyntaxDefinition::load_from_str(TOML_SYNTAX, true, None) {
-            builder.add(toml_def);
-        }
-        let syntax_set = builder.build();
-        let theme_set = ThemeSet::load_defaults();
         let theme_name = theme.theme_key().to_string();
         let style_map = StyleMap::new(font, font_size);
 
         Self {
-            syntax_set,
-            theme_set,
+            inner: None,
+            theme,
             theme_name,
             style_map,
-            chunked: None,
+            font,
+            font_size,
+        }
+    }
+
+    /// Ensure syntect is loaded, returning a mutable reference.
+    fn inner_mut(&mut self) -> &mut SyntaxHighlighterInner {
+        self.inner.get_or_insert_with(init_inner)
+    }
+
+    /// Ensure syntect is loaded (called before methods that need split borrows).
+    fn ensure_loaded(&mut self) {
+        if self.inner.is_none() {
+            self.inner = Some(init_inner());
         }
     }
 
     /// Detect the syntax for a file path based on extension.
-    pub fn detect_syntax(&self, file_path: &str) -> Option<String> {
+    pub fn detect_syntax(&mut self, file_path: &str) -> Option<String> {
         let path = Path::new(file_path);
         let ext = path.extension()?.to_str()?;
-        let syntax = self.syntax_set.find_syntax_by_extension(ext)?;
+        let inner = self.inner_mut();
+        let syntax = inner.find_syntax_by_extension(ext)?;
         if syntax.name == "Plain Text" {
             return None;
         }
@@ -97,18 +160,21 @@ impl SyntaxHighlighter {
         text: &str,
         syntax_name: &str,
     ) -> FullHighlightResult {
-        let syntax = match self.syntax_set.find_syntax_by_name(syntax_name) {
+        self.ensure_loaded();
+        let inner = self.inner.as_ref().unwrap();
+        let syntax = match inner.find_syntax_by_name(syntax_name) {
             Some(s) => s.clone(),
             None => return FullHighlightResult {
                 style_string: make_default_style(text),
                 checkpoints: SparseCheckpoints::new(),
             },
         };
+        let syntax_set = inner.syntax_set_for(syntax_name);
         let result = highlighter::highlight_full(
             text,
             &syntax,
-            &self.syntax_set,
-            &self.theme_set,
+            syntax_set,
+            &inner.theme_set,
             &self.theme_name,
             &mut self.style_map,
         );
@@ -127,20 +193,23 @@ impl SyntaxHighlighter {
         checkpoints: &mut SparseCheckpoints,
         syntax_name: &str,
     ) -> IncrementalHighlightResult {
-        let syntax = match self.syntax_set.find_syntax_by_name(syntax_name) {
+        self.ensure_loaded();
+        let inner = self.inner.as_ref().unwrap();
+        let syntax = match inner.find_syntax_by_name(syntax_name) {
             Some(s) => s.clone(),
             None => return IncrementalHighlightResult {
                 byte_start: 0,
                 style_chars: make_default_style(text),
             },
         };
+        let syntax_set = inner.syntax_set_for(syntax_name);
         let result = highlighter::highlight_incremental(
             text,
             edit_line,
             checkpoints,
             &syntax,
-            &self.syntax_set,
-            &self.theme_set,
+            syntax_set,
+            &inner.theme_set,
             &self.theme_name,
             &mut self.style_map,
         );
@@ -152,14 +221,13 @@ impl SyntaxHighlighter {
 
     /// Switch to a specific theme. Clears the style map and updates theme colors.
     pub fn set_theme(&mut self, theme: SyntaxTheme) {
+        self.theme = theme;
         self.theme_name = theme.theme_key().to_string();
 
-        // Get theme colors before clearing
         let bg = self.theme_background();
         let fg = self.theme_foreground();
         let is_dark = (bg.0 as u32 + bg.1 as u32 + bg.2 as u32) / 3 < 128;
 
-        // Update style map with theme colors, then clear
         self.style_map.set_theme_colors(
             fltk::enums::Color::from_rgb(fg.0, fg.1, fg.2),
             fltk::enums::Color::from_rgb(bg.0, bg.1, bg.2),
@@ -169,29 +237,21 @@ impl SyntaxHighlighter {
     }
 
     /// Get the background color of the current theme as RGB tuple.
+    /// Uses hardcoded values — no syntect needed.
     pub fn theme_background(&self) -> (u8, u8, u8) {
-        if let Some(theme) = self.theme_set.themes.get(&self.theme_name)
-            && let Some(bg) = theme.settings.background
-        {
-            return (bg.r, bg.g, bg.b);
-        }
-        // Fallback to white
-        (255, 255, 255)
+        self.theme.background()
     }
 
     /// Get the foreground color of the current theme as RGB tuple.
+    /// Uses hardcoded values — no syntect needed.
     pub fn theme_foreground(&self) -> (u8, u8, u8) {
-        if let Some(theme) = self.theme_set.themes.get(&self.theme_name)
-            && let Some(fg) = theme.settings.foreground
-        {
-            return (fg.r, fg.g, fg.b);
-        }
-        // Fallback to black
-        (0, 0, 0)
+        self.theme.foreground()
     }
 
     /// Update the font used in style table entries.
     pub fn set_font(&mut self, font: Font, size: i32) {
+        self.font = font;
+        self.font_size = size;
         self.style_map.update_font(font, size);
     }
 
@@ -219,18 +279,20 @@ impl SyntaxHighlighter {
     /// Begin chunked highlighting for a large file.
     /// Takes ownership of the text to avoid re-copying it on every chunk.
     pub fn start_chunked(&mut self, doc_id: DocumentId, text: String, syntax_name: &str) {
-        let syntax = match self.syntax_set.find_syntax_by_name(syntax_name) {
+        self.ensure_loaded();
+        let inner = self.inner.as_mut().unwrap();
+        let syntax = match inner.find_syntax_by_name(syntax_name) {
             Some(s) => s.clone(),
             None => return,
         };
-        let theme = &self.theme_set.themes[&self.theme_name];
+        let theme = &inner.theme_set.themes[&self.theme_name];
         let highlighter = Highlighter::new(theme);
         let parse_state = ParseState::new(&syntax);
         let highlight_state = HighlightState::new(&highlighter, ScopeStack::new());
 
         let line_count = LinesWithEndings::new(&text).count();
 
-        self.chunked = Some(ChunkedState {
+        let mut chunked = ChunkedState {
             doc_id,
             next_line: 0,
             byte_offset: 0,
@@ -239,19 +301,19 @@ impl SyntaxHighlighter {
             checkpoints: SparseCheckpoints::with_capacity(line_count),
             syntax_name: syntax_name.to_string(),
             text,
-        });
-
-        if let Some(ref mut cs) = self.chunked {
-            cs.checkpoints.line_count = line_count;
-        }
+        };
+        chunked.checkpoints.line_count = line_count;
+        inner.chunked = Some(chunked);
     }
 
     /// Process the next chunk of lines. Returns None if no chunked operation is active.
     pub fn process_chunk(&mut self) -> Option<ChunkOutput> {
-        let mut cs = self.chunked.take()?;
+        let inner = self.inner.as_mut()?;
+        let mut cs = inner.chunked.take()?;
 
-        self.syntax_set.find_syntax_by_name(&cs.syntax_name)?;
-        let theme = &self.theme_set.themes[&self.theme_name];
+        let syntax_set = inner.syntax_set_for(&cs.syntax_name);
+        syntax_set.find_syntax_by_name(&cs.syntax_name)?;
+        let theme = &inner.theme_set.themes[&self.theme_name];
         let highlighter = Highlighter::new(theme);
 
         let byte_start = cs.byte_offset;
@@ -269,7 +331,7 @@ impl SyntaxHighlighter {
                 cs.checkpoints.push(cs.parse_state.clone(), cs.highlight_state.clone());
             }
 
-            let ops = cs.parse_state.parse_line(line, &self.syntax_set).unwrap_or_default();
+            let ops = cs.parse_state.parse_line(line, syntax_set).unwrap_or_default();
             let iter = HighlightIterator::new(&mut cs.highlight_state, &ops, line, &highlighter);
             for (style, piece) in iter {
                 let ch = self.style_map.get_or_insert(style.foreground);
@@ -294,7 +356,9 @@ impl SyntaxHighlighter {
                 final_checkpoints: Some(cs.checkpoints),
             })
         } else {
-            self.chunked = Some(cs);
+            if let Some(inner) = self.inner.as_mut() {
+                inner.chunked = Some(cs);
+            }
             Some(ChunkOutput {
                 byte_start,
                 style_chars,
@@ -306,12 +370,12 @@ impl SyntaxHighlighter {
 
     /// Cancel an in-progress chunked highlight. Returns partial checkpoints if active.
     pub fn cancel_chunked(&mut self) -> Option<SparseCheckpoints> {
-        self.chunked.take().map(|cs| cs.checkpoints)
+        self.inner.as_mut()?.chunked.take().map(|cs| cs.checkpoints)
     }
 
     /// Get the document ID of the active chunked operation, if any.
     pub fn chunked_doc_id(&self) -> Option<DocumentId> {
-        self.chunked.as_ref().map(|cs| cs.doc_id)
+        self.inner.as_ref()?.chunked.as_ref().map(|cs| cs.doc_id)
     }
 }
 

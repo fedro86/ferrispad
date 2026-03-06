@@ -129,6 +129,32 @@ impl SyntaxTheme {
         }
     }
 
+    /// Get the background color RGB for this theme (hardcoded from syntect defaults).
+    pub fn background(&self) -> (u8, u8, u8) {
+        match self {
+            Self::Base16OceanDark => (43, 48, 59),
+            Self::Base16OceanLight => (239, 241, 245),
+            Self::Base16EightiesDark => (45, 45, 45),
+            Self::Base16MochaDark => (59, 50, 40),
+            Self::SolarizedDark => (0, 43, 54),
+            Self::SolarizedLight => (253, 246, 227),
+            Self::InspiredGitHub => (255, 255, 255),
+        }
+    }
+
+    /// Get the foreground color RGB for this theme (hardcoded from syntect defaults).
+    pub fn foreground(&self) -> (u8, u8, u8) {
+        match self {
+            Self::Base16OceanDark => (192, 197, 206),
+            Self::Base16OceanLight => (79, 91, 102),
+            Self::Base16EightiesDark => (211, 208, 200),
+            Self::Base16MochaDark => (208, 200, 198),
+            Self::SolarizedDark => (131, 148, 150),
+            Self::SolarizedLight => (101, 123, 131),
+            Self::InspiredGitHub => (50, 50, 50),
+        }
+    }
+
     /// Get all available themes
     pub fn all() -> &'static [SyntaxTheme] {
         &[
