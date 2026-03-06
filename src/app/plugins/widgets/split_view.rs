@@ -82,6 +82,7 @@ pub enum HighlightColor {
 
 impl HighlightColor {
     /// Parse from Lua string
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "green" | "added" | "add" => Some(Self::Added),

@@ -10,6 +10,10 @@ repository = "https://github.com/fedro86/ferrispad"
 keywords = ["text-editor", "notepad", "rust", "fltk", "gui"]
 categories = ["text-editors", "gui"]
 
+[lib]
+name = "ferris_pad"
+path = "src/lib.rs"
+
 [[bin]]
 name = "FerrisPad"
 path = "src/main.rs"

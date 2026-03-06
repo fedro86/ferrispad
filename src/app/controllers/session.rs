@@ -23,14 +23,16 @@ pub struct SessionController {
     session_dirty: bool,
 }
 
-impl SessionController {
-    pub fn new() -> Self {
+impl Default for SessionController {
+    fn default() -> Self {
         Self {
             last_auto_save: Instant::now(),
             session_dirty: false,
         }
     }
+}
 
+impl SessionController {
     /// Mark that the session state has changed and should be auto-saved.
     pub fn mark_dirty(&mut self) {
         self.session_dirty = true;

@@ -55,17 +55,12 @@ pub enum FileAction {
 /// Holds file-dialog state (`last_open_directory`). All cross-cutting
 /// side effects (tab switching, highlighting, plugin hooks) are returned
 /// as `Vec<FileAction>` for AppState to dispatch.
+#[derive(Default)]
 pub struct FileController {
     pub last_open_directory: Option<String>,
 }
 
 impl FileController {
-    pub fn new() -> Self {
-        Self {
-            last_open_directory: None,
-        }
-    }
-
     // ===== Public API =====
 
     pub fn open_file(

@@ -187,7 +187,7 @@ impl HighlightController {
                     Some(ref name) => {
                         let text = buffer_text_no_leak(&doc.buffer);
                         let line = doc.buffer.count_lines(0, pos) as usize;
-                        (name.clone(), text, line, doc.checkpoints.len() == 0)
+                        (name.clone(), text, line, doc.checkpoints.is_empty())
                     }
                     None => return,
                 }

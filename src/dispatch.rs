@@ -5,7 +5,7 @@
 
 use fltk::prelude::*;
 
-use crate::split_parent;
+use ferris_pad::split_parent;
 
 use crate::app::controllers::plugin::PluginController;
 use crate::app::controllers::update::BannerWidgets;

@@ -18,17 +18,12 @@ pub struct BannerWidgets<'a> {
     pub window: &'a mut Window,
 }
 
+#[derive(Default)]
 pub struct UpdateController {
     pub pending_update: Option<ReleaseInfo>,
 }
 
 impl UpdateController {
-    pub fn new() -> Self {
-        Self {
-            pending_update: None,
-        }
-    }
-
     pub fn show_banner(&self, version: &str, widgets: &mut BannerWidgets) {
         widgets.banner_frame.set_label(&format!(
             "  \u{1f980} FerrisPad {} is available - Click to view details or press ESC to dismiss",

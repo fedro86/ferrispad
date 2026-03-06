@@ -7,7 +7,29 @@
 use std::collections::HashMap;
 
 use crate::app::domain::settings::ShortcutOverride;
-use crate::ui::menu::normalize_shortcut;
+
+/// Normalize a shortcut string for comparison (lowercase, sorted modifiers)
+pub fn normalize_shortcut(s: &str) -> String {
+    let parts: Vec<&str> = s.split('+').map(|p| p.trim()).collect();
+    let mut modifiers: Vec<String> = Vec::new();
+    let mut key = String::new();
+
+    for part in parts {
+        let lower = part.to_lowercase();
+        match lower.as_str() {
+            "ctrl" | "control" => modifiers.push("ctrl".to_string()),
+            "shift" => modifiers.push("shift".to_string()),
+            "alt" => modifiers.push("alt".to_string()),
+            _ => key = lower,
+        }
+    }
+
+    modifiers.sort();
+    if !key.is_empty() {
+        modifiers.push(key);
+    }
+    modifiers.join("+")
+}
 
 /// Runtime registry of shortcut overrides.
 ///

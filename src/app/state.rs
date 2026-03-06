@@ -136,7 +136,7 @@ impl AppState {
         let editor = editor_container.editor().clone();
 
         let view = ViewController::new(editor.clone(), dark_mode, show_linenumbers, word_wrap);
-        let session = SessionController::new();
+        let session = SessionController::default();
         let plugin_coord = PluginController::new(menu.clone(), sender);
 
         Self {
@@ -151,7 +151,7 @@ impl AppState {
             update_banner_frame,
             sender,
             settings,
-            update: UpdateController::new(),
+            update: UpdateController::default(),
             highlight,
             preview,
             plugins,
@@ -159,7 +159,7 @@ impl AppState {
             view,
             session,
             plugin_coord,
-            file: FileController::new(),
+            file: FileController::default(),
             widget: WidgetController::new(sender),
             pending_text_change: None,
             text_change_timer_active: false,

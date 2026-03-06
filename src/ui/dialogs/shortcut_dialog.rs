@@ -24,9 +24,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::app::plugins::PluginManager;
-use crate::app::services::shortcut_registry::ShortcutRegistry;
+use crate::app::services::shortcut_registry::{normalize_shortcut, ShortcutRegistry};
 use crate::ui::menu::{
-    normalize_shortcut, is_valid_shortcut, plugin_command_id, BUILTIN_SHORTCUTS,
+    is_valid_shortcut, plugin_command_id, BUILTIN_SHORTCUTS,
 };
 
 use super::{DialogTheme, SCROLLBAR_SIZE};

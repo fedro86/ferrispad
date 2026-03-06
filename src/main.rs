@@ -4,9 +4,9 @@
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
-mod app;
+pub use ferris_pad::app;
+pub use ferris_pad::ui;
 mod dispatch;
-mod ui;
 
 use fltk::{app as fltk_app, prelude::*};
 use std::cell::RefCell;

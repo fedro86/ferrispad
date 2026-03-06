@@ -8,7 +8,7 @@ use fltk::{
 };
 
 use crate::app::plugins::{PluginManager, plugin_display_name};
-use crate::app::services::shortcut_registry::ShortcutRegistry;
+use crate::app::services::shortcut_registry::{normalize_shortcut, ShortcutRegistry};
 use crate::app::{AppSettings, Message};
 
 /// Reserved keyboard shortcuts that plugins cannot override.
@@ -195,29 +195,6 @@ fn parse_shortcut(s: &str) -> Option<Shortcut> {
     }
 
     Some(result)
-}
-
-/// Normalize a shortcut string for comparison (lowercase, sorted modifiers)
-pub fn normalize_shortcut(s: &str) -> String {
-    let parts: Vec<&str> = s.split('+').map(|p| p.trim()).collect();
-    let mut modifiers: Vec<String> = Vec::new();
-    let mut key = String::new();
-
-    for part in parts {
-        let lower = part.to_lowercase();
-        match lower.as_str() {
-            "ctrl" | "control" => modifiers.push("ctrl".to_string()),
-            "shift" => modifiers.push("shift".to_string()),
-            "alt" => modifiers.push("alt".to_string()),
-            _ => key = lower,
-        }
-    }
-
-    modifiers.sort();
-    if !key.is_empty() {
-        modifiers.push(key);
-    }
-    modifiers.join("+")
 }
 
 /// Check if a shortcut string is valid (can be parsed into an FLTK shortcut)

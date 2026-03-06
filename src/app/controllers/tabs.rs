@@ -65,6 +65,7 @@ impl GroupColor {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<GroupColor> {
         match s {
             "Red" => Some(GroupColor::Red),
