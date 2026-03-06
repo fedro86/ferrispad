@@ -10,7 +10,10 @@ use std::time::Duration;
 pub const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Characters that indicate shell injection attempts
-const SHELL_INJECTION_CHARS: &[char] = &[';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r'];
+const SHELL_INJECTION_CHARS: &[char] = &[
+    ';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r',
+    '\\', '*', '?', '[', ']',
+];
 
 /// Result of path validation
 #[derive(Debug, Clone, PartialEq)]
@@ -227,6 +230,9 @@ mod tests {
         assert!(validate_command_arg("$(whoami)").is_err());
         assert!(validate_command_arg("`id`").is_err());
         assert!(validate_command_arg("test | cat").is_err());
+        assert!(validate_command_arg("file\\.txt").is_err());
+        assert!(validate_command_arg("*.py").is_err());
+        assert!(validate_command_arg("test[0]").is_err());
     }
 
     #[test]
