@@ -59,12 +59,12 @@ impl ShortcutRegistry {
     /// Returns the override shortcut if one exists and is enabled,
     /// otherwise returns the default.
     pub fn effective_shortcut<'a>(&'a self, id: &str, default: &'a str) -> &'a str {
-        if let Some(ovr) = self.overrides.get(id) {
-            if ovr.enabled {
-                // Return owned string via leak-free approach: caller must handle lifetime
-                // Actually we need to return &str, so we return from the stored override
-                return &ovr.shortcut;
-            }
+        if let Some(ovr) = self.overrides.get(id)
+            && ovr.enabled
+        {
+            // Return owned string via leak-free approach: caller must handle lifetime
+            // Actually we need to return &str, so we return from the stored override
+            return &ovr.shortcut;
         }
         default
     }
@@ -191,7 +191,7 @@ mod tests {
             },
         );
 
-        let defaults = vec![
+        let defaults = [
             ("File/Save", "Ctrl+S"),
             ("Edit/Undo", "Ctrl+Z"),
         ];
@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn test_no_self_conflict() {
         let reg = ShortcutRegistry::default();
-        let defaults = vec![("File/Save", "Ctrl+S")];
+        let defaults = [("File/Save", "Ctrl+S")];
 
         // File/Save checking Ctrl+S should not conflict with itself
         let conflict = reg.find_conflict(

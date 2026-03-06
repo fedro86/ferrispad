@@ -75,11 +75,11 @@ pub fn dispatch_hook_result(result: HookResult, plugin_name: &str, ctx: &mut Hoo
     }
 
     // Handle goto_line request
-    if let Some(line) = result.goto_line {
-        if let Some(doc) = ctx.tab_manager.active_doc() {
-            let buf = doc.buffer.clone();
-            ctx.view.goto_line(&buf, line);
-        }
+    if let Some(line) = result.goto_line
+        && let Some(doc) = ctx.tab_manager.active_doc()
+    {
+        let buf = doc.buffer.clone();
+        ctx.view.goto_line(&buf, line);
     }
 }
 

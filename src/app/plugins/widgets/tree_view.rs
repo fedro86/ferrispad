@@ -100,7 +100,7 @@ pub struct TreeViewRequest {
 }
 
 /// A node in the tree
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TreeNode {
     /// Display label for this node
     pub label: String,
@@ -116,18 +116,6 @@ pub struct TreeNode {
     pub label_color: Option<String>,
 }
 
-impl Default for TreeNode {
-    fn default() -> Self {
-        Self {
-            label: String::new(),
-            data: None,
-            children: Vec::new(),
-            expanded: false,
-            icon: None,
-            label_color: None,
-        }
-    }
-}
 
 impl TreeViewRequest {
     /// Parse a tree view request from a Lua table

@@ -43,7 +43,7 @@ struct ViewerState {
 
 impl ViewerState {
     fn new(mmap: Mmap, file_size: usize) -> Self {
-        let total_pages = (file_size + PAGE_SIZE - 1) / PAGE_SIZE;
+        let total_pages = file_size.div_ceil(PAGE_SIZE);
         Self {
             mmap,
             file_size,
@@ -552,12 +552,12 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) {
     let mut pos_label_page = position_label.clone();
     let page_input_val = page_input.clone();
     page_btn.set_callback(move |_| {
-        if let Ok(page_num) = page_input_val.value().trim().parse::<usize>() {
-            if page_num >= 1 {
-                state_page
-                    .borrow_mut()
-                    .go_to_page(page_num - 1, &mut buf_page, &mut pos_label_page);
-            }
+        if let Ok(page_num) = page_input_val.value().trim().parse::<usize>()
+            && page_num >= 1
+        {
+            state_page
+                .borrow_mut()
+                .go_to_page(page_num - 1, &mut buf_page, &mut pos_label_page);
         }
     });
 

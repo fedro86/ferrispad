@@ -435,7 +435,7 @@ impl TreePanel {
             let semantic_path: Vec<String> = item_path
                 .split('/')
                 .skip(1) // skip project root label
-                .map(|s| Self::strip_icon(s))
+                .map(Self::strip_icon)
                 .collect();
             let semantic_key = semantic_path.join("/");
 
@@ -537,14 +537,14 @@ impl TreePanel {
 
             // Track user-initiated expand/collapse for state preservation
             if reason == TreeReason::Opened || reason == TreeReason::Closed {
-                if let Some(item) = tree.callback_item() {
-                    if let Some(node_path) = Self::node_path_for_item(&item) {
-                        let key = Self::node_path_key(&node_path);
-                        if reason == TreeReason::Opened {
-                            expanded_paths.borrow_mut().insert(key);
-                        } else {
-                            expanded_paths.borrow_mut().remove(&key);
-                        }
+                if let Some(item) = tree.callback_item()
+                    && let Some(node_path) = Self::node_path_for_item(&item)
+                {
+                    let key = Self::node_path_key(&node_path);
+                    if reason == TreeReason::Opened {
+                        expanded_paths.borrow_mut().insert(key);
+                    } else {
+                        expanded_paths.borrow_mut().remove(&key);
                     }
                 }
                 return;
@@ -555,15 +555,14 @@ impl TreePanel {
             } else {
                 reason == TreeReason::Selected
             };
-            if activate {
-                if let Some(path) = Self::selected_node_path(tree) {
-                    if on_click_action.is_some() {
-                        sender.send(Message::TreeViewNodeClicked {
-                            session_id,
-                            node_path: path,
-                        });
-                    }
-                }
+            if activate
+                && let Some(path) = Self::selected_node_path(tree)
+                && on_click_action.is_some()
+            {
+                sender.send(Message::TreeViewNodeClicked {
+                    session_id,
+                    node_path: path,
+                });
             }
         });
 
@@ -623,25 +622,25 @@ impl TreePanel {
                     dragging.set(false);
                     let source_node_path = drag_source.borrow_mut().take();
 
-                    if let Some(source_node_path) = source_node_path {
-                        if !source_node_path.is_empty() {
-                            // Find the item under the mouse at drop time
-                            let target_node_path = match tree.find_clicked(true) {
-                                Some(ref item) => Self::node_path_for_item(item).unwrap_or_default(),
-                                None => vec![], // Dropped on empty area → project root
-                            };
+                    if let Some(source_node_path) = source_node_path
+                        && !source_node_path.is_empty()
+                    {
+                        // Find the item under the mouse at drop time
+                        let target_node_path = match tree.find_clicked(true) {
+                            Some(ref item) => Self::node_path_for_item(item).unwrap_or_default(),
+                            None => vec![], // Dropped on empty area → project root
+                        };
 
-                            // Don't move onto self
-                            if source_node_path != target_node_path {
-                                sender2.send(Message::TreeViewContextAction {
-                                    session_id,
-                                    action: "move".to_string(),
-                                    node_path: source_node_path,
-                                    input_text: None,
-                                    target_path: Some(target_node_path),
-                                });
-                                return true;
-                            }
+                        // Don't move onto self
+                        if source_node_path != target_node_path {
+                            sender2.send(Message::TreeViewContextAction {
+                                session_id,
+                                action: "move".to_string(),
+                                node_path: source_node_path,
+                                input_text: None,
+                                target_path: Some(target_node_path),
+                            });
+                            return true;
                         }
                     }
                     false
@@ -655,14 +654,14 @@ impl TreePanel {
 
                 // Enter key — open selected file
                 Event::KeyDown if fltk::app::event_key() == Key::Enter => {
-                    if let Some(path) = Self::selected_node_path(tree) {
-                        if on_click_action2.is_some() {
-                            sender2.send(Message::TreeViewNodeClicked {
-                                session_id,
-                                node_path: path,
-                            });
-                            return true;
-                        }
+                    if let Some(path) = Self::selected_node_path(tree)
+                        && on_click_action2.is_some()
+                    {
+                        sender2.send(Message::TreeViewNodeClicked {
+                            session_id,
+                            node_path: path,
+                        });
+                        return true;
                     }
                     false
                 }
@@ -1024,7 +1023,7 @@ impl TreePanel {
         if let Some(ref root) = self.current_nodes.clone() {
             self.tree.clear();
             self.colored_items.borrow_mut().clear();
-            self.add_tree_node(None, &root, self.current_expand_depth, 0);
+            self.add_tree_node(None, root, self.current_expand_depth, 0);
         } else {
             let fg = self.item_fg;
             let mut item = self.tree.first();

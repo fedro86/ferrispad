@@ -546,16 +546,16 @@ impl HighlightController {
 
             let line_len = line_end - line_start;
 
-            if let Some(ref gutter_mark) = gutter {
-                if line_len > 0 {
-                    let marker_char = get_marker_char(self, &gutter_mark.color);
-                    let marker_str: String = std::iter::repeat_n(
-                        marker_char,
-                        (line_end_with_newline - line_start) as usize,
-                    )
-                    .collect();
-                    style_buf.replace(line_start, line_end_with_newline, &marker_str);
-                }
+            if let Some(ref gutter_mark) = gutter
+                && line_len > 0
+            {
+                let marker_char = get_marker_char(self, &gutter_mark.color);
+                let marker_str: String = std::iter::repeat_n(
+                    marker_char,
+                    (line_end_with_newline - line_start) as usize,
+                )
+                .collect();
+                style_buf.replace(line_start, line_end_with_newline, &marker_str);
             }
 
             let mut sorted_inlines = inlines;

@@ -431,7 +431,7 @@ impl AppState {
                         widget_manager: &mut self.widget.widget_manager,
                         sender: self.sender,
                     };
-                    hook_dispatch::dispatch_lint_result(result, &mut ctx);
+                    hook_dispatch::dispatch_lint_result(*result, &mut ctx);
                 }
                 FileAction::UpdatePreviewFile { doc_id, path, text } => {
                     FileController::update_preview_file(

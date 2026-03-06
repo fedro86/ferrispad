@@ -611,6 +611,7 @@ impl SplitPanel {
     ///
     /// `left_syntax` / `right_syntax` are the syntect style strings (one char per byte of content).
     /// `main_style_table` is the editor's style table mapping style chars → foreground colors.
+    #[allow(clippy::too_many_arguments)]
     pub fn show_request_with_syntax(
         &mut self,
         session_id: u32,

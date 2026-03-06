@@ -139,7 +139,7 @@ impl ThemeRgb {
         }
     }
 
-    pub fn to_fltk(&self) -> Color {
+    pub fn to_fltk(self) -> Color {
         Color::from_rgb(self.r, self.g, self.b)
     }
 }
@@ -652,15 +652,15 @@ fn compute_layout(st: &mut TabBarState) {
     // Add visible items
     for item in scrollable_items.iter().skip(st.scroll_offset).take(visible_count) {
         // Add group label if present
-        if let Some(ref label) = item.group_label {
-            if let LayoutItem::GroupLabel { group_id, width, .. } = label {
-                st.layout.push(LayoutItem::GroupLabel {
-                    group_id: *group_id,
-                    x: cursor_x,
-                    width: *width,
-                });
-                cursor_x += *width + GROUP_LABEL_GAP;
-            }
+        if let Some(ref label) = item.group_label
+            && let LayoutItem::GroupLabel { group_id, width, .. } = label
+        {
+            st.layout.push(LayoutItem::GroupLabel {
+                group_id: *group_id,
+                x: cursor_x,
+                width: *width,
+            });
+            cursor_x += *width + GROUP_LABEL_GAP;
         }
 
         // Add the item itself

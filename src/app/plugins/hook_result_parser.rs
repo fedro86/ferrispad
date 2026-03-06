@@ -55,16 +55,16 @@ pub(super) fn parse_lint_result(table: &Table, plugin_name: &str, result: &mut H
             result.tree_view = TreeViewRequest::from_lua_table(&tree_view_table);
         }
         // Parse optional open_file request
-        if let Ok(mlua::Value::String(s)) = table.get::<mlua::Value>("open_file") {
-            if let Ok(path) = s.to_str() {
-                result.open_file = Some(path.to_string());
-            }
+        if let Ok(mlua::Value::String(s)) = table.get::<mlua::Value>("open_file")
+            && let Ok(path) = s.to_str()
+        {
+            result.open_file = Some(path.to_string());
         }
         // Parse optional clipboard_text request
-        if let Ok(mlua::Value::String(s)) = table.get::<mlua::Value>("clipboard_text") {
-            if let Ok(text) = s.to_str() {
-                result.clipboard_text = Some(text.to_string());
-            }
+        if let Ok(mlua::Value::String(s)) = table.get::<mlua::Value>("clipboard_text")
+            && let Ok(text) = s.to_str()
+        {
+            result.clipboard_text = Some(text.to_string());
         }
         // Parse optional goto_line request
         if let Ok(line) = table.get::<u32>("goto_line") {

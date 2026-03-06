@@ -41,7 +41,7 @@ pub enum FileAction {
     /// Run plugin on_document_open hook without content (tail/chunk files).
     RunPluginOpenHook { path: String },
     /// Process lint result from save hooks.
-    ProcessLintResult(HookResult),
+    ProcessLintResult(Box<HookResult>),
     /// Update markdown preview file if applicable.
     UpdatePreviewFile {
         doc_id: u64,
@@ -302,7 +302,7 @@ impl FileController {
                             path: path.clone(),
                             text: text_to_save,
                         },
-                        FileAction::ProcessLintResult(lint_result),
+                        FileAction::ProcessLintResult(Box::new(lint_result)),
                     ]
                 }
                 Err(e) => {
@@ -365,7 +365,7 @@ impl FileController {
                         path,
                         content: text,
                     });
-                    actions.push(FileAction::ProcessLintResult(lint_result));
+                    actions.push(FileAction::ProcessLintResult(Box::new(lint_result)));
 
                     actions
                 }
@@ -575,6 +575,7 @@ impl FileController {
     }
 
     /// Open content from a specific line range (chunk).
+    #[allow(clippy::too_many_arguments)]
     fn open_chunk_content(
         &self,
         path: String,

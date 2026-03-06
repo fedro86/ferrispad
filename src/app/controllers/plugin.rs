@@ -358,7 +358,7 @@ impl PluginController {
     pub fn check_updates(sender: &Sender<Message>) {
         use crate::app::services::plugin_update_checker::check_for_plugin_updates;
 
-        let sender = sender.clone();
+        let sender = *sender;
         std::thread::spawn(move || {
             match check_for_plugin_updates() {
                 Ok(updates) => {

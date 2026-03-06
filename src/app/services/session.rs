@@ -232,10 +232,11 @@ fn cleanup_orphaned_temp_files(session: &SessionData, dir: &std::path::Path) {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-                if filename.ends_with(".tmp") && !referenced.contains(filename) {
-                    let _ = fs::remove_file(&path);
-                }
+            if let Some(filename) = path.file_name().and_then(|n| n.to_str())
+                && filename.ends_with(".tmp")
+                && !referenced.contains(filename)
+            {
+                let _ = fs::remove_file(&path);
             }
         }
     }

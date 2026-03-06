@@ -255,20 +255,20 @@ pub fn show_plugin_config_dialog(
                 inp.set_text_color(text_color);
 
                 // Show placeholder if available and value is empty
-                if current_value.is_empty() {
-                    if let Some(ref placeholder) = def.placeholder {
-                        inp.set_value(placeholder);
-                        inp.set_text_color(text_dim);
-                        // Clear placeholder on focus (simple approach)
-                        let placeholder_clone = placeholder.clone();
-                        let text_color_clone = text_color;
-                        inp.set_callback(move |i| {
-                            if i.value() == placeholder_clone {
-                                i.set_value("");
-                                i.set_text_color(text_color_clone);
-                            }
-                        });
-                    }
+                if current_value.is_empty()
+                    && let Some(ref placeholder) = def.placeholder
+                {
+                    inp.set_value(placeholder);
+                    inp.set_text_color(text_dim);
+                    // Clear placeholder on focus (simple approach)
+                    let placeholder_clone = placeholder.clone();
+                    let text_color_clone = text_color;
+                    inp.set_callback(move |i| {
+                        if i.value() == placeholder_clone {
+                            i.set_value("");
+                            i.set_text_color(text_color_clone);
+                        }
+                    });
                 }
 
                 param_widgets.borrow_mut().push(ParamWidgetInfo {
@@ -327,32 +327,32 @@ pub fn show_plugin_config_dialog(
         // Validate param fields
         for info in param_widgets_save.borrow().iter() {
             // Number validation
-            if info.param_type == "number" {
-                if let ParamWidget::Input(inp) = &info.widget {
-                    let value = inp.value();
-                    // Allow empty (will use default)
-                    if !value.is_empty() && value.parse::<f64>().is_err() {
-                        let mut err = error_label_save.borrow_mut();
-                        err.set_label(&format!("'{}' must be a valid number", info.label));
-                        err.show();
-                        err.redraw();
-                        return;
-                    }
+            if info.param_type == "number"
+                && let ParamWidget::Input(inp) = &info.widget
+            {
+                let value = inp.value();
+                // Allow empty (will use default)
+                if !value.is_empty() && value.parse::<f64>().is_err() {
+                    let mut err = error_label_save.borrow_mut();
+                    err.set_label(&format!("'{}' must be a valid number", info.label));
+                    err.show();
+                    err.redraw();
+                    return;
                 }
             }
 
             // Custom validation rules (e.g., cli_args, regex:PATTERN)
-            if let Some(ref validate_rule) = info.validate {
-                if let ParamWidget::Input(inp) = &info.widget {
-                    let value = inp.value();
-                    if let Err(error_msg) = validate_param_value(&value, validate_rule, &info.label)
-                    {
-                        let mut err = error_label_save.borrow_mut();
-                        err.set_label(&error_msg);
-                        err.show();
-                        err.redraw();
-                        return;
-                    }
+            if let Some(ref validate_rule) = info.validate
+                && let ParamWidget::Input(inp) = &info.widget
+            {
+                let value = inp.value();
+                if let Err(error_msg) = validate_param_value(&value, validate_rule, &info.label)
+                {
+                    let mut err = error_label_save.borrow_mut();
+                    err.set_label(&error_msg);
+                    err.show();
+                    err.redraw();
+                    return;
                 }
             }
         }
