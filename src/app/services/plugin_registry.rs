@@ -17,9 +17,11 @@ const REPO_RAW_BASE: &str = "https://raw.githubusercontent.com/fedro86/ferrispad
 #[derive(Debug, Deserialize)]
 pub struct PluginRegistry {
     /// Schema version
-    pub version: u32,
+    #[serde(rename = "version")]
+    pub _version: u32,
     /// Last update date
-    pub updated: String,
+    #[serde(rename = "updated")]
+    pub _updated: String,
     /// List of available plugins
     pub plugins: Vec<AvailablePluginInfo>,
 }
@@ -38,11 +40,13 @@ pub struct AvailablePluginInfo {
     /// Author name
     pub author: String,
     /// License identifier
-    pub license: String,
+    #[serde(rename = "license")]
+    pub _license: String,
     /// Tags for categorization
     pub tags: Vec<String>,
     /// Minimum FerrisPad version required
-    pub min_ferrispad_version: String,
+    #[serde(rename = "min_ferrispad_version")]
+    pub _min_ferrispad_version: String,
     /// SHA-256 checksums of plugin files (optional, for verification)
     #[serde(default)]
     pub checksums: Option<PluginChecksums>,

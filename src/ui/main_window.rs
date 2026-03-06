@@ -18,6 +18,32 @@ use super::toast::Toast;
 use super::split_panel::SplitPanel;
 use super::tree_panel::TreePanel;
 
+/// Subset of MainWidgets used during the dispatch loop.
+/// Created after `editor_container` and `tab_bar` are moved into AppState.
+pub struct LayoutWidgets {
+    pub wind: Window,
+    pub flex: Flex,
+    pub split_panel: SplitPanel,
+    pub diagnostic_panel: DiagnosticPanel,
+    pub tree_panel: TreePanel,
+    pub toast: Toast,
+    pub content_row: Flex,
+    pub right_col: Option<Flex>,
+    pub tree_position: TreePanelPosition,
+}
+
+/// Resolve the parent Flex that owns the split panel.
+/// For Left/Right tree positions it's right_col; for Bottom it's the outer flex.
+///
+/// This is a macro rather than a method to avoid borrowing the whole `LayoutWidgets`
+/// struct, which would conflict with simultaneous borrows of `split_panel` and other fields.
+#[macro_export]
+macro_rules! split_parent {
+    ($lw:expr) => {
+        $lw.right_col.as_mut().map(|rc| rc as &mut fltk::group::Flex).unwrap_or(&mut $lw.flex)
+    };
+}
+
 pub struct MainWidgets {
     pub wind: Window,
     pub flex: Flex,

@@ -135,9 +135,6 @@ impl PreviewController {
         // Track for cleanup (in case it was from a previous session)
         self.temp_files.insert(temp_path.clone());
 
-        #[cfg(debug_assertions)]
-        eprintln!("[debug] Updated preview file: {:?}", temp_path);
-
         Ok(())
     }
 

@@ -130,14 +130,7 @@ impl Toast {
         self.visible = false;
     }
 
-    /// Check if toast is visible
-    #[allow(dead_code)]  // Reserved for future UI checks
-    pub fn visible(&self) -> bool {
-        self.visible
-    }
-
     /// Apply theme
-    #[allow(dead_code)]  // Reserved for theme switching support
     pub fn apply_theme(&mut self, is_dark: bool) {
         self.is_dark = is_dark;
     }

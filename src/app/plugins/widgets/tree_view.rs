@@ -246,14 +246,6 @@ impl TreeNode {
         !self.children.is_empty()
     }
 
-    /// Get the path to this node from root (for callback data)
-    #[allow(dead_code)]  // Used by tree view navigation
-    pub fn get_path(&self, parent_path: &[String]) -> Vec<String> {
-        let mut path = parent_path.to_vec();
-        path.push(self.label.clone());
-        path
-    }
-
     /// Count total nodes in this subtree
     #[allow(dead_code)]
     pub fn count_nodes(&self) -> usize {

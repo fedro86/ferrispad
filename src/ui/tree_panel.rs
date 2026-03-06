@@ -714,7 +714,7 @@ impl TreePanel {
         let clicked_item = tree.find_clicked(true);
         if let Some(ref item) = clicked_item {
             tree.set_item_focus(item);
-            tree.select_only(item, false);
+            let _ = tree.select_only(item, false);
         }
 
         // Extract info from clicked item
@@ -844,15 +844,8 @@ impl TreePanel {
     }
 
     /// Check if the panel is visible
-    #[allow(dead_code)]
     pub fn is_visible(&self) -> bool {
         self.visible
-    }
-
-    /// Get the current session ID
-    #[allow(dead_code)]
-    pub fn session_id(&self) -> Option<u32> {
-        self.session_id
     }
 
     /// Default width when shown in left/right position

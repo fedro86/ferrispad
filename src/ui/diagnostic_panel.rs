@@ -347,7 +347,6 @@ impl DiagnosticPanel {
     }
 
     /// Apply theme colors
-    #[allow(dead_code)]  // Reserved for future theme support
     pub fn apply_theme(&mut self, is_dark: bool) {
         if is_dark {
             self.browser.set_color(Color::from_rgb(40, 40, 40));

@@ -43,7 +43,7 @@ pub struct AppState {
     pub tab_manager: TabManager,
     pub tabs_enabled: bool,
     pub tab_bar: Option<TabBar>,
-    #[allow(dead_code)]
+    #[allow(dead_code)]  // Holds ownership; editor clone is extracted in constructor
     pub editor_container: EditorContainer,
     pub editor: TextEditor,
     pub window: Window,
@@ -160,17 +160,7 @@ impl AppState {
         }
     }
 
-    /// Request permission approval for a specific plugin (called from diagnostic click)
-    pub fn request_plugin_permissions(&mut self, plugin_name: &str) {
-        if PluginController::request_plugin_permissions(
-            &mut self.plugins,
-            &self.settings,
-            plugin_name,
-        ) {
-            // Re-run lint on current document to pick up the new permissions
-            self.request_manual_highlight();
-        }
-    }
+
 
     /// Get the active document's buffer
     pub fn active_buffer(&self) -> TextBuffer {
@@ -304,16 +294,6 @@ impl AppState {
         crate::ui::menu::update_preview_menu(&mut self.menu, file_path);
     }
 
-    /// Update the Preview in Browser menu item based on current file type.
-    /// Only enables it for markdown files (.md, .markdown).
-    #[allow(dead_code)] // Keep for backward compatibility
-    pub fn update_preview_menu(&mut self) {
-        let file_path = self.tab_manager.active_doc()
-            .and_then(|doc| doc.file_path.as_ref())
-            .map(|p| p.as_str());
-        crate::ui::menu::update_preview_menu(&mut self.menu, file_path);
-    }
-
     /// Rebuild the tab bar UI from current documents
     pub fn rebuild_tab_bar(&mut self) {
         if let Some(ref mut tab_bar) = self.tab_bar {
@@ -384,19 +364,6 @@ impl AppState {
     }
 
     // --- File operations (delegated to FileController) ---
-
-    /// Open a file by path. Convenience wrapper that delegates to FileController.
-    pub fn open_file(&mut self, path: String) {
-        let theme_bg = self.highlight.highlighter().theme_background();
-        let actions = self.file.open_file(
-            path,
-            &mut self.tab_manager,
-            &self.settings,
-            theme_bg,
-            self.tabs_enabled,
-        );
-        self.dispatch_file_actions(actions);
-    }
 
     /// Run OnDocumentOpen plugin hooks for a file.
     /// Called directly (small files) or deferred via `DeferredPluginHooks` message.
@@ -921,14 +888,6 @@ impl AppState {
         );
     }
 
-    fn detect_and_highlight(&mut self, id: DocumentId, path: &str) {
-        self.highlight.detect_and_highlight(
-            id, path,
-            &mut self.tab_manager,
-            &self.sender,
-        );
-    }
-
     pub fn continue_chunked_highlight(&mut self) {
         self.highlight.continue_chunked_highlight(
             &mut self.tab_manager,
@@ -974,14 +933,6 @@ impl AppState {
     }
 
     // --- Annotations (delegates to HighlightController) ---
-
-    pub fn update_annotations(&mut self, annotations: Vec<super::plugins::LineAnnotation>) {
-        self.highlight.update_annotations(annotations, &self.tab_manager, &mut self.editor);
-    }
-
-    pub fn clear_annotations(&mut self) {
-        self.highlight.clear_annotations(&mut self.tab_manager, &mut self.editor);
-    }
 
     /// Request manual highlight from plugins (Ctrl+Shift+L / Run All Checks)
     pub fn request_manual_highlight(&mut self) {

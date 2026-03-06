@@ -10,7 +10,7 @@
 //! All file system operations are sandboxed to the project root directory.
 //! Path traversal attacks (e.g., `../../etc/passwd`) are blocked.
 
-use mlua::{Lua, Result as LuaResult, UserData, UserDataMethods};
+use mlua::{UserData, UserDataMethods};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -26,15 +26,55 @@ fn resolve_and_validate(path: &str, project_root: &Path) -> mlua::Result<Option<
     match validate_path(path, project_root) {
         PathValidation::Valid(canonical) => Ok(Some(canonical)),
         PathValidation::NotFound => {
-            // For write ops the parent exists but the leaf doesn't — still valid
-            Ok(Some(if Path::new(path).is_absolute() {
+            // For write ops the target doesn't exist yet — still valid if it
+            // would land inside the sandbox. Walk up to the nearest existing
+            // ancestor and verify it's within the project root.
+            let full = if Path::new(path).is_absolute() {
                 PathBuf::from(path)
             } else {
                 project_root.join(path)
-            }))
+            };
+            let canonical_root = std::fs::canonicalize(project_root).map_err(|e| {
+                mlua::Error::RuntimeError(format!(
+                    "Cannot canonicalize project root: {}",
+                    e
+                ))
+            })?;
+            // Walk up ancestors until we find one that exists and can be canonicalized
+            let mut ancestor = full.as_path();
+            loop {
+                match std::fs::canonicalize(ancestor) {
+                    Ok(canonical_ancestor)
+                        if canonical_ancestor.starts_with(&canonical_root) =>
+                    {
+                        return Ok(Some(full));
+                    }
+                    Ok(_) => {
+                        // Exists but outside project root
+                        eprintln!(
+                            "[plugin:security] path blocked: '{}' resolves outside project root",
+                            path
+                        );
+                        return Ok(None);
+                    }
+                    Err(_) => {
+                        // Doesn't exist — try parent
+                        match ancestor.parent() {
+                            Some(parent) if parent != ancestor => ancestor = parent,
+                            _ => {
+                                // Reached filesystem root without finding an existing ancestor
+                                eprintln!(
+                                    "[plugin:security] path blocked: '{}' no valid ancestor in project root",
+                                    path
+                                );
+                                return Ok(None);
+                            }
+                        }
+                    }
+                }
+            }
         }
         PathValidation::OutsideProjectRoot
-        | PathValidation::TraversalAttempt
         | PathValidation::InvalidPath(_) => {
             eprintln!(
                 "[plugin:security] path blocked: '{}' outside project root",
@@ -356,48 +396,71 @@ impl UserData for EditorApi {
                         s
                     });
 
-                    // Poll until complete or timeout
-                    loop {
-                        match child.try_wait() {
-                            Ok(Some(status)) => {
-                                let stdout_str = stdout_thread.join().unwrap_or_default();
-                                let stderr_str = stderr_thread.join().unwrap_or_default();
+                    // Wait for process using a channel instead of polling.
+                    // The child is moved into a thread that blocks on wait();
+                    // we extract the PID first so we can kill on timeout.
+                    let pid = child.id();
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    std::thread::spawn(move || {
+                        let _ = tx.send(child.wait());
+                    });
 
-                                let result = lua.create_table()?;
-                                result.set("stdout", stdout_str)?;
-                                result.set("stderr", stderr_str)?;
-                                result.set("success", status.success())?;
-                                return Ok(mlua::Value::Table(result));
-                            }
-                            Ok(None) => {
-                                // Still running - check timeout
-                                if start.elapsed() > timeout {
-                                    // Timeout - kill the process
-                                    let _ = child.kill();
-                                    let _ = child.wait();
-                                    eprintln!(
-                                        "[plugin:security] run_command killed '{}' after {:?} timeout",
-                                        cmd, timeout
-                                    );
-                                    let result = lua.create_table()?;
-                                    result.set("stdout", "")?;
-                                    result.set("stderr", format!(
-                                        "Command timed out after {} seconds",
-                                        timeout.as_secs()
-                                    ))?;
-                                    result.set("success", false)?;
-                                    return Ok(mlua::Value::Table(result));
+                    let remaining = timeout.saturating_sub(start.elapsed());
+                    match rx.recv_timeout(remaining) {
+                        Ok(Ok(status)) => {
+                            let stdout_str = stdout_thread.join().unwrap_or_default();
+                            let stderr_str = stderr_thread.join().unwrap_or_default();
+
+                            let result = lua.create_table()?;
+                            result.set("stdout", stdout_str)?;
+                            result.set("stderr", stderr_str)?;
+                            result.set("success", status.success())?;
+                            Ok(mlua::Value::Table(result))
+                        }
+                        Ok(Err(e)) => {
+                            let result = lua.create_table()?;
+                            result.set("stdout", "")?;
+                            result.set("stderr", format!("Command wait failed: {}", e))?;
+                            result.set("success", false)?;
+                            Ok(mlua::Value::Table(result))
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                            // Kill the timed-out process by PID
+                            #[cfg(unix)]
+                            unsafe {
+                                unsafe extern "C" {
+                                    fn kill(pid: i32, sig: i32) -> i32;
                                 }
-                                // Sleep briefly before polling again (10ms)
-                                std::thread::sleep(std::time::Duration::from_millis(10));
+                                kill(pid as i32, 9); // SIGKILL
                             }
-                            Err(e) => {
-                                let result = lua.create_table()?;
-                                result.set("stdout", "")?;
-                                result.set("stderr", format!("Command wait failed: {}", e))?;
-                                result.set("success", false)?;
-                                return Ok(mlua::Value::Table(result));
+                            #[cfg(windows)]
+                            {
+                                // On Windows, use taskkill as a fallback
+                                let _ = Command::new("taskkill")
+                                    .args(["/F", "/PID", &pid.to_string()])
+                                    .output();
                             }
+                            // Wait for the thread to finish (it will see the killed status)
+                            let _ = rx.recv();
+                            eprintln!(
+                                "[plugin:security] run_command killed '{}' (pid {}) after {:?} timeout",
+                                cmd, pid, timeout
+                            );
+                            let result = lua.create_table()?;
+                            result.set("stdout", "")?;
+                            result.set("stderr", format!(
+                                "Command timed out after {} seconds",
+                                timeout.as_secs()
+                            ))?;
+                            result.set("success", false)?;
+                            Ok(mlua::Value::Table(result))
+                        }
+                        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                            let result = lua.create_table()?;
+                            result.set("stdout", "")?;
+                            result.set("stderr", "Command wait thread disconnected".to_string())?;
+                            result.set("success", false)?;
+                            Ok(mlua::Value::Table(result))
                         }
                     }
                 }
@@ -415,6 +478,15 @@ impl UserData for EditorApi {
         // Check if a command exists in PATH
         // Returns true if the command is found, false otherwise
         methods.add_method("command_exists", |_, _this, cmd: String| {
+            // Security: validate command name for consistency with run_command
+            if let Err(reason) = validate_command_arg(&cmd) {
+                eprintln!(
+                    "[plugin:security] command_exists blocked '{}': {}",
+                    cmd, reason
+                );
+                return Ok(false);
+            }
+
             // Use `which` on Unix or `where` on Windows
             #[cfg(unix)]
             let check = Command::new("which").arg(&cmd).output();
@@ -435,9 +507,8 @@ impl UserData for EditorApi {
         // Paths outside project root return false (not an error, for backwards compatibility).
         methods.add_method("file_exists", |_, this, path: String| {
             let Some(ref project_root) = this.project_root else {
-                // No project root - allow any path (untitled document)
-                // This is less restrictive but necessary for some use cases
-                return Ok(std::path::Path::new(&path).exists());
+                // No project root (untitled document) — deny to prevent filesystem probing
+                return Ok(false);
             };
 
             match validate_path(&path, project_root) {
@@ -446,13 +517,41 @@ impl UserData for EditorApi {
                 // For security, paths outside project root return false, not an error
                 // This prevents plugins from probing the file system
                 PathValidation::OutsideProjectRoot
-                | PathValidation::TraversalAttempt
                 | PathValidation::InvalidPath(_) => {
                     eprintln!(
                         "[plugin:security] file_exists blocked: '{}' outside project root",
                         path
                     );
                     Ok(false)
+                }
+            }
+        });
+
+        // Read the contents of a file inside the project root.
+        // Returns (content, nil) on success, (nil, error_msg) on failure.
+        // Returns (nil, "No project root") when there is no project root.
+        // Paths outside the project root are blocked.
+        methods.add_method("read_file", |lua, this, path: String| {
+            let Some(ref project_root) = this.project_root else {
+                return Ok((mlua::Value::Nil, Some("No project root".to_string())));
+            };
+
+            match validate_path(&path, project_root) {
+                PathValidation::Valid(canonical) => {
+                    match std::fs::read_to_string(&canonical) {
+                        Ok(content) => {
+                            let lua_str = lua.create_string(&content)?;
+                            Ok((mlua::Value::String(lua_str), None))
+                        }
+                        Err(e) => Ok((mlua::Value::Nil, Some(e.to_string()))),
+                    }
+                }
+                _ => {
+                    eprintln!(
+                        "[plugin:security] read_file blocked: '{}' outside project root",
+                        path
+                    );
+                    Ok((mlua::Value::Nil, Some("Path outside project root".to_string())))
                 }
             }
         });
@@ -510,9 +609,26 @@ impl UserData for EditorApi {
 
         // Query git status for a directory. Returns a table mapping relative file
         // paths to status codes ("M", "A", "??", "D", "R", "UU"), or nil on error.
-        methods.add_method("git_status", |lua, _this, path: String| {
+        methods.add_method("git_status", |lua, this, path: String| {
+            // Security: validate path against project root to prevent probing arbitrary directories
+            let validated_path = if let Some(ref project_root) = this.project_root {
+                match validate_path(&path, project_root) {
+                    PathValidation::Valid(canonical) => canonical,
+                    _ => {
+                        eprintln!(
+                            "[plugin:security] git_status blocked: '{}' outside project root",
+                            path
+                        );
+                        return Ok(mlua::Value::Nil);
+                    }
+                }
+            } else {
+                return Ok(mlua::Value::Nil);
+            };
+            let path_str = validated_path.to_string_lossy();
+
             let output = match Command::new("git")
-                .args(["-C", &path, "status", "--porcelain=v1", "-uall"])
+                .args(["-C", &path_str, "status", "--porcelain=v1", "-uall"])
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::null())
                 .output()
@@ -611,7 +727,8 @@ impl UserData for EditorApi {
         // Returns false for directories, non-existent paths, and paths outside project root
         methods.add_method("is_file", |_, this, path: String| {
             let Some(ref project_root) = this.project_root else {
-                return Ok(Path::new(&path).is_file());
+                // No project root (untitled document) — deny to prevent filesystem probing
+                return Ok(false);
             };
             match resolve_and_validate(&path, project_root)? {
                 Some(p) => Ok(p.is_file()),
@@ -757,16 +874,6 @@ impl UserData for EditorApi {
             }
         });
     }
-}
-
-/// Register the EditorApi type with a Lua instance
-#[allow(dead_code)]  // Reserved for future plugin API expansion
-pub fn register_api(lua: &Lua) -> LuaResult<()> {
-    // EditorApi is registered automatically when passed to Lua functions
-    // This function is here for future expansion if we need to register
-    // additional global functions or types
-    let _ = lua;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -1044,5 +1151,182 @@ mod tests {
             assert!(!ok2, "remove outside root should fail");
             Ok(())
         }).unwrap();
+    }
+
+    // ── S1: resolve_and_validate NotFound bypass tests ────────────────
+
+    #[test]
+    fn test_resolve_and_validate_notfound_absolute_outside_blocked() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        // Absolute path where parent doesn't exist — should be blocked, not bypassed
+        let result = resolve_and_validate("/nonexistent_dir_xyz/evil.txt", root).unwrap();
+        assert!(
+            result.is_none(),
+            "Absolute path with nonexistent parent outside root should be None"
+        );
+    }
+
+    #[test]
+    fn test_resolve_and_validate_traversal_nonexistent_parent_blocked() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        // Traversal where intermediate dir doesn't exist
+        let result = resolve_and_validate("../../nonexistent/file.txt", root).unwrap();
+        assert!(
+            result.is_none(),
+            "Traversal through nonexistent parent should be blocked"
+        );
+    }
+
+    #[test]
+    fn test_resolve_and_validate_notfound_inside_allowed() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        // Create a subdir so the parent exists inside the root
+        std::fs::create_dir(root.join("subdir")).unwrap();
+
+        // New file in existing subdir inside root — should be allowed
+        let result = resolve_and_validate("subdir/new_file.txt", root).unwrap();
+        assert!(
+            result.is_some(),
+            "New file in existing subdir inside root should be allowed"
+        );
+    }
+
+    // ── S4: file_exists / is_file without project root ────────────────
+
+    #[test]
+    fn test_file_exists_no_project_root_returns_false() {
+        let lua = mlua::Lua::new();
+        let api = EditorApi::default(); // no project_root
+
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+            let file_exists: mlua::Function = ud.get("file_exists").unwrap();
+            let result: bool = file_exists.call((&ud, "/etc/hosts".to_string())).unwrap();
+            assert!(!result, "file_exists without project root should return false");
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn test_is_file_no_project_root_returns_false() {
+        let lua = mlua::Lua::new();
+        let api = EditorApi::default(); // no project_root
+
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+            let is_file: mlua::Function = ud.get("is_file").unwrap();
+            let result: bool = is_file.call((&ud, "/etc/hosts".to_string())).unwrap();
+            assert!(!result, "is_file without project root should return false");
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    // ── S2: git_status path validation ────────────────────────────────
+
+    #[test]
+    fn test_lua_git_status_outside_root_blocked() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        let lua = mlua::Lua::new();
+        let api = api_with_root(root);
+
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+            let git_status: mlua::Function = ud.get("git_status").unwrap();
+            // Attempting to query git status on a path outside project root
+            let result: mlua::Value = git_status.call((&ud, "/tmp".to_string())).unwrap();
+            assert!(
+                matches!(result, mlua::Value::Nil),
+                "git_status outside project root should return nil"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn test_lua_git_status_no_project_root_returns_nil() {
+        let lua = mlua::Lua::new();
+        let api = EditorApi::default(); // no project_root
+
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+            let git_status: mlua::Function = ud.get("git_status").unwrap();
+            let result: mlua::Value = git_status.call((&ud, "/tmp".to_string())).unwrap();
+            assert!(
+                matches!(result, mlua::Value::Nil),
+                "git_status without project root should return nil"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    // ── A4: read_file tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_lua_read_file_success() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("hello.txt"), "Hello, world!").unwrap();
+
+        let lua = mlua::Lua::new();
+        let api = api_with_root(root);
+
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+            let read_file: mlua::Function = ud.get("read_file").unwrap();
+            let (content, err): (String, mlua::Value) =
+                read_file.call((&ud, root.join("hello.txt").to_str().unwrap().to_string())).unwrap();
+            assert_eq!(content, "Hello, world!");
+            assert!(matches!(err, mlua::Value::Nil), "error should be nil on success");
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn test_lua_read_file_outside_root_blocked() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        let lua = mlua::Lua::new();
+        let api = api_with_root(root);
+
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+            let read_file: mlua::Function = ud.get("read_file").unwrap();
+            let (content, err): (mlua::Value, Option<String>) =
+                read_file.call((&ud, "/etc/hosts".to_string())).unwrap();
+            assert!(matches!(content, mlua::Value::Nil), "content should be nil for blocked path");
+            assert!(err.is_some(), "should return an error message");
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn test_lua_read_file_no_project_root() {
+        let lua = mlua::Lua::new();
+        let api = EditorApi::default(); // no project_root
+
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+            let read_file: mlua::Function = ud.get("read_file").unwrap();
+            let (content, err): (mlua::Value, Option<String>) =
+                read_file.call((&ud, "/etc/hosts".to_string())).unwrap();
+            assert!(matches!(content, mlua::Value::Nil), "content should be nil without project root");
+            assert_eq!(err, Some("No project root".to_string()));
+            Ok(())
+        })
+        .unwrap();
     }
 }

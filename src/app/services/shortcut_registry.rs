@@ -19,7 +19,6 @@ pub struct ShortcutRegistry {
     overrides: HashMap<String, ShortcutOverride>,
 }
 
-#[allow(dead_code)]
 impl ShortcutRegistry {
     /// Create a registry from persisted settings.
     pub fn from_settings(overrides: &HashMap<String, ShortcutOverride>) -> Self {
@@ -34,11 +33,13 @@ impl ShortcutRegistry {
     }
 
     /// Set an override for a command ID.
+    #[allow(dead_code)]  // Used in tests
     pub fn set_override(&mut self, id: String, ovr: ShortcutOverride) {
         self.overrides.insert(id, ovr);
     }
 
     /// Remove an override (revert to default).
+    #[allow(dead_code)]  // Used in tests
     pub fn remove_override(&mut self, id: &str) {
         self.overrides.remove(id);
     }
@@ -49,6 +50,7 @@ impl ShortcutRegistry {
     }
 
     /// Return a snapshot of overrides for persistence.
+    #[allow(dead_code)]  // Used in tests
     pub fn to_settings(&self) -> HashMap<String, ShortcutOverride> {
         self.overrides.clone()
     }
@@ -69,6 +71,7 @@ impl ShortcutRegistry {
 
     /// Build a map of all effective shortcuts: command_id -> normalized shortcut string.
     /// `defaults` is an iterator of (command_id, default_shortcut_string).
+    #[allow(dead_code)]  // Used in tests
     pub fn effective_shortcuts<'a>(
         &self,
         defaults: impl Iterator<Item = (&'a str, &'a str)>,
@@ -87,6 +90,7 @@ impl ShortcutRegistry {
     /// Returns Some(conflicting_command_id) if conflict found.
     /// `exclude_id` is the command being edited (skip self-conflict).
     /// `defaults` provides (id, default_shortcut) for all commands.
+    #[allow(dead_code)]  // Used in tests
     pub fn find_conflict<'a>(
         &self,
         normalized: &str,

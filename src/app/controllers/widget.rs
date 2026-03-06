@@ -219,9 +219,6 @@ impl WidgetController {
             .map(|d| buffer_text_no_leak(&d.buffer))
             .unwrap_or_default();
 
-        eprintln!("[debug:click] node_path={:?}, content_len={}, current_path={:?}",
-            node_path, buffer_content.len(), current_path);
-
         let result = plugins.call_hook_on_plugin(
             &plugin_name,
             PluginHook::OnWidgetAction {
@@ -238,11 +235,6 @@ impl WidgetController {
                 path: current_path,
             },
         );
-
-        if let Some(ref result) = result {
-            eprintln!("[debug:click] hook returned goto_line={:?}, open_file={:?}, clipboard={:?}",
-                result.goto_line, result.open_file, result.clipboard_text);
-        }
 
         if let Some(result) = result {
             process_widget_requests(&result, &plugin_name, &mut self.widget_manager, self.sender);
@@ -324,18 +316,13 @@ impl WidgetController {
         editor: &mut TextEditor,
         view: &mut ViewController,
     ) {
-        eprintln!("[debug:menu] handle_plugin_menu_action plugin='{}' action='{}'", plugin_name, action);
-
         // If any tree view is already open, remove it so process_widget_requests
         // will create a fresh one (refresh, not toggle off).
         if let Some(existing_id) = self.widget_manager.any_tree_view_session() {
             let is_persistent = self.widget_manager.get_session(existing_id)
                 .is_some_and(|s| s.persistent);
             if !is_persistent {
-                eprintln!("[debug:menu] removing existing tree view session {} before refresh", existing_id);
                 self.sender.send(Message::TreeViewHide(existing_id));
-            } else {
-                eprintln!("[debug:menu] keeping persistent tree view session {}", existing_id);
             }
         }
 
@@ -346,8 +333,6 @@ impl WidgetController {
         let content = tab_manager.active_doc()
             .map(|d| buffer_text_no_leak(&d.buffer))
             .unwrap_or_default();
-        eprintln!("[debug:menu] path={:?}, content_len={}", path, content.len());
-
         let hook = PluginHook::OnMenuAction {
             action: action.to_string(),
             path,

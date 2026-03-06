@@ -5,31 +5,22 @@
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 mod app;
+mod dispatch;
 mod ui;
 
-use fltk::{app as fltk_app, group::Flex, prelude::*};
+use fltk::{app as fltk_app, prelude::*};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::env;
 
-use crate::app::controllers::plugin::PluginController;
-use crate::app::controllers::update::BannerWidgets;
-use crate::app::services::updater::{check_for_updates, current_timestamp, should_check_now, UpdateCheckResult};
+use crate::app::services::updater::{check_for_updates, should_check_now, UpdateCheckResult};
 use crate::app::services::session;
 use crate::app::services::shortcut_registry::ShortcutRegistry;
 use crate::app::state::AppState;
 use crate::app::domain::settings::TreePanelPosition;
 use crate::app::infrastructure::defer::defer_send;
 use crate::app::{detect_system_dark_mode, AppSettings, Message, ThemeMode};
-use crate::ui::dialogs::about::show_about_dialog;
-use crate::ui::dialogs::find::{show_find_dialog, show_replace_dialog};
-use crate::ui::dialogs::goto_line::show_goto_line_dialog;
-use crate::ui::dialogs::update::check_for_updates_ui;
-use crate::ui::main_window::build_main_window;
-use crate::app::plugins::widgets::SplitDisplayMode;
-use crate::ui::split_panel::SplitPanel;
-use crate::ui::tab_bar::TAB_BAR_HEIGHT;
-use crate::ui::tree_panel::TreePanel;
+use crate::ui::main_window::{build_main_window, LayoutWidgets};
 use crate::ui::menu::build_menu;
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
@@ -209,6 +200,20 @@ fn main() {
     w.diagnostic_panel.setup_click_handler();
     w.diagnostic_panel.setup_hover_handler();
 
+    // Extract layout widgets from partially-moved MainWidgets for use in dispatch loop.
+    // w.editor_container and w.tab_bar were already moved into AppState above.
+    let mut lw = LayoutWidgets {
+        wind: w.wind,
+        flex: w.flex,
+        split_panel: w.split_panel,
+        diagnostic_panel: w.diagnostic_panel,
+        tree_panel: w.tree_panel,
+        toast: w.toast,
+        content_row: w.content_row,
+        right_col: w.right_col,
+        tree_position: w.tree_position,
+    };
+
     // Check plugin permissions now that UI is ready (dialog needs event loop)
     sender.send(Message::CheckPluginPermissions);
 
@@ -253,725 +258,131 @@ fn main() {
         }
     }
 
-    // Resolve the parent Flex that owns the split panel.
-    // For Left/Right tree positions it's right_col; for Bottom it's the outer flex.
-    macro_rules! split_parent {
-        ($w:expr) => {
-            $w.right_col.as_mut().map(|rc| rc as &mut Flex).unwrap_or(&mut $w.flex)
-        };
-    }
-
     // Track whether file_quit() completed successfully
     let mut quit_clean = false;
 
     // Main event loop with message dispatch
     while app.wait() {
         if let Some(msg) = receiver.recv() {
-            match msg {
+            let result = match msg {
                 // File
-                Message::FileNew => {
-                    let actions = state.file.file_new(&mut state.tab_manager, state.tabs_enabled);
-                    state.dispatch_file_actions(actions);
-                    state.session.mark_dirty();
-                }
-                Message::FileOpen => {
-                    let theme_bg = state.highlight.highlighter().theme_background();
-                    let actions = state.file.file_open(
-                        &mut state.tab_manager, &state.settings, theme_bg,
-                        state.tabs_enabled,
-                    );
-                    state.dispatch_file_actions(actions);
-                    state.session.mark_dirty();
-                }
-                Message::FileSave => { state.file_save(); state.session.mark_dirty(); }
-                Message::FileSaveAs => {
-                    let actions = state.file.file_save_as(
-                        &mut state.tab_manager, &state.plugins, state.tabs_enabled,
-                    );
-                    state.dispatch_file_actions(actions);
-                    state.session.mark_dirty();
-                }
-                Message::FileQuit | Message::WindowClose => {
-                    if state.file_quit() {
-                        quit_clean = true;
-                        fltk_app::quit();
-                    } else {
-                        // User cancelled the quit — reset the flag
-                        fltk::app::program_should_quit(false);
-                    }
-                }
+                Message::FileNew | Message::FileOpen | Message::FileSave
+                | Message::FileSaveAs | Message::FileQuit | Message::WindowClose =>
+                    dispatch::handle_file(msg, &mut state),
 
                 // Tabs
-                Message::TabSwitch(id) => {
-                    // If diff tab is active in tab mode, collapse the split panel first
-                    if let Some(ref mut tb) = state.tab_bar {
-                        if tb.is_diff_tab_active() && w.split_panel.is_tab_mode() {
-                            // Collapse split panel to 0 and hide it
-                            w.split_panel.container.hide();
-                            let parent = split_parent!(w);
-                            parent.fixed(w.split_panel.widget(), 0);
-                            if let Some(ref mut div) = w.split_panel.divider {
-                                div.hide();
-                                parent.fixed(div, 0);
-                            }
-                            parent.recalc();
-                            // Mark diff tab as inactive (keep it in the tab bar)
-                            if let Some(sid) = tb.diff_tab_session_id() {
-                                tb.set_diff_tab(sid, w.split_panel.diff_title(), false);
-                            }
-                        }
-                    }
-                    state.switch_to_document(id);
-                    state.rebuild_tab_bar();
-                    // Auto-scroll to make the active tab visible
-                    if let Some(ref mut tab_bar) = state.tab_bar {
-                        tab_bar.ensure_active_visible(Some(id));
-                    }
-                }
-                Message::TabClose(id) => {
-                    if state.close_tab(id) {
-                        if state.file_quit() {
-                            quit_clean = true;
-                            fltk_app::quit();
-                        }
-                    } else {
-                        state.session.mark_dirty();
-                    }
-                }
-                Message::TabCloseActive => {
-                    if let Some(id) = state.tab_manager.active_id()
-                        && state.close_tab(id)
-                    {
-                        if state.file_quit() {
-                            quit_clean = true;
-                            fltk_app::quit();
-                        }
-                    } else {
-                        state.session.mark_dirty();
-                    }
-                }
-                Message::TabMove(from, to) => {
-                    state.tab_manager.move_tab(from, to);
-                    state.rebuild_tab_bar();
-                    state.session.mark_dirty();
-                }
-                Message::TabNext => state.switch_to_next_tab(),
-                Message::TabPrevious => state.switch_to_previous_tab(),
-
-                // Tab Groups
-                Message::TabGroupCreate(doc_id) => {
-                    state.tab_manager.create_group(&[doc_id]);
-                    state.rebuild_tab_bar();
-                    state.session.mark_dirty();
-                }
-                Message::TabGroupDelete(group_id) => {
-                    state.tab_manager.delete_group(group_id);
-                    state.rebuild_tab_bar();
-                    state.session.mark_dirty();
-                }
-                Message::TabGroupClose(group_id) => {
-                    state.handle_group_close(group_id);
-                    state.session.mark_dirty();
-                }
-                Message::TabGroupRename(group_id) => {
-                    let current_name = state.tab_manager.group_by_id(group_id)
-                        .map(|g| g.name.clone())
-                        .unwrap_or_default();
-                    if let Some(new_name) = fltk::dialog::input_default("Group name:", &current_name) {
-                        state.tab_manager.rename_group(group_id, new_name);
-                        state.rebuild_tab_bar();
-                    }
-                    state.session.mark_dirty();
-                }
-                Message::TabGroupRecolor(group_id, color) => {
-                    state.tab_manager.recolor_group(group_id, color);
-                    state.rebuild_tab_bar();
-                    state.session.mark_dirty();
-                }
-                Message::TabGroupAddTab(doc_id, group_id) => {
-                    state.tab_manager.set_tab_group(doc_id, Some(group_id));
-                    state.rebuild_tab_bar();
-                    state.session.mark_dirty();
-                }
-                Message::TabGroupRemoveTab(doc_id) => {
-                    state.tab_manager.set_tab_group(doc_id, None);
-                    state.rebuild_tab_bar();
-                    state.session.mark_dirty();
-                }
-                Message::TabGroupToggle(group_id) => {
-                    state.tab_manager.toggle_group_collapsed(group_id);
-                    state.rebuild_tab_bar();
-                    state.session.mark_dirty();
-                }
-                Message::TabGroupByDrag(source_id, target_id) => {
-                    let target_group = state.tab_manager.documents()
-                        .iter()
-                        .find(|d| d.id == target_id)
-                        .and_then(|d| d.group_id);
-                    if let Some(gid) = target_group {
-                        state.tab_manager.set_tab_group(source_id, Some(gid));
-                    } else {
-                        state.tab_manager.create_group(&[target_id, source_id]);
-                    }
-                    state.rebuild_tab_bar();
-                    state.session.mark_dirty();
-                }
-                Message::TabGroupMove(group_id, to) => {
-                    state.tab_manager.move_group(group_id, to);
-                    state.rebuild_tab_bar();
-                    state.session.mark_dirty();
-                }
-                Message::TabMoveToGroup(doc_id, to, group_id) => {
-                    state.tab_manager.move_tab_to_group(doc_id, to, group_id);
-                    state.rebuild_tab_bar();
-                    state.session.mark_dirty();
-                }
+                Message::TabSwitch(_) | Message::TabClose(_) | Message::TabCloseActive
+                | Message::TabMove(..) | Message::TabNext | Message::TabPrevious
+                | Message::TabGroupCreate(_) | Message::TabGroupDelete(_)
+                | Message::TabGroupClose(_) | Message::TabGroupRename(_)
+                | Message::TabGroupRecolor(..) | Message::TabGroupAddTab(..)
+                | Message::TabGroupRemoveTab(_) | Message::TabGroupToggle(_)
+                | Message::TabGroupByDrag(..) | Message::TabGroupMove(..)
+                | Message::TabMoveToGroup(..) =>
+                    dispatch::handle_tab(msg, &mut state, &mut lw),
 
                 // Edit
-                Message::EditUndo => { let _ = state.active_buffer().undo(); }
-                Message::EditRedo => { let _ = state.active_buffer().redo(); }
-                Message::EditCut => { state.editor.cut(); }
-                Message::EditCopy => { state.editor.copy(); }
-                Message::EditPaste => { state.editor.paste(); }
-                Message::SelectAll => {
-                    let mut buf = state.active_buffer();
-                    buf.select(0, buf.length());
+                Message::EditUndo | Message::EditRedo | Message::EditCut
+                | Message::EditCopy | Message::EditPaste | Message::SelectAll
+                | Message::ShowFind | Message::ShowReplace | Message::ShowGoToLine => {
+                    dispatch::handle_edit(msg, &mut state);
+                    dispatch::DispatchResult::Continue
                 }
-                Message::ShowFind => show_find_dialog(&state.active_buffer(), &mut state.editor),
-                Message::ShowReplace => show_replace_dialog(&state.active_buffer(), &mut state.editor),
-                Message::ShowGoToLine => show_goto_line_dialog(&state.active_buffer(), &mut state.editor),
 
-                // View
-                Message::ToggleLineNumbers => state.view.toggle_line_numbers(&state.tab_manager),
-                Message::ToggleWordWrap => state.view.toggle_word_wrap(),
-                Message::ToggleDarkMode => {
-                    state.toggle_dark_mode();
-                    let theme_bg = state.highlight.highlighter().theme_background();
-                    if w.tree_panel.is_visible() {
-                        w.tree_panel.apply_theme(state.view.dark_mode, theme_bg);
-                    }
-                    if w.split_panel.is_visible() {
-                        w.split_panel.apply_theme(state.view.dark_mode, theme_bg);
-                    }
+                // View & Format
+                Message::ToggleLineNumbers | Message::ToggleWordWrap
+                | Message::ToggleDarkMode | Message::ToggleHighlighting
+                | Message::TogglePreview | Message::SetFont(_) | Message::SetFontSize(_) => {
+                    dispatch::handle_view(msg, &mut state, &mut lw);
+                    dispatch::DispatchResult::Continue
                 }
-                Message::ToggleHighlighting => state.toggle_highlighting(),
-                Message::TogglePreview => state.preview_in_browser(),
-
-                // Format
-                Message::SetFont(font) => state.view.set_font(font),
-                Message::SetFontSize(size) => state.view.set_font_size(size),
 
                 // Settings & Help
-                Message::OpenSettings => {
-                    state.open_settings();
-                    if w.tree_panel.is_visible() {
-                        let theme_bg = state.highlight.highlighter().theme_background();
-                        w.tree_panel.apply_theme(state.view.dark_mode, theme_bg);
-                    }
+                Message::OpenSettings | Message::CheckForUpdates
+                | Message::ShowAbout | Message::ShowKeyShortcuts => {
+                    dispatch::handle_settings(msg, &mut state, &mut lw);
+                    dispatch::DispatchResult::Continue
                 }
-                Message::CheckForUpdates => check_for_updates_ui(&state.settings),
-                Message::ShowAbout => {
-                    let theme_bg = state.highlight.highlighter().theme_background();
-                    show_about_dialog(theme_bg);
-                }
-                Message::ShowKeyShortcuts => state.show_key_shortcuts(),
 
-                // Syntax highlighting (debounced)
-                Message::BufferModified(id, pos) => {
-                    // Invalidate cached tree view so next tab switch re-parses
-                    // and update cached line count to avoid O(n) scan on tab switch
-                    if let Some(doc) = state.tab_manager.doc_by_id_mut(id) {
-                        doc.cached_tree = None;
-                        doc.cached_line_count = doc.buffer.count_lines(0, doc.buffer.length()) as usize;
-                    }
-                    state.schedule_rehighlight(id, pos);
-                    state.session.mark_dirty();
-                }
-                Message::DoRehighlight => {
-                    state.do_pending_rehighlight();
-                }
-                Message::ContinueHighlight => {
-                    state.continue_chunked_highlight();
+                // Syntax highlighting
+                Message::BufferModified(..) | Message::DoRehighlight
+                | Message::ContinueHighlight => {
+                    dispatch::handle_highlight(msg, &mut state);
+                    dispatch::DispatchResult::Continue
                 }
 
                 // Background updates
-                Message::BackgroundUpdateResult(Some(release)) => {
-                    state.update.receive_update(release, &mut BannerWidgets {
-                        banner_frame: &mut state.update_banner_frame,
-                        flex: &mut state.flex,
-                        window: &mut state.window,
-                    });
-                    let mut s = state.settings.borrow_mut();
-                    s.last_update_check = current_timestamp();
-                    let _ = s.save();
-                }
-                Message::BackgroundUpdateResult(None) => {
-                    let mut s = state.settings.borrow_mut();
-                    s.last_update_check = current_timestamp();
-                    let _ = s.save();
-                }
-                Message::ShowBannerUpdate => {
-                    state.update.show_update_dialog(&state.settings, &mut BannerWidgets {
-                        banner_frame: &mut state.update_banner_frame,
-                        flex: &mut state.flex,
-                        window: &mut state.window,
-                    });
-                }
-                Message::DismissBanner => {
-                    state.update.dismiss_banner(&mut BannerWidgets {
-                        banner_frame: &mut state.update_banner_frame,
-                        flex: &mut state.flex,
-                        window: &mut state.window,
-                    });
+                Message::BackgroundUpdateResult(_) | Message::ShowBannerUpdate
+                | Message::DismissBanner | Message::PreviewSyntaxTheme(_) => {
+                    dispatch::handle_update(msg, &mut state);
+                    dispatch::DispatchResult::Continue
                 }
 
-                Message::PreviewSyntaxTheme(theme) => state.preview_syntax_theme(theme),
-
-                // Plugin system
-                Message::PluginsToggleGlobal => {
-                    state.plugin_coord.handle_toggle_global(
-                        &mut state.plugins, &state.settings, &state.shortcut_registry,
-                    );
-                }
-                Message::PluginToggle(name) => {
-                    state.plugin_coord.handle_toggle(
-                        &mut state.plugins, &state.settings, &state.shortcut_registry, name,
-                    );
-                }
-                Message::PluginsReloadAll => {
-                    state.plugin_coord.handle_reload(
-                        &mut state.plugins, &state.settings, &state.shortcut_registry,
-                    );
-                }
-                Message::CheckPluginPermissions => {
-                    PluginController::check_permissions_deferred(&mut state.plugins, &state.settings);
-                }
-                Message::PluginMenuAction { plugin_name, action } => {
-                    state.widget.handle_plugin_menu_action(
-                        &plugin_name, &action,
-                        &mut state.plugins, &mut state.tab_manager,
-                        &mut state.highlight, &mut state.editor, &mut state.view,
-                    );
-                }
-                Message::ShowPluginManager => {
-                    let theme_bg = state.highlight.highlighter().theme_background();
-                    state.plugin_coord.show_manager(
-                        &mut state.plugins, &state.settings, &state.shortcut_registry, theme_bg,
-                    );
-                }
-                Message::ShowPluginSettings => {
-                    let theme_bg = state.highlight.highlighter().theme_background();
-                    state.plugin_coord.show_settings(
-                        &state.plugins, &state.settings, &state.shortcut_registry, theme_bg,
-                    );
-                }
-                Message::ShowPluginConfig(name) => {
-                    let theme_bg = state.highlight.highlighter().theme_background();
-                    state.plugin_coord.show_config(
-                        &mut state.plugins, &state.settings, &state.shortcut_registry, &name, theme_bg,
-                    );
-                }
-                Message::CheckPluginUpdates => {
-                    PluginController::check_updates(&state.sender);
-                }
-                Message::PluginUpdatesChecked(updates) => {
-                    PluginController::handle_updates_checked(&state.settings, &updates);
+                // Plugins
+                Message::PluginsToggleGlobal | Message::PluginToggle(_)
+                | Message::PluginsReloadAll | Message::CheckPluginPermissions
+                | Message::PluginMenuAction { .. } | Message::ShowPluginManager
+                | Message::ShowPluginSettings | Message::ShowPluginConfig(_)
+                | Message::CheckPluginUpdates | Message::PluginUpdatesChecked(_) => {
+                    dispatch::handle_plugin(msg, &mut state);
+                    dispatch::DispatchResult::Continue
                 }
 
                 // Diagnostics
-                Message::DiagnosticsUpdate(diagnostics) => {
-                    let is_success = diagnostics.is_empty();
-                    // Store diagnostics in the active document for persistence
-                    state.store_diagnostics(diagnostics.clone());
-                    w.diagnostic_panel.update_diagnostics(diagnostics);
-                    let height = w.diagnostic_panel.current_height();
-                    w.flex.fixed(w.diagnostic_panel.widget(), height);
-                    w.flex.recalc();
-                    w.wind.redraw();
-                    // Auto-dismiss the green "All checks passed" bar after 5 seconds
-                    if is_success {
-                        defer_send(sender, 5.0, Message::DiagnosticsAutoDismiss);
-                    }
-                }
-                Message::DiagnosticsClear => {
-                    w.diagnostic_panel.clear();
-                    let height = w.diagnostic_panel.current_height();
-                    w.flex.fixed(w.diagnostic_panel.widget(), height);
-                    w.flex.recalc();
-                    w.wind.redraw();
-                }
-                Message::DiagnosticsAutoDismiss => {
-                    // Only dismiss if still showing the success bar (no new errors appeared)
-                    if w.diagnostic_panel.is_showing_success() {
-                        w.diagnostic_panel.clear();
-                        let height = w.diagnostic_panel.current_height();
-                        w.flex.fixed(w.diagnostic_panel.widget(), height);
-                        w.flex.recalc();
-                        w.wind.redraw();
-                    }
-                }
-                Message::DiagnosticGoto(_idx) => {
-                    // idx is 1-based browser index, get line from diagnostics
-                    if let Some(line) = w.diagnostic_panel.selected_line() {
-                        state.goto_line(line);
-                    }
-                }
-                Message::DiagnosticOpenDocs(_idx) => {
-                    // Double-click: open documentation URL or file path
-                    if let Some(url) = w.diagnostic_panel.selected_url() {
-                        if let Err(e) = open::that(&url) {
-                            eprintln!("[diagnostic] Failed to open URL: {}", e);
-                        }
-                    }
+                Message::DiagnosticsUpdate(_) | Message::DiagnosticsClear
+                | Message::DiagnosticsAutoDismiss | Message::DiagnosticGoto(_)
+                | Message::DiagnosticOpenDocs(_) => {
+                    dispatch::handle_diagnostic(msg, &mut state, &mut lw);
+                    dispatch::DispatchResult::Continue
                 }
 
-                // Line annotations (gutter + inline highlights)
-                Message::AnnotationsUpdate(annotations) => {
-                    state.highlight.update_annotations(annotations, &state.tab_manager, &mut state.editor);
-                }
-                Message::AnnotationsClear => {
-                    state.highlight.clear_annotations(&mut state.tab_manager, &mut state.editor);
-                }
-                Message::ManualHighlight => {
-                    state.request_manual_highlight();
+                // Annotations
+                Message::AnnotationsUpdate(_) | Message::AnnotationsClear
+                | Message::ManualHighlight => {
+                    dispatch::handle_annotation(msg, &mut state);
+                    dispatch::DispatchResult::Continue
                 }
 
-                // Deferred plugin hooks (large files)
-                Message::DeferredPluginHooks { path, content } => {
-                    state.run_open_hooks(path, content);
+                // Deferred actions
+                Message::DeferredPluginHooks { .. } | Message::DeferredTreeRefresh { .. }
+                | Message::DeferredSessionRestore | Message::DeferredOpenFile(_) => {
+                    dispatch::handle_deferred(msg, &mut state, &mut lw, tabs_enabled);
+                    dispatch::DispatchResult::Continue
                 }
 
-                // Deferred tree view refresh on tab switch (cache miss)
-                Message::DeferredTreeRefresh { path, content } => {
-                    // Flush so "Loading..." is visible before blocking work
-                    fltk::app::flush();
-                    // If content is empty, read from active buffer now (deferred from tab switch)
-                    let content = if content.is_empty() {
-                        state.tab_manager.active_doc()
-                            .map(|d| crate::app::infrastructure::buffer::buffer_text_no_leak(&d.buffer))
-                            .unwrap_or_default()
-                    } else {
-                        content
-                    };
-                    state.run_tree_refresh(path, content);
+                // Toast
+                Message::ToastShow(..) | Message::ToastHide => {
+                    dispatch::handle_toast(msg, &mut lw);
+                    dispatch::DispatchResult::Continue
                 }
 
-                // Deferred session restore (window is already visible)
-                Message::DeferredSessionRestore => {
-                    // Show toast before the synchronous work so the user sees feedback.
-                    // We render directly because messages queued during restore_session
-                    // won't be processed until it returns.
-                    w.toast.show(crate::ui::toast::ToastLevel::Info, "Restoring session...");
-                    let height = w.toast.current_height();
-                    w.flex.fixed(w.toast.widget(), height);
-                    w.flex.recalc();
-                    fltk::app::flush();
-
-                    state.restore_session();
-
-                    // Hide toast
-                    w.toast.hide();
-                    w.flex.fixed(w.toast.widget(), 0);
-                    w.flex.recalc();
-
-                    // Rebuild tab bar now that documents are loaded
-                    if tabs_enabled {
-                        state.rebuild_tab_bar();
-                    }
-                    // Start deferred highlighting for large session-restored files
-                    state.start_queued_highlights();
+                // Split view
+                Message::SplitViewShow { .. }
+                | Message::SplitViewAccept(_) | Message::SplitViewReject(_)
+                | Message::SplitViewResize(_) | Message::DiffTabActivate(_)
+                | Message::SplitViewToggleMode(_) => {
+                    dispatch::handle_split_view(msg, &mut state, &mut lw);
+                    dispatch::DispatchResult::Continue
                 }
 
-                // Deferred CLI file open (after session restore)
-                Message::DeferredOpenFile(path) => {
-                    let theme_bg = state.highlight.highlighter().theme_background();
-                    let actions = state.file.open_file(
-                        path, &mut state.tab_manager, &state.settings,
-                        theme_bg, state.tabs_enabled,
-                    );
-                    state.dispatch_file_actions(actions);
-                }
-
-                // Toast notifications
-                Message::ToastShow(level, msg) => {
-                    w.toast.show(level, &msg);
-                    let height = w.toast.current_height();
-                    w.flex.fixed(w.toast.widget(), height);
-                    w.flex.recalc();
-                    w.wind.redraw();
-                }
-                Message::ToastHide => {
-                    w.toast.hide();
-                    w.flex.fixed(w.toast.widget(), 0);
-                    w.flex.recalc();
-                    w.wind.redraw();
+                // Tree view
+                Message::TreeViewShow { .. } | Message::TreeViewHide(_)
+                | Message::TreeViewLoading | Message::TreeViewNodeClicked { .. }
+                | Message::TreeViewContextAction { .. } | Message::TreeViewSearch { .. }
+                | Message::TreeViewResize(_) => {
+                    dispatch::handle_tree_view(msg, &mut state, &mut lw);
+                    dispatch::DispatchResult::Continue
                 }
 
                 // Window events
-                Message::WindowResize => {
-                    if let Some(ref mut tab_bar) = state.tab_bar {
-                        tab_bar.handle_resize();
-                    }
-                    // Recalculate split panel height in tab mode
-                    if w.split_panel.is_visible() && w.split_panel.is_tab_mode() {
-                        let parent = split_parent!(w);
-                        let full_height = parent.h() - TAB_BAR_HEIGHT;
-                        parent.fixed(w.split_panel.widget(), full_height);
-                        parent.recalc();
-                        w.wind.redraw();
-                    }
+                Message::WindowResize | Message::MallocTrim => {
+                    dispatch::handle_window(msg, &mut state, &mut lw);
+                    dispatch::DispatchResult::Continue
                 }
-
-                // Widget API - Split View
-                Message::SplitViewShow { session_id, plugin_name, request } => {
-                    let is_tab_mode = request.display_mode == SplitDisplayMode::Tab;
-                    let settings = state.settings.borrow().clone();
-                    state.widget.show_split_view(
-                        session_id, &plugin_name, &request, &mut w.split_panel,
-                        &mut state.highlight, &mut state.view, &state.tab_manager, &settings,
-                    );
-
-                    let parent = split_parent!(w);
-                    if is_tab_mode {
-                        // Tab mode: fill editor area (parent.h - TAB_BAR_HEIGHT)
-                        let full_height = parent.h() - TAB_BAR_HEIGHT;
-                        parent.fixed(w.split_panel.widget(), full_height);
-                        // Hide divider (no resize in tab mode)
-                        if let Some(ref mut div) = w.split_panel.divider {
-                            div.hide();
-                            parent.fixed(div, 0);
-                        }
-                        // Show diff tab in tab bar
-                        if let Some(ref mut tb) = state.tab_bar {
-                            tb.set_diff_tab(session_id, w.split_panel.diff_title(), true);
-                        }
-                    } else {
-                        // Panel mode (existing behavior)
-                        let height = w.split_panel.current_height();
-                        parent.fixed(w.split_panel.widget(), height);
-                        if let Some(ref mut div) = w.split_panel.divider {
-                            div.show();
-                            parent.fixed(div, SplitPanel::DIVIDER_HEIGHT);
-                        }
-                    }
-                    parent.recalc();
-                    w.wind.redraw();
-                }
-                Message::SplitViewHide(session_id) => {
-                    state.widget.hide_split_view(session_id, &mut w.split_panel);
-                    let parent = split_parent!(w);
-                    parent.fixed(w.split_panel.widget(), 0);
-                    if let Some(ref mut div) = w.split_panel.divider {
-                        div.hide();
-                        parent.fixed(div, 0);
-                    }
-                    if let Some(ref mut tb) = state.tab_bar {
-                        tb.clear_diff_tab();
-                    }
-                    parent.recalc();
-                    w.wind.redraw();
-                }
-                Message::SplitViewAccept(session_id) => {
-                    state.widget.handle_split_view_accept(
-                        session_id, &mut w.split_panel,
-                        &mut state.plugins, &state.tab_manager, &mut state.editor,
-                    );
-                    let parent = split_parent!(w);
-                    parent.fixed(w.split_panel.widget(), 0);
-                    if let Some(ref mut div) = w.split_panel.divider {
-                        div.hide();
-                        parent.fixed(div, 0);
-                    }
-                    if let Some(ref mut tb) = state.tab_bar {
-                        tb.clear_diff_tab();
-                    }
-                    parent.recalc();
-                    w.wind.redraw();
-                }
-                Message::SplitViewReject(session_id) => {
-                    state.widget.handle_split_view_reject(session_id, &mut w.split_panel);
-                    let parent = split_parent!(w);
-                    parent.fixed(w.split_panel.widget(), 0);
-                    if let Some(ref mut div) = w.split_panel.divider {
-                        div.hide();
-                        parent.fixed(div, 0);
-                    }
-                    if let Some(ref mut tb) = state.tab_bar {
-                        tb.clear_diff_tab();
-                    }
-                    parent.recalc();
-                    w.wind.redraw();
-                }
-                Message::SplitViewResize(mouse_y) => {
-                    if !w.split_panel.is_tab_mode() {
-                        let parent = split_parent!(w);
-                        let col_y = parent.y();
-                        let col_h = parent.h();
-                        let new_height = (col_y + col_h - mouse_y).clamp(100, col_h / 2);
-                        parent.fixed(w.split_panel.widget(), new_height);
-                        parent.recalc();
-                        w.wind.redraw();
-                    }
-                }
-
-                Message::DiffTabActivate(session_id) => {
-                    // Re-show the split panel in tab mode
-                    if w.split_panel.session_id() == Some(session_id) {
-                        w.split_panel.show_existing();
-                        let parent = split_parent!(w);
-                        let full_height = parent.h() - TAB_BAR_HEIGHT;
-                        parent.fixed(w.split_panel.widget(), full_height);
-                        if let Some(ref mut div) = w.split_panel.divider {
-                            div.hide();
-                            parent.fixed(div, 0);
-                        }
-                        if let Some(ref mut tb) = state.tab_bar {
-                            tb.set_diff_tab(session_id, w.split_panel.diff_title(), true);
-                        }
-                        parent.recalc();
-                        w.wind.redraw();
-                    }
-                }
-                Message::SplitViewToggleMode(session_id) => {
-                    if w.split_panel.session_id() == Some(session_id) {
-                        let parent = split_parent!(w);
-                        if w.split_panel.is_tab_mode() {
-                            // Switch from tab mode to panel mode
-                            w.split_panel.set_tab_mode(false);
-                            let height = w.split_panel.current_height();
-                            parent.fixed(w.split_panel.widget(), height);
-                            if let Some(ref mut div) = w.split_panel.divider {
-                                div.show();
-                                parent.fixed(div, SplitPanel::DIVIDER_HEIGHT);
-                            }
-                            if let Some(ref mut tb) = state.tab_bar {
-                                tb.clear_diff_tab();
-                            }
-                        } else {
-                            // Switch from panel mode to tab mode
-                            w.split_panel.set_tab_mode(true);
-                            let full_height = parent.h() - TAB_BAR_HEIGHT;
-                            parent.fixed(w.split_panel.widget(), full_height);
-                            if let Some(ref mut div) = w.split_panel.divider {
-                                div.hide();
-                                parent.fixed(div, 0);
-                            }
-                            if let Some(ref mut tb) = state.tab_bar {
-                                tb.set_diff_tab(session_id, w.split_panel.diff_title(), true);
-                            }
-                        }
-                        w.split_panel.refresh_action_buttons();
-                        parent.recalc();
-                        w.wind.redraw();
-                    }
-                }
-
-                // Widget API - Tree View
-                Message::TreeViewShow { session_id, plugin_name, request } => {
-                    state.widget.show_tree_view(
-                        session_id, &plugin_name, &request, &mut w.tree_panel,
-                        &state.highlight, &mut state.view, &mut state.tab_manager,
-                    );
-                    match w.tree_position {
-                        TreePanelPosition::Bottom => {
-                            let height = w.tree_panel.current_height();
-                            w.flex.fixed(w.tree_panel.widget(), height);
-                            w.flex.recalc();
-                        }
-                        TreePanelPosition::Left | TreePanelPosition::Right => {
-                            let width = w.tree_panel.current_width();
-                            w.content_row.fixed(w.tree_panel.widget(), width);
-                            // Show divider
-                            if let Some(ref mut div) = w.tree_panel.divider {
-                                div.show();
-                                w.content_row.fixed(div, TreePanel::DIVIDER_WIDTH);
-                            }
-                            w.content_row.recalc();
-                        }
-                    }
-                    if let Some(ref mut tb) = state.tab_bar {
-                        tb.handle_resize();
-                    }
-                    w.wind.redraw();
-                }
-                Message::TreeViewHide(session_id) => {
-                    state.widget.hide_tree_view(session_id, &mut w.tree_panel);
-                    match w.tree_position {
-                        TreePanelPosition::Bottom => {
-                            w.flex.fixed(w.tree_panel.widget(), 0);
-                            w.flex.recalc();
-                        }
-                        TreePanelPosition::Left | TreePanelPosition::Right => {
-                            w.content_row.fixed(w.tree_panel.widget(), 0);
-                            // Hide divider
-                            if let Some(ref mut div) = w.tree_panel.divider {
-                                div.hide();
-                                w.content_row.fixed(div, 0);
-                            }
-                            w.content_row.recalc();
-                        }
-                    }
-                    if let Some(ref mut tb) = state.tab_bar {
-                        tb.handle_resize();
-                    }
-                    w.wind.redraw();
-                }
-                Message::TreeViewLoading => {
-                    w.tree_panel.show_loading();
-                }
-                Message::TreeViewNodeClicked { session_id, node_path } => {
-                    state.widget.handle_tree_view_node_click(
-                        session_id, node_path,
-                        &mut state.plugins, &mut state.tab_manager,
-                        &mut state.highlight, &mut state.editor, &mut state.view,
-                    );
-                }
-                Message::TreeViewContextAction { session_id, action, node_path, input_text, target_path } => {
-                    state.widget.handle_tree_view_context_action(
-                        session_id, action, node_path, input_text, target_path,
-                        &mut state.plugins, &mut state.tab_manager,
-                        &mut state.highlight, &mut state.editor, &mut state.view,
-                    );
-                }
-                Message::TreeViewSearch { query } => {
-                    w.tree_panel.apply_search(&query);
-                }
-                Message::MallocTrim => {
-                    #[cfg(target_os = "linux")]
-                    {
-                        // SAFETY: malloc_trim is a glibc extension that releases free memory
-                        // back to the OS. Safe to call at any time; pad=0 means release as
-                        // much as possible.
-                        unsafe {
-                            unsafe extern "C" { fn malloc_trim(pad: std::ffi::c_int) -> std::ffi::c_int; }
-                            malloc_trim(0);
-                        }
-                    }
-                }
-                Message::TreeViewResize(mouse_x) => {
-                    if matches!(w.tree_position, TreePanelPosition::Left | TreePanelPosition::Right) {
-                        // Calculate new width based on mouse position relative to content_row
-                        let content_x = w.content_row.x();
-                        let content_w = w.content_row.w();
-                        let max_width = content_w / 2;
-
-                        let new_width = match w.tree_position {
-                            TreePanelPosition::Left => {
-                                (mouse_x - content_x).clamp(100, max_width)
-                            }
-                            TreePanelPosition::Right => {
-                                (content_x + content_w - mouse_x).clamp(100, max_width)
-                            }
-                            _ => unreachable!(),
-                        };
-                        w.content_row.fixed(w.tree_panel.widget(), new_width);
-                        w.content_row.recalc();
-                        if let Some(ref mut tb) = state.tab_bar {
-                            tb.handle_resize();
-                        }
-                        w.wind.redraw();
-                    }
-                }
+            };
+            if matches!(result, dispatch::DispatchResult::Quit) {
+                quit_clean = true;
+                fltk_app::quit();
             }
         }
         state.session.auto_save_if_needed(

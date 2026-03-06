@@ -265,22 +265,6 @@ pub fn load_session(mode: SessionRestore) -> Option<SessionData> {
     Some(session_data)
 }
 
-/// Delete session.json and all .tmp files in the session directory.
-pub fn clear_session() {
-    let dir = session_dir();
-    let session_file = dir.join("session.json");
-    let _ = fs::remove_file(&session_file);
-
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            if let Some(ext) = entry.path().extension()
-                && ext == "tmp" {
-                    let _ = fs::remove_file(entry.path());
-                }
-        }
-    }
-}
-
 /// Read temp file content from the session directory.
 pub fn read_temp_file(temp_file: &str) -> Option<String> {
     let path = session_dir().join(temp_file);

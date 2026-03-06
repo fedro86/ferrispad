@@ -31,12 +31,10 @@ fn next_session_id() -> u32 {
 #[derive(Debug, Clone)]
 pub struct WidgetSession {
     /// Unique session ID
-    #[allow(dead_code)]  // Used for session identification in future features
     pub id: u32,
     /// Name of the plugin that created this widget
     pub plugin_name: String,
     /// Type of widget
-    #[allow(dead_code)]  // Used for widget-type-specific behavior in future
     pub widget_type: WidgetType,
     /// If true, this session persists across tab switches (e.g., file explorer)
     pub persistent: bool,
@@ -47,17 +45,6 @@ pub struct WidgetSession {
 pub enum WidgetType {
     SplitView,
     TreeView,
-}
-
-impl WidgetType {
-    /// Get the type name as a string for Lua callbacks
-    #[allow(dead_code)]  // Used by plugins when reporting widget type
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            WidgetType::SplitView => "split_view",
-            WidgetType::TreeView => "tree_view",
-        }
-    }
 }
 
 /// Manages widget sessions created by plugins
