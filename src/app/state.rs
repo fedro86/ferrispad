@@ -62,6 +62,10 @@ pub struct AppState {
     pub plugin_coord: PluginController,
     pub file: FileController,
     pub widget: WidgetController,
+    /// Pending text change for debounced OnTextChanged hook: (doc_id, pos, inserted, deleted)
+    pending_text_change: Option<(DocumentId, i32, i32, i32)>,
+    /// Whether a DoTextChangeHook timer is active
+    text_change_timer_active: bool,
 }
 
 impl AppState {
@@ -157,6 +161,8 @@ impl AppState {
             plugin_coord,
             file: FileController::new(),
             widget: WidgetController::new(sender),
+            pending_text_change: None,
+            text_change_timer_active: false,
         }
     }
 
@@ -267,8 +273,6 @@ impl AppState {
         self.widget.process_widget_requests(&open_result, "");
         let mut ctx = HookContext {
             tab_manager: &mut self.tab_manager,
-            highlight: &mut self.highlight,
-            editor: &mut self.editor,
             view: &mut self.view,
             widget_manager: &mut self.widget.widget_manager,
             sender: self.sender,
@@ -414,8 +418,6 @@ impl AppState {
                     self.widget.process_widget_requests(&result, "");
                     let mut ctx = HookContext {
                         tab_manager: &mut self.tab_manager,
-                        highlight: &mut self.highlight,
-                        editor: &mut self.editor,
                         view: &mut self.view,
                         widget_manager: &mut self.widget.widget_manager,
                         sender: self.sender,
@@ -425,8 +427,6 @@ impl AppState {
                 FileAction::ProcessLintResult(result) => {
                     let mut ctx = HookContext {
                         tab_manager: &mut self.tab_manager,
-                        highlight: &mut self.highlight,
-                        editor: &mut self.editor,
                         view: &mut self.view,
                         widget_manager: &mut self.widget.widget_manager,
                         sender: self.sender,
@@ -488,8 +488,6 @@ impl AppState {
             self.widget.process_widget_requests(&open_result, "");
             let mut ctx = HookContext {
                 tab_manager: &mut self.tab_manager,
-                highlight: &mut self.highlight,
-                editor: &mut self.editor,
                 view: &mut self.view,
                 widget_manager: &mut self.widget.widget_manager,
                 sender: self.sender,
@@ -875,6 +873,54 @@ impl AppState {
         );
     }
 
+    /// Schedule a debounced OnTextChanged plugin hook (300ms after last edit).
+    pub fn schedule_text_change_hook(&mut self, id: DocumentId, pos: i32, inserted: i32, deleted: i32) {
+        // Coalesce: keep earliest position, sum inserted/deleted
+        match self.pending_text_change {
+            Some((existing_id, existing_pos, existing_ins, existing_del)) if existing_id == id => {
+                self.pending_text_change = Some((id, pos.min(existing_pos), existing_ins + inserted, existing_del + deleted));
+            }
+            _ => {
+                self.pending_text_change = Some((id, pos, inserted, deleted));
+            }
+        }
+
+        if !self.text_change_timer_active {
+            self.text_change_timer_active = true;
+            defer_send(self.sender, 0.3, Message::DoTextChangeHook);
+        }
+    }
+
+    /// Fire the debounced OnTextChanged hook to plugins.
+    pub fn do_pending_text_change_hook(&mut self) {
+        self.text_change_timer_active = false;
+
+        let (id, position, inserted_len, deleted_len) = match self.pending_text_change.take() {
+            Some(p) => p,
+            None => return,
+        };
+
+        // Only fire for the active document
+        let path = self.tab_manager.doc_by_id(id)
+            .and_then(|d| d.file_path.clone());
+
+        let result = self.plugins.call_hook(PluginHook::OnTextChanged {
+            position,
+            inserted_len,
+            deleted_len,
+        });
+
+        // Process results (diagnostics, annotations, status, widgets)
+        let mut ctx = HookContext {
+            tab_manager: &mut self.tab_manager,
+            view: &mut self.view,
+            widget_manager: &mut self.widget.widget_manager,
+            sender: self.sender,
+        };
+        let plugin_name = path.as_deref().unwrap_or("");
+        hook_dispatch::dispatch_hook_result(result, plugin_name, &mut ctx);
+    }
+
     pub fn do_pending_rehighlight(&mut self) {
         self.highlight.do_pending_rehighlight(
             &mut self.tab_manager,
@@ -974,8 +1020,6 @@ impl AppState {
         // Process results (diagnostics, annotations, and toast)
         let mut ctx = HookContext {
             tab_manager: &mut self.tab_manager,
-            highlight: &mut self.highlight,
-            editor: &mut self.editor,
             view: &mut self.view,
             widget_manager: &mut self.widget.widget_manager,
             sender: self.sender,

@@ -110,7 +110,12 @@ fn register_modify_callback(
                 if deleted > 0 {
                     style_buf.remove(pos, pos + deleted);
                 }
-                sender.send(Message::BufferModified(doc_id, pos));
+                sender.send(Message::BufferModified {
+                    id: doc_id,
+                    pos,
+                    inserted,
+                    deleted,
+                });
             }
         },
     );

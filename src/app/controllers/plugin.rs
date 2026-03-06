@@ -5,7 +5,7 @@ use fltk::{app::Sender, menu::MenuBar};
 
 use crate::app::domain::messages::Message;
 use crate::app::domain::settings::AppSettings;
-use crate::app::plugins::{get_plugin_dir, PluginManager};
+use crate::app::plugins::{get_plugin_dir, PluginManager, WidgetManager};
 use crate::app::services::shortcut_registry::ShortcutRegistry;
 use crate::ui::dialogs::plugin_manager::{show_plugin_manager_dialog, PluginManagerResult};
 use crate::ui::dialogs::plugin_permissions::{show_permission_dialog, ApprovalResult, PermissionRequest};
@@ -114,6 +114,7 @@ impl PluginController {
         plugins: &mut PluginManager,
         settings: &Rc<RefCell<AppSettings>>,
         shortcut_registry: &ShortcutRegistry,
+        widget_manager: &mut WidgetManager,
     ) {
         let currently_enabled = settings.borrow().plugins_enabled;
         let new_enabled = !currently_enabled;
@@ -122,6 +123,13 @@ impl PluginController {
             let mut s = settings.borrow_mut();
             s.plugins_enabled = new_enabled;
             let _ = s.save();
+        }
+
+        // Clean up all widget sessions when disabling plugins globally
+        if !new_enabled {
+            for plugin in plugins.list_plugins() {
+                widget_manager.clear_plugin_sessions(&plugin.name);
+            }
         }
 
         plugins.set_enabled(new_enabled);
@@ -144,6 +152,7 @@ impl PluginController {
         settings: &Rc<RefCell<AppSettings>>,
         shortcut_registry: &ShortcutRegistry,
         name: String,
+        widget_manager: &mut WidgetManager,
     ) {
         let was_enabled = plugins
             .list_plugins()
@@ -153,6 +162,11 @@ impl PluginController {
             .unwrap_or(false);
 
         plugins.toggle_plugin(&name, !was_enabled);
+
+        // Clean up widget sessions when disabling a plugin
+        if was_enabled {
+            widget_manager.clear_plugin_sessions(&name);
+        }
 
         {
             let mut s = settings.borrow_mut();
@@ -170,7 +184,13 @@ impl PluginController {
         plugins: &mut PluginManager,
         settings: &Rc<RefCell<AppSettings>>,
         shortcut_registry: &ShortcutRegistry,
+        widget_manager: &mut WidgetManager,
     ) {
+        // Clean up all widget sessions before reload
+        for plugin in plugins.list_plugins() {
+            widget_manager.clear_plugin_sessions(&plugin.name);
+        }
+
         plugins.reload_all(&get_plugin_dir());
 
         let disabled = settings.borrow().disabled_plugins.clone();

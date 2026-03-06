@@ -53,7 +53,6 @@ pub struct Diagnostic {
 }
 
 /// Plugin hooks that can be registered and called.
-#[allow(dead_code)]  // OnTextChanged reserved for future use
 #[derive(Debug, Clone)]
 pub enum PluginHook {
     /// Called once when plugin loads

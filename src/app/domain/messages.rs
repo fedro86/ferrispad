@@ -59,6 +59,7 @@ pub enum Message {
     ToggleDarkMode,
     ToggleHighlighting,
     TogglePreview,
+    ToggleDiagnosticsPanel,
 
     // Format
     SetFont(Font),
@@ -71,9 +72,16 @@ pub enum Message {
     ShowKeyShortcuts,
 
     // Syntax highlighting
-    BufferModified(DocumentId, i32),
+    BufferModified {
+        id: DocumentId,
+        pos: i32,
+        inserted: i32,
+        deleted: i32,
+    },
     DoRehighlight,
     ContinueHighlight,
+    /// Debounced text change hook (fires 300ms after last edit)
+    DoTextChangeHook,
 
     // Background updates
     BackgroundUpdateResult(Option<ReleaseInfo>),
@@ -109,9 +117,7 @@ pub enum Message {
     DiagnosticsAutoDismiss,  // Auto-dismiss "All checks passed" green bar after timeout
 
     // Line annotations (gutter + inline highlights)
-    #[allow(dead_code)]  // Matched in dispatch but not yet constructed; reserved for plugin annotations
     AnnotationsUpdate(Vec<LineAnnotation>),
-    #[allow(dead_code)]  // Matched in dispatch but not yet constructed; reserved for plugin annotations
     AnnotationsClear,
     ManualHighlight,  // Triggered by Ctrl+Shift+L
 

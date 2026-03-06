@@ -2,11 +2,7 @@
 //!
 //! Extracted from AppState to isolate widget management from core coordination.
 
-use fltk::{
-    app::Sender,
-    prelude::*,
-    text::TextEditor,
-};
+use fltk::{app::Sender, prelude::*, text::TextEditor};
 
 use super::highlight::HighlightController;
 use super::hook_dispatch::{self, HookContext, process_widget_requests};
@@ -201,8 +197,6 @@ impl WidgetController {
         node_path: Vec<String>,
         plugins: &mut PluginManager,
         tab_manager: &mut TabManager,
-        highlight: &mut HighlightController,
-        editor: &mut TextEditor,
         view: &mut ViewController,
     ) {
         let session = match self.widget_manager.get_session(session_id) {
@@ -240,8 +234,6 @@ impl WidgetController {
             process_widget_requests(&result, &plugin_name, &mut self.widget_manager, self.sender);
             let mut ctx = HookContext {
                 tab_manager,
-                highlight,
-                editor,
                 view,
                 widget_manager: &mut self.widget_manager,
                 sender: self.sender,
@@ -260,8 +252,6 @@ impl WidgetController {
         target_path: Option<Vec<String>>,
         plugins: &mut PluginManager,
         tab_manager: &mut TabManager,
-        highlight: &mut HighlightController,
-        editor: &mut TextEditor,
         view: &mut ViewController,
     ) {
         let session = match self.widget_manager.get_session(session_id) {
@@ -295,8 +285,6 @@ impl WidgetController {
             process_widget_requests(&result, &plugin_name, &mut self.widget_manager, self.sender);
             let mut ctx = HookContext {
                 tab_manager,
-                highlight,
-                editor,
                 view,
                 widget_manager: &mut self.widget_manager,
                 sender: self.sender,
@@ -312,8 +300,6 @@ impl WidgetController {
         action: &str,
         plugins: &mut PluginManager,
         tab_manager: &mut TabManager,
-        highlight: &mut HighlightController,
-        editor: &mut TextEditor,
         view: &mut ViewController,
     ) {
         // If any tree view is already open, remove it so process_widget_requests
@@ -353,8 +339,6 @@ impl WidgetController {
             process_widget_requests(&result, plugin_name, &mut self.widget_manager, self.sender);
             let mut ctx = HookContext {
                 tab_manager,
-                highlight,
-                editor,
                 view,
                 widget_manager: &mut self.widget_manager,
                 sender: self.sender,

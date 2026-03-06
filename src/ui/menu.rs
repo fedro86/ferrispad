@@ -282,6 +282,7 @@ pub fn build_menu(
     let hl_flag = if settings.highlighting_enabled { MenuFlag::Toggle | MenuFlag::Value } else { MenuFlag::Toggle };
     menu.add("View/Toggle Syntax Highlighting", Shortcut::None, hl_flag, { let s = *s; move |_| s.send(Message::ToggleHighlighting) });
     menu.add("View/Preview in Browser", rs("View/Preview in Browser"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TogglePreview) });
+    menu.add("View/Diagnostics Panel", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::ToggleDiagnosticsPanel) });
 
     // Format
     menu.add("Format/Font/Screen (Bold)", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::SetFont(Font::ScreenBold)) });

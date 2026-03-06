@@ -282,12 +282,13 @@ pub fn handle_settings(msg: Message, state: &mut AppState, lw: &mut LayoutWidget
 
 pub fn handle_highlight(msg: Message, state: &mut AppState) {
     match msg {
-        Message::BufferModified(id, pos) => {
+        Message::BufferModified { id, pos, inserted, deleted } => {
             if let Some(doc) = state.tab_manager.doc_by_id_mut(id) {
                 doc.cached_tree = None;
                 doc.cached_line_count = doc.buffer.count_lines(0, doc.buffer.length()) as usize;
             }
             state.schedule_rehighlight(id, pos);
+            state.schedule_text_change_hook(id, pos, inserted, deleted);
             state.session.mark_dirty();
         }
         Message::DoRehighlight => {
@@ -295,6 +296,9 @@ pub fn handle_highlight(msg: Message, state: &mut AppState) {
         }
         Message::ContinueHighlight => {
             state.continue_chunked_highlight();
+        }
+        Message::DoTextChangeHook => {
+            state.do_pending_text_change_hook();
         }
         _ => {}
     }
@@ -349,16 +353,19 @@ pub fn handle_plugin(msg: Message, state: &mut AppState) {
         Message::PluginsToggleGlobal => {
             state.plugin_coord.handle_toggle_global(
                 &mut state.plugins, &state.settings, &state.shortcut_registry,
+                &mut state.widget.widget_manager,
             );
         }
         Message::PluginToggle(name) => {
             state.plugin_coord.handle_toggle(
                 &mut state.plugins, &state.settings, &state.shortcut_registry, name,
+                &mut state.widget.widget_manager,
             );
         }
         Message::PluginsReloadAll => {
             state.plugin_coord.handle_reload(
                 &mut state.plugins, &state.settings, &state.shortcut_registry,
+                &mut state.widget.widget_manager,
             );
         }
         Message::CheckPluginPermissions => {
@@ -368,7 +375,7 @@ pub fn handle_plugin(msg: Message, state: &mut AppState) {
             state.widget.handle_plugin_menu_action(
                 &plugin_name, &action,
                 &mut state.plugins, &mut state.tab_manager,
-                &mut state.highlight, &mut state.editor, &mut state.view,
+                &mut state.view,
             );
         }
         Message::ShowPluginManager => {
@@ -445,6 +452,17 @@ pub fn handle_diagnostic(msg: Message, state: &mut AppState, lw: &mut LayoutWidg
             {
                 eprintln!("[diagnostic] Failed to open URL: {}", e);
             }
+        }
+        Message::ToggleDiagnosticsPanel => {
+            if lw.diagnostic_panel.visible() {
+                lw.diagnostic_panel.hide();
+            } else {
+                lw.diagnostic_panel.show();
+            }
+            let height = lw.diagnostic_panel.current_height();
+            lw.flex.fixed(lw.diagnostic_panel.widget(), height);
+            lw.flex.recalc();
+            lw.wind.redraw();
         }
         _ => {}
     }
@@ -737,14 +755,14 @@ pub fn handle_tree_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidge
             state.widget.handle_tree_view_node_click(
                 session_id, node_path,
                 &mut state.plugins, &mut state.tab_manager,
-                &mut state.highlight, &mut state.editor, &mut state.view,
+                &mut state.view,
             );
         }
         Message::TreeViewContextAction { session_id, action, node_path, input_text, target_path } => {
             state.widget.handle_tree_view_context_action(
                 session_id, action, node_path, input_text, target_path,
                 &mut state.plugins, &mut state.tab_manager,
-                &mut state.highlight, &mut state.editor, &mut state.view,
+                &mut state.view,
             );
         }
         Message::TreeViewSearch { query } => {

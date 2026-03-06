@@ -42,7 +42,6 @@ pub struct SplitPane {
     /// Whether to show line numbers
     pub line_numbers: bool,
     /// Whether the pane is read-only (default true)
-    #[allow(dead_code)]  // Used when split view allows editing
     pub read_only: bool,
     /// Line highlights (e.g., for diff coloring)
     pub highlights: Vec<LineHighlight>,

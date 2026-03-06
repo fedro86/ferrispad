@@ -305,8 +305,8 @@ fn main() {
                 }
 
                 // Syntax highlighting
-                Message::BufferModified(..) | Message::DoRehighlight
-                | Message::ContinueHighlight => {
+                Message::BufferModified { .. } | Message::DoRehighlight
+                | Message::ContinueHighlight | Message::DoTextChangeHook => {
                     dispatch::handle_highlight(msg, &mut state);
                     dispatch::DispatchResult::Continue
                 }
@@ -331,7 +331,7 @@ fn main() {
                 // Diagnostics
                 Message::DiagnosticsUpdate(_) | Message::DiagnosticsClear
                 | Message::DiagnosticsAutoDismiss | Message::DiagnosticGoto(_)
-                | Message::DiagnosticOpenDocs(_) => {
+                | Message::DiagnosticOpenDocs(_) | Message::ToggleDiagnosticsPanel => {
                     dispatch::handle_diagnostic(msg, &mut state, &mut lw);
                     dispatch::DispatchResult::Continue
                 }

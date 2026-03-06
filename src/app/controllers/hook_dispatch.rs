@@ -2,22 +2,16 @@
 //!
 //! Extracted from AppState to be callable from both AppState and WidgetController.
 
-use fltk::{
-    app::Sender,
-    text::TextEditor,
-};
+use fltk::app::Sender;
 
-use crate::app::controllers::highlight::HighlightController;
 use crate::app::controllers::tabs::TabManager;
 use crate::app::controllers::view::ViewController;
 use crate::app::domain::messages::Message;
-use crate::app::plugins::{HookResult, LineAnnotation, WidgetManager};
+use crate::app::plugins::{HookResult, WidgetManager};
 
 /// Bundles the mutable references needed by hook/lint result processing.
 pub struct HookContext<'a> {
     pub tab_manager: &'a mut TabManager,
-    pub highlight: &'a mut HighlightController,
-    pub editor: &'a mut TextEditor,
     pub view: &'a mut ViewController,
     pub widget_manager: &'a mut WidgetManager,
     pub sender: Sender<Message>,
@@ -41,7 +35,7 @@ pub fn dispatch_hook_result(result: HookResult, plugin_name: &str, ctx: &mut Hoo
 
     // Update line annotations
     if !result.line_annotations.is_empty() {
-        update_annotations(result.line_annotations, ctx);
+        ctx.sender.send(Message::AnnotationsUpdate(result.line_annotations));
     }
 
     // Show status message
@@ -100,10 +94,10 @@ pub fn dispatch_lint_result(result: HookResult, ctx: &mut HookContext<'_>) {
 
         // Update or clear annotations
         if !result.line_annotations.is_empty() {
-            update_annotations(result.line_annotations, ctx);
+            ctx.sender.send(Message::AnnotationsUpdate(result.line_annotations));
         } else {
             // Clear any existing annotations when no issues found
-            ctx.highlight.clear_annotations(ctx.tab_manager, ctx.editor);
+            ctx.sender.send(Message::AnnotationsClear);
         }
     }
 
@@ -149,8 +143,4 @@ pub fn process_widget_requests(
             request: tree_request.clone(),
         });
     }
-}
-
-fn update_annotations(annotations: Vec<LineAnnotation>, ctx: &mut HookContext<'_>) {
-    ctx.highlight.update_annotations(annotations, ctx.tab_manager, ctx.editor);
 }

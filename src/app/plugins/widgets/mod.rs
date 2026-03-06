@@ -117,8 +117,7 @@ impl WidgetManager {
             .collect()
     }
 
-    /// Remove all sessions for a plugin (called when plugin is unloaded)
-    #[allow(dead_code)]
+    /// Remove all sessions for a plugin (called when plugin is disabled/reloaded)
     pub fn clear_plugin_sessions(&mut self, plugin_name: &str) {
         self.sessions
             .retain(|_, s| s.plugin_name != plugin_name);

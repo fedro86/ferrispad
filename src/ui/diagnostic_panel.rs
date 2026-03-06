@@ -179,7 +179,6 @@ impl DiagnosticPanel {
     }
 
     /// Show the panel
-    #[allow(dead_code)]  // Reserved for future manual show/hide toggle
     pub fn show(&mut self) {
         self.container.show();
     }
@@ -190,7 +189,6 @@ impl DiagnosticPanel {
     }
 
     /// Check if panel is currently visible
-    #[allow(dead_code)]  // Reserved for future visibility checks
     pub fn visible(&self) -> bool {
         self.container.visible()
     }
