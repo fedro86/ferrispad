@@ -258,12 +258,18 @@ impl PluginManager {
     /// Call a hook on a specific plugin by name.
     /// Returns None if the plugin is not found or not enabled.
     pub fn call_hook_on_plugin(&self, plugin_name: &str, hook: PluginHook) -> Option<HookResult> {
+        if !self.enabled {
+            return None;
+        }
         let runtime = self.runtime.as_ref()?;
         hook_dispatch::call_hook_on_plugin(runtime, &self.plugins, plugin_name, hook)
     }
 
     /// Call a hook on all enabled plugins
     pub fn call_hook(&self, hook: PluginHook) -> HookResult {
+        if !self.enabled {
+            return HookResult::default();
+        }
         match &self.runtime {
             Some(r) => hook_dispatch::call_hook(r, &self.plugins, hook),
             None => HookResult::default(),
@@ -397,6 +403,11 @@ impl PluginManager {
                     None
                 }
             };
+        } else if !enabled && self.runtime.is_some() {
+            // Drop all plugin tables before dropping the runtime
+            self.plugins.clear();
+            self.runtime = None;
+            eprintln!("[plugins] Plugin system disabled — runtime dropped");
         }
         self.enabled = enabled;
     }

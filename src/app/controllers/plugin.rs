@@ -125,6 +125,13 @@ impl PluginController {
             let _ = s.save();
         }
 
+        // Collect plugin names before disabling (set_enabled(false) clears the list)
+        let pre_disable_names: Vec<String> = if !new_enabled {
+            plugins.list_plugins().iter().map(|p| p.name.clone()).collect()
+        } else {
+            Vec::new()
+        };
+
         // Clean up all widget sessions when disabling plugins globally
         if !new_enabled {
             for plugin in plugins.list_plugins() {
@@ -140,9 +147,18 @@ impl PluginController {
                 plugins.toggle_plugin(name, false);
             }
             Self::check_permissions(plugins, settings);
+            self.rebuild_plugins_menu(settings, plugins, shortcut_registry);
+        } else {
+            // Pass pre-disable names as orphans so menu rebuild can remove stale entries
+            crate::ui::menu::rebuild_plugins_menu_with_orphans(
+                &mut self.menu,
+                &self.sender,
+                &settings.borrow(),
+                plugins,
+                &pre_disable_names,
+                shortcut_registry,
+            );
         }
-
-        self.rebuild_plugins_menu(settings, plugins, shortcut_registry);
     }
 
     /// Toggle a specific plugin on/off
