@@ -5,6 +5,27 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-03-16
+
+### Added
+- **OnTextChanged Hook**: New plugin hook with 300ms debounce for reacting to text edits.
+- **SplitPane Read-Only Mode**: Split view panels can now be set as read-only.
+- **Integration Test Suite**: 8 new integration test suites (diff/highlights, Lua sandbox, plugin loading/security/verify chains, session roundtrip, settings persistence, shortcut registry).
+- **Library Crate**: Exposed `ferris_pad` lib crate for integration testing.
+
+### Fixed
+- **Plugin Menu Entries on Global Disable**: Menu entries now properly disappear when plugins are globally disabled.
+- **Format Menu Visual Update**: Font and size changes from the Format menu now visually update highlighted text immediately.
+
+### Changed
+- **Controller Extraction**: Split `AppState` from 2,799 → 1,053 lines (~62% reduction) by extracting FileController, HighlightController, WidgetController, PluginController, SessionController, and ViewController.
+- **Dispatch Refactor**: Extracted grouped handler functions from `main.rs` into `dispatch.rs`, eliminating ~1,195 net lines of dead/duplicated code.
+- **Lazy Syntect Loading**: Deferred syntax set initialization reduces idle RSS by ~10 MB (39 → 29 MB).
+- **Plugin API Modularization**: Split `plugins/api.rs` into sub-modules (commands, editor, filesystem, sandbox).
+- **Security Audit**: Audited plugin API against PHILOSOPHY.md and SECURITY.md; added SAFETY comments to all unsafe blocks.
+- **Updated SECURITY.md**: Reflects v0.9.2 status — permission system, signed plugin downloads, and plugin manager all marked as done.
+- Fixed all clippy warnings across the codebase.
+
 ## [0.9.1] - 2026-03-05
 
 ### Added
@@ -323,6 +344,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FLTK-based GUI
 - Rust implementation for speed and safety
 
+[0.9.2]: https://github.com/fedro86/ferrispad/compare/0.9.1...0.9.2
 [0.9.1]: https://github.com/fedro86/ferrispad/compare/0.9.0...0.9.1
 [0.9.0]: https://github.com/fedro86/ferrispad/compare/0.1.8...0.9.0
 [0.1.8]: https://github.com/fedro86/ferrispad/compare/0.1.7...0.1.8
