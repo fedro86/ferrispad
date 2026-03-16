@@ -9,7 +9,7 @@ FerrisPad is designed with security as a core principle. This document outlines 
 | Core Editor (Rust) | ✅ Stable | Memory-safe by design |
 | Plugin System (Lua) | ✅ Sandboxed | Stdlib blocked, path sandbox, instruction/memory limits |
 | Auto-Updates | ✅ Stable | HTTPS only, no auto-install |
-| Plugin Downloads | ❌ Not Implemented | Planned with signatures |
+| Plugin Downloads | ✅ Stable | HTTPS + ed25519 signature verification |
 
 ## Core Principles
 
@@ -76,7 +76,7 @@ The plugin sandbox is **hardened**:
 - [x] Instruction limits to prevent infinite loops
 - [x] Memory limits per plugin
 
-#### Phase 2: Permission System (Partial)
+#### Phase 2: Permission System (Done — v0.9.2)
 
 Plugins declare required permissions in `plugin.toml`:
 
@@ -85,16 +85,14 @@ Plugins declare required permissions in `plugin.toml`:
 execute = ["ruff", "mypy"]
 ```
 
-Command execution permissions are enforced at runtime — plugins can only run whitelisted commands declared in their manifest. Install-time permission prompts are not yet implemented.
+Command execution permissions are enforced at runtime — plugins can only run whitelisted commands declared in their manifest. On first load, the user sees a per-command approval dialog ("This plugin wants to execute: ruff, mypy. Allow?"). Approvals are persisted to settings so the prompt only appears once per plugin.
 
-On install, user sees: "This plugin wants to execute: ruff, mypy. Allow?" *(planned)*
+#### Phase 3: Signed Plugins (Done — v0.9.2)
 
-#### Phase 3: Signed Plugins (Planned)
-
-- [ ] Embed ed25519 public key in FerrisPad binary
-- [ ] All downloaded plugins require valid signature
-- [ ] SHA-256 checksums in manifest
-- [ ] HTTPS with certificate verification
+- [x] Embed ed25519 public key in FerrisPad binary (`src/app/services/plugin_verify.rs`)
+- [x] All downloaded plugins require valid signature — installation blocked if verification fails
+- [x] SHA-256 checksums for `init.lua` and `plugin.toml` in registry manifest
+- [x] HTTPS with certificate verification via rustls
 
 ## Reporting Vulnerabilities
 
@@ -128,8 +126,7 @@ If you discover a security vulnerability:
 |---------|------------------|
 | 0.9.0 | Initial plugin system (sandbox not hardened) |
 | 0.9.1 | Added diagnostic panel, plugin API expansion |
-| 0.9.2 | Lua sandbox hardened: stdlib blocked, path sandbox, instruction/memory limits, command whitelist |
-| (future) | Install-time permission prompts, signed plugin downloads |
+| 0.9.2 | Lua sandbox hardened: stdlib blocked, path sandbox, instruction/memory limits, command whitelist. Permission prompts on plugin load with persistent approvals. Signed plugin downloads with ed25519 verification. Plugin Manager UI. Runtime cleanup on global disable |
 
 ---
 
