@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use fltk::{
     app::Sender,
     enums::Font,
@@ -58,6 +60,14 @@ impl HighlightController {
 
     pub fn set_theme(&mut self, theme: SyntaxTheme) {
         self.highlighter.set_theme(theme);
+    }
+
+    pub fn font(&self) -> Font {
+        self.highlighter.font()
+    }
+
+    pub fn font_size(&self) -> i32 {
+        self.highlighter.font_size()
     }
 
     pub fn set_font(&mut self, font: Font, size: i32) {
@@ -185,7 +195,7 @@ impl HighlightController {
                     Some(ref name) => {
                         let text = buffer_text_no_leak(&doc.buffer);
                         let line = doc.buffer.count_lines(0, pos) as usize;
-                        (name.clone(), text, line, doc.checkpoints.len() == 0)
+                        (name.clone(), text, line, doc.checkpoints.is_empty())
                     }
                     None => return,
                 }
@@ -456,6 +466,166 @@ impl HighlightController {
                 let plain = "A".repeat(len);
                 doc.style_buffer.set_text(&plain);
             }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Line Annotations (gutter + inline highlights)
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    /// Update line annotations by applying bgcolor markers to the style buffer.
+    /// This creates VS Code-like line highlighting for errors, warnings, git changes, etc.
+    ///
+    /// Supports two modes:
+    /// - **Gutter marks**: Highlight the entire line with a background color
+    /// - **Inline highlights**: Highlight specific column ranges within a line
+    ///
+    /// When multiple annotations target the same line, the highest-priority color wins
+    /// (Error > Warning > Info > Hint). Inline highlights are applied on top of gutter marks.
+    ///
+    /// Also supports custom RGB colors (up to ~10 unique colors).
+    pub fn update_annotations(
+        &mut self,
+        annotations: Vec<crate::app::plugins::LineAnnotation>,
+        tab_manager: &TabManager,
+        editor: &mut TextEditor,
+    ) {
+        use crate::app::plugins::AnnotationColor;
+        use crate::app::services::syntax::style_map::StyleMap;
+
+        let Some(doc) = tab_manager.active_doc() else {
+            return;
+        };
+        let mut style_buf = doc.style_buffer.clone();
+        let buf = doc.buffer.clone();
+
+        let get_marker_char = |highlight: &mut Self, color: &AnnotationColor| -> char {
+            match color {
+                AnnotationColor::Rgb(r, g, b) => highlight.get_or_insert_marker_rgb(*r, *g, *b),
+                _ => StyleMap::marker_style_char(color),
+            }
+        };
+
+        // Merge annotations by line, keeping highest-priority gutter and all inlines
+        let mut merged: BTreeMap<
+            u32,
+            (
+                Option<crate::app::plugins::GutterMark>,
+                Vec<crate::app::plugins::InlineHighlight>,
+            ),
+        > = BTreeMap::new();
+
+        for ann in annotations {
+            let entry = merged.entry(ann.line).or_insert((None, Vec::new()));
+
+            if let Some(new_gutter) = ann.gutter {
+                match &entry.0 {
+                    None => entry.0 = Some(new_gutter),
+                    Some(existing) => {
+                        if new_gutter.color.priority() < existing.color.priority() {
+                            entry.0 = Some(new_gutter);
+                        }
+                    }
+                }
+            }
+
+            entry.1.extend(ann.inline);
+        }
+
+        for (line_num, (gutter, inlines)) in merged {
+            let target_line = line_num.saturating_sub(1) as i32;
+
+            let mut line_start = 0;
+            for _ in 0..target_line {
+                if let Some(next_pos) = buf.find_char_forward(line_start, '\n') {
+                    line_start = next_pos + 1;
+                } else {
+                    break;
+                }
+            }
+
+            let line_end_with_newline = buf
+                .find_char_forward(line_start, '\n')
+                .map(|p| p + 1)
+                .unwrap_or(buf.length());
+            let line_end = buf
+                .find_char_forward(line_start, '\n')
+                .unwrap_or(buf.length());
+
+            let line_len = line_end - line_start;
+
+            if let Some(ref gutter_mark) = gutter
+                && line_len > 0
+            {
+                let marker_char = get_marker_char(self, &gutter_mark.color);
+                let marker_str: String = std::iter::repeat_n(
+                    marker_char,
+                    (line_end_with_newline - line_start) as usize,
+                )
+                .collect();
+                style_buf.replace(line_start, line_end_with_newline, &marker_str);
+            }
+
+            let mut sorted_inlines = inlines;
+            sorted_inlines.sort_by(|a, b| b.color.priority().cmp(&a.color.priority()));
+
+            for inline in sorted_inlines {
+                let marker_char = get_marker_char(self, &inline.color);
+
+                let start_col = (inline.start_col.saturating_sub(1) as i32).min(line_len);
+                let end_col = inline
+                    .end_col
+                    .map(|c| (c.saturating_sub(1) as i32).min(line_len))
+                    .unwrap_or(line_len);
+
+                if start_col >= end_col {
+                    continue;
+                }
+
+                let highlight_start = line_start + start_col;
+                let highlight_end = line_start + end_col;
+                let highlight_len = (highlight_end - highlight_start) as usize;
+
+                if highlight_len > 0 {
+                    let marker_str: String =
+                        std::iter::repeat_n(marker_char, highlight_len).collect();
+                    style_buf.replace(highlight_start, highlight_end, &marker_str);
+                }
+            }
+        }
+
+        let table = self.style_table();
+        editor.set_highlight_data_ext(style_buf, table);
+        editor.redraw();
+    }
+
+    /// Clear line annotations by re-highlighting the active document only.
+    /// This restores the original syntax highlighting without annotation overlays.
+    pub fn clear_annotations(
+        &mut self,
+        tab_manager: &mut TabManager,
+        editor: &mut TextEditor,
+    ) {
+        let Some(doc) = tab_manager.active_doc() else {
+            return;
+        };
+        let Some(syntax_name) = doc.syntax_name.clone() else {
+            return;
+        };
+        let text = buffer_text_no_leak(&doc.buffer);
+
+        let result = self.highlight_full(&text, &syntax_name);
+
+        if let Some(doc) = tab_manager.active_doc_mut() {
+            doc.style_buffer.set_text(&result.style_string);
+            doc.checkpoints = result.checkpoints;
+        }
+
+        // Rebind to editor
+        if let Some(doc) = tab_manager.active_doc() {
+            let style_buf = doc.style_buffer.clone();
+            let table = self.style_table();
+            editor.set_highlight_data_ext(style_buf, table);
         }
     }
 }

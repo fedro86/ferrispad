@@ -22,6 +22,7 @@ pub enum DiagnosticLevel {
 
 impl DiagnosticLevel {
     /// Parse from Lua string
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "error" => Self::Error,
@@ -53,7 +54,6 @@ pub struct Diagnostic {
 }
 
 /// Plugin hooks that can be registered and called.
-#[allow(dead_code)]  // OnTextChanged reserved for future use
 #[derive(Debug, Clone)]
 pub enum PluginHook {
     /// Called once when plugin loads

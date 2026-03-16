@@ -385,6 +385,7 @@ pub fn show_plugin_manager_dialog(
 }
 
 /// Create a row for an installed plugin (VSCode-style layout)
+#[allow(clippy::too_many_arguments)]
 fn create_installed_plugin_row(
     name: &str,
     version: &str,
@@ -545,6 +546,7 @@ fn create_installed_plugin_row(
 }
 
 /// Create a row for an available plugin (VSCode-style layout)
+#[allow(clippy::too_many_arguments)]
 fn create_available_plugin_row(
     plugin_info: &AvailablePluginInfo,
     already_installed: bool,

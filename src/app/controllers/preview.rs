@@ -76,6 +76,33 @@ impl PreviewController {
         }
     }
 
+    /// Render and open a markdown document in the default browser.
+    /// Shows an error dialog if the file is not markdown or browser launch fails.
+    pub fn preview_in_browser(
+        &mut self,
+        file_path: Option<&str>,
+        doc_id: u64,
+        text: &str,
+        dark_mode: bool,
+    ) {
+        if !Self::is_markdown_file(file_path) {
+            fltk::dialog::message_default(
+                "Preview is only available for Markdown files (.md, .markdown, .mdown)",
+            );
+            return;
+        }
+
+        let raw_html = Self::render_markdown(text);
+        let base_dir = file_path
+            .and_then(|p| Path::new(p).parent())
+            .map(|p| p.to_path_buf());
+        let wrapped = wrap_html_for_preview(&raw_html, dark_mode, base_dir.as_deref());
+
+        if let Err(e) = self.open_in_browser(file_path, doc_id, &wrapped) {
+            fltk::dialog::alert_default(&e);
+        }
+    }
+
     /// Open markdown preview in the default browser for a specific document.
     /// Uses file_path for stable naming (survives app restarts).
     /// Returns Ok(()) if successful, Err with message otherwise.
@@ -107,9 +134,6 @@ impl PreviewController {
 
         // Track for cleanup (in case it was from a previous session)
         self.temp_files.insert(temp_path.clone());
-
-        #[cfg(debug_assertions)]
-        eprintln!("[debug] Updated preview file: {:?}", temp_path);
 
         Ok(())
     }

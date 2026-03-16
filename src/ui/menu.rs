@@ -8,7 +8,7 @@ use fltk::{
 };
 
 use crate::app::plugins::{PluginManager, plugin_display_name};
-use crate::app::services::shortcut_registry::ShortcutRegistry;
+use crate::app::services::shortcut_registry::{normalize_shortcut, ShortcutRegistry};
 use crate::app::{AppSettings, Message};
 
 /// Reserved keyboard shortcuts that plugins cannot override.
@@ -88,10 +88,10 @@ pub fn apply_shortcut_overrides(menu: &mut MenuBar, registry: &ShortcutRegistry,
 
         let shortcut = resolve_shortcut(registry, id, actual_default);
         let idx = menu.find_index(id);
-        if idx >= 0 {
-            if let Some(mut item) = menu.at(idx) {
-                item.set_shortcut(shortcut);
-            }
+        if idx >= 0
+            && let Some(mut item) = menu.at(idx)
+        {
+            item.set_shortcut(shortcut);
         }
     }
 }
@@ -119,9 +119,9 @@ fn parse_shortcut(s: &str) -> Option<Shortcut> {
     for part in parts {
         let lower = part.to_lowercase();
         match lower.as_str() {
-            "ctrl" | "control" => result = result | Shortcut::Ctrl,
-            "shift" => result = result | Shortcut::Shift,
-            "alt" => result = result | Shortcut::Alt,
+            "ctrl" | "control" => result |= Shortcut::Ctrl,
+            "shift" => result |= Shortcut::Shift,
+            "alt" => result |= Shortcut::Alt,
             _ => {
                 // This should be the key
                 if has_key {
@@ -131,28 +131,28 @@ fn parse_shortcut(s: &str) -> Option<Shortcut> {
                 has_key = true;
 
                 // Handle function keys F1-F12
-                if lower.starts_with('f') && lower.len() >= 2 {
-                    if let Ok(num) = lower[1..].parse::<u32>() {
-                        if (1..=12).contains(&num) {
-                            let fkey = match num {
-                                1 => Key::F1,
-                                2 => Key::F2,
-                                3 => Key::F3,
-                                4 => Key::F4,
-                                5 => Key::F5,
-                                6 => Key::F6,
-                                7 => Key::F7,
-                                8 => Key::F8,
-                                9 => Key::F9,
-                                10 => Key::F10,
-                                11 => Key::F11,
-                                12 => Key::F12,
-                                _ => unreachable!(),
-                            };
-                            result = result | fkey;
-                            continue;
-                        }
-                    }
+                if lower.starts_with('f')
+                    && lower.len() >= 2
+                    && let Ok(num) = lower[1..].parse::<u32>()
+                    && (1..=12).contains(&num)
+                {
+                    let fkey = match num {
+                        1 => Key::F1,
+                        2 => Key::F2,
+                        3 => Key::F3,
+                        4 => Key::F4,
+                        5 => Key::F5,
+                        6 => Key::F6,
+                        7 => Key::F7,
+                        8 => Key::F8,
+                        9 => Key::F9,
+                        10 => Key::F10,
+                        11 => Key::F11,
+                        12 => Key::F12,
+                        _ => unreachable!(),
+                    };
+                    result = result | fkey;
+                    continue;
                 }
 
                 // Named special keys
@@ -195,29 +195,6 @@ fn parse_shortcut(s: &str) -> Option<Shortcut> {
     }
 
     Some(result)
-}
-
-/// Normalize a shortcut string for comparison (lowercase, sorted modifiers)
-pub fn normalize_shortcut(s: &str) -> String {
-    let parts: Vec<&str> = s.split('+').map(|p| p.trim()).collect();
-    let mut modifiers: Vec<String> = Vec::new();
-    let mut key = String::new();
-
-    for part in parts {
-        let lower = part.to_lowercase();
-        match lower.as_str() {
-            "ctrl" | "control" => modifiers.push("ctrl".to_string()),
-            "shift" => modifiers.push("shift".to_string()),
-            "alt" => modifiers.push("alt".to_string()),
-            _ => key = lower,
-        }
-    }
-
-    modifiers.sort();
-    if !key.is_empty() {
-        modifiers.push(key);
-    }
-    modifiers.join("+")
 }
 
 /// Check if a shortcut string is valid (can be parsed into an FLTK shortcut)
@@ -282,6 +259,7 @@ pub fn build_menu(
     let hl_flag = if settings.highlighting_enabled { MenuFlag::Toggle | MenuFlag::Value } else { MenuFlag::Toggle };
     menu.add("View/Toggle Syntax Highlighting", Shortcut::None, hl_flag, { let s = *s; move |_| s.send(Message::ToggleHighlighting) });
     menu.add("View/Preview in Browser", rs("View/Preview in Browser"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TogglePreview) });
+    menu.add("View/Diagnostics Panel", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::ToggleDiagnosticsPanel) });
 
     // Format
     menu.add("Format/Font/Screen (Bold)", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::SetFont(Font::ScreenBold)) });
@@ -616,15 +594,15 @@ pub fn rebuild_plugins_menu_with_orphans(
 /// Returns true if the item was found and updated.
 pub fn set_menu_item_enabled(menu: &mut MenuBar, path: &str, enabled: bool) -> bool {
     let idx = menu.find_index(path);
-    if idx >= 0 {
-        if let Some(mut item) = menu.at(idx) {
-            if enabled {
-                item.activate();
-            } else {
-                item.deactivate();
-            }
-            return true;
+    if idx >= 0
+        && let Some(mut item) = menu.at(idx)
+    {
+        if enabled {
+            item.activate();
+        } else {
+            item.deactivate();
         }
+        return true;
     }
     false
 }

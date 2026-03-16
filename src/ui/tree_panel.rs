@@ -435,7 +435,7 @@ impl TreePanel {
             let semantic_path: Vec<String> = item_path
                 .split('/')
                 .skip(1) // skip project root label
-                .map(|s| Self::strip_icon(s))
+                .map(Self::strip_icon)
                 .collect();
             let semantic_key = semantic_path.join("/");
 
@@ -537,14 +537,14 @@ impl TreePanel {
 
             // Track user-initiated expand/collapse for state preservation
             if reason == TreeReason::Opened || reason == TreeReason::Closed {
-                if let Some(item) = tree.callback_item() {
-                    if let Some(node_path) = Self::node_path_for_item(&item) {
-                        let key = Self::node_path_key(&node_path);
-                        if reason == TreeReason::Opened {
-                            expanded_paths.borrow_mut().insert(key);
-                        } else {
-                            expanded_paths.borrow_mut().remove(&key);
-                        }
+                if let Some(item) = tree.callback_item()
+                    && let Some(node_path) = Self::node_path_for_item(&item)
+                {
+                    let key = Self::node_path_key(&node_path);
+                    if reason == TreeReason::Opened {
+                        expanded_paths.borrow_mut().insert(key);
+                    } else {
+                        expanded_paths.borrow_mut().remove(&key);
                     }
                 }
                 return;
@@ -555,15 +555,14 @@ impl TreePanel {
             } else {
                 reason == TreeReason::Selected
             };
-            if activate {
-                if let Some(path) = Self::selected_node_path(tree) {
-                    if on_click_action.is_some() {
-                        sender.send(Message::TreeViewNodeClicked {
-                            session_id,
-                            node_path: path,
-                        });
-                    }
-                }
+            if activate
+                && let Some(path) = Self::selected_node_path(tree)
+                && on_click_action.is_some()
+            {
+                sender.send(Message::TreeViewNodeClicked {
+                    session_id,
+                    node_path: path,
+                });
             }
         });
 
@@ -593,6 +592,9 @@ impl TreePanel {
                     let ci = colored_items.clone();
                     let tp = tree.as_widget_ptr();
                     fltk::app::add_timeout3(0.0, move |_| {
+                        // SAFETY: tp is a valid Tree widget pointer obtained via
+                        // as_widget_ptr() above. The Tree outlives this timeout
+                        // callback (it's owned by the panel which owns this handler).
                         let t = unsafe { Tree::from_widget_ptr(tp) };
                         for (path, color) in ci.borrow().iter() {
                             if let Some(mut item) = t.find_item(path) {
@@ -623,25 +625,25 @@ impl TreePanel {
                     dragging.set(false);
                     let source_node_path = drag_source.borrow_mut().take();
 
-                    if let Some(source_node_path) = source_node_path {
-                        if !source_node_path.is_empty() {
-                            // Find the item under the mouse at drop time
-                            let target_node_path = match tree.find_clicked(true) {
-                                Some(ref item) => Self::node_path_for_item(item).unwrap_or_default(),
-                                None => vec![], // Dropped on empty area → project root
-                            };
+                    if let Some(source_node_path) = source_node_path
+                        && !source_node_path.is_empty()
+                    {
+                        // Find the item under the mouse at drop time
+                        let target_node_path = match tree.find_clicked(true) {
+                            Some(ref item) => Self::node_path_for_item(item).unwrap_or_default(),
+                            None => vec![], // Dropped on empty area → project root
+                        };
 
-                            // Don't move onto self
-                            if source_node_path != target_node_path {
-                                sender2.send(Message::TreeViewContextAction {
-                                    session_id,
-                                    action: "move".to_string(),
-                                    node_path: source_node_path,
-                                    input_text: None,
-                                    target_path: Some(target_node_path),
-                                });
-                                return true;
-                            }
+                        // Don't move onto self
+                        if source_node_path != target_node_path {
+                            sender2.send(Message::TreeViewContextAction {
+                                session_id,
+                                action: "move".to_string(),
+                                node_path: source_node_path,
+                                input_text: None,
+                                target_path: Some(target_node_path),
+                            });
+                            return true;
                         }
                     }
                     false
@@ -655,14 +657,14 @@ impl TreePanel {
 
                 // Enter key — open selected file
                 Event::KeyDown if fltk::app::event_key() == Key::Enter => {
-                    if let Some(path) = Self::selected_node_path(tree) {
-                        if on_click_action2.is_some() {
-                            sender2.send(Message::TreeViewNodeClicked {
-                                session_id,
-                                node_path: path,
-                            });
-                            return true;
-                        }
+                    if let Some(path) = Self::selected_node_path(tree)
+                        && on_click_action2.is_some()
+                    {
+                        sender2.send(Message::TreeViewNodeClicked {
+                            session_id,
+                            node_path: path,
+                        });
+                        return true;
                     }
                     false
                 }
@@ -714,7 +716,7 @@ impl TreePanel {
         let clicked_item = tree.find_clicked(true);
         if let Some(ref item) = clicked_item {
             tree.set_item_focus(item);
-            tree.select_only(item, false);
+            let _ = tree.select_only(item, false);
         }
 
         // Extract info from clicked item
@@ -759,8 +761,9 @@ impl TreePanel {
             return;
         }
 
-        // Reuse the pre-created MenuButton (parented to container) so Wayland
-        // can anchor the popup to our window via xdg_positioner.
+        // SAFETY: ctx_menu_ptr is a valid MenuButton widget pointer created in
+        // the constructor and stored for the lifetime of this panel. We reuse it
+        // (rather than creating a new one) so Wayland can anchor the popup.
         let mut menu = unsafe { MenuButton::from_widget_ptr(ctx_menu_ptr) };
         menu.clear();
         menu.resize(mx, my, 1, 1);
@@ -844,15 +847,8 @@ impl TreePanel {
     }
 
     /// Check if the panel is visible
-    #[allow(dead_code)]
     pub fn is_visible(&self) -> bool {
         self.visible
-    }
-
-    /// Get the current session ID
-    #[allow(dead_code)]
-    pub fn session_id(&self) -> Option<u32> {
-        self.session_id
     }
 
     /// Default width when shown in left/right position
@@ -1031,7 +1027,7 @@ impl TreePanel {
         if let Some(ref root) = self.current_nodes.clone() {
             self.tree.clear();
             self.colored_items.borrow_mut().clear();
-            self.add_tree_node(None, &root, self.current_expand_depth, 0);
+            self.add_tree_node(None, root, self.current_expand_depth, 0);
         } else {
             let fg = self.item_fg;
             let mut item = self.tree.first();
@@ -1053,6 +1049,9 @@ impl TreePanel {
 
         // Style scrollbars to match the editor (Tree inherits Fl_Group)
         self.tree.set_scrollbar_size(SCROLLBAR_SIZE);
+        // SAFETY: Tree inherits Fl_Group. Fl_Group_children/Fl_Group_child are
+        // stable FLTK C API. We null-check child pointers and clamp index to
+        // min(2) before reconstructing Scrollbar widgets.
         unsafe extern "C" {
             fn Fl_Group_children(grp: *mut std::ffi::c_void) -> std::ffi::c_int;
             fn Fl_Group_child(

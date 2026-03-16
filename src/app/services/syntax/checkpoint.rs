@@ -40,6 +40,11 @@ impl SparseCheckpoints {
         self.parse_states.len()
     }
 
+    /// Returns `true` if no checkpoints are stored.
+    pub fn is_empty(&self) -> bool {
+        self.parse_states.is_empty()
+    }
+
     /// Push a checkpoint (states before the line at `checkpoint_index * CHECKPOINT_INTERVAL`).
     pub fn push(&mut self, parse_state: ParseState, highlight_state: HighlightState) {
         self.parse_states.push(parse_state);

@@ -79,14 +79,14 @@ pub fn check_for_plugin_updates() -> Result<Vec<PluginUpdateInfo>, String> {
             registry_dir == dir_name
         });
 
-        if let Some(available) = registry_plugin {
-            if is_update_available(&metadata.version, &available.version) {
-                updates.push(PluginUpdateInfo {
-                    plugin_name: metadata.name.clone(),
-                    installed_version: metadata.version.clone(),
-                    available_version: available.version.clone(),
-                });
-            }
+        if let Some(available) = registry_plugin
+            && is_update_available(&metadata.version, &available.version)
+        {
+            updates.push(PluginUpdateInfo {
+                plugin_name: metadata.name.clone(),
+                installed_version: metadata.version.clone(),
+                available_version: available.version.clone(),
+            });
         }
     }
 

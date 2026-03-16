@@ -220,13 +220,12 @@ impl LuaRuntime {
     }
 
     /// Get a reference to the underlying Lua instance
-    #[allow(dead_code)]  // Reserved for future plugin API expansion
     pub fn lua(&self) -> &Lua {
         &self.lua
     }
 
     /// Create an empty table in the Lua context
-    #[allow(dead_code)]  // Reserved for future plugin API expansion
+    #[allow(dead_code)]  // Used in tests; production code calls lua().create_table() directly
     pub fn create_table(&self) -> LuaResult<Table> {
         self.lua.create_table()
     }

@@ -250,40 +250,6 @@ fn fetch_signature(release: &ReleaseInfo, asset_name: &str) -> Result<String, Ap
     Ok(signature)
 }
 
-/// Download a binary from a URL to a specified path with progress (no verification)
-///
-/// This is kept for backwards compatibility. New code should use `download_and_verify`.
-pub fn download_file<F>(url: &str, dest_path: &std::path::Path, mut progress_cb: F) -> Result<(), AppError>
-where
-    F: FnMut(f32),
-{
-    let response = minreq::get(url)
-        .with_header("User-Agent", "FerrisPad")
-        .with_timeout(60)
-        .send()
-        .map_err(|e| AppError::Update(format!("Failed to download update: {}", e)))?;
-
-    if response.status_code < 200 || response.status_code >= 300 {
-        return Err(AppError::Update(format!("Download failed with status: {}", response.status_code)));
-    }
-
-    // minreq loads the entire response into memory, so we write it all at once
-    // For large files, this isn't ideal, but update binaries are typically small (~10MB)
-    let bytes = response.as_bytes();
-    let total_size = bytes.len();
-
-    progress_cb(0.0);
-    std::fs::write(dest_path, bytes)?;
-    progress_cb(1.0);
-
-    // Log size for debugging
-    if total_size > 0 {
-        eprintln!("[update] Downloaded {} bytes", total_size);
-    }
-
-    Ok(())
-}
-
 /// Download and verify a release binary
 ///
 /// This function:

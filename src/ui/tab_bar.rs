@@ -139,7 +139,7 @@ impl ThemeRgb {
         }
     }
 
-    pub fn to_fltk(&self) -> Color {
+    pub fn to_fltk(self) -> Color {
         Color::from_rgb(self.r, self.g, self.b)
     }
 }
@@ -652,15 +652,15 @@ fn compute_layout(st: &mut TabBarState) {
     // Add visible items
     for item in scrollable_items.iter().skip(st.scroll_offset).take(visible_count) {
         // Add group label if present
-        if let Some(ref label) = item.group_label {
-            if let LayoutItem::GroupLabel { group_id, width, .. } = label {
-                st.layout.push(LayoutItem::GroupLabel {
-                    group_id: *group_id,
-                    x: cursor_x,
-                    width: *width,
-                });
-                cursor_x += *width + GROUP_LABEL_GAP;
-            }
+        if let Some(ref label) = item.group_label
+            && let LayoutItem::GroupLabel { group_id, width, .. } = label
+        {
+            st.layout.push(LayoutItem::GroupLabel {
+                group_id: *group_id,
+                x: cursor_x,
+                width: *width,
+            });
+            cursor_x += *width + GROUP_LABEL_GAP;
         }
 
         // Add the item itself
@@ -838,29 +838,6 @@ pub fn theme_colors_from_bg(theme_bg: &ThemeRgb) -> ThemeColors {
         active_text,
         inactive_text,
         close_hover_bg,
-    }
-}
-
-#[allow(dead_code)] // Keep for reference/fallback
-fn theme_colors(is_dark: bool) -> ThemeColors {
-    if is_dark {
-        ThemeColors {
-            bar_bg: Color::from_rgb(20, 20, 20),
-            active_bg: Color::from_rgb(30, 30, 30),
-            inactive_bg: Color::from_rgb(25, 25, 25),
-            active_text: Color::from_rgb(230, 230, 230),
-            inactive_text: Color::from_rgb(140, 140, 140),
-            close_hover_bg: Color::from_rgb(50, 50, 50),
-        }
-    } else {
-        ThemeColors {
-            bar_bg: Color::from_rgb(215, 215, 215),
-            active_bg: Color::from_rgb(255, 255, 255),
-            inactive_bg: Color::from_rgb(235, 235, 235),
-            active_text: Color::from_rgb(0, 0, 0),
-            inactive_text: Color::from_rgb(80, 80, 80),
-            close_hover_bg: Color::from_rgb(200, 200, 200),
-        }
     }
 }
 
@@ -1390,7 +1367,7 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                         let group_id = st.tabs[index].group_id;
                         drop(st);
                         let st2 = state.borrow();
-                        let mut menu = build_context_menu(&st2, Some(index), group_id);
+                        let menu = build_context_menu(&st2, Some(index), group_id);
                         drop(st2);
                         menu.popup();
                         return true;
@@ -1425,7 +1402,7 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                     } else if button == 3 {
                         drop(st);
                         let st2 = state.borrow();
-                        let mut menu = build_context_menu(&st2, None, Some(gid));
+                        let menu = build_context_menu(&st2, None, Some(gid));
                         drop(st2);
                         menu.popup();
                     }
@@ -1442,7 +1419,7 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                     } else if button == 3 {
                         drop(st);
                         let st2 = state.borrow();
-                        let mut menu = build_context_menu(&st2, None, Some(gid));
+                        let menu = build_context_menu(&st2, None, Some(gid));
                         drop(st2);
                         menu.popup();
                     }

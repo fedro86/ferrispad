@@ -1,6 +1,6 @@
 [package]
 name = "FerrisPad"
-version = "0.9.1-rc.2"
+version = "0.9.1"
 edition = "2024"
 description = "A blazingly fast, minimalist notepad written in Rust"
 license = "MIT"
@@ -9,6 +9,10 @@ homepage = "www.ferrispad.com"
 repository = "https://github.com/fedro86/ferrispad"
 keywords = ["text-editor", "notepad", "rust", "fltk", "gui"]
 categories = ["text-editors", "gui"]
+
+[lib]
+name = "ferris_pad"
+path = "src/lib.rs"
 
 [[bin]]
 name = "FerrisPad"

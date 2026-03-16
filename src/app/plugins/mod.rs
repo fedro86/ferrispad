@@ -13,6 +13,8 @@
 pub mod annotations;
 pub mod api;
 pub mod diff;
+mod hook_dispatch;
+mod hook_result_parser;
 pub mod hooks;
 pub mod loader;
 pub mod runtime;
@@ -25,8 +27,7 @@ use std::path::PathBuf;
 use mlua::Table;
 
 pub use annotations::{AnnotationColor, GutterMark, InlineHighlight, LineAnnotation};
-pub use api::EditorApi;
-pub use hooks::{Diagnostic, DiagnosticLevel, HookResult, PluginHook, StatusMessage, WidgetActionData};
+pub use hooks::{Diagnostic, DiagnosticLevel, HookResult, PluginHook, WidgetActionData};
 pub use loader::{get_plugin_dir, ConfigParamDef, PluginConfigDef, PluginMenuItem};
 pub use widgets::{SplitViewRequest, TreeViewRequest, WidgetManager};
 // Re-export widget types for public API (may not be used internally yet)
@@ -52,7 +53,6 @@ pub fn plugin_display_name(name: &str) -> String {
 }
 
 /// A loaded plugin instance
-#[allow(dead_code)]  // description and path used for UI display
 pub struct LoadedPlugin {
     /// Plugin name (from init.lua or plugin.toml)
     pub name: String,
@@ -85,7 +85,7 @@ pub struct LoadedPlugin {
     pub config_params: HashMap<String, String>,
 
     /// The Lua table returned by init.lua
-    table: Table,
+    pub(crate) table: Table,
 }
 
 /// Plugin manager - coordinates plugin loading and hook dispatch
@@ -186,12 +186,12 @@ impl PluginManager {
             if !meta.name.is_empty() {
                 meta.name.clone()
             } else {
-                self.get_lua_string(&table, "name")
-                    .unwrap_or_else(|| self.dir_name(plugin_path))
+                get_lua_string(&table, "name")
+                    .unwrap_or_else(|| dir_name(plugin_path))
             }
         } else {
-            self.get_lua_string(&table, "name")
-                .unwrap_or_else(|| self.dir_name(plugin_path))
+            get_lua_string(&table, "name")
+                .unwrap_or_else(|| dir_name(plugin_path))
         };
 
         // Get version
@@ -199,11 +199,11 @@ impl PluginManager {
             if !meta.version.is_empty() {
                 meta.version.clone()
             } else {
-                self.get_lua_string(&table, "version")
+                get_lua_string(&table, "version")
                     .unwrap_or_else(|| "0.0.0".to_string())
             }
         } else {
-            self.get_lua_string(&table, "version")
+            get_lua_string(&table, "version")
                 .unwrap_or_else(|| "0.0.0".to_string())
         };
 
@@ -212,11 +212,11 @@ impl PluginManager {
             if !meta.description.is_empty() {
                 meta.description.clone()
             } else {
-                self.get_lua_string(&table, "description")
+                get_lua_string(&table, "description")
                     .unwrap_or_default()
             }
         } else {
-            self.get_lua_string(&table, "description")
+            get_lua_string(&table, "description")
                 .unwrap_or_default()
         };
 
@@ -253,641 +253,30 @@ impl PluginManager {
         })
     }
 
-    /// Helper to get a string field from a Lua table
-    fn get_lua_string(&self, table: &Table, key: &str) -> Option<String> {
-        table
-            .get::<mlua::Value>(key)
-            .ok()
-            .and_then(|v| match v {
-                mlua::Value::String(s) => s.to_str().ok().map(|s| s.to_string()),
-                _ => None,
-            })
-    }
-
-    /// Helper to get directory name as string
-    fn dir_name(&self, path: &std::path::Path) -> String {
-        path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string()
-    }
+    // ── Hook dispatch (delegates to hook_dispatch module) ──
 
     /// Call a hook on a specific plugin by name.
     /// Returns None if the plugin is not found or not enabled.
     pub fn call_hook_on_plugin(&self, plugin_name: &str, hook: PluginHook) -> Option<HookResult> {
-        let runtime = self.runtime.as_ref()?;
-
-        let plugin = self.plugins.iter().find(|p| p.name == plugin_name)?;
-
-        if !plugin.enabled {
+        if !self.enabled {
             return None;
         }
-
-        let mut result = HookResult::default();
-
-        match self.call_plugin_hook(runtime, plugin, &hook) {
-            Ok(hook_output) => {
-                result = hook_output;
-            }
-            Err(e) => {
-                eprintln!("[plugins] {} hook error: {}", plugin.name, e);
-                result.status_message = Some(StatusMessage {
-                    level: crate::ui::toast::ToastLevel::Error,
-                    text: format!("Plugin '{}' failed", plugin.name),
-                });
-                let error_msg = e.to_string();
-                let clean_msg = error_msg
-                    .lines()
-                    .next()
-                    .unwrap_or(&error_msg)
-                    .trim_start_matches("runtime error: ")
-                    .to_string();
-
-                result.diagnostics.push(Diagnostic {
-                    line: 1,
-                    column: None,
-                    message: clean_msg,
-                    level: DiagnosticLevel::Error,
-                    source: plugin.name.clone(),
-                    fix_message: None,
-                    url: None,
-                });
-            }
-        }
-
-        Some(result)
+        let runtime = self.runtime.as_ref()?;
+        hook_dispatch::call_hook_on_plugin(runtime, &self.plugins, plugin_name, hook)
     }
 
     /// Call a hook on all enabled plugins
     pub fn call_hook(&self, hook: PluginHook) -> HookResult {
-        let mut result = HookResult::default();
-
-        let runtime = match &self.runtime {
-            Some(r) => r,
-            None => return result,
-        };
-
-        for plugin in &self.plugins {
-            if !plugin.enabled {
-                continue;
-            }
-
-            match self.call_plugin_hook(runtime, plugin, &hook) {
-                Ok(hook_output) => {
-                    if let Some(modified) = hook_output.modified_content {
-                        // For OnDocumentSave, plugins can chain modifications
-                        result.modified_content = Some(modified);
-                    }
-                    // Collect diagnostics from all plugins
-                    result.diagnostics.extend(hook_output.diagnostics);
-                    // Collect line annotations from all plugins
-                    result.line_annotations.extend(hook_output.line_annotations);
-                    // Propagate lint flag: true if ANY plugin produced results
-                    result.had_lint_results |= hook_output.had_lint_results;
-                    // Use the last plugin's status message (or first non-None)
-                    if hook_output.status_message.is_some() {
-                        result.status_message = hook_output.status_message;
-                    }
-                    // Propagate widget requests (last plugin wins)
-                    if hook_output.split_view.is_some() {
-                        result.split_view = hook_output.split_view;
-                        result.source_plugin = Some(plugin.name.clone());
-                    }
-                    if hook_output.tree_view.is_some() {
-                        result.tree_view = hook_output.tree_view;
-                        result.source_plugin = Some(plugin.name.clone());
-                    }
-                    if hook_output.open_file.is_some() {
-                        result.open_file = hook_output.open_file;
-                    }
-                    if hook_output.clipboard_text.is_some() {
-                        result.clipboard_text = hook_output.clipboard_text;
-                    }
-                    if hook_output.goto_line.is_some() {
-                        result.goto_line = hook_output.goto_line;
-                    }
-                }
-                Err(e) => {
-                    eprintln!("[plugins] {} hook error: {}", plugin.name, e);
-                    // Short toast notification
-                    result.status_message = Some(StatusMessage {
-                        level: crate::ui::toast::ToastLevel::Error,
-                        text: format!("Plugin '{}' failed", plugin.name),
-                    });
-                    // Extract just the error message, not the stack trace
-                    let error_msg = e.to_string();
-                    let clean_msg = error_msg
-                        .lines()
-                        .next()
-                        .unwrap_or(&error_msg)
-                        .trim_start_matches("runtime error: ")
-                        .to_string();
-
-                    // Check if this is a permission error - add clickable action to open plugin folder
-                    let (fix_message, url) = if clean_msg.contains("No permissions")
-                        || clean_msg.contains("not approved")
-                    {
-                        // Create file:// URL to the plugin directory
-                        // On Windows paths are C:\..., need file:///C:/...
-                        let plugin_url = {
-                            let p = plugin.path.to_string_lossy();
-                            let slash_path = p.replace('\\', "/");
-                            if slash_path.starts_with('/') {
-                                format!("file://{}", slash_path)
-                            } else {
-                                format!("file:///{}", slash_path)
-                            }
-                        };
-                        (
-                            Some("Double-click to open plugin folder".to_string()),
-                            Some(plugin_url),
-                        )
-                    } else {
-                        (None, None)
-                    };
-
-                    // Error in diagnostic panel
-                    result.diagnostics.push(Diagnostic {
-                        line: 1,
-                        column: None,
-                        message: clean_msg,
-                        level: DiagnosticLevel::Error,
-                        source: plugin.name.clone(),
-                        fix_message,
-                        url,
-                    });
-                }
-            }
+        if !self.enabled {
+            return HookResult::default();
         }
-
-        // Sort diagnostics by severity (errors first)
-        result.diagnostics.sort_by(|a, b| a.level.cmp(&b.level));
-
-        // Sort line annotations by line number
-        result.line_annotations.sort_by_key(|a| a.line);
-
-        result
-    }
-
-    /// Call a specific hook on a single plugin
-    fn call_plugin_hook(
-        &self,
-        runtime: &LuaRuntime,
-        plugin: &LoadedPlugin,
-        hook: &PluginHook,
-    ) -> Result<HookResult, mlua::Error> {
-        let hook_name = hook.lua_name();
-        let mut result = HookResult::default();
-
-        // Create the API object for this hook with plugin context for permissions
-        let api = self.create_api_for_hook(hook, plugin);
-
-        // Call the hook with appropriate arguments
-        let value = match hook {
-            PluginHook::Init | PluginHook::Shutdown => {
-                runtime.call_hook(&plugin.table, hook_name, api)?
-            }
-
-            PluginHook::OnDocumentOpen { path, .. } => {
-                let value = runtime.call_hook(&plugin.table, hook_name, (api, path.clone()))?;
-                if let mlua::Value::Table(return_table) = value {
-                    self.parse_lint_result(&return_table, &plugin.name, &mut result);
-                }
-                return Ok(result);
-            }
-
-            PluginHook::OnDocumentSave { path, content } => {
-                let value =
-                    runtime.call_hook(&plugin.table, hook_name, (api, path.clone(), content.clone()))?;
-
-                // If the hook returns a string, use it as modified content
-                if let mlua::Value::String(s) = value {
-                    result.modified_content = Some(s.to_str()?.to_string());
-                }
-                return Ok(result);
-            }
-
-            PluginHook::OnDocumentClose { path } => {
-                runtime.call_hook(&plugin.table, hook_name, (api, path.clone()))?
-            }
-
-            PluginHook::OnTextChanged {
-                position,
-                inserted_len,
-                deleted_len,
-            } => runtime.call_hook(
-                &plugin.table,
-                hook_name,
-                (api, *position, *inserted_len, *deleted_len),
-            )?,
-
-            PluginHook::OnThemeChanged { is_dark } => {
-                runtime.call_hook(&plugin.table, hook_name, (api, *is_dark))?
-            }
-
-            PluginHook::OnDocumentLint { path, content } => {
-                let value =
-                    runtime.call_hook(&plugin.table, hook_name, (api, path.clone(), content.clone()))?;
-
-                // Parse diagnostics and highlights from the returned table.
-                // Only mark had_lint_results if the table contains actual lint data
-                // (diagnostics or highlights), not just widget requests like tree_view.
-                if let mlua::Value::Table(return_table) = value {
-                    let has_lint_data = return_table.contains_key("diagnostics").unwrap_or(false)
-                        || return_table.raw_len() > 0;  // old format: array of diagnostics
-                    if has_lint_data {
-                        result.had_lint_results = true;
-                    }
-                    self.parse_lint_result(&return_table, &plugin.name, &mut result);
-                }
-                return Ok(result);
-            }
-
-            PluginHook::OnHighlightRequest { path, content } => {
-                let value =
-                    runtime.call_hook(&plugin.table, hook_name, (api, path.clone(), content.clone()))?;
-
-                // Parse highlights from the returned table
-                if let mlua::Value::Table(return_table) = value {
-                    let has_lint_data = return_table.contains_key("diagnostics").unwrap_or(false)
-                        || return_table.raw_len() > 0;
-                    if has_lint_data {
-                        result.had_lint_results = true;
-                    }
-                    self.parse_lint_result(&return_table, &plugin.name, &mut result);
-                }
-                return Ok(result);
-            }
-
-            PluginHook::OnMenuAction {
-                action,
-                path,
-                content,
-            } => {
-                let value = runtime.call_hook(
-                    &plugin.table,
-                    hook_name,
-                    (api, action.clone(), path.clone(), content.clone()),
-                )?;
-
-                // Parse result similar to lint hooks (diagnostics, highlights, modified_content, status_message)
-                if let mlua::Value::Table(return_table) = value {
-                    // Check for modified_content
-                    if let Ok(mlua::Value::String(s)) = return_table.get::<mlua::Value>("modified_content") {
-                        result.modified_content = Some(s.to_str()?.to_string());
-                    }
-                    let has_lint_data = return_table.contains_key("diagnostics").unwrap_or(false)
-                        || return_table.raw_len() > 0;
-                    if has_lint_data {
-                        result.had_lint_results = true;
-                    }
-                    self.parse_lint_result(&return_table, &plugin.name, &mut result);
-                }
-                return Ok(result);
-            }
-
-            PluginHook::OnWidgetAction {
-                widget_type,
-                action,
-                session_id,
-                data,
-                path: _,
-            } => {
-                // Convert WidgetActionData to a Lua table
-                let lua = runtime.lua();
-                let data_table = lua.create_table()?;
-                if let Some(ref content) = data.right_content {
-                    data_table.set("right_content", content.as_str())?;
-                }
-                if let Some(ref path) = data.node_path {
-                    let path_table = lua.create_table()?;
-                    for (i, segment) in path.iter().enumerate() {
-                        path_table.set(i + 1, segment.as_str())?;
-                    }
-                    data_table.set("node_path", path_table)?;
-                }
-                if let Some(ref text) = data.input_text {
-                    data_table.set("input_text", text.as_str())?;
-                }
-                if let Some(ref target) = data.target_path {
-                    let target_table = lua.create_table()?;
-                    for (i, segment) in target.iter().enumerate() {
-                        target_table.set(i + 1, segment.as_str())?;
-                    }
-                    data_table.set("target_path", target_table)?;
-                }
-
-                let value = runtime.call_hook(
-                    &plugin.table,
-                    hook_name,
-                    (api, widget_type.clone(), action.clone(), *session_id, data_table),
-                )?;
-
-                // DEBUG: click-to-line chain
-                eprintln!("[debug:click] OnWidgetAction Lua returned: {:?}",
-                    match &value { mlua::Value::Table(_) => "Table", mlua::Value::Nil => "Nil", _ => "Other" });
-
-                // Parse result similar to menu action hooks
-                if let mlua::Value::Table(return_table) = value {
-                    if let Ok(mlua::Value::String(s)) = return_table.get::<mlua::Value>("modified_content") {
-                        result.modified_content = Some(s.to_str()?.to_string());
-                    }
-                    self.parse_lint_result(&return_table, &plugin.name, &mut result);
-                }
-                return Ok(result);
-            }
-        };
-
-        // Most hooks don't return anything useful
-        let _ = value;
-        Ok(result)
-    }
-
-    /// Parse a Lua table of diagnostics into Rust Diagnostic structs
-    fn parse_diagnostics(&self, table: &mlua::Table, plugin_name: &str) -> Vec<Diagnostic> {
-        table
-            .clone()
-            .pairs::<i32, mlua::Table>()
-            .flatten()
-            .filter_map(|(_, diag_table)| self.parse_single_diagnostic(&diag_table, plugin_name))
-            .collect()
-    }
-
-    /// Parse a single diagnostic from a Lua table
-    fn parse_single_diagnostic(&self, table: &mlua::Table, plugin_name: &str) -> Option<Diagnostic> {
-        // Required: line number
-        let line: u32 = table.get("line").ok()?;
-
-        // Required: message
-        let message: String = table.get("message").ok()?;
-
-        // Optional: column
-        let column: Option<u32> = table.get("column").ok();
-
-        // Optional: level (defaults to "info")
-        let level_str: String = table.get("level").unwrap_or_else(|_| "info".to_string());
-        let level = DiagnosticLevel::from_str(&level_str);
-
-        // Optional: fix message (e.g., "Organize imports")
-        let fix_message: Option<String> = table.get("fix_message").ok();
-
-        // Optional: documentation URL
-        let url: Option<String> = table.get("url").ok();
-
-        Some(Diagnostic {
-            line,
-            column,
-            message,
-            level,
-            source: plugin_name.to_string(),
-            fix_message,
-            url,
-        })
-    }
-
-    /// Parse lint/highlight result from Lua table.
-    /// Supports both old format (array of diagnostics) and new extended format:
-    /// - Old: { {line=1, message="..."}, ... }
-    /// - New: { diagnostics = {...}, highlights = {...}, status_message = {...}, split_view = {...}, tree_view = {...} }
-    fn parse_lint_result(&self, table: &mlua::Table, plugin_name: &str, result: &mut HookResult) {
-        // Check if this is the new extended format (has 'diagnostics' or 'highlights' key)
-        let has_diagnostics_key: bool = table.contains_key("diagnostics").unwrap_or(false);
-        let has_highlights_key: bool = table.contains_key("highlights").unwrap_or(false);
-        let has_status_key: bool = table.contains_key("status_message").unwrap_or(false);
-        let has_split_view_key: bool = table.contains_key("split_view").unwrap_or(false);
-        let has_tree_view_key: bool = table.contains_key("tree_view").unwrap_or(false);
-        let has_open_file_key: bool = table.contains_key("open_file").unwrap_or(false);
-        let has_clipboard_text_key: bool = table.contains_key("clipboard_text").unwrap_or(false);
-        let has_goto_line_key: bool = table.contains_key("goto_line").unwrap_or(false);
-
-        if has_diagnostics_key || has_highlights_key || has_status_key || has_split_view_key || has_tree_view_key || has_open_file_key || has_clipboard_text_key || has_goto_line_key {
-            // New extended format
-            if let Ok(mlua::Value::Table(diags_table)) = table.get::<mlua::Value>("diagnostics") {
-                result.diagnostics.extend(self.parse_diagnostics(&diags_table, plugin_name));
-            }
-            if let Ok(mlua::Value::Table(highlights_table)) = table.get::<mlua::Value>("highlights") {
-                result.line_annotations.extend(self.parse_line_annotations(&highlights_table, plugin_name));
-            }
-            // Parse optional status message for toast notification
-            if let Ok(mlua::Value::Table(status_table)) = table.get::<mlua::Value>("status_message") {
-                result.status_message = self.parse_status_message(&status_table);
-            }
-            // Parse optional split view request
-            if let Ok(mlua::Value::Table(split_view_table)) = table.get::<mlua::Value>("split_view") {
-                result.split_view = SplitViewRequest::from_lua_table(&split_view_table);
-            }
-            // Parse optional tree view request
-            if let Ok(mlua::Value::Table(tree_view_table)) = table.get::<mlua::Value>("tree_view") {
-                result.tree_view = TreeViewRequest::from_lua_table(&tree_view_table);
-            }
-            // Parse optional open_file request
-            if let Ok(mlua::Value::String(s)) = table.get::<mlua::Value>("open_file") {
-                if let Ok(path) = s.to_str() {
-                    result.open_file = Some(path.to_string());
-                }
-            }
-            // Parse optional clipboard_text request
-            if let Ok(mlua::Value::String(s)) = table.get::<mlua::Value>("clipboard_text") {
-                if let Ok(text) = s.to_str() {
-                    result.clipboard_text = Some(text.to_string());
-                }
-            }
-            // Parse optional goto_line request
-            if let Ok(line) = table.get::<u32>("goto_line") {
-                eprintln!("[debug:click] parse_lint_result: goto_line={}", line);
-                result.goto_line = Some(line);
-            }
-        } else {
-            // Old format: array of diagnostics directly
-            result.diagnostics.extend(self.parse_diagnostics(table, plugin_name));
+        match &self.runtime {
+            Some(r) => hook_dispatch::call_hook(r, &self.plugins, hook),
+            None => HookResult::default(),
         }
     }
 
-    /// Parse a status message from a Lua table
-    fn parse_status_message(&self, table: &mlua::Table) -> Option<StatusMessage> {
-        use crate::ui::toast::ToastLevel;
-
-        // Required: text
-        let text: String = table.get("text").ok()?;
-
-        // Optional: level (defaults to "info")
-        let level_str: String = table.get("level").unwrap_or_else(|_| "info".to_string());
-        let level = match level_str.to_lowercase().as_str() {
-            "success" => ToastLevel::Success,
-            "info" => ToastLevel::Info,
-            "warning" | "warn" => ToastLevel::Warning,
-            "error" => ToastLevel::Error,
-            _ => ToastLevel::Info,
-        };
-
-        Some(StatusMessage { level, text })
-    }
-
-    /// Parse a Lua table of line annotations
-    fn parse_line_annotations(&self, table: &mlua::Table, plugin_name: &str) -> Vec<LineAnnotation> {
-        table
-            .clone()
-            .pairs::<i32, mlua::Table>()
-            .flatten()
-            .filter_map(|(_, ann_table)| self.parse_single_annotation(&ann_table, plugin_name))
-            .collect()
-    }
-
-    /// Parse a single line annotation from a Lua table
-    fn parse_single_annotation(&self, table: &mlua::Table, _plugin_name: &str) -> Option<LineAnnotation> {
-        // Required: line number
-        let line: u32 = table.get("line").ok()?;
-
-        // Optional: gutter mark
-        let gutter = if let Ok(mlua::Value::Table(gutter_table)) = table.get::<mlua::Value>("gutter") {
-            self.parse_gutter_mark(&gutter_table)
-        } else {
-            None
-        };
-
-        // Optional: inline highlights (array)
-        let inline = if let Ok(mlua::Value::Table(inline_table)) = table.get::<mlua::Value>("inline") {
-            self.parse_inline_highlights(&inline_table)
-        } else {
-            Vec::new()
-        };
-
-        // Only return if we have at least gutter or inline
-        if gutter.is_some() || !inline.is_empty() {
-            Some(LineAnnotation {
-                line,
-                gutter,
-                inline,
-            })
-        } else {
-            None
-        }
-    }
-
-    /// Parse a gutter mark from a Lua table
-    fn parse_gutter_mark(&self, table: &mlua::Table) -> Option<GutterMark> {
-        // Parse color - required
-        let color = self.parse_annotation_color(table)?;
-        Some(GutterMark { color })
-    }
-
-    /// Parse inline highlights array from a Lua table
-    fn parse_inline_highlights(&self, table: &mlua::Table) -> Vec<InlineHighlight> {
-        table
-            .clone()
-            .pairs::<i32, mlua::Table>()
-            .flatten()
-            .filter_map(|(_, hl_table)| self.parse_single_inline_highlight(&hl_table))
-            .collect()
-    }
-
-    /// Parse a single inline highlight from a Lua table
-    fn parse_single_inline_highlight(&self, table: &mlua::Table) -> Option<InlineHighlight> {
-        // Required: start_col
-        let start_col: u32 = table.get("start_col").ok()?;
-
-        // Optional: end_col (None means end of line)
-        let end_col: Option<u32> = table.get("end_col").ok();
-
-        // Required: color
-        let color = self.parse_annotation_color(table)?;
-
-        Some(InlineHighlight {
-            start_col,
-            end_col,
-            color,
-        })
-    }
-
-    /// Parse an annotation color from a Lua table
-    fn parse_annotation_color(&self, table: &mlua::Table) -> Option<AnnotationColor> {
-        // Try string color name first
-        if let Ok(color_str) = table.get::<String>("color")
-            && let Some(color) = AnnotationColor::from_str(&color_str)
-        {
-            return Some(color);
-        }
-
-        // Try RGB table: color = { r = 255, g = 0, b = 0 }
-        if let Ok(mlua::Value::Table(color_table)) = table.get::<mlua::Value>("color") {
-            let r: u8 = color_table.get("r").unwrap_or(0);
-            let g: u8 = color_table.get("g").unwrap_or(0);
-            let b: u8 = color_table.get("b").unwrap_or(0);
-            return Some(AnnotationColor::Rgb(r, g, b));
-        }
-
-        None
-    }
-
-    /// Create an EditorApi instance for a specific hook
-    /// Create an EditorApi instance for a specific hook with plugin context
-    fn create_api_for_hook(&self, hook: &PluginHook, plugin: &LoadedPlugin) -> EditorApi {
-        let mut api = match hook {
-            PluginHook::Init | PluginHook::Shutdown => EditorApi::default(),
-
-            PluginHook::OnDocumentOpen { path, content } => {
-                // Use passed content (avoids disk re-read for large files).
-                // Fall back to disk read for callers that don't provide content.
-                let text = content.clone().or_else(|| {
-                    path.as_deref().and_then(|p| std::fs::read_to_string(p).ok())
-                });
-                match text {
-                    Some(t) => EditorApi::with_path_and_content(path.clone(), t),
-                    None => EditorApi::with_path(path.clone()),
-                }
-            }
-
-            PluginHook::OnDocumentSave { path, content } => {
-                EditorApi::with_content(path.clone(), content.clone())
-            }
-
-            PluginHook::OnDocumentClose { path } => EditorApi::with_path(path.clone()),
-
-            PluginHook::OnTextChanged {
-                position,
-                inserted_len,
-                deleted_len,
-            } => EditorApi::for_text_change(*position, *inserted_len, *deleted_len, None),
-
-            PluginHook::OnThemeChanged { .. } => EditorApi::default(),
-
-            PluginHook::OnDocumentLint { path, content } => {
-                EditorApi::with_content(path.clone(), content.clone())
-            }
-
-            PluginHook::OnHighlightRequest { path, content } => {
-                EditorApi::with_path_and_content(path.clone(), content.clone())
-            }
-
-            PluginHook::OnMenuAction { path, content, .. } => {
-                EditorApi::with_path_and_content(path.clone(), content.clone())
-            }
-
-            PluginHook::OnWidgetAction { path, data, .. } => {
-                // Prefer buffer content (avoids stale reads for unsaved files),
-                // fall back to reading from disk
-                let content = data.content.clone()
-                    .or_else(|| path.as_deref().and_then(|p| std::fs::read_to_string(p).ok()));
-                // DEBUG: click-to-line chain
-                eprintln!("[debug:click] create_api_for_hook OnWidgetAction: data.content={}, final_content={}",
-                    data.content.as_ref().map(|c| c.len()).unwrap_or(0),
-                    content.as_ref().map(|c| c.len()).unwrap_or(0));
-                match content {
-                    Some(text) => EditorApi::with_path_and_content(path.clone(), text),
-                    None => EditorApi::with_path(path.clone()),
-                }
-            }
-        };
-
-        // Add plugin context for permission checking
-        api.plugin_name = Some(plugin.name.clone());
-        api.allowed_commands = plugin.approved_commands.clone();
-
-        // Add plugin-specific configuration
-        api.config = plugin.config_params.clone();
-
-        api
-    }
+    // ── Plugin access / configuration / lifecycle ──
 
     /// Get a list of all loaded plugins
     pub fn list_plugins(&self) -> &[LoadedPlugin] {
@@ -897,17 +286,6 @@ impl PluginManager {
     /// Get mutable access to all loaded plugins (for permission management)
     pub fn plugins_mut(&mut self) -> &mut Vec<LoadedPlugin> {
         &mut self.plugins
-    }
-
-    /// Set approved commands for a plugin by name
-    #[allow(dead_code)]  // Reserved for future plugin manager UI
-    pub fn set_approved_commands(&mut self, name: &str, commands: Vec<String>) {
-        for plugin in &mut self.plugins {
-            if plugin.name == name {
-                plugin.approved_commands = commands;
-                break;
-            }
-        }
     }
 
     /// Toggle a specific plugin on/off by name
@@ -1025,9 +403,33 @@ impl PluginManager {
                     None
                 }
             };
+        } else if !enabled && self.runtime.is_some() {
+            // Drop all plugin tables before dropping the runtime
+            self.plugins.clear();
+            self.runtime = None;
+            eprintln!("[plugins] Plugin system disabled — runtime dropped");
         }
         self.enabled = enabled;
     }
+}
+
+/// Helper to get a string field from a Lua table
+fn get_lua_string(table: &Table, key: &str) -> Option<String> {
+    table
+        .get::<mlua::Value>(key)
+        .ok()
+        .and_then(|v| match v {
+            mlua::Value::String(s) => s.to_str().ok().map(|s| s.to_string()),
+            _ => None,
+        })
+}
+
+/// Helper to get directory name as string
+fn dir_name(path: &std::path::Path) -> String {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string()
 }
 
 #[cfg(test)]

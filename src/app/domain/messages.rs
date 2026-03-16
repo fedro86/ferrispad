@@ -59,6 +59,7 @@ pub enum Message {
     ToggleDarkMode,
     ToggleHighlighting,
     TogglePreview,
+    ToggleDiagnosticsPanel,
 
     // Format
     SetFont(Font),
@@ -71,9 +72,16 @@ pub enum Message {
     ShowKeyShortcuts,
 
     // Syntax highlighting
-    BufferModified(DocumentId, i32),
+    BufferModified {
+        id: DocumentId,
+        pos: i32,
+        inserted: i32,
+        deleted: i32,
+    },
     DoRehighlight,
     ContinueHighlight,
+    /// Debounced text change hook (fires 300ms after last edit)
+    DoTextChangeHook,
 
     // Background updates
     BackgroundUpdateResult(Option<ReleaseInfo>),
@@ -103,16 +111,13 @@ pub enum Message {
 
     // Diagnostics
     DiagnosticsUpdate(Vec<Diagnostic>),
-    #[allow(dead_code)]  // Reserved for explicit clear from UI
     DiagnosticsClear,
     DiagnosticGoto(u32),  // Go to line number (single click)
     DiagnosticOpenDocs(u32),  // Open documentation URL (double click)
     DiagnosticsAutoDismiss,  // Auto-dismiss "All checks passed" green bar after timeout
 
     // Line annotations (gutter + inline highlights)
-    #[allow(dead_code)]  // Reserved for future batch annotation updates
     AnnotationsUpdate(Vec<LineAnnotation>),
-    #[allow(dead_code)]  // Reserved for explicit clear from UI
     AnnotationsClear,
     ManualHighlight,  // Triggered by Ctrl+Shift+L
 
@@ -130,8 +135,6 @@ pub enum Message {
         plugin_name: String,
         request: SplitViewRequest,
     },
-    /// Hide the current split view
-    SplitViewHide(u32),
     /// User clicked Accept in split view
     SplitViewAccept(u32),
     /// User clicked Reject in split view

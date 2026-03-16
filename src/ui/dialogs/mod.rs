@@ -34,8 +34,6 @@ pub struct DialogTheme {
     pub tab_active_bg: Color,
     /// Row background (for lists/tables)
     pub row_bg: Color,
-    /// Alternate row background (for zebra striping)
-    pub row_bg_alt: Color,
     /// Scrollbar track background
     pub scroll_track: Color,
     /// Scrollbar thumb/slider color
@@ -121,14 +119,6 @@ impl DialogTheme {
             Color::from_rgb(r, g, b)
         };
 
-        let row_bg_alt = if is_dark {
-            let (rr, rg, rb) = lighten(bg_r, bg_g, bg_b, 0.15);
-            Color::from_rgb(rr, rg, rb)
-        } else {
-            let (rr, rg, rb) = darken(r, g, b, 0.97);
-            Color::from_rgb(rr, rg, rb)
-        };
-
         // Text colors based on brightness
         let (text, text_dim) = if is_dark {
             (
@@ -161,7 +151,6 @@ impl DialogTheme {
             button_bg,
             tab_active_bg,
             row_bg,
-            row_bg_alt,
             scroll_track,
             scroll_thumb,
             is_dark,

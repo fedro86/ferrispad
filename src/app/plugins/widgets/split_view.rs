@@ -42,7 +42,6 @@ pub struct SplitPane {
     /// Whether to show line numbers
     pub line_numbers: bool,
     /// Whether the pane is read-only (default true)
-    #[allow(dead_code)]  // Used when split view allows editing
     pub read_only: bool,
     /// Line highlights (e.g., for diff coloring)
     pub highlights: Vec<LineHighlight>,
@@ -83,6 +82,7 @@ pub enum HighlightColor {
 
 impl HighlightColor {
     /// Parse from Lua string
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "green" | "added" | "add" => Some(Self::Added),
@@ -92,25 +92,6 @@ impl HighlightColor {
         }
     }
 
-    /// Get RGB values for this color
-    pub fn to_rgb(&self) -> (u8, u8, u8) {
-        match self {
-            Self::Added => (200, 255, 200),    // Light green
-            Self::Removed => (255, 200, 200),  // Light red
-            Self::Modified => (255, 255, 200), // Light yellow
-            Self::Rgb(r, g, b) => (*r, *g, *b),
-        }
-    }
-
-    /// Get RGB values for dark mode
-    pub fn to_rgb_dark(&self) -> (u8, u8, u8) {
-        match self {
-            Self::Added => (40, 80, 40),       // Dark green
-            Self::Removed => (80, 40, 40),     // Dark red
-            Self::Modified => (80, 80, 40),    // Dark yellow
-            Self::Rgb(r, g, b) => (*r / 3, *g / 3, *b / 3),
-        }
-    }
 }
 
 /// An action button in the split view
@@ -262,17 +243,6 @@ mod tests {
         assert_eq!(HighlightColor::from_str("red"), Some(HighlightColor::Removed));
         assert_eq!(HighlightColor::from_str("yellow"), Some(HighlightColor::Modified));
         assert_eq!(HighlightColor::from_str("unknown"), None);
-    }
-
-    #[test]
-    fn test_highlight_color_to_rgb() {
-        let added = HighlightColor::Added;
-        let (r, g, b) = added.to_rgb();
-        assert!(g > r && g > b); // Green is dominant
-
-        let removed = HighlightColor::Removed;
-        let (r, g, b) = removed.to_rgb();
-        assert!(r > g && r > b); // Red is dominant
     }
 
     #[test]

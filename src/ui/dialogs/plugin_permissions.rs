@@ -6,7 +6,7 @@
 
 use fltk::{
     button::{Button, CheckButton},
-    enums::{Color, Font},
+    enums::Color,
     frame::Frame,
     group::Group,
     prelude::*,

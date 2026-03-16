@@ -10,15 +10,16 @@ use std::time::Duration;
 pub const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Characters that indicate shell injection attempts
-const SHELL_INJECTION_CHARS: &[char] = &[';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r'];
+const SHELL_INJECTION_CHARS: &[char] = &[
+    ';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r',
+    '\\', '*', '?', '[', ']',
+];
 
 /// Result of path validation
 #[derive(Debug, Clone, PartialEq)]
 pub enum PathValidation {
     /// Path is valid and within allowed scope
     Valid(PathBuf),
-    /// Path traversal attempt detected
-    TraversalAttempt,
     /// Path is outside project root
     OutsideProjectRoot,
     /// Path does not exist
@@ -111,20 +112,6 @@ pub fn validate_command_arg(arg: &str) -> Result<(), String> {
     for ch in SHELL_INJECTION_CHARS {
         if arg.contains(*ch) {
             return Err(format!("Argument contains forbidden character: '{}'", ch));
-        }
-    }
-    Ok(())
-}
-
-/// Validate all arguments for a command.
-///
-/// # Returns
-/// * `Ok(())` if all arguments are safe
-/// * `Err(reason)` with details about the first invalid argument
-pub fn validate_command_args(args: &[String]) -> Result<(), String> {
-    for (i, arg) in args.iter().enumerate() {
-        if let Err(reason) = validate_command_arg(arg) {
-            return Err(format!("Argument {}: {}", i, reason));
         }
     }
     Ok(())
@@ -243,6 +230,9 @@ mod tests {
         assert!(validate_command_arg("$(whoami)").is_err());
         assert!(validate_command_arg("`id`").is_err());
         assert!(validate_command_arg("test | cat").is_err());
+        assert!(validate_command_arg("file\\.txt").is_err());
+        assert!(validate_command_arg("*.py").is_err());
+        assert!(validate_command_arg("test[0]").is_err());
     }
 
     #[test]

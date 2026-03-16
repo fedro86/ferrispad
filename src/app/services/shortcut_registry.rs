@@ -7,7 +7,29 @@
 use std::collections::HashMap;
 
 use crate::app::domain::settings::ShortcutOverride;
-use crate::ui::menu::normalize_shortcut;
+
+/// Normalize a shortcut string for comparison (lowercase, sorted modifiers)
+pub fn normalize_shortcut(s: &str) -> String {
+    let parts: Vec<&str> = s.split('+').map(|p| p.trim()).collect();
+    let mut modifiers: Vec<String> = Vec::new();
+    let mut key = String::new();
+
+    for part in parts {
+        let lower = part.to_lowercase();
+        match lower.as_str() {
+            "ctrl" | "control" => modifiers.push("ctrl".to_string()),
+            "shift" => modifiers.push("shift".to_string()),
+            "alt" => modifiers.push("alt".to_string()),
+            _ => key = lower,
+        }
+    }
+
+    modifiers.sort();
+    if !key.is_empty() {
+        modifiers.push(key);
+    }
+    modifiers.join("+")
+}
 
 /// Runtime registry of shortcut overrides.
 ///
@@ -19,7 +41,6 @@ pub struct ShortcutRegistry {
     overrides: HashMap<String, ShortcutOverride>,
 }
 
-#[allow(dead_code)]
 impl ShortcutRegistry {
     /// Create a registry from persisted settings.
     pub fn from_settings(overrides: &HashMap<String, ShortcutOverride>) -> Self {
@@ -34,11 +55,13 @@ impl ShortcutRegistry {
     }
 
     /// Set an override for a command ID.
+    #[allow(dead_code)]  // Used in tests
     pub fn set_override(&mut self, id: String, ovr: ShortcutOverride) {
         self.overrides.insert(id, ovr);
     }
 
     /// Remove an override (revert to default).
+    #[allow(dead_code)]  // Used in tests
     pub fn remove_override(&mut self, id: &str) {
         self.overrides.remove(id);
     }
@@ -49,6 +72,7 @@ impl ShortcutRegistry {
     }
 
     /// Return a snapshot of overrides for persistence.
+    #[allow(dead_code)]  // Used in tests
     pub fn to_settings(&self) -> HashMap<String, ShortcutOverride> {
         self.overrides.clone()
     }
@@ -57,18 +81,19 @@ impl ShortcutRegistry {
     /// Returns the override shortcut if one exists and is enabled,
     /// otherwise returns the default.
     pub fn effective_shortcut<'a>(&'a self, id: &str, default: &'a str) -> &'a str {
-        if let Some(ovr) = self.overrides.get(id) {
-            if ovr.enabled {
-                // Return owned string via leak-free approach: caller must handle lifetime
-                // Actually we need to return &str, so we return from the stored override
-                return &ovr.shortcut;
-            }
+        if let Some(ovr) = self.overrides.get(id)
+            && ovr.enabled
+        {
+            // Return owned string via leak-free approach: caller must handle lifetime
+            // Actually we need to return &str, so we return from the stored override
+            return &ovr.shortcut;
         }
         default
     }
 
     /// Build a map of all effective shortcuts: command_id -> normalized shortcut string.
     /// `defaults` is an iterator of (command_id, default_shortcut_string).
+    #[allow(dead_code)]  // Used in tests
     pub fn effective_shortcuts<'a>(
         &self,
         defaults: impl Iterator<Item = (&'a str, &'a str)>,
@@ -87,6 +112,7 @@ impl ShortcutRegistry {
     /// Returns Some(conflicting_command_id) if conflict found.
     /// `exclude_id` is the command being edited (skip self-conflict).
     /// `defaults` provides (id, default_shortcut) for all commands.
+    #[allow(dead_code)]  // Used in tests
     pub fn find_conflict<'a>(
         &self,
         normalized: &str,
@@ -187,7 +213,7 @@ mod tests {
             },
         );
 
-        let defaults = vec![
+        let defaults = [
             ("File/Save", "Ctrl+S"),
             ("Edit/Undo", "Ctrl+Z"),
         ];
@@ -208,7 +234,7 @@ mod tests {
     #[test]
     fn test_no_self_conflict() {
         let reg = ShortcutRegistry::default();
-        let defaults = vec![("File/Save", "Ctrl+S")];
+        let defaults = [("File/Save", "Ctrl+S")];
 
         // File/Save checking Ctrl+S should not conflict with itself
         let conflict = reg.find_conflict(
