@@ -221,25 +221,38 @@ The `.deb` package handles this automatically.
 
 ## Architecture
 
-~5,200 lines across 28 files. Message-passing event-driven architecture.
+~26,000 lines across 85 Rust source files. Message-passing event-driven architecture with Clean Architecture layers.
 
 ```
 src/
-  app/           # Business logic
-    state.rs         # Central controller (AppState)
-    tab_manager.rs   # Tab and group management
-    document.rs      # Document model
-    session.rs       # Session persistence
-    highlight_controller.rs  # Syntax highlighting engine
-    preview_controller.rs    # Markdown preview
-    settings.rs      # Persistent settings
-    updater.rs       # Update checker
-  ui/            # Presentation layer
-    tab_bar.rs       # Custom tab bar with drag-and-drop
-    main_window.rs   # Window layout
-    menu.rs          # Menu bar
-    dialogs/         # Find, Replace, GoTo, Settings, About, Update
-  main.rs        # Event dispatch loop
+  main.rs            # Entry point, FLTK event loop
+  dispatch.rs        # Grouped handler functions (file, tab, edit, view, ...)
+  lib.rs             # Library crate (ferris_pad)
+  app/
+    state.rs           # Central coordinator (AppState, mediates controllers)
+    domain/            # Core data types (Document, Message enum, AppSettings)
+    controllers/       # Orchestration (11 controllers)
+      file.rs            # File I/O, returns Vec<FileAction>
+      highlight.rs       # 3-tier syntax highlighting engine
+      tabs.rs            # Tab/group lifecycle (TabManager)
+      widget.rs          # Plugin widget lifecycle (tree/split views)
+      plugin.rs          # Plugin dialogs, toggle/reload
+      session.rs         # Auto-save, restore
+      view.rs            # UI toggles (dark mode, line numbers, word wrap)
+      preview.rs         # Markdown preview
+      update.rs          # Update banner
+      hook_dispatch.rs   # Plugin hook dispatch (free functions)
+    services/          # Business logic (syntax, session, updater, shortcuts)
+    plugins/           # Lua plugin system (api, hooks, loader, runtime, security)
+    infrastructure/    # FFI helpers, errors, platform detection
+  ui/
+    tab_bar.rs         # Custom tab bar with drag-and-drop
+    main_window.rs     # Widget layout
+    split_panel.rs     # Plugin split view widget
+    tree_panel.rs      # Plugin tree view widget
+    menu.rs            # Menu bar with shortcut registry
+    dialogs/           # Find, Settings, GoTo, About, Update, Plugin Manager, Shortcuts
+    theme.rs           # Dark/light themes, platform titlebar
 ```
 
 ## Technology Stack

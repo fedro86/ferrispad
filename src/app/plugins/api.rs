@@ -427,6 +427,9 @@ impl UserData for EditorApi {
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                             // Kill the timed-out process by PID
                             #[cfg(unix)]
+                            // SAFETY: pid is a valid process ID from Command::spawn().
+                            // SIGKILL (9) is always valid. kill() on a non-existent
+                            // pid returns -1 (harmless).
                             unsafe {
                                 unsafe extern "C" {
                                     fn kill(pid: i32, sig: i32) -> i32;

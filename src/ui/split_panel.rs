@@ -27,6 +27,9 @@ use super::dialogs::{DialogTheme, SCROLLBAR_SIZE};
 /// Works with any widget that is a Fl_Group subclass with scrollbar children.
 /// The vertical scrollbar is typically at index 1.
 fn get_vscrollbar_value_raw(widget_ptr: fltk::app::WidgetPtr) -> f64 {
+    // SAFETY: widget_ptr is a valid Fl_Group subclass (TextDisplay/TextEditor).
+    // Fl_Group_children/Fl_Group_child are stable FLTK C API. We null-check
+    // the child pointer before reconstructing. The widget outlives this call.
     unsafe extern "C" {
         fn Fl_Group_children(grp: *mut std::ffi::c_void) -> std::ffi::c_int;
         fn Fl_Group_child(
@@ -1105,6 +1108,9 @@ impl SplitPanel {
 
     /// Style scrollbars on a widget via FFI using its raw pointer.
     fn style_scrollbars_raw(widget_ptr: fltk::app::WidgetPtr, theme: &DialogTheme) {
+        // SAFETY: widget_ptr is a valid Fl_Group subclass (TextDisplay/TextEditor).
+        // Fl_Group_children/Fl_Group_child are stable FLTK C API. We null-check
+        // child pointers and clamp the index to min(2) before access.
         unsafe extern "C" {
             fn Fl_Group_children(grp: *mut std::ffi::c_void) -> std::ffi::c_int;
             fn Fl_Group_child(

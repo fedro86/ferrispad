@@ -816,6 +816,9 @@ pub fn handle_window(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets)
         Message::MallocTrim => {
             #[cfg(target_os = "linux")]
             {
+                // SAFETY: malloc_trim is a glibc function that releases free memory
+                // back to the OS. Passing 0 trims all reclaimable heap pages.
+                // This is a no-op on non-glibc systems (guarded by cfg).
                 unsafe {
                     unsafe extern "C" { fn malloc_trim(pad: std::ffi::c_int) -> std::ffi::c_int; }
                     malloc_trim(0);

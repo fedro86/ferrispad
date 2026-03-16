@@ -433,6 +433,9 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) {
     display.set_color(theme.input_bg);
     display.set_text_color(theme.text);
     display.set_scrollbar_size(SCROLLBAR_SIZE);
+    // SAFETY: TextDisplay inherits Fl_Group. Fl_Group_children/Fl_Group_child
+    // are stable FLTK C API. We null-check child pointers and clamp index to
+    // min(2) before reconstructing Scrollbar widgets.
     unsafe extern "C" {
         fn Fl_Group_children(grp: *mut std::ffi::c_void) -> std::ffi::c_int;
         fn Fl_Group_child(

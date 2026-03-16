@@ -592,6 +592,9 @@ impl TreePanel {
                     let ci = colored_items.clone();
                     let tp = tree.as_widget_ptr();
                     fltk::app::add_timeout3(0.0, move |_| {
+                        // SAFETY: tp is a valid Tree widget pointer obtained via
+                        // as_widget_ptr() above. The Tree outlives this timeout
+                        // callback (it's owned by the panel which owns this handler).
                         let t = unsafe { Tree::from_widget_ptr(tp) };
                         for (path, color) in ci.borrow().iter() {
                             if let Some(mut item) = t.find_item(path) {
@@ -758,8 +761,9 @@ impl TreePanel {
             return;
         }
 
-        // Reuse the pre-created MenuButton (parented to container) so Wayland
-        // can anchor the popup to our window via xdg_positioner.
+        // SAFETY: ctx_menu_ptr is a valid MenuButton widget pointer created in
+        // the constructor and stored for the lifetime of this panel. We reuse it
+        // (rather than creating a new one) so Wayland can anchor the popup.
         let mut menu = unsafe { MenuButton::from_widget_ptr(ctx_menu_ptr) };
         menu.clear();
         menu.resize(mx, my, 1, 1);
@@ -1045,6 +1049,9 @@ impl TreePanel {
 
         // Style scrollbars to match the editor (Tree inherits Fl_Group)
         self.tree.set_scrollbar_size(SCROLLBAR_SIZE);
+        // SAFETY: Tree inherits Fl_Group. Fl_Group_children/Fl_Group_child are
+        // stable FLTK C API. We null-check child pointers and clamp index to
+        // min(2) before reconstructing Scrollbar widgets.
         unsafe extern "C" {
             fn Fl_Group_children(grp: *mut std::ffi::c_void) -> std::ffi::c_int;
             fn Fl_Group_child(
