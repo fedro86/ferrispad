@@ -248,6 +248,14 @@ impl SyntaxHighlighter {
         self.theme.foreground()
     }
 
+    pub fn font(&self) -> Font {
+        self.font
+    }
+
+    pub fn font_size(&self) -> i32 {
+        self.font_size
+    }
+
     /// Update the font used in style table entries.
     pub fn set_font(&mut self, font: Font, size: i32) {
         self.font = font;

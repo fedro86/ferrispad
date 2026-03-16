@@ -757,6 +757,27 @@ impl AppState {
         self.bind_active_buffer();
     }
 
+    pub fn set_font(&mut self, font: Font) {
+        self.editor.set_text_font(font);
+        self.highlight.set_font(font, self.highlight.font_size());
+        self.bind_active_buffer();
+        let font_choice = match font {
+            Font::ScreenBold => FontChoice::ScreenBold,
+            Font::Courier => FontChoice::Courier,
+            _ => FontChoice::HelveticaMono,
+        };
+        self.settings.borrow_mut().font = font_choice;
+        self.editor.redraw();
+    }
+
+    pub fn set_font_size(&mut self, size: i32) {
+        self.editor.set_text_size(size);
+        self.highlight.set_font(self.highlight.font(), size);
+        self.bind_active_buffer();
+        self.settings.borrow_mut().font_size = size as u32;
+        self.editor.redraw();
+    }
+
     pub fn apply_settings(&mut self, new_settings: AppSettings) {
         let is_dark = match new_settings.theme_mode {
             ThemeMode::Light => false,

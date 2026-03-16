@@ -247,8 +247,8 @@ pub fn handle_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) {
         }
         Message::ToggleHighlighting => state.toggle_highlighting(),
         Message::TogglePreview => state.preview_in_browser(),
-        Message::SetFont(font) => state.view.set_font(font),
-        Message::SetFontSize(size) => state.view.set_font_size(size),
+        Message::SetFont(font) => state.set_font(font),
+        Message::SetFontSize(size) => state.set_font_size(size),
         _ => {}
     }
 }

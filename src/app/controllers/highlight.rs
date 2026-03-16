@@ -62,6 +62,14 @@ impl HighlightController {
         self.highlighter.set_theme(theme);
     }
 
+    pub fn font(&self) -> Font {
+        self.highlighter.font()
+    }
+
+    pub fn font_size(&self) -> i32 {
+        self.highlighter.font_size()
+    }
+
     pub fn set_font(&mut self, font: Font, size: i32) {
         self.highlighter.set_font(font, size);
     }

@@ -1,5 +1,4 @@
 use fltk::{
-    enums::Font,
     prelude::*,
     text::{TextBuffer, TextEditor, WrapMode},
 };
@@ -55,16 +54,6 @@ impl ViewController {
         } else {
             self.editor.wrap_mode(WrapMode::None, 0);
         }
-        self.editor.redraw();
-    }
-
-    pub fn set_font(&mut self, font: Font) {
-        self.editor.set_text_font(font);
-        self.editor.redraw();
-    }
-
-    pub fn set_font_size(&mut self, size: i32) {
-        self.editor.set_text_size(size);
         self.editor.redraw();
     }
 
