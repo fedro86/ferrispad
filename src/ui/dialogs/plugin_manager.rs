@@ -1534,7 +1534,7 @@ fn create_community_plugin_row(
         fltk::app::awake();
 
         // 1. Fetch plugin.toml
-        let plugin_toml = match fetch_community_plugin_toml(&info.repo, &info.branch) {
+        let plugin_toml = match fetch_community_plugin_toml(&info.repo, &info.git_ref) {
             Ok(content) => content,
             Err(e) => {
                 btn.set_label("Error");
@@ -1582,7 +1582,7 @@ fn create_community_plugin_row(
         match install_community_plugin(
             &info.name,
             &info.repo,
-            &info.branch,
+            &info.git_ref,
             &plugin_toml,
             PluginTier::Community,
             Some(&info.checksums),

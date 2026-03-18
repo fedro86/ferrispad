@@ -156,9 +156,10 @@ pub struct CommunityPluginInfo {
     pub name: String,
     /// Repository URL
     pub repo: String,
-    /// Git branch to fetch from
-    #[serde(default = "default_branch")]
-    pub branch: String,
+    /// Git ref to fetch from (tag like "v1.0.0" or commit hash).
+    /// Using a tag/commit ensures checksums always match an immutable snapshot.
+    #[serde(alias = "branch")]
+    pub git_ref: String,
     /// Plugin version
     pub version: String,
     /// Short description
@@ -173,10 +174,6 @@ pub struct CommunityPluginInfo {
     pub tags: Vec<String>,
     /// SHA-256 checksums of plugin files (required for community plugins)
     pub checksums: PluginChecksums,
-}
-
-fn default_branch() -> String {
-    "main".to_string()
 }
 
 // ---------------------------------------------------------------------------
