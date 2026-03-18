@@ -8,10 +8,8 @@ use crate::app::infrastructure::error::AppError;
 /// FerrisPad's official signing public key (same key used for plugin signing).
 /// This key verifies both plugin signatures and release binary signatures.
 const SIGNING_PUBLIC_KEY: [u8; 32] = [
-    0x7f, 0x14, 0x24, 0xc5, 0x14, 0x5d, 0x99, 0xd7,
-    0xf0, 0xfd, 0x7c, 0x12, 0xdd, 0x5c, 0x3d, 0x8b,
-    0x8f, 0x6d, 0x6b, 0x4e, 0xe7, 0xba, 0xb1, 0x2c,
-    0xd0, 0xdb, 0xdf, 0xbc, 0x17, 0x54, 0xff, 0x56,
+    0x7f, 0x14, 0x24, 0xc5, 0x14, 0x5d, 0x99, 0xd7, 0xf0, 0xfd, 0x7c, 0x12, 0xdd, 0x5c, 0x3d, 0x8b,
+    0x8f, 0x6d, 0x6b, 0x4e, 0xe7, 0xba, 0xb1, 0x2c, 0xd0, 0xdb, 0xdf, 0xbc, 0x17, 0x54, 0xff, 0x56,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -57,7 +55,10 @@ pub enum UpdateCheckResult {
 /// Compare two semantic versions
 /// Returns true if remote is newer than current
 pub fn is_newer_version(current: &str, remote: &str) -> bool {
-    match (semver::Version::parse(current), semver::Version::parse(remote)) {
+    match (
+        semver::Version::parse(current),
+        semver::Version::parse(remote),
+    ) {
         (Ok(curr), Ok(rem)) => rem > curr,
         _ => false, // If parsing fails, assume not newer
     }
@@ -82,7 +83,10 @@ pub fn fetch_latest_release(
 ) -> Result<ReleaseInfo, AppError> {
     let url = match channel {
         UpdateChannel::Stable => {
-            format!("https://api.github.com/repos/{}/{}/releases/latest", owner, repo)
+            format!(
+                "https://api.github.com/repos/{}/{}/releases/latest",
+                owner, repo
+            )
         }
         UpdateChannel::Beta => {
             format!("https://api.github.com/repos/{}/{}/releases", owner, repo)
@@ -104,17 +108,18 @@ pub fn fetch_latest_release(
 
     match channel {
         UpdateChannel::Stable => {
-            let release: ReleaseInfo = response
-                .json()
-                .map_err(|e| AppError::Update(format!("Failed to parse update information: {}", e)))?;
+            let release: ReleaseInfo = response.json().map_err(|e| {
+                AppError::Update(format!("Failed to parse update information: {}", e))
+            })?;
             Ok(release)
         }
         UpdateChannel::Beta => {
-            let releases: Vec<ReleaseInfo> = response
-                .json()
-                .map_err(|e| AppError::Update(format!("Failed to parse update information: {}", e)))?;
+            let releases: Vec<ReleaseInfo> = response.json().map_err(|e| {
+                AppError::Update(format!("Failed to parse update information: {}", e))
+            })?;
 
-            releases.into_iter()
+            releases
+                .into_iter()
                 .next()
                 .ok_or_else(|| AppError::Update("No releases found".to_string()))
         }
@@ -189,11 +194,9 @@ fn verify_binary_signature(
         .map_err(|e| AppError::Update(format!("Invalid public key: {}", e)))?;
 
     // Decode signature from base64
-    let signature_bytes = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        signature_b64,
-    )
-    .map_err(|e| AppError::Update(format!("Invalid signature encoding: {}", e)))?;
+    let signature_bytes =
+        base64::Engine::decode(&base64::engine::general_purpose::STANDARD, signature_b64)
+            .map_err(|e| AppError::Update(format!("Invalid signature encoding: {}", e)))?;
 
     // ed25519 signatures are exactly 64 bytes
     if signature_bytes.len() != 64 {
@@ -209,7 +212,9 @@ fn verify_binary_signature(
     // Verify
     verifying_key
         .verify(message.as_bytes(), &signature)
-        .map_err(|_| AppError::Update("Signature verification failed - binary may be tampered".to_string()))
+        .map_err(|_| {
+            AppError::Update("Signature verification failed - binary may be tampered".to_string())
+        })
 }
 
 /// Fetch the signature file for a release asset
@@ -276,7 +281,10 @@ where
         .iter()
         .find(|a| a.name.contains(platform))
         .ok_or_else(|| {
-            AppError::Update(format!("No release binary found for platform: {}", platform))
+            AppError::Update(format!(
+                "No release binary found for platform: {}",
+                platform
+            ))
         })?;
 
     eprintln!("[update] Downloading {} ...", binary_asset.name);

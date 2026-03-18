@@ -47,11 +47,7 @@ pub fn get_line(_: &mlua::Lua, this: &EditorApi, line_num: i32) -> mlua::Result<
 
 /// Get the file extension (without the dot).
 /// Returns nil for files without extension or untitled documents.
-pub fn get_file_extension(
-    _: &mlua::Lua,
-    this: &EditorApi,
-    _: (),
-) -> mlua::Result<Option<String>> {
+pub fn get_file_extension(_: &mlua::Lua, this: &EditorApi, _: ()) -> mlua::Result<Option<String>> {
     let Some(ref path) = this.file_path else {
         return Ok(None);
     };

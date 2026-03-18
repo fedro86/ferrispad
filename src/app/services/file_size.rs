@@ -27,7 +27,11 @@ pub enum FileSizeCheck {
 ///
 /// Both thresholds are in megabytes.
 /// If `warning_mb >= max_editable_mb` the Large tier is effectively skipped.
-pub fn check_file_size(path: &Path, warning_mb: u64, max_editable_mb: u64) -> io::Result<FileSizeCheck> {
+pub fn check_file_size(
+    path: &Path,
+    warning_mb: u64,
+    max_editable_mb: u64,
+) -> io::Result<FileSizeCheck> {
     let metadata = std::fs::metadata(path)?;
     let size = metadata.len();
 
@@ -246,7 +250,11 @@ mod tests {
     }
 
     // Helper for testing without actual files
-    fn check_file_size_from_value(size: u64, warning_mb: u64, max_editable_mb: u64) -> FileSizeCheck {
+    fn check_file_size_from_value(
+        size: u64,
+        warning_mb: u64,
+        max_editable_mb: u64,
+    ) -> FileSizeCheck {
         let max_editable = max_editable_mb * 1024 * 1024;
         let warning = warning_mb * 1024 * 1024;
         if size > max_editable {

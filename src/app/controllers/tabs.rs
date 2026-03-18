@@ -193,7 +193,6 @@ impl TabManager {
                 self.active_id = Some(self.documents[new_idx].id);
             }
         }
-
     }
 
     /// Move a tab from one index to another.
@@ -210,7 +209,11 @@ impl TabManager {
 
         let doc = self.documents.remove(from);
         // After removal, insertion indices >= from shift down by 1
-        let insert_at = if adjusted > from { adjusted - 1 } else { adjusted };
+        let insert_at = if adjusted > from {
+            adjusted - 1
+        } else {
+            adjusted
+        };
         let insert_at = insert_at.min(self.documents.len());
         if insert_at == from && self.documents.len() > from {
             // No actual move needed — re-insert at original position
@@ -223,7 +226,12 @@ impl TabManager {
     /// Move a tab to a new position and optionally change its group atomically.
     /// This bypasses clamp_insert_outside_foreign_group when a target group is specified,
     /// allowing the tab to be inserted inside the target group.
-    pub fn move_tab_to_group(&mut self, doc_id: DocumentId, to: usize, target_group: Option<GroupId>) {
+    pub fn move_tab_to_group(
+        &mut self,
+        doc_id: DocumentId,
+        to: usize,
+        target_group: Option<GroupId>,
+    ) {
         let from = match self.documents.iter().position(|d| d.id == doc_id) {
             Some(i) => i,
             None => return,
@@ -244,7 +252,11 @@ impl TabManager {
 
     /// If `pos` falls inside a contiguous run of a group that `source_group` doesn't belong to,
     /// snap it to the nearest boundary of that group.
-    fn clamp_insert_outside_foreign_group(&self, pos: usize, source_group: Option<GroupId>) -> usize {
+    fn clamp_insert_outside_foreign_group(
+        &self,
+        pos: usize,
+        source_group: Option<GroupId>,
+    ) -> usize {
         if pos == 0 || pos >= self.documents.len() {
             return pos;
         }
@@ -254,20 +266,26 @@ impl TabManager {
 
         // Only a problem if both sides are the same group AND source isn't part of it
         if let Some(gid) = left_group
-            && left_group == right_group && source_group != Some(gid) {
-                // Find the group boundary — snap to the end of this group
-                let group_end = self.documents.iter()
-                    .rposition(|d| d.group_id == Some(gid))
-                    .map_or(pos, |i| i + 1);
-                return group_end;
-            }
+            && left_group == right_group
+            && source_group != Some(gid)
+        {
+            // Find the group boundary — snap to the end of this group
+            let group_end = self
+                .documents
+                .iter()
+                .rposition(|d| d.group_id == Some(gid))
+                .map_or(pos, |i| i + 1);
+            return group_end;
+        }
         pos
     }
 
     /// Move all tabs belonging to a group to a new position.
     pub fn move_group(&mut self, group_id: GroupId, to: usize) {
         // Collect the indices of all tabs in this group (in order)
-        let group_indices: Vec<usize> = self.documents.iter()
+        let group_indices: Vec<usize> = self
+            .documents
+            .iter()
             .enumerate()
             .filter(|(_, d)| d.group_id == Some(group_id))
             .map(|(i, _)| i)
@@ -336,7 +354,6 @@ impl TabManager {
     pub fn doc_by_id_mut(&mut self, id: DocumentId) -> Option<&mut Document> {
         self.documents.iter_mut().find(|d| d.id == id)
     }
-
 
     /// Get the next document id (for tab cycling)
     pub fn next_doc_id(&self) -> Option<DocumentId> {
@@ -422,19 +439,23 @@ impl TabManager {
         }
         // Move the tab to sit next to its group members
         if let Some(gid) = group_id
-            && let Some(src) = self.documents.iter().position(|d| d.id == doc_id) {
-                // Find the last tab in this group (excluding the one we're moving)
-                let last_in_group = self.documents.iter().enumerate()
-                    .filter(|(i, d)| d.group_id == Some(gid) && *i != src)
-                    .map(|(i, _)| i)
-                    .next_back();
-                if let Some(dest) = last_in_group {
-                    let doc = self.documents.remove(src);
-                    // If we removed before dest, dest shifted left by 1
-                    let insert_at = if src < dest { dest } else { dest + 1 };
-                    self.documents.insert(insert_at, doc);
-                }
+            && let Some(src) = self.documents.iter().position(|d| d.id == doc_id)
+        {
+            // Find the last tab in this group (excluding the one we're moving)
+            let last_in_group = self
+                .documents
+                .iter()
+                .enumerate()
+                .filter(|(i, d)| d.group_id == Some(gid) && *i != src)
+                .map(|(i, _)| i)
+                .next_back();
+            if let Some(dest) = last_in_group {
+                let doc = self.documents.remove(src);
+                // If we removed before dest, dest shifted left by 1
+                let insert_at = if src < dest { dest } else { dest + 1 };
+                self.documents.insert(insert_at, doc);
             }
+        }
     }
 
     pub fn toggle_group_collapsed(&mut self, id: GroupId) {

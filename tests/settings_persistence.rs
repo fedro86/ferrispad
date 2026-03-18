@@ -3,8 +3,7 @@ use std::fs;
 use tempfile::tempdir;
 
 use ferris_pad::app::domain::settings::{
-    AppSettings, FontChoice, PluginApprovals, ShortcutOverride, SyntaxTheme,
-    ThemeMode,
+    AppSettings, FontChoice, PluginApprovals, ShortcutOverride, SyntaxTheme, ThemeMode,
 };
 use ferris_pad::app::services::session::SessionRestore;
 use ferris_pad::app::services::updater::UpdateChannel;
@@ -111,7 +110,10 @@ fn test_settings_with_shortcut_overrides() {
     let loaded: AppSettings = serde_json::from_str(&json).unwrap();
 
     assert_eq!(loaded.shortcut_overrides.len(), 3);
-    assert_eq!(loaded.shortcut_overrides["File/Save"].shortcut, "Ctrl+Shift+S");
+    assert_eq!(
+        loaded.shortcut_overrides["File/Save"].shortcut,
+        "Ctrl+Shift+S"
+    );
     assert!(loaded.shortcut_overrides["File/Save"].enabled);
     assert!(loaded.shortcut_overrides["Edit/Undo"].shortcut.is_empty());
     assert!(!loaded.shortcut_overrides["Edit/Redo"].enabled);

@@ -60,7 +60,6 @@ impl SparseCheckpoints {
     pub fn checkpoint_line(idx: usize) -> usize {
         idx * CHECKPOINT_INTERVAL
     }
-
 }
 
 impl Default for SparseCheckpoints {

@@ -1,22 +1,16 @@
 use fltk::{
-    app::Sender,
-    enums::Color,
-    frame::Frame,
-    group::Flex,
-    image::PngImage,
-    menu::MenuBar,
-    prelude::*,
-    window::Window,
+    app::Sender, enums::Color, frame::Frame, group::Flex, image::PngImage, menu::MenuBar,
+    prelude::*, window::Window,
 };
 
-use crate::app::domain::settings::TreePanelPosition;
-use crate::app::Message;
 use super::diagnostic_panel::DiagnosticPanel;
 use super::editor_container::EditorContainer;
-use super::tab_bar::{TabBar, TAB_BAR_HEIGHT};
-use super::toast::Toast;
 use super::split_panel::SplitPanel;
+use super::tab_bar::{TAB_BAR_HEIGHT, TabBar};
+use super::toast::Toast;
 use super::tree_panel::TreePanel;
+use crate::app::Message;
+use crate::app::domain::settings::TreePanelPosition;
 
 /// Subset of MainWidgets used during the dispatch loop.
 /// Created after `editor_container` and `tab_bar` are moved into AppState.
@@ -40,7 +34,10 @@ pub struct LayoutWidgets {
 #[macro_export]
 macro_rules! split_parent {
     ($lw:expr) => {
-        $lw.right_col.as_mut().map(|rc| rc as &mut fltk::group::Flex).unwrap_or(&mut $lw.flex)
+        $lw.right_col
+            .as_mut()
+            .map(|rc| rc as &mut fltk::group::Flex)
+            .unwrap_or(&mut $lw.flex)
     };
 }
 
@@ -63,7 +60,11 @@ pub struct MainWidgets {
     pub tree_position: TreePanelPosition,
 }
 
-pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_position: TreePanelPosition) -> MainWidgets {
+pub fn build_main_window(
+    tabs_enabled: bool,
+    sender: &Sender<Message>,
+    tree_position: TreePanelPosition,
+) -> MainWidgets {
     let mut wind = Window::new(100, 100, 640, 480, "Untitled - \u{1f980} FerrisPad");
     wind.set_xclass("FerrisPad");
 

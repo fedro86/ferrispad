@@ -9,8 +9,8 @@
 
 use mlua::{Function, HookTriggers, Lua, Result as LuaResult, Table, Value, VmState};
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Default maximum instructions per hook call (1 million).
 /// This prevents infinite loops while allowing complex operations.
@@ -225,13 +225,13 @@ impl LuaRuntime {
     }
 
     /// Create an empty table in the Lua context
-    #[allow(dead_code)]  // Used in tests; production code calls lua().create_table() directly
+    #[allow(dead_code)] // Used in tests; production code calls lua().create_table() directly
     pub fn create_table(&self) -> LuaResult<Table> {
         self.lua.create_table()
     }
 
     /// Create a function in the Lua context
-    #[allow(dead_code)]  // Reserved for future plugin API expansion
+    #[allow(dead_code)] // Reserved for future plugin API expansion
     pub fn create_function<F, A, R>(&self, func: F) -> LuaResult<Function>
     where
         F: Fn(&Lua, A) -> LuaResult<R> + 'static,
@@ -377,22 +377,24 @@ mod tests {
         let runtime = LuaRuntime::with_limits(DEFAULT_MAX_INSTRUCTIONS, 100 * 1024).unwrap();
 
         // Try to allocate a large table that exceeds the limit
-        let result = runtime.lua().load(
-            r#"
+        let result = runtime
+            .lua()
+            .load(
+                r#"
             local t = {}
             for i = 1, 1000000 do
                 t[i] = string.rep("x", 1000)  -- 1KB strings
             end
             return #t
             "#,
-        ).exec();
+            )
+            .exec();
 
         assert!(result.is_err());
         let err = result.unwrap_err();
         // Memory errors in mlua are typically MemoryError variant
         assert!(
-            matches!(err, mlua::Error::MemoryError(_))
-                || err.to_string().contains("memory"),
+            matches!(err, mlua::Error::MemoryError(_)) || err.to_string().contains("memory"),
             "Expected memory error, got: {}",
             err
         );

@@ -8,8 +8,8 @@ use fltk::{
     window::Window,
 };
 
-use super::dialogs::{darken, lighten, SCROLLBAR_SIZE};
-use super::tab_bar::{theme_colors_from_bg, ThemeRgb};
+use super::dialogs::{SCROLLBAR_SIZE, darken, lighten};
+use super::tab_bar::{ThemeRgb, theme_colors_from_bg};
 
 /// Apply syntax theme colors (background/foreground) to the editor.
 /// Used for live preview when changing syntax themes in settings.
@@ -222,7 +222,7 @@ pub fn set_windows_titlebar_theme(window: &Window, is_dark: bool) {
     use std::mem::size_of;
     use std::ptr::from_ref;
     use windows::Win32::Foundation::HWND;
-    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
+    use windows::Win32::Graphics::Dwm::{DWMWINDOWATTRIBUTE, DwmSetWindowAttribute};
 
     // SAFETY: We call Windows DWM API to set the title bar dark mode attribute.
     // Preconditions:

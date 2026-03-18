@@ -8,7 +8,7 @@ use fltk::{
 };
 
 use crate::app::plugins::{PluginManager, plugin_display_name};
-use crate::app::services::shortcut_registry::{normalize_shortcut, ShortcutRegistry};
+use crate::app::services::shortcut_registry::{ShortcutRegistry, normalize_shortcut};
 use crate::app::{AppSettings, Message};
 
 /// Reserved keyboard shortcuts that plugins cannot override.
@@ -40,24 +40,24 @@ const RESERVED_SHORTCUTS: &[&str] = &[
 /// This table is the single source of truth for default built-in shortcuts.
 /// The `tabs_enabled` variants are handled separately in `build_menu()`.
 pub const BUILTIN_SHORTCUTS: &[(&str, &str)] = &[
-    ("File/New",                  "Ctrl+T"),       // Ctrl+N when tabs off
-    ("File/Open...",              "Ctrl+O"),
-    ("File/Save",                 "Ctrl+S"),
-    ("File/Save As...",           "Ctrl+Shift+S"),
-    ("File/Close Tab",            "Ctrl+W"),        // tabs only
-    ("File/Next Tab",             "Ctrl+Tab"),       // tabs only
-    ("File/Previous Tab",         "Ctrl+Shift+Tab"), // tabs only
-    ("File/Quit",                 "Ctrl+Q"),
-    ("Edit/Undo",                 "Ctrl+Z"),
-    ("Edit/Redo",                 "Ctrl+Shift+Z"),
-    ("Edit/Cut",                  "Ctrl+X"),
-    ("Edit/Copy",                 "Ctrl+C"),
-    ("Edit/Paste",                "Ctrl+V"),
-    ("Edit/Select All",           "Ctrl+A"),
-    ("Edit/Find...",              "Ctrl+F"),
-    ("Edit/Replace...",           "Ctrl+H"),
-    ("Edit/Go To Line...",        "Ctrl+G"),
-    ("View/Preview in Browser",   "Ctrl+M"),
+    ("File/New", "Ctrl+T"), // Ctrl+N when tabs off
+    ("File/Open...", "Ctrl+O"),
+    ("File/Save", "Ctrl+S"),
+    ("File/Save As...", "Ctrl+Shift+S"),
+    ("File/Close Tab", "Ctrl+W"),            // tabs only
+    ("File/Next Tab", "Ctrl+Tab"),           // tabs only
+    ("File/Previous Tab", "Ctrl+Shift+Tab"), // tabs only
+    ("File/Quit", "Ctrl+Q"),
+    ("Edit/Undo", "Ctrl+Z"),
+    ("Edit/Redo", "Ctrl+Shift+Z"),
+    ("Edit/Cut", "Ctrl+X"),
+    ("Edit/Copy", "Ctrl+C"),
+    ("Edit/Paste", "Ctrl+V"),
+    ("Edit/Select All", "Ctrl+A"),
+    ("Edit/Find...", "Ctrl+F"),
+    ("Edit/Replace...", "Ctrl+H"),
+    ("Edit/Go To Line...", "Ctrl+G"),
+    ("View/Preview in Browser", "Ctrl+M"),
     ("Plugins/General/Run All Checks", "Ctrl+Shift+L"),
 ];
 
@@ -73,7 +73,11 @@ pub fn resolve_shortcut(registry: &ShortcutRegistry, id: &str, default: &str) ->
 
 /// Apply shortcut overrides to an existing menu bar (in-place mutation).
 /// This avoids a full menu rebuild when only shortcuts change.
-pub fn apply_shortcut_overrides(menu: &mut MenuBar, registry: &ShortcutRegistry, tabs_enabled: bool) {
+pub fn apply_shortcut_overrides(
+    menu: &mut MenuBar,
+    registry: &ShortcutRegistry,
+    tabs_enabled: bool,
+) {
     for &(id, default) in BUILTIN_SHORTCUTS {
         // Skip tab-only shortcuts when tabs are disabled
         if !tabs_enabled && matches!(id, "File/Close Tab" | "File/Next Tab" | "File/Previous Tab") {
@@ -157,20 +161,62 @@ fn parse_shortcut(s: &str) -> Option<Shortcut> {
 
                 // Named special keys
                 match lower.as_str() {
-                    "tab" => { result = result | Key::Tab; continue; }
-                    "backspace" => { result = result | Key::BackSpace; continue; }
-                    "delete" | "del" => { result = result | Key::Delete; continue; }
-                    "insert" | "ins" => { result = result | Key::Insert; continue; }
-                    "home" => { result = result | Key::Home; continue; }
-                    "end" => { result = result | Key::End; continue; }
-                    "pageup" | "pgup" => { result = result | Key::PageUp; continue; }
-                    "pagedown" | "pgdn" => { result = result | Key::PageDown; continue; }
-                    "left" => { result = result | Key::Left; continue; }
-                    "right" => { result = result | Key::Right; continue; }
-                    "up" => { result = result | Key::Up; continue; }
-                    "down" => { result = result | Key::Down; continue; }
-                    "space" => { result = result | Key::from_char(' '); continue; }
-                    "escape" | "esc" => { result = result | Key::Escape; continue; }
+                    "tab" => {
+                        result = result | Key::Tab;
+                        continue;
+                    }
+                    "backspace" => {
+                        result = result | Key::BackSpace;
+                        continue;
+                    }
+                    "delete" | "del" => {
+                        result = result | Key::Delete;
+                        continue;
+                    }
+                    "insert" | "ins" => {
+                        result = result | Key::Insert;
+                        continue;
+                    }
+                    "home" => {
+                        result = result | Key::Home;
+                        continue;
+                    }
+                    "end" => {
+                        result = result | Key::End;
+                        continue;
+                    }
+                    "pageup" | "pgup" => {
+                        result = result | Key::PageUp;
+                        continue;
+                    }
+                    "pagedown" | "pgdn" => {
+                        result = result | Key::PageDown;
+                        continue;
+                    }
+                    "left" => {
+                        result = result | Key::Left;
+                        continue;
+                    }
+                    "right" => {
+                        result = result | Key::Right;
+                        continue;
+                    }
+                    "up" => {
+                        result = result | Key::Up;
+                        continue;
+                    }
+                    "down" => {
+                        result = result | Key::Down;
+                        continue;
+                    }
+                    "space" => {
+                        result = result | Key::from_char(' ');
+                        continue;
+                    }
+                    "escape" | "esc" => {
+                        result = result | Key::Escape;
+                        continue;
+                    }
                     _ => {}
                 }
 
@@ -220,54 +266,232 @@ pub fn build_menu(
             .map(|(_, v)| *v)
             .unwrap_or("");
         // File/New uses Ctrl+N when tabs disabled
-        let actual_default = if id == "File/New" && !tabs_enabled { "Ctrl+N" } else { default };
+        let actual_default = if id == "File/New" && !tabs_enabled {
+            "Ctrl+N"
+        } else {
+            default
+        };
         resolve_shortcut(registry, id, actual_default)
     };
 
     // File
-    menu.add("File/New", rs("File/New"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::FileNew) });
-    menu.add("File/Open...", rs("File/Open..."), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::FileOpen) });
-    menu.add("File/Save", rs("File/Save"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::FileSave) });
-    menu.add("File/Save As...", rs("File/Save As..."), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::FileSaveAs) });
+    menu.add("File/New", rs("File/New"), MenuFlag::Normal, {
+        let s = *s;
+        move |_| s.send(Message::FileNew)
+    });
+    menu.add("File/Open...", rs("File/Open..."), MenuFlag::Normal, {
+        let s = *s;
+        move |_| s.send(Message::FileOpen)
+    });
+    menu.add("File/Save", rs("File/Save"), MenuFlag::Normal, {
+        let s = *s;
+        move |_| s.send(Message::FileSave)
+    });
+    menu.add(
+        "File/Save As...",
+        rs("File/Save As..."),
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::FileSaveAs)
+        },
+    );
     if tabs_enabled {
-        menu.add("File/Close Tab", rs("File/Close Tab"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TabCloseActive) });
-        menu.add("File/Next Tab", rs("File/Next Tab"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TabNext) });
-        menu.add("File/Previous Tab", rs("File/Previous Tab"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TabPrevious) });
+        menu.add("File/Close Tab", rs("File/Close Tab"), MenuFlag::Normal, {
+            let s = *s;
+            move |_| s.send(Message::TabCloseActive)
+        });
+        menu.add("File/Next Tab", rs("File/Next Tab"), MenuFlag::Normal, {
+            let s = *s;
+            move |_| s.send(Message::TabNext)
+        });
+        menu.add(
+            "File/Previous Tab",
+            rs("File/Previous Tab"),
+            MenuFlag::Normal,
+            {
+                let s = *s;
+                move |_| s.send(Message::TabPrevious)
+            },
+        );
     }
-    menu.add("File/Settings...", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::OpenSettings) });
-    menu.add("File/Quit", rs("File/Quit"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::FileQuit) });
+    menu.add("File/Settings...", Shortcut::None, MenuFlag::Normal, {
+        let s = *s;
+        move |_| s.send(Message::OpenSettings)
+    });
+    menu.add("File/Quit", rs("File/Quit"), MenuFlag::Normal, {
+        let s = *s;
+        move |_| s.send(Message::FileQuit)
+    });
 
     // Edit
-    menu.add("Edit/Undo", rs("Edit/Undo"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::EditUndo) });
-    menu.add("Edit/Redo", rs("Edit/Redo"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::EditRedo) });
-    menu.add("Edit/Cut", rs("Edit/Cut"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::EditCut) });
-    menu.add("Edit/Copy", rs("Edit/Copy"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::EditCopy) });
-    menu.add("Edit/Paste", rs("Edit/Paste"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::EditPaste) });
-    menu.add("Edit/Select All", rs("Edit/Select All"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::SelectAll) });
-    menu.add("Edit/Find...", rs("Edit/Find..."), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::ShowFind) });
-    menu.add("Edit/Replace...", rs("Edit/Replace..."), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::ShowReplace) });
-    menu.add("Edit/Go To Line...", rs("Edit/Go To Line..."), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::ShowGoToLine) });
-    menu.add("Edit/Key Shortcuts...", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::ShowKeyShortcuts) });
+    menu.add("Edit/Undo", rs("Edit/Undo"), MenuFlag::Normal, {
+        let s = *s;
+        move |_| s.send(Message::EditUndo)
+    });
+    menu.add("Edit/Redo", rs("Edit/Redo"), MenuFlag::Normal, {
+        let s = *s;
+        move |_| s.send(Message::EditRedo)
+    });
+    menu.add("Edit/Cut", rs("Edit/Cut"), MenuFlag::Normal, {
+        let s = *s;
+        move |_| s.send(Message::EditCut)
+    });
+    menu.add("Edit/Copy", rs("Edit/Copy"), MenuFlag::Normal, {
+        let s = *s;
+        move |_| s.send(Message::EditCopy)
+    });
+    menu.add("Edit/Paste", rs("Edit/Paste"), MenuFlag::Normal, {
+        let s = *s;
+        move |_| s.send(Message::EditPaste)
+    });
+    menu.add(
+        "Edit/Select All",
+        rs("Edit/Select All"),
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::SelectAll)
+        },
+    );
+    menu.add("Edit/Find...", rs("Edit/Find..."), MenuFlag::Normal, {
+        let s = *s;
+        move |_| s.send(Message::ShowFind)
+    });
+    menu.add(
+        "Edit/Replace...",
+        rs("Edit/Replace..."),
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::ShowReplace)
+        },
+    );
+    menu.add(
+        "Edit/Go To Line...",
+        rs("Edit/Go To Line..."),
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::ShowGoToLine)
+        },
+    );
+    menu.add("Edit/Key Shortcuts...", Shortcut::None, MenuFlag::Normal, {
+        let s = *s;
+        move |_| s.send(Message::ShowKeyShortcuts)
+    });
 
     // View
-    let ln_flag = if settings.line_numbers_enabled { MenuFlag::Toggle | MenuFlag::Value } else { MenuFlag::Toggle };
-    menu.add("View/Toggle Line Numbers", Shortcut::None, ln_flag, { let s = *s; move |_| s.send(Message::ToggleLineNumbers) });
-    let ww_flag = if settings.word_wrap_enabled { MenuFlag::Toggle | MenuFlag::Value } else { MenuFlag::Toggle };
-    menu.add("View/Toggle Word Wrap", Shortcut::None, ww_flag, { let s = *s; move |_| s.send(Message::ToggleWordWrap) });
-    let dm_flag = if initial_dark_mode { MenuFlag::Toggle | MenuFlag::Value } else { MenuFlag::Toggle };
-    menu.add("View/Toggle Dark Mode", Shortcut::None, dm_flag, { let s = *s; move |_| s.send(Message::ToggleDarkMode) });
-    let hl_flag = if settings.highlighting_enabled { MenuFlag::Toggle | MenuFlag::Value } else { MenuFlag::Toggle };
-    menu.add("View/Toggle Syntax Highlighting", Shortcut::None, hl_flag, { let s = *s; move |_| s.send(Message::ToggleHighlighting) });
-    menu.add("View/Preview in Browser", rs("View/Preview in Browser"), MenuFlag::Normal, { let s = *s; move |_| s.send(Message::TogglePreview) });
-    menu.add("View/Diagnostics Panel", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::ToggleDiagnosticsPanel) });
+    let ln_flag = if settings.line_numbers_enabled {
+        MenuFlag::Toggle | MenuFlag::Value
+    } else {
+        MenuFlag::Toggle
+    };
+    menu.add("View/Toggle Line Numbers", Shortcut::None, ln_flag, {
+        let s = *s;
+        move |_| s.send(Message::ToggleLineNumbers)
+    });
+    let ww_flag = if settings.word_wrap_enabled {
+        MenuFlag::Toggle | MenuFlag::Value
+    } else {
+        MenuFlag::Toggle
+    };
+    menu.add("View/Toggle Word Wrap", Shortcut::None, ww_flag, {
+        let s = *s;
+        move |_| s.send(Message::ToggleWordWrap)
+    });
+    let dm_flag = if initial_dark_mode {
+        MenuFlag::Toggle | MenuFlag::Value
+    } else {
+        MenuFlag::Toggle
+    };
+    menu.add("View/Toggle Dark Mode", Shortcut::None, dm_flag, {
+        let s = *s;
+        move |_| s.send(Message::ToggleDarkMode)
+    });
+    let hl_flag = if settings.highlighting_enabled {
+        MenuFlag::Toggle | MenuFlag::Value
+    } else {
+        MenuFlag::Toggle
+    };
+    menu.add(
+        "View/Toggle Syntax Highlighting",
+        Shortcut::None,
+        hl_flag,
+        {
+            let s = *s;
+            move |_| s.send(Message::ToggleHighlighting)
+        },
+    );
+    menu.add(
+        "View/Preview in Browser",
+        rs("View/Preview in Browser"),
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::TogglePreview)
+        },
+    );
+    menu.add(
+        "View/Diagnostics Panel",
+        Shortcut::None,
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::ToggleDiagnosticsPanel)
+        },
+    );
 
     // Format
-    menu.add("Format/Font/Screen (Bold)", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::SetFont(Font::ScreenBold)) });
-    menu.add("Format/Font/Courier", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::SetFont(Font::Courier)) });
-    menu.add("Format/Font/Helvetica Mono", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::SetFont(Font::Screen)) });
-    menu.add("Format/Font Size/Small (12)", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::SetFontSize(12)) });
-    menu.add("Format/Font Size/Medium (16)", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::SetFontSize(16)) });
-    menu.add("Format/Font Size/Large (20)", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::SetFontSize(20)) });
+    menu.add(
+        "Format/Font/Screen (Bold)",
+        Shortcut::None,
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::SetFont(Font::ScreenBold))
+        },
+    );
+    menu.add("Format/Font/Courier", Shortcut::None, MenuFlag::Normal, {
+        let s = *s;
+        move |_| s.send(Message::SetFont(Font::Courier))
+    });
+    menu.add(
+        "Format/Font/Helvetica Mono",
+        Shortcut::None,
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::SetFont(Font::Screen))
+        },
+    );
+    menu.add(
+        "Format/Font Size/Small (12)",
+        Shortcut::None,
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::SetFontSize(12))
+        },
+    );
+    menu.add(
+        "Format/Font Size/Medium (16)",
+        Shortcut::None,
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::SetFontSize(16))
+        },
+    );
+    menu.add(
+        "Format/Font Size/Large (20)",
+        Shortcut::None,
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::SetFontSize(20))
+        },
+    );
 
     // Plugins - General submenu with core functionality
     let plugins_flag = if settings.plugins_enabled {
@@ -323,8 +547,19 @@ pub fn build_menu(
     );
 
     // Help
-    menu.add("Help/About FerrisPad", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::ShowAbout) });
-    menu.add("Help/Check for Updates...", Shortcut::None, MenuFlag::Normal, { let s = *s; move |_| s.send(Message::CheckForUpdates) });
+    menu.add("Help/About FerrisPad", Shortcut::None, MenuFlag::Normal, {
+        let s = *s;
+        move |_| s.send(Message::ShowAbout)
+    });
+    menu.add(
+        "Help/Check for Updates...",
+        Shortcut::None,
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::CheckForUpdates)
+        },
+    );
 }
 
 /// Remove all menu entries for a plugin by name.
@@ -394,10 +629,8 @@ pub fn rebuild_plugins_menu_with_orphans(
     registry: &ShortcutRegistry,
 ) {
     // Build set of reserved shortcuts
-    let mut used_shortcuts: HashSet<String> = RESERVED_SHORTCUTS
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let mut used_shortcuts: HashSet<String> =
+        RESERVED_SHORTCUTS.iter().map(|s| s.to_string()).collect();
 
     // Find and remove old plugin entries (except Enable Plugins, Reload All, Run Checks)
     // This is a bit hacky but FLTK doesn't have great dynamic menu support
@@ -457,13 +690,9 @@ pub fn rebuild_plugins_menu_with_orphans(
                     let plugin_name = plugin.name.clone();
                     let s = *sender;
 
-                    menu.insert(
-                        insert_pos,
-                        &label,
-                        Shortcut::None,
-                        flag,
-                        move |_| s.send(Message::PluginToggle(plugin_name.clone())),
-                    );
+                    menu.insert(insert_pos, &label, Shortcut::None, flag, move |_| {
+                        s.send(Message::PluginToggle(plugin_name.clone()))
+                    });
                     insert_pos += 1;
                 } else {
                     // Plugin with menu items: create submenu
@@ -481,13 +710,9 @@ pub fn rebuild_plugins_menu_with_orphans(
                     let plugin_name = plugin.name.clone();
                     let s = *sender;
 
-                    menu.insert(
-                        insert_pos,
-                        &enable_label,
-                        Shortcut::None,
-                        flag,
-                        move |_| s.send(Message::PluginToggle(plugin_name.clone())),
-                    );
+                    menu.insert(insert_pos, &enable_label, Shortcut::None, flag, move |_| {
+                        s.send(Message::PluginToggle(plugin_name.clone()))
+                    });
                     insert_pos += 1;
 
                     // Add "Settings..." menu item for plugin configuration

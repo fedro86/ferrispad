@@ -16,7 +16,12 @@ pub fn extract_filename(path: &str) -> String {
 ///
 /// Returns the byte position of the match, or None if not found.
 /// Searches from start_pos onwards.
-pub fn find_in_text(text: &str, search: &str, start_pos: usize, case_sensitive: bool) -> Option<usize> {
+pub fn find_in_text(
+    text: &str,
+    search: &str,
+    start_pos: usize,
+    case_sensitive: bool,
+) -> Option<usize> {
     if search.is_empty() || start_pos >= text.len() {
         return None;
     }
@@ -40,7 +45,12 @@ pub fn find_in_text(text: &str, search: &str, start_pos: usize, case_sensitive: 
 ///
 /// Returns the byte position of the match, or None if not found.
 /// Searches backwards from start_pos (exclusive).
-pub fn find_in_text_backward(text: &str, search: &str, start_pos: usize, case_sensitive: bool) -> Option<usize> {
+pub fn find_in_text_backward(
+    text: &str,
+    search: &str,
+    start_pos: usize,
+    case_sensitive: bool,
+) -> Option<usize> {
     if search.is_empty() || start_pos == 0 {
         return None;
     }
@@ -81,7 +91,12 @@ pub fn line_number_to_byte_position(text: &str, line: usize) -> Option<usize> {
 /// Replace all occurrences of search string with replacement
 ///
 /// Returns (new_text, count_of_replacements)
-pub fn replace_all_in_text(text: &str, search: &str, replace: &str, case_sensitive: bool) -> (String, usize) {
+pub fn replace_all_in_text(
+    text: &str,
+    search: &str,
+    replace: &str,
+    case_sensitive: bool,
+) -> (String, usize) {
     if search.is_empty() {
         return (text.to_string(), 0);
     }
@@ -119,7 +134,10 @@ mod tests {
         assert_eq!(extract_filename("/home/user/test.txt"), "test.txt");
         assert_eq!(extract_filename("/home/user/document.md"), "document.md");
         assert_eq!(extract_filename("test.txt"), "test.txt");
-        assert_eq!(extract_filename("/path/with/many/levels/file.rs"), "file.rs");
+        assert_eq!(
+            extract_filename("/path/with/many/levels/file.rs"),
+            "file.rs"
+        );
     }
 
     #[test]

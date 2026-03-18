@@ -59,7 +59,6 @@ pub struct EditorApi {
     pub config: HashMap<String, String>,
 }
 
-
 impl EditorApi {
     /// Compute project root from a file path
     fn compute_project_root(path: Option<&str>) -> Option<PathBuf> {
@@ -229,7 +228,10 @@ mod tests {
         assert!(paths.contains(&"a"), "Should find a/");
         assert!(paths.contains(&"a/b"), "Should find a/b/");
         assert!(!paths.contains(&"a/b/c"), "Depth 2 should not reach a/b/c/");
-        assert!(!paths.contains(&"a/b/c/d.txt"), "Depth 2 should not reach a/b/c/d.txt");
+        assert!(
+            !paths.contains(&"a/b/c/d.txt"),
+            "Depth 2 should not reach a/b/c/d.txt"
+        );
     }
 
     #[test]
@@ -270,16 +272,23 @@ mod tests {
             let ud = scope.create_userdata(api).unwrap();
             let is_file: mlua::Function = ud.get("is_file").unwrap();
 
-            let yes: bool = is_file.call((&ud, root.join("exists.txt").to_str().unwrap().to_string())).unwrap();
+            let yes: bool = is_file
+                .call((&ud, root.join("exists.txt").to_str().unwrap().to_string()))
+                .unwrap();
             assert!(yes, "exists.txt should be a file");
 
-            let no: bool = is_file.call((&ud, root.join("adir").to_str().unwrap().to_string())).unwrap();
+            let no: bool = is_file
+                .call((&ud, root.join("adir").to_str().unwrap().to_string()))
+                .unwrap();
             assert!(!no, "adir is a directory, not a file");
 
-            let no2: bool = is_file.call((&ud, root.join("nope.txt").to_str().unwrap().to_string())).unwrap();
+            let no2: bool = is_file
+                .call((&ud, root.join("nope.txt").to_str().unwrap().to_string()))
+                .unwrap();
             assert!(!no2, "nope.txt does not exist");
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
     }
 
     #[test]
@@ -295,11 +304,14 @@ mod tests {
             let ud = scope.create_userdata(api).unwrap();
             let list_dir: mlua::Function = ud.get("list_dir").unwrap();
 
-            let tbl: mlua::Table = list_dir.call((&ud, root.to_str().unwrap().to_string())).unwrap();
+            let tbl: mlua::Table = list_dir
+                .call((&ud, root.to_str().unwrap().to_string()))
+                .unwrap();
             let len = tbl.len().unwrap();
             assert!(len >= 2, "Should have at least 2 entries, got {}", len);
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
     }
 
     #[test]
@@ -331,7 +343,8 @@ mod tests {
             assert!(ok3, "remove should succeed: {}", err3);
             assert!(!file_path.exists());
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
     }
 
     #[test]
@@ -362,7 +375,8 @@ mod tests {
             assert!(renamed.is_dir());
             assert!(!dir_path.exists());
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
     }
 
     #[test]
@@ -379,11 +393,14 @@ mod tests {
         lua.scope(|scope| {
             let ud = scope.create_userdata(api).unwrap();
             let remove: mlua::Function = ud.get("remove").unwrap();
-            let (ok, err): (bool, String) = remove.call((&ud, sub.to_str().unwrap().to_string())).unwrap();
+            let (ok, err): (bool, String) = remove
+                .call((&ud, sub.to_str().unwrap().to_string()))
+                .unwrap();
             assert!(ok, "remove dir should succeed: {}", err);
             assert!(!sub.exists());
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
     }
 
     #[test]
@@ -400,12 +417,19 @@ mod tests {
         lua.scope(|scope| {
             let ud = scope.create_userdata(api).unwrap();
             let scan: mlua::Function = ud.get("scan_dir").unwrap();
-            let tbl: mlua::Table = scan.call((&ud, root.to_str().unwrap().to_string())).unwrap();
+            let tbl: mlua::Table = scan
+                .call((&ud, root.to_str().unwrap().to_string()))
+                .unwrap();
 
             let len = tbl.len().unwrap();
-            assert!(len >= 3, "Should have src/, src/main.rs, README.md; got {}", len);
+            assert!(
+                len >= 3,
+                "Should have src/, src/main.rs, README.md; got {}",
+                len
+            );
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
     }
 
     #[test]
@@ -421,7 +445,9 @@ mod tests {
 
             // create_file outside root
             let create: mlua::Function = ud.get("create_file").unwrap();
-            let (ok, _): (bool, String) = create.call((&ud, "/tmp/should_not_exist_ferrispad_test.txt".to_string())).unwrap();
+            let (ok, _): (bool, String) = create
+                .call((&ud, "/tmp/should_not_exist_ferrispad_test.txt".to_string()))
+                .unwrap();
             assert!(!ok, "create_file outside root should fail");
 
             // remove outside root
@@ -429,7 +455,8 @@ mod tests {
             let (ok2, _): (bool, String) = remove.call((&ud, "/etc/passwd".to_string())).unwrap();
             assert!(!ok2, "remove outside root should fail");
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
     }
 
     // ── S1: resolve_and_validate NotFound bypass tests ────────────────
@@ -486,7 +513,10 @@ mod tests {
             let ud = scope.create_userdata(api).unwrap();
             let file_exists: mlua::Function = ud.get("file_exists").unwrap();
             let result: bool = file_exists.call((&ud, "/etc/hosts".to_string())).unwrap();
-            assert!(!result, "file_exists without project root should return false");
+            assert!(
+                !result,
+                "file_exists without project root should return false"
+            );
             Ok(())
         })
         .unwrap();
@@ -563,10 +593,14 @@ mod tests {
         lua.scope(|scope| {
             let ud = scope.create_userdata(api).unwrap();
             let read_file: mlua::Function = ud.get("read_file").unwrap();
-            let (content, err): (String, mlua::Value) =
-                read_file.call((&ud, root.join("hello.txt").to_str().unwrap().to_string())).unwrap();
+            let (content, err): (String, mlua::Value) = read_file
+                .call((&ud, root.join("hello.txt").to_str().unwrap().to_string()))
+                .unwrap();
             assert_eq!(content, "Hello, world!");
-            assert!(matches!(err, mlua::Value::Nil), "error should be nil on success");
+            assert!(
+                matches!(err, mlua::Value::Nil),
+                "error should be nil on success"
+            );
             Ok(())
         })
         .unwrap();
@@ -585,7 +619,10 @@ mod tests {
             let read_file: mlua::Function = ud.get("read_file").unwrap();
             let (content, err): (mlua::Value, Option<String>) =
                 read_file.call((&ud, "/etc/hosts".to_string())).unwrap();
-            assert!(matches!(content, mlua::Value::Nil), "content should be nil for blocked path");
+            assert!(
+                matches!(content, mlua::Value::Nil),
+                "content should be nil for blocked path"
+            );
             assert!(err.is_some(), "should return an error message");
             Ok(())
         })
@@ -602,7 +639,10 @@ mod tests {
             let read_file: mlua::Function = ud.get("read_file").unwrap();
             let (content, err): (mlua::Value, Option<String>) =
                 read_file.call((&ud, "/etc/hosts".to_string())).unwrap();
-            assert!(matches!(content, mlua::Value::Nil), "content should be nil without project root");
+            assert!(
+                matches!(content, mlua::Value::Nil),
+                "content should be nil without project root"
+            );
             assert_eq!(err, Some("No project root".to_string()));
             Ok(())
         })

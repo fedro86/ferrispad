@@ -68,7 +68,8 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
          Licensed under the MIT License\n\n\
          Built with Rust, FLTK, and Lua\n\n\
          Website: www.ferrispad.com\n\
-         GitHub: github.com/fedro86/ferrispad".to_string();
+         GitHub: github.com/fedro86/ferrispad"
+        .to_string();
 
     let mut info_frame = Frame::default();
     info_frame.set_label(&info_text);
@@ -87,7 +88,8 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
 
     // Credits
     let mut credits_frame = Frame::default();
-    credits_frame.set_label("Made with care by developers who believe\nsoftware should be fast and simple");
+    credits_frame
+        .set_label("Made with care by developers who believe\nsoftware should be fast and simple");
     credits_frame.set_label_size(11);
     credits_frame.set_label_color(theme.text_dim);
     credits_frame.set_align(fltk::enums::Align::Center | fltk::enums::Align::Inside);

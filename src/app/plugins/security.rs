@@ -11,8 +11,7 @@ pub const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Characters that indicate shell injection attempts
 const SHELL_INJECTION_CHARS: &[char] = &[
-    ';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r',
-    '\\', '*', '?', '[', ']',
+    ';', '&', '|', '`', '$', '(', ')', '{', '}', '<', '>', '\n', '\r', '\\', '*', '?', '[', ']',
 ];
 
 /// Result of path validation
@@ -71,7 +70,12 @@ pub fn validate_path(path: &str, project_root: &Path) -> PathValidation {
                         // Verify parent is within project root
                         let canonical_root = match std::fs::canonicalize(project_root) {
                             Ok(r) => r,
-                            Err(e) => return PathValidation::InvalidPath(format!("Cannot canonicalize project root: {}", e)),
+                            Err(e) => {
+                                return PathValidation::InvalidPath(format!(
+                                    "Cannot canonicalize project root: {}",
+                                    e
+                                ));
+                            }
                         };
                         if !canonical_parent.starts_with(&canonical_root) {
                             return PathValidation::OutsideProjectRoot;
@@ -92,7 +96,9 @@ pub fn validate_path(path: &str, project_root: &Path) -> PathValidation {
     // Canonicalize project root for comparison
     let canonical_root = match std::fs::canonicalize(project_root) {
         Ok(r) => r,
-        Err(e) => return PathValidation::InvalidPath(format!("Cannot canonicalize project root: {}", e)),
+        Err(e) => {
+            return PathValidation::InvalidPath(format!("Cannot canonicalize project root: {}", e));
+        }
     };
 
     // Check that canonical path is within project root
@@ -139,7 +145,7 @@ pub fn find_project_root(file_path: &Path) -> Option<PathBuf> {
         "package.json",
         "pyproject.toml",
         "setup.py",
-        ".ferrispad",  // Our own marker
+        ".ferrispad", // Our own marker
     ];
 
     loop {

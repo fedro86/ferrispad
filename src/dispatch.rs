@@ -10,6 +10,7 @@ use ferris_pad::split_parent;
 use crate::app::controllers::plugin::PluginController;
 use crate::app::controllers::update::BannerWidgets;
 use crate::app::domain::messages::Message;
+use crate::app::domain::settings::TreePanelPosition;
 use crate::app::infrastructure::defer::defer_send;
 use crate::app::plugins::widgets::SplitDisplayMode;
 use crate::app::services::updater::current_timestamp;
@@ -22,7 +23,6 @@ use crate::ui::main_window::LayoutWidgets;
 use crate::ui::split_panel::SplitPanel;
 use crate::ui::tab_bar::TAB_BAR_HEIGHT;
 use crate::ui::tree_panel::TreePanel;
-use crate::app::domain::settings::TreePanelPosition;
 
 /// Result from a dispatch handler that may request quit.
 pub enum DispatchResult {
@@ -37,14 +37,18 @@ pub enum DispatchResult {
 pub fn handle_file(msg: Message, state: &mut AppState) -> DispatchResult {
     match msg {
         Message::FileNew => {
-            let actions = state.file.file_new(&mut state.tab_manager, state.tabs_enabled);
+            let actions = state
+                .file
+                .file_new(&mut state.tab_manager, state.tabs_enabled);
             state.dispatch_file_actions(actions);
             state.session.mark_dirty();
         }
         Message::FileOpen => {
             let theme_bg = state.highlight.highlighter().theme_background();
             let actions = state.file.file_open(
-                &mut state.tab_manager, &state.settings, theme_bg,
+                &mut state.tab_manager,
+                &state.settings,
+                theme_bg,
                 state.tabs_enabled,
             );
             state.dispatch_file_actions(actions);
@@ -55,9 +59,10 @@ pub fn handle_file(msg: Message, state: &mut AppState) -> DispatchResult {
             state.session.mark_dirty();
         }
         Message::FileSaveAs => {
-            let actions = state.file.file_save_as(
-                &mut state.tab_manager, &state.plugins, state.tabs_enabled,
-            );
+            let actions =
+                state
+                    .file
+                    .file_save_as(&mut state.tab_manager, &state.plugins, state.tabs_enabled);
             state.dispatch_file_actions(actions);
             state.session.mark_dirty();
         }
@@ -82,7 +87,8 @@ pub fn handle_tab(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) ->
         Message::TabSwitch(id) => {
             // If diff tab is active in tab mode, collapse the split panel first
             if let Some(ref mut tb) = state.tab_bar
-                && tb.is_diff_tab_active() && lw.split_panel.is_tab_mode()
+                && tb.is_diff_tab_active()
+                && lw.split_panel.is_tab_mode()
             {
                 lw.split_panel.container.hide();
                 let parent = split_parent!(lw);
@@ -146,7 +152,9 @@ pub fn handle_tab(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) ->
             state.session.mark_dirty();
         }
         Message::TabGroupRename(group_id) => {
-            let current_name = state.tab_manager.group_by_id(group_id)
+            let current_name = state
+                .tab_manager
+                .group_by_id(group_id)
                 .map(|g| g.name.clone())
                 .unwrap_or_default();
             if let Some(new_name) = fltk::dialog::input_default("Group name:", &current_name) {
@@ -176,7 +184,9 @@ pub fn handle_tab(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) ->
             state.session.mark_dirty();
         }
         Message::TabGroupByDrag(source_id, target_id) => {
-            let target_group = state.tab_manager.documents()
+            let target_group = state
+                .tab_manager
+                .documents()
                 .iter()
                 .find(|d| d.id == target_id)
                 .and_then(|d| d.group_id);
@@ -209,11 +219,21 @@ pub fn handle_tab(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) ->
 
 pub fn handle_edit(msg: Message, state: &mut AppState) {
     match msg {
-        Message::EditUndo => { let _ = state.active_buffer().undo(); }
-        Message::EditRedo => { let _ = state.active_buffer().redo(); }
-        Message::EditCut => { state.editor.cut(); }
-        Message::EditCopy => { state.editor.copy(); }
-        Message::EditPaste => { state.editor.paste(); }
+        Message::EditUndo => {
+            let _ = state.active_buffer().undo();
+        }
+        Message::EditRedo => {
+            let _ = state.active_buffer().redo();
+        }
+        Message::EditCut => {
+            state.editor.cut();
+        }
+        Message::EditCopy => {
+            state.editor.copy();
+        }
+        Message::EditPaste => {
+            state.editor.paste();
+        }
         Message::SelectAll => {
             let mut buf = state.active_buffer();
             buf.select(0, buf.length());
@@ -282,7 +302,12 @@ pub fn handle_settings(msg: Message, state: &mut AppState, lw: &mut LayoutWidget
 
 pub fn handle_highlight(msg: Message, state: &mut AppState) {
     match msg {
-        Message::BufferModified { id, pos, inserted, deleted } => {
+        Message::BufferModified {
+            id,
+            pos,
+            inserted,
+            deleted,
+        } => {
             if let Some(doc) = state.tab_manager.doc_by_id_mut(id) {
                 doc.cached_tree = None;
                 doc.cached_line_count = doc.buffer.count_lines(0, doc.buffer.length()) as usize;
@@ -311,11 +336,14 @@ pub fn handle_highlight(msg: Message, state: &mut AppState) {
 pub fn handle_update(msg: Message, state: &mut AppState) {
     match msg {
         Message::BackgroundUpdateResult(Some(release)) => {
-            state.update.receive_update(release, &mut BannerWidgets {
-                banner_frame: &mut state.update_banner_frame,
-                flex: &mut state.flex,
-                window: &mut state.window,
-            });
+            state.update.receive_update(
+                release,
+                &mut BannerWidgets {
+                    banner_frame: &mut state.update_banner_frame,
+                    flex: &mut state.flex,
+                    window: &mut state.window,
+                },
+            );
             let mut s = state.settings.borrow_mut();
             s.last_update_check = current_timestamp();
             let _ = s.save();
@@ -326,11 +354,14 @@ pub fn handle_update(msg: Message, state: &mut AppState) {
             let _ = s.save();
         }
         Message::ShowBannerUpdate => {
-            state.update.show_update_dialog(&state.settings, &mut BannerWidgets {
-                banner_frame: &mut state.update_banner_frame,
-                flex: &mut state.flex,
-                window: &mut state.window,
-            });
+            state.update.show_update_dialog(
+                &state.settings,
+                &mut BannerWidgets {
+                    banner_frame: &mut state.update_banner_frame,
+                    flex: &mut state.flex,
+                    window: &mut state.window,
+                },
+            );
         }
         Message::DismissBanner => {
             state.update.dismiss_banner(&mut BannerWidgets {
@@ -352,48 +383,70 @@ pub fn handle_plugin(msg: Message, state: &mut AppState) {
     match msg {
         Message::PluginsToggleGlobal => {
             state.plugin_coord.handle_toggle_global(
-                &mut state.plugins, &state.settings, &state.shortcut_registry,
+                &mut state.plugins,
+                &state.settings,
+                &state.shortcut_registry,
                 &mut state.widget.widget_manager,
             );
         }
         Message::PluginToggle(name) => {
             state.plugin_coord.handle_toggle(
-                &mut state.plugins, &state.settings, &state.shortcut_registry, name,
+                &mut state.plugins,
+                &state.settings,
+                &state.shortcut_registry,
+                name,
                 &mut state.widget.widget_manager,
             );
         }
         Message::PluginsReloadAll => {
             state.plugin_coord.handle_reload(
-                &mut state.plugins, &state.settings, &state.shortcut_registry,
+                &mut state.plugins,
+                &state.settings,
+                &state.shortcut_registry,
                 &mut state.widget.widget_manager,
             );
         }
         Message::CheckPluginPermissions => {
             PluginController::check_permissions_deferred(&mut state.plugins, &state.settings);
         }
-        Message::PluginMenuAction { plugin_name, action } => {
+        Message::PluginMenuAction {
+            plugin_name,
+            action,
+        } => {
             state.widget.handle_plugin_menu_action(
-                &plugin_name, &action,
-                &mut state.plugins, &mut state.tab_manager,
+                &plugin_name,
+                &action,
+                &mut state.plugins,
+                &mut state.tab_manager,
                 &mut state.view,
             );
         }
         Message::ShowPluginManager => {
             let theme_bg = state.highlight.highlighter().theme_background();
             state.plugin_coord.show_manager(
-                &mut state.plugins, &state.settings, &state.shortcut_registry, theme_bg,
+                &mut state.plugins,
+                &state.settings,
+                &state.shortcut_registry,
+                theme_bg,
             );
         }
         Message::ShowPluginSettings => {
             let theme_bg = state.highlight.highlighter().theme_background();
             state.plugin_coord.show_settings(
-                &state.plugins, &state.settings, &state.shortcut_registry, theme_bg,
+                &state.plugins,
+                &state.settings,
+                &state.shortcut_registry,
+                theme_bg,
             );
         }
         Message::ShowPluginConfig(name) => {
             let theme_bg = state.highlight.highlighter().theme_background();
             state.plugin_coord.show_config(
-                &mut state.plugins, &state.settings, &state.shortcut_registry, &name, theme_bg,
+                &mut state.plugins,
+                &state.settings,
+                &state.shortcut_registry,
+                &name,
+                theme_bg,
             );
         }
         Message::CheckPluginUpdates => {
@@ -475,10 +528,14 @@ pub fn handle_diagnostic(msg: Message, state: &mut AppState, lw: &mut LayoutWidg
 pub fn handle_annotation(msg: Message, state: &mut AppState) {
     match msg {
         Message::AnnotationsUpdate(annotations) => {
-            state.highlight.update_annotations(annotations, &state.tab_manager, &mut state.editor);
+            state
+                .highlight
+                .update_annotations(annotations, &state.tab_manager, &mut state.editor);
         }
         Message::AnnotationsClear => {
-            state.highlight.clear_annotations(&mut state.tab_manager, &mut state.editor);
+            state
+                .highlight
+                .clear_annotations(&mut state.tab_manager, &mut state.editor);
         }
         Message::ManualHighlight => {
             state.request_manual_highlight();
@@ -504,7 +561,9 @@ pub fn handle_deferred(
         Message::DeferredTreeRefresh { path, content } => {
             fltk::app::flush();
             let content = if content.is_empty() {
-                state.tab_manager.active_doc()
+                state
+                    .tab_manager
+                    .active_doc()
                     .map(|d| crate::app::infrastructure::buffer::buffer_text_no_leak(&d.buffer))
                     .unwrap_or_default()
             } else {
@@ -513,7 +572,8 @@ pub fn handle_deferred(
             state.run_tree_refresh(path, content);
         }
         Message::DeferredSessionRestore => {
-            lw.toast.show(crate::ui::toast::ToastLevel::Info, "Restoring session...");
+            lw.toast
+                .show(crate::ui::toast::ToastLevel::Info, "Restoring session...");
             let height = lw.toast.current_height();
             lw.flex.fixed(lw.toast.widget(), height);
             lw.flex.recalc();
@@ -533,8 +593,11 @@ pub fn handle_deferred(
         Message::DeferredOpenFile(path) => {
             let theme_bg = state.highlight.highlighter().theme_background();
             let actions = state.file.open_file(
-                path, &mut state.tab_manager, &state.settings,
-                theme_bg, state.tabs_enabled,
+                path,
+                &mut state.tab_manager,
+                &state.settings,
+                theme_bg,
+                state.tabs_enabled,
             );
             state.dispatch_file_actions(actions);
         }
@@ -571,12 +634,22 @@ pub fn handle_toast(msg: Message, lw: &mut LayoutWidgets) {
 
 pub fn handle_split_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) {
     match msg {
-        Message::SplitViewShow { session_id, plugin_name, request } => {
+        Message::SplitViewShow {
+            session_id,
+            plugin_name,
+            request,
+        } => {
             let is_tab_mode = request.display_mode == SplitDisplayMode::Tab;
             let settings = state.settings.borrow().clone();
             state.widget.show_split_view(
-                session_id, &plugin_name, &request, &mut lw.split_panel,
-                &mut state.highlight, &mut state.view, &state.tab_manager, &settings,
+                session_id,
+                &plugin_name,
+                &request,
+                &mut lw.split_panel,
+                &mut state.highlight,
+                &mut state.view,
+                &state.tab_manager,
+                &settings,
             );
 
             let parent = split_parent!(lw);
@@ -603,8 +676,11 @@ pub fn handle_split_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidg
         }
         Message::SplitViewAccept(session_id) => {
             state.widget.handle_split_view_accept(
-                session_id, &mut lw.split_panel,
-                &mut state.plugins, &state.tab_manager, &mut state.editor,
+                session_id,
+                &mut lw.split_panel,
+                &mut state.plugins,
+                &state.tab_manager,
+                &mut state.editor,
             );
             let parent = split_parent!(lw);
             parent.fixed(lw.split_panel.widget(), 0);
@@ -619,7 +695,9 @@ pub fn handle_split_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidg
             lw.wind.redraw();
         }
         Message::SplitViewReject(session_id) => {
-            state.widget.handle_split_view_reject(session_id, &mut lw.split_panel);
+            state
+                .widget
+                .handle_split_view_reject(session_id, &mut lw.split_panel);
             let parent = split_parent!(lw);
             parent.fixed(lw.split_panel.widget(), 0);
             if let Some(ref mut div) = lw.split_panel.divider {
@@ -701,10 +779,19 @@ pub fn handle_split_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidg
 
 pub fn handle_tree_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) {
     match msg {
-        Message::TreeViewShow { session_id, plugin_name, request } => {
+        Message::TreeViewShow {
+            session_id,
+            plugin_name,
+            request,
+        } => {
             state.widget.show_tree_view(
-                session_id, &plugin_name, &request, &mut lw.tree_panel,
-                &state.highlight, &mut state.view, &mut state.tab_manager,
+                session_id,
+                &plugin_name,
+                &request,
+                &mut lw.tree_panel,
+                &state.highlight,
+                &mut state.view,
+                &mut state.tab_manager,
             );
             match lw.tree_position {
                 TreePanelPosition::Bottom => {
@@ -751,17 +838,33 @@ pub fn handle_tree_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidge
         Message::TreeViewLoading => {
             lw.tree_panel.show_loading();
         }
-        Message::TreeViewNodeClicked { session_id, node_path } => {
+        Message::TreeViewNodeClicked {
+            session_id,
+            node_path,
+        } => {
             state.widget.handle_tree_view_node_click(
-                session_id, node_path,
-                &mut state.plugins, &mut state.tab_manager,
+                session_id,
+                node_path,
+                &mut state.plugins,
+                &mut state.tab_manager,
                 &mut state.view,
             );
         }
-        Message::TreeViewContextAction { session_id, action, node_path, input_text, target_path } => {
+        Message::TreeViewContextAction {
+            session_id,
+            action,
+            node_path,
+            input_text,
+            target_path,
+        } => {
             state.widget.handle_tree_view_context_action(
-                session_id, action, node_path, input_text, target_path,
-                &mut state.plugins, &mut state.tab_manager,
+                session_id,
+                action,
+                node_path,
+                input_text,
+                target_path,
+                &mut state.plugins,
+                &mut state.tab_manager,
                 &mut state.view,
             );
         }
@@ -769,15 +872,16 @@ pub fn handle_tree_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidge
             lw.tree_panel.apply_search(&query);
         }
         Message::TreeViewResize(mouse_x) => {
-            if matches!(lw.tree_position, TreePanelPosition::Left | TreePanelPosition::Right) {
+            if matches!(
+                lw.tree_position,
+                TreePanelPosition::Left | TreePanelPosition::Right
+            ) {
                 let content_x = lw.content_row.x();
                 let content_w = lw.content_row.w();
                 let max_width = content_w / 2;
 
                 let new_width = match lw.tree_position {
-                    TreePanelPosition::Left => {
-                        (mouse_x - content_x).clamp(100, max_width)
-                    }
+                    TreePanelPosition::Left => (mouse_x - content_x).clamp(100, max_width),
                     TreePanelPosition::Right => {
                         (content_x + content_w - mouse_x).clamp(100, max_width)
                     }
@@ -820,7 +924,9 @@ pub fn handle_window(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets)
                 // back to the OS. Passing 0 trims all reclaimable heap pages.
                 // This is a no-op on non-glibc systems (guarded by cfg).
                 unsafe {
-                    unsafe extern "C" { fn malloc_trim(pad: std::ffi::c_int) -> std::ffi::c_int; }
+                    unsafe extern "C" {
+                        fn malloc_trim(pad: std::ffi::c_int) -> std::ffi::c_int;
+                    }
                     malloc_trim(0);
                 }
             }

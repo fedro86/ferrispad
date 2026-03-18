@@ -19,9 +19,11 @@ use fltk::{
     tree::{Tree, TreeItem, TreeReason},
 };
 
-use crate::app::plugins::widgets::{ContextMenuItem, ContextMenuTarget, TreeClickMode, TreeNode, TreeViewRequest};
+use super::dialogs::{DialogTheme, SCROLLBAR_SIZE, darken, lighten};
 use crate::app::Message;
-use super::dialogs::{darken, lighten, DialogTheme, SCROLLBAR_SIZE};
+use crate::app::plugins::widgets::{
+    ContextMenuItem, ContextMenuTarget, TreeClickMode, TreeNode, TreeViewRequest,
+};
 
 /// Height of the tree panel header (matches TAB_BAR_HEIGHT)
 const HEADER_HEIGHT: i32 = 32;
@@ -253,40 +255,40 @@ impl TreePanel {
 
         let dragging = Rc::new(Cell::new(false));
         let drag_flag = dragging.clone();
-        divider.handle(move |div, ev| {
-            match ev {
-                Event::Enter => {
-                    if let Some(mut win) = div.window() {
-                        win.set_cursor(Cursor::WE);
-                    }
-                    true
+        divider.handle(move |div, ev| match ev {
+            Event::Enter => {
+                if let Some(mut win) = div.window() {
+                    win.set_cursor(Cursor::WE);
                 }
-                Event::Leave => {
-                    if !drag_flag.get() && let Some(mut win) = div.window() {
-                        win.set_cursor(Cursor::Default);
-                    }
-                    true
-                }
-                Event::Push => {
-                    drag_flag.set(true);
-                    true
-                }
-                Event::Drag => {
-                    if drag_flag.get() {
-                        let mouse_x = fltk::app::event_x();
-                        sender.send(Message::TreeViewResize(mouse_x));
-                    }
-                    true
-                }
-                Event::Released => {
-                    drag_flag.set(false);
-                    if let Some(mut win) = div.window() {
-                        win.set_cursor(Cursor::Default);
-                    }
-                    true
-                }
-                _ => false,
+                true
             }
+            Event::Leave => {
+                if !drag_flag.get()
+                    && let Some(mut win) = div.window()
+                {
+                    win.set_cursor(Cursor::Default);
+                }
+                true
+            }
+            Event::Push => {
+                drag_flag.set(true);
+                true
+            }
+            Event::Drag => {
+                if drag_flag.get() {
+                    let mouse_x = fltk::app::event_x();
+                    sender.send(Message::TreeViewResize(mouse_x));
+                }
+                true
+            }
+            Event::Released => {
+                drag_flag.set(false);
+                if let Some(mut win) = div.window() {
+                    win.set_cursor(Cursor::Default);
+                }
+                true
+            }
+            _ => false,
         });
 
         self.divider = Some(divider);
@@ -324,7 +326,8 @@ impl TreePanel {
         self.current_nodes = request.root.clone();
         self.current_expand_depth = request.expand_depth;
         self.search_input.set_value(SEARCH_PLACEHOLDER);
-        self.search_input.set_text_color(Color::from_rgb(160, 160, 160));
+        self.search_input
+            .set_text_color(Color::from_rgb(160, 160, 160));
 
         // Update header title
         if !request.title.is_empty() {
@@ -420,14 +423,18 @@ impl TreePanel {
 
         if let Some(mut item) = self.tree.add(&item_path) {
             // Set text color: use semantic label_color if set, else default item_fg
-            let custom_color = node.label_color.as_deref()
+            let custom_color = node
+                .label_color
+                .as_deref()
                 .and_then(|name| self.resolve_label_color(name));
             let fg = custom_color.unwrap_or(self.item_fg);
             item.set_label_fgcolor(fg);
 
             // Track custom-colored items for re-apply after selection
             if let Some(color) = custom_color {
-                self.colored_items.borrow_mut().push((item_path.clone(), color));
+                self.colored_items
+                    .borrow_mut()
+                    .push((item_path.clone(), color));
             }
 
             // Build semantic node path for this item (e.g., "src/ui/dialogs")
@@ -608,7 +615,14 @@ impl TreePanel {
 
                 // Right-click context menu
                 Event::Push if fltk::app::event_button() == 3 => {
-                    Self::show_context_menu(tree, session_id, sender2, &context_path, &context_menu, ctx_menu_ptr);
+                    Self::show_context_menu(
+                        tree,
+                        session_id,
+                        sender2,
+                        &context_path,
+                        &context_menu,
+                        ctx_menu_ptr,
+                    );
                     true
                 }
 
@@ -722,7 +736,10 @@ impl TreePanel {
         // Extract info from clicked item
         let (node_path, item_name, is_folder) = if let Some(ref item) = clicked_item {
             let np = Self::node_path_for_item(item).unwrap_or_default();
-            let name = item.label().map(|l| Self::strip_icon(&l)).unwrap_or_default();
+            let name = item
+                .label()
+                .map(|l| Self::strip_icon(&l))
+                .unwrap_or_default();
             let folder = Self::is_folder_item(item);
             (np, name, folder)
         } else {
@@ -840,7 +857,8 @@ impl TreePanel {
         self.context_menu.clear();
         self.current_nodes = None;
         self.search_input.set_value(SEARCH_PLACEHOLDER);
-        self.search_input.set_text_color(Color::from_rgb(160, 160, 160));
+        self.search_input
+            .set_text_color(Color::from_rgb(160, 160, 160));
         *self.drag_source_path.borrow_mut() = None;
         self.dragging.set(false);
         self.expanded_paths.borrow_mut().clear();
@@ -865,11 +883,7 @@ impl TreePanel {
 
     /// Get the current panel width for flex layout (left/right position)
     pub fn current_width(&self) -> i32 {
-        if self.visible {
-            Self::DEFAULT_WIDTH
-        } else {
-            0
-        }
+        if self.visible { Self::DEFAULT_WIDTH } else { 0 }
     }
 
     /// Apply search filter to the tree. Rebuilds the tree showing only matching nodes.
@@ -899,7 +913,9 @@ impl TreePanel {
         if node.label.to_lowercase().contains(query) {
             return true;
         }
-        node.children.iter().any(|child| Self::node_subtree_matches(child, query))
+        node.children
+            .iter()
+            .any(|child| Self::node_subtree_matches(child, query))
     }
 
     /// Add a filtered tree node — only includes subtrees containing matches.
@@ -912,7 +928,9 @@ impl TreePanel {
         current_depth: i32,
     ) {
         let self_matches = node.label.to_lowercase().contains(query);
-        let children_match: Vec<bool> = node.children.iter()
+        let children_match: Vec<bool> = node
+            .children
+            .iter()
             .map(|c| Self::node_subtree_matches(c, query))
             .collect();
         let any_child_matches = children_match.iter().any(|&m| m);
@@ -947,14 +965,18 @@ impl TreePanel {
 
         if let Some(mut item) = self.tree.add(&item_path) {
             // Set text color: use semantic label_color if set, else default item_fg
-            let custom_color = node.label_color.as_deref()
+            let custom_color = node
+                .label_color
+                .as_deref()
                 .and_then(|name| self.resolve_label_color(name));
             let fg = custom_color.unwrap_or(self.item_fg);
             item.set_label_fgcolor(fg);
 
             // Track custom-colored items for re-apply after selection
             if let Some(color) = custom_color {
-                self.colored_items.borrow_mut().push((item_path.clone(), color));
+                self.colored_items
+                    .borrow_mut()
+                    .push((item_path.clone(), color));
             }
             // Expand nodes that have matching descendants
             item.open();
@@ -963,7 +985,12 @@ impl TreePanel {
             if current_depth + 1 < MAX_TREE_DEPTH {
                 for (i, child) in node.children.iter().enumerate() {
                     if self_matches || children_match[i] {
-                        self.add_filtered_tree_node(Some(&item_path), child, query, current_depth + 1);
+                        self.add_filtered_tree_node(
+                            Some(&item_path),
+                            child,
+                            query,
+                            current_depth + 1,
+                        );
                     }
                 }
             }

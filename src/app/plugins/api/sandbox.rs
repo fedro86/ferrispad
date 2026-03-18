@@ -2,11 +2,14 @@
 
 use std::path::{Path, PathBuf};
 
-use super::super::security::{validate_path, PathValidation};
+use super::super::security::{PathValidation, validate_path};
 
 /// Resolve a user-supplied path against project_root and validate it stays inside the sandbox.
 /// Returns `Ok(Some(canonical))` on success, `Ok(None)` if the path is blocked or invalid.
-pub(super) fn resolve_and_validate(path: &str, project_root: &Path) -> mlua::Result<Option<PathBuf>> {
+pub(super) fn resolve_and_validate(
+    path: &str,
+    project_root: &Path,
+) -> mlua::Result<Option<PathBuf>> {
     match validate_path(path, project_root) {
         PathValidation::Valid(canonical) => Ok(Some(canonical)),
         PathValidation::NotFound => {
@@ -19,18 +22,13 @@ pub(super) fn resolve_and_validate(path: &str, project_root: &Path) -> mlua::Res
                 project_root.join(path)
             };
             let canonical_root = std::fs::canonicalize(project_root).map_err(|e| {
-                mlua::Error::RuntimeError(format!(
-                    "Cannot canonicalize project root: {}",
-                    e
-                ))
+                mlua::Error::RuntimeError(format!("Cannot canonicalize project root: {}", e))
             })?;
             // Walk up ancestors until we find one that exists and can be canonicalized
             let mut ancestor = full.as_path();
             loop {
                 match std::fs::canonicalize(ancestor) {
-                    Ok(canonical_ancestor)
-                        if canonical_ancestor.starts_with(&canonical_root) =>
-                    {
+                    Ok(canonical_ancestor) if canonical_ancestor.starts_with(&canonical_root) => {
                         return Ok(Some(full));
                     }
                     Ok(_) => {
@@ -58,8 +56,7 @@ pub(super) fn resolve_and_validate(path: &str, project_root: &Path) -> mlua::Res
                 }
             }
         }
-        PathValidation::OutsideProjectRoot
-        | PathValidation::InvalidPath(_) => {
+        PathValidation::OutsideProjectRoot | PathValidation::InvalidPath(_) => {
             eprintln!(
                 "[plugin:security] path blocked: '{}' outside project root",
                 path

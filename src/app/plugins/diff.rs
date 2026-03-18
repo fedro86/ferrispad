@@ -41,7 +41,10 @@ pub struct DiffResult {
 
 /// Compute character-level intraline spans for a replacement pair.
 /// Returns (left_spans, right_spans) as byte offset ranges within each line.
-fn compute_intraline_spans(old_line: &str, new_line: &str) -> (Vec<IntralineSpan>, Vec<IntralineSpan>) {
+fn compute_intraline_spans(
+    old_line: &str,
+    new_line: &str,
+) -> (Vec<IntralineSpan>, Vec<IntralineSpan>) {
     let diff = TextDiff::from_chars(old_line, new_line);
     let mut left_spans = Vec::new();
     let mut right_spans = Vec::new();
@@ -259,8 +262,14 @@ mod tests {
         assert_eq!(result.right_highlights.len(), 1);
 
         // Intraline spans should exist (the differing part)
-        assert!(!result.left_highlights[0].spans.is_empty(), "Left should have intraline spans");
-        assert!(!result.right_highlights[0].spans.is_empty(), "Right should have intraline spans");
+        assert!(
+            !result.left_highlights[0].spans.is_empty(),
+            "Left should have intraline spans"
+        );
+        assert!(
+            !result.right_highlights[0].spans.is_empty(),
+            "Right should have intraline spans"
+        );
     }
 
     #[test]

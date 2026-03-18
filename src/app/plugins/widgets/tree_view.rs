@@ -116,7 +116,6 @@ pub struct TreeNode {
     pub label_color: Option<String>,
 }
 
-
 impl TreeViewRequest {
     /// Parse a tree view request from a Lua table
     pub fn from_lua_table(table: &mlua::Table) -> Option<Self> {
@@ -148,15 +147,16 @@ impl TreeViewRequest {
         let context_path: Option<String> = table.get("context_path").ok();
 
         // Parse context menu items
-        let context_menu = if let Ok(mlua::Value::Table(menu_table)) = table.get::<mlua::Value>("context_menu") {
-            menu_table
-                .pairs::<i32, mlua::Table>()
-                .flatten()
-                .filter_map(|(_, item_table)| ContextMenuItem::from_lua_table(&item_table))
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let context_menu =
+            if let Ok(mlua::Value::Table(menu_table)) = table.get::<mlua::Value>("context_menu") {
+                menu_table
+                    .pairs::<i32, mlua::Table>()
+                    .flatten()
+                    .filter_map(|(_, item_table)| ContextMenuItem::from_lua_table(&item_table))
+                    .collect()
+            } else {
+                Vec::new()
+            };
 
         // Persistent flag: tree survives tab switches (e.g., file explorer)
         let persistent: bool = table.get("persistent").unwrap_or(false);
@@ -190,7 +190,7 @@ impl TreeNode {
     }
 
     /// Create a new tree node with label and children
-    #[allow(dead_code)]  // Used by tests and future API extensions
+    #[allow(dead_code)] // Used by tests and future API extensions
     pub fn with_children(label: impl Into<String>, children: Vec<TreeNode>) -> Self {
         Self {
             label: label.into(),
@@ -209,15 +209,16 @@ impl TreeNode {
         let label_color: Option<String> = table.get("label_color").ok();
 
         // Parse children recursively
-        let children = if let Ok(mlua::Value::Table(children_table)) = table.get::<mlua::Value>("children") {
-            children_table
-                .pairs::<i32, mlua::Table>()
-                .flatten()
-                .map(|(_, child_table)| TreeNode::from_lua_table(&child_table))
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let children =
+            if let Ok(mlua::Value::Table(children_table)) = table.get::<mlua::Value>("children") {
+                children_table
+                    .pairs::<i32, mlua::Table>()
+                    .flatten()
+                    .map(|(_, child_table)| TreeNode::from_lua_table(&child_table))
+                    .collect()
+            } else {
+                Vec::new()
+            };
 
         Self {
             label,

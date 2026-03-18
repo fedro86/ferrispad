@@ -19,9 +19,11 @@ use fltk::{
     text::{StyleTableEntryExt, TextAttr, TextBuffer, TextDisplay, TextEditor},
 };
 
-use crate::app::plugins::widgets::{HighlightColor, LineHighlight, SplitDisplayMode, SplitViewAction, SplitViewRequest};
-use crate::app::Message;
 use super::dialogs::{DialogTheme, SCROLLBAR_SIZE};
+use crate::app::Message;
+use crate::app::plugins::widgets::{
+    HighlightColor, LineHighlight, SplitDisplayMode, SplitViewAction, SplitViewRequest,
+};
 
 /// Get the vertical scrollbar value of a TextDisplay/TextEditor via FFI.
 /// Works with any widget that is a Fl_Group subclass with scrollbar children.
@@ -270,7 +272,9 @@ fn build_diff_map(text: &str, highlights: &[LineHighlight]) -> Vec<DiffBg> {
 
         for span in &hl.spans {
             let span_start = line_start + span.start as usize;
-            let span_end = (line_start + span.end as usize).min(line_end).min(map.len());
+            let span_end = (line_start + span.end as usize)
+                .min(line_end)
+                .min(map.len());
             if span_start < span_end && span_start < map.len() {
                 for d in &mut map[span_start..span_end] {
                     *d = emphasis_diff;
@@ -571,40 +575,40 @@ impl SplitPanel {
 
         let dragging = Rc::new(Cell::new(false));
         let drag_flag = dragging.clone();
-        divider.handle(move |div, ev| {
-            match ev {
-                Event::Enter => {
-                    if let Some(mut win) = div.window() {
-                        win.set_cursor(Cursor::NS);
-                    }
-                    true
+        divider.handle(move |div, ev| match ev {
+            Event::Enter => {
+                if let Some(mut win) = div.window() {
+                    win.set_cursor(Cursor::NS);
                 }
-                Event::Leave => {
-                    if !drag_flag.get() && let Some(mut win) = div.window() {
-                        win.set_cursor(Cursor::Default);
-                    }
-                    true
-                }
-                Event::Push => {
-                    drag_flag.set(true);
-                    true
-                }
-                Event::Drag => {
-                    if drag_flag.get() {
-                        let mouse_y = fltk::app::event_y();
-                        sender.send(Message::SplitViewResize(mouse_y));
-                    }
-                    true
-                }
-                Event::Released => {
-                    drag_flag.set(false);
-                    if let Some(mut win) = div.window() {
-                        win.set_cursor(Cursor::Default);
-                    }
-                    true
-                }
-                _ => false,
+                true
             }
+            Event::Leave => {
+                if !drag_flag.get()
+                    && let Some(mut win) = div.window()
+                {
+                    win.set_cursor(Cursor::Default);
+                }
+                true
+            }
+            Event::Push => {
+                drag_flag.set(true);
+                true
+            }
+            Event::Drag => {
+                if drag_flag.get() {
+                    let mouse_y = fltk::app::event_y();
+                    sender.send(Message::SplitViewResize(mouse_y));
+                }
+                true
+            }
+            Event::Released => {
+                drag_flag.set(false);
+                if let Some(mut win) = div.window() {
+                    win.set_cursor(Cursor::Default);
+                }
+                true
+            }
+            _ => false,
         });
 
         divider
@@ -646,7 +650,8 @@ impl SplitPanel {
 
         self.left_buffer.set_text(&request.left.content);
         if !request.left.label.is_empty() {
-            self.left_label.set_label(&format!("  {}", request.left.label));
+            self.left_label
+                .set_label(&format!("  {}", request.left.label));
         } else {
             self.left_label.set_label("  Left");
         }
@@ -658,7 +663,8 @@ impl SplitPanel {
 
         self.right_buffer.set_text(&request.right.content);
         if !request.right.label.is_empty() {
-            self.right_label.set_label(&format!("  {}", request.right.label));
+            self.right_label
+                .set_label(&format!("  {}", request.right.label));
         } else {
             self.right_label.set_label("  Right");
         }
@@ -680,9 +686,7 @@ impl SplitPanel {
         self.right_editor.set_text_size(pane_size);
 
         // Build combined syntax+diff style table
-        let mut sdm = SyntaxDiffMap::new(
-            self.is_dark, theme_bg, theme_fg, pane_font, pane_size,
-        );
+        let mut sdm = SyntaxDiffMap::new(self.is_dark, theme_bg, theme_fg, pane_font, pane_size);
 
         // Apply syntax+diff highlights for each pane
         self.apply_syntax_diff_pane(
@@ -708,14 +712,10 @@ impl SplitPanel {
 
         // Cache and apply the style table to both displays
         self.cached_style_table = final_table.clone();
-        self.left_display.set_highlight_data_ext(
-            self.left_style_buffer.clone(),
-            final_table.clone(),
-        );
-        self.right_editor.set_highlight_data_ext(
-            self.right_style_buffer.clone(),
-            final_table,
-        );
+        self.left_display
+            .set_highlight_data_ext(self.left_style_buffer.clone(), final_table.clone());
+        self.right_editor
+            .set_highlight_data_ext(self.right_style_buffer.clone(), final_table);
 
         // Set right pane editability based on request
         self.set_right_editable(!request.right.read_only);
@@ -803,11 +803,7 @@ impl SplitPanel {
     /// Rebuild action buttons based on the request.
     /// Re-uses the existing `self.action_bar` Flex (which is parented to the container)
     /// rather than creating a new orphaned Flex.
-    fn rebuild_action_buttons(
-        &mut self,
-        actions: &[SplitViewAction],
-        session_id: u32,
-    ) {
+    fn rebuild_action_buttons(&mut self, actions: &[SplitViewAction], session_id: u32) {
         let theme = DialogTheme::from_theme_bg(self.theme_bg);
 
         // Clear existing children but keep the same Flex in the container
@@ -852,10 +848,12 @@ impl SplitPanel {
         }
 
         // Add mode toggle button (shows opposite mode as label)
-        let toggle_label = if self.is_tab_mode { "Panel Mode" } else { "Tab Mode" };
-        let mut toggle_btn = Button::default()
-            .with_size(90, 28)
-            .with_label(toggle_label);
+        let toggle_label = if self.is_tab_mode {
+            "Panel Mode"
+        } else {
+            "Tab Mode"
+        };
+        let mut toggle_btn = Button::default().with_size(90, 28).with_label(toggle_label);
         toggle_btn.set_frame(FrameType::RFlatBox);
         toggle_btn.set_color(theme.button_bg);
         toggle_btn.set_label_color(theme.text);
@@ -870,9 +868,7 @@ impl SplitPanel {
 
         // Add close button only in panel mode (tab mode uses the tab X button)
         if !self.is_tab_mode {
-            let mut close_btn = Button::default()
-                .with_size(60, 28)
-                .with_label("Close");
+            let mut close_btn = Button::default().with_size(60, 28).with_label("Close");
             close_btn.set_frame(FrameType::RFlatBox);
             close_btn.set_color(theme.tab_active_bg);
             close_btn.set_label_color(theme.text);
@@ -939,7 +935,11 @@ impl SplitPanel {
 
         // Labels row uses the diff tab tint color with dark text
         let label_bg = if theme.is_dark() {
-            Color::from_rgb(r.saturating_add(8), g.saturating_add(4), b.saturating_add(15))
+            Color::from_rgb(
+                r.saturating_add(8),
+                g.saturating_add(4),
+                b.saturating_add(15),
+            )
         } else {
             Color::from_rgb(r.saturating_sub(2), g.saturating_sub(2), b)
         };
@@ -966,9 +966,11 @@ impl SplitPanel {
         } else {
             super::dialogs::darken(r, g, b, 0.95)
         };
-        self.left_display.set_linenumber_bgcolor(Color::from_rgb(ln_r, ln_g, ln_b));
+        self.left_display
+            .set_linenumber_bgcolor(Color::from_rgb(ln_r, ln_g, ln_b));
         self.left_display.set_linenumber_fgcolor(theme.text_dim);
-        self.right_editor.set_linenumber_bgcolor(Color::from_rgb(ln_r, ln_g, ln_b));
+        self.right_editor
+            .set_linenumber_bgcolor(Color::from_rgb(ln_r, ln_g, ln_b));
         self.right_editor.set_linenumber_fgcolor(theme.text_dim);
 
         self.action_bar.set_color(theme.bg);
@@ -981,21 +983,43 @@ impl SplitPanel {
 
         // Rebuild diff background colors in the cached style table.
         // Each entry's bgcolor needs updating based on its DiffBg variant.
-        if !self.cached_style_table.is_empty() && self.cached_diff_bg_indices.len() == self.cached_style_table.len() {
+        if !self.cached_style_table.is_empty()
+            && self.cached_diff_bg_indices.len() == self.cached_style_table.len()
+        {
             let is_dark = theme.is_dark();
             let diff_bgs: [Color; 6] = [
                 // Normal
                 Color::from_rgb(r, g, b),
                 // Added
-                if is_dark { Color::from_rgb(20, 60, 20) } else { Color::from_rgb(200, 255, 200) },
+                if is_dark {
+                    Color::from_rgb(20, 60, 20)
+                } else {
+                    Color::from_rgb(200, 255, 200)
+                },
                 // Removed
-                if is_dark { Color::from_rgb(60, 20, 20) } else { Color::from_rgb(255, 200, 200) },
+                if is_dark {
+                    Color::from_rgb(60, 20, 20)
+                } else {
+                    Color::from_rgb(255, 200, 200)
+                },
                 // Modified
-                if is_dark { Color::from_rgb(60, 50, 10) } else { Color::from_rgb(255, 255, 200) },
+                if is_dark {
+                    Color::from_rgb(60, 50, 10)
+                } else {
+                    Color::from_rgb(255, 255, 200)
+                },
                 // AddedEmphasis
-                if is_dark { Color::from_rgb(40, 100, 40) } else { Color::from_rgb(150, 255, 150) },
+                if is_dark {
+                    Color::from_rgb(40, 100, 40)
+                } else {
+                    Color::from_rgb(150, 255, 150)
+                },
                 // RemovedEmphasis
-                if is_dark { Color::from_rgb(100, 40, 40) } else { Color::from_rgb(255, 150, 150) },
+                if is_dark {
+                    Color::from_rgb(100, 40, 40)
+                } else {
+                    Color::from_rgb(255, 150, 150)
+                },
             ];
 
             // Update the foreground of the 6 base entries to theme fg
@@ -1005,7 +1029,11 @@ impl SplitPanel {
             }
 
             // Update all entries' bgcolor based on their DiffBg variant
-            for (entry, &diff_idx) in self.cached_style_table.iter_mut().zip(self.cached_diff_bg_indices.iter()) {
+            for (entry, &diff_idx) in self
+                .cached_style_table
+                .iter_mut()
+                .zip(self.cached_diff_bg_indices.iter())
+            {
                 if (diff_idx as usize) < diff_bgs.len() {
                     entry.bgcolor = diff_bgs[diff_idx as usize];
                 }
@@ -1028,7 +1056,11 @@ impl SplitPanel {
         let (r, g, b) = self.theme_bg;
         if self.is_tab_mode {
             let tinted = if self.is_dark {
-                Color::from_rgb(r.saturating_add(8), g.saturating_add(4), b.saturating_add(15))
+                Color::from_rgb(
+                    r.saturating_add(8),
+                    g.saturating_add(4),
+                    b.saturating_add(15),
+                )
             } else {
                 Color::from_rgb(r.saturating_sub(2), g.saturating_sub(2), b)
             };

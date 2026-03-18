@@ -89,16 +89,46 @@ mod tests {
 
     #[test]
     fn test_annotation_color_from_str() {
-        assert_eq!(AnnotationColor::from_str("error"), Some(AnnotationColor::Error));
-        assert_eq!(AnnotationColor::from_str("ERROR"), Some(AnnotationColor::Error));
-        assert_eq!(AnnotationColor::from_str("warning"), Some(AnnotationColor::Warning));
-        assert_eq!(AnnotationColor::from_str("warn"), Some(AnnotationColor::Warning));
-        assert_eq!(AnnotationColor::from_str("info"), Some(AnnotationColor::Info));
-        assert_eq!(AnnotationColor::from_str("hint"), Some(AnnotationColor::Hint));
-        assert_eq!(AnnotationColor::from_str("added"), Some(AnnotationColor::Added));
-        assert_eq!(AnnotationColor::from_str("add"), Some(AnnotationColor::Added));
-        assert_eq!(AnnotationColor::from_str("modified"), Some(AnnotationColor::Modified));
-        assert_eq!(AnnotationColor::from_str("deleted"), Some(AnnotationColor::Deleted));
+        assert_eq!(
+            AnnotationColor::from_str("error"),
+            Some(AnnotationColor::Error)
+        );
+        assert_eq!(
+            AnnotationColor::from_str("ERROR"),
+            Some(AnnotationColor::Error)
+        );
+        assert_eq!(
+            AnnotationColor::from_str("warning"),
+            Some(AnnotationColor::Warning)
+        );
+        assert_eq!(
+            AnnotationColor::from_str("warn"),
+            Some(AnnotationColor::Warning)
+        );
+        assert_eq!(
+            AnnotationColor::from_str("info"),
+            Some(AnnotationColor::Info)
+        );
+        assert_eq!(
+            AnnotationColor::from_str("hint"),
+            Some(AnnotationColor::Hint)
+        );
+        assert_eq!(
+            AnnotationColor::from_str("added"),
+            Some(AnnotationColor::Added)
+        );
+        assert_eq!(
+            AnnotationColor::from_str("add"),
+            Some(AnnotationColor::Added)
+        );
+        assert_eq!(
+            AnnotationColor::from_str("modified"),
+            Some(AnnotationColor::Modified)
+        );
+        assert_eq!(
+            AnnotationColor::from_str("deleted"),
+            Some(AnnotationColor::Deleted)
+        );
         assert_eq!(AnnotationColor::from_str("unknown"), None);
     }
 

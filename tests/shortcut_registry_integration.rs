@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use ferris_pad::app::domain::settings::ShortcutOverride;
-use ferris_pad::app::services::shortcut_registry::{normalize_shortcut, ShortcutRegistry};
+use ferris_pad::app::services::shortcut_registry::{ShortcutRegistry, normalize_shortcut};
 
 /// Simulates BUILTIN_SHORTCUTS from menu.rs
 const TEST_DEFAULTS: &[(&str, &str)] = &[
@@ -115,10 +115,6 @@ fn test_empty_overrides_use_defaults() {
 
     assert_eq!(effective.len(), TEST_DEFAULTS.len());
     for &(id, default) in TEST_DEFAULTS {
-        assert_eq!(
-            effective[id], default,
-            "Default mismatch for {}",
-            id
-        );
+        assert_eq!(effective[id], default, "Default mismatch for {}", id);
     }
 }

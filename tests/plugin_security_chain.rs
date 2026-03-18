@@ -3,7 +3,7 @@ use tempfile::tempdir;
 
 use ferris_pad::app::plugins::loader::{discover_plugins, load_plugin_toml};
 use ferris_pad::app::plugins::security::{
-    find_project_root, validate_command_arg, validate_path, PathValidation,
+    PathValidation, find_project_root, validate_command_arg, validate_path,
 };
 
 mod common;

@@ -13,7 +13,10 @@
 pub mod split_view;
 pub mod tree_view;
 
-pub use split_view::{HighlightColor, IntralineSpan, LineHighlight, SplitDisplayMode, SplitPane, SplitViewAction, SplitViewRequest};
+pub use split_view::{
+    HighlightColor, IntralineSpan, LineHighlight, SplitDisplayMode, SplitPane, SplitViewAction,
+    SplitViewRequest,
+};
 pub use tree_view::{ContextMenuItem, ContextMenuTarget, TreeClickMode, TreeNode, TreeViewRequest};
 
 use std::collections::HashMap;
@@ -119,28 +122,30 @@ impl WidgetManager {
 
     /// Remove all sessions for a plugin (called when plugin is disabled/reloaded)
     pub fn clear_plugin_sessions(&mut self, plugin_name: &str) {
-        self.sessions
-            .retain(|_, s| s.plugin_name != plugin_name);
+        self.sessions.retain(|_, s| s.plugin_name != plugin_name);
     }
 
     /// Find any active tree view session and return its ID.
     /// Used for toggle behavior (show/hide on repeated menu action).
     pub fn any_tree_view_session(&self) -> Option<u32> {
-        self.sessions.values()
+        self.sessions
+            .values()
             .find(|s| s.widget_type == WidgetType::TreeView)
             .map(|s| s.id)
     }
 
     /// Find a persistent tree view session (e.g., file explorer).
     pub fn persistent_tree_session(&self) -> Option<u32> {
-        self.sessions.values()
+        self.sessions
+            .values()
             .find(|s| s.widget_type == WidgetType::TreeView && s.persistent)
             .map(|s| s.id)
     }
 
     /// Find a non-persistent tree view session (e.g., YAML viewer overlay).
     pub fn non_persistent_tree_session(&self) -> Option<u32> {
-        self.sessions.values()
+        self.sessions
+            .values()
             .find(|s| s.widget_type == WidgetType::TreeView && !s.persistent)
             .map(|s| s.id)
     }

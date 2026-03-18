@@ -5,12 +5,12 @@
 //! and works on all platforms.
 
 use pulldown_cmark::{Options, Parser, html};
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
+use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
-use std::borrow::Cow;
-use std::fs;
 
 /// Directory for all FerrisPad preview files.
 fn preview_dir() -> std::path::PathBuf {
@@ -68,9 +68,7 @@ impl PreviewController {
         match path {
             Some(p) => {
                 let lower = p.to_lowercase();
-                lower.ends_with(".md")
-                    || lower.ends_with(".markdown")
-                    || lower.ends_with(".mdown")
+                lower.ends_with(".md") || lower.ends_with(".markdown") || lower.ends_with(".mdown")
             }
             None => false,
         }
@@ -106,22 +104,30 @@ impl PreviewController {
     /// Open markdown preview in the default browser for a specific document.
     /// Uses file_path for stable naming (survives app restarts).
     /// Returns Ok(()) if successful, Err with message otherwise.
-    pub fn open_in_browser(&mut self, file_path: Option<&str>, doc_id: u64, html: &str) -> Result<(), String> {
+    pub fn open_in_browser(
+        &mut self,
+        file_path: Option<&str>,
+        doc_id: u64,
+        html: &str,
+    ) -> Result<(), String> {
         let temp_path = Self::temp_path_for_doc(file_path, doc_id);
 
-        fs::write(&temp_path, html)
-            .map_err(|e| format!("Failed to write preview file: {}", e))?;
+        fs::write(&temp_path, html).map_err(|e| format!("Failed to write preview file: {}", e))?;
 
         self.temp_files.insert(temp_path.clone());
 
-        open::that(&temp_path)
-            .map_err(|e| format!("Failed to open browser: {}", e))
+        open::that(&temp_path).map_err(|e| format!("Failed to open browser: {}", e))
     }
 
     /// Write HTML to the temp file for a specific document without opening browser.
     /// Used for updating preview when saving markdown files.
     /// Only updates if a preview exists (either opened this session or from a previous session).
-    pub fn write_html(&mut self, file_path: Option<&str>, doc_id: u64, html: &str) -> Result<(), String> {
+    pub fn write_html(
+        &mut self,
+        file_path: Option<&str>,
+        doc_id: u64,
+        html: &str,
+    ) -> Result<(), String> {
         let temp_path = Self::temp_path_for_doc(file_path, doc_id);
 
         // Only update if preview file exists (from this session or a previous one)
@@ -129,8 +135,7 @@ impl PreviewController {
             return Ok(());
         }
 
-        fs::write(&temp_path, html)
-            .map_err(|e| format!("Failed to write preview file: {}", e))?;
+        fs::write(&temp_path, html).map_err(|e| format!("Failed to write preview file: {}", e))?;
 
         // Track for cleanup (in case it was from a previous session)
         self.temp_files.insert(temp_path.clone());
@@ -203,7 +208,8 @@ pub fn wrap_html_for_preview(html: &str, dark_mode: bool, base_dir: Option<&Path
         None => Cow::Borrowed(html),
     };
 
-    format!(r#"<!DOCTYPE html>
+    format!(
+        r#"<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -288,7 +294,8 @@ pub fn wrap_html_for_preview(html: &str, dark_mode: bool, base_dir: Option<&Path
 <body>
 {resolved_html}
 </body>
-</html>"#)
+</html>"#
+    )
 }
 
 #[cfg(test)]

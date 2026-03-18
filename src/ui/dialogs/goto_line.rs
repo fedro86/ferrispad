@@ -18,13 +18,20 @@ pub fn show_goto_line_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
         .with_size(250, 120)
         .with_label("Go To Line")
         .center_screen();
-    Frame::default().with_pos(20, 20).with_size(100, 30).with_label("Line number:");
+    Frame::default()
+        .with_pos(20, 20)
+        .with_size(100, 30)
+        .with_label("Line number:");
     let mut line_input = IntInput::default().with_pos(130, 20).with_size(100, 30);
 
     let mut go_btn = Button::default()
-        .with_pos(60, 70).with_size(80, 30).with_label("Go");
+        .with_pos(60, 70)
+        .with_size(80, 30)
+        .with_label("Go");
     let mut cancel_btn = Button::default()
-        .with_pos(150, 70).with_size(80, 30).with_label("Cancel");
+        .with_pos(150, 70)
+        .with_size(80, 30)
+        .with_label("Cancel");
 
     dialog_win.end();
     dialog_win.make_resizable(false);
@@ -55,7 +62,8 @@ pub fn show_goto_line_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
             dialog_go.clone().hide();
         } else {
             dialog::message_default(&format!(
-                "Line number must be between 1 and {}", total_lines
+                "Line number must be between 1 and {}",
+                total_lines
             ));
         }
     });

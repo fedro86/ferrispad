@@ -71,15 +71,10 @@ pub enum PluginHook {
 
     /// Called before a document is saved.
     /// Plugin can return modified content.
-    OnDocumentSave {
-        path: String,
-        content: String,
-    },
+    OnDocumentSave { path: String, content: String },
 
     /// Called when a document is closed
-    OnDocumentClose {
-        path: Option<String>,
-    },
+    OnDocumentClose { path: Option<String> },
 
     /// Called after text is changed in the editor
     OnTextChanged {
@@ -89,16 +84,11 @@ pub enum PluginHook {
     },
 
     /// Called when theme changes between light/dark
-    OnThemeChanged {
-        is_dark: bool,
-    },
+    OnThemeChanged { is_dark: bool },
 
     /// Called after save to lint/check the document.
     /// Plugins return a list of diagnostics and optional line annotations.
-    OnDocumentLint {
-        path: String,
-        content: String,
-    },
+    OnDocumentLint { path: String, content: String },
 
     /// Called on manual highlight request (Ctrl+Shift+L).
     /// Plugins return line annotations for highlighting.
@@ -213,7 +203,10 @@ mod tests {
     fn test_diagnostic_level_from_str() {
         assert_eq!(DiagnosticLevel::from_str("error"), DiagnosticLevel::Error);
         assert_eq!(DiagnosticLevel::from_str("ERROR"), DiagnosticLevel::Error);
-        assert_eq!(DiagnosticLevel::from_str("warning"), DiagnosticLevel::Warning);
+        assert_eq!(
+            DiagnosticLevel::from_str("warning"),
+            DiagnosticLevel::Warning
+        );
         assert_eq!(DiagnosticLevel::from_str("warn"), DiagnosticLevel::Warning);
         assert_eq!(DiagnosticLevel::from_str("info"), DiagnosticLevel::Info);
         assert_eq!(DiagnosticLevel::from_str("hint"), DiagnosticLevel::Hint);

@@ -24,10 +24,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::app::plugins::PluginManager;
-use crate::app::services::shortcut_registry::{normalize_shortcut, ShortcutRegistry};
-use crate::ui::menu::{
-    is_valid_shortcut, plugin_command_id, BUILTIN_SHORTCUTS,
-};
+use crate::app::services::shortcut_registry::{ShortcutRegistry, normalize_shortcut};
+use crate::ui::menu::{BUILTIN_SHORTCUTS, is_valid_shortcut, plugin_command_id};
 
 use super::{DialogTheme, SCROLLBAR_SIZE};
 
@@ -95,9 +93,13 @@ pub fn show_shortcut_dialog(
     let scroll_w = DIALOG_WIDTH - PADDING * 2 - 10;
 
     // Dynamic row width: count visible rows to decide if scrollbar will appear
-    let builtin_count = BUILTIN_SHORTCUTS.iter()
-        .filter(|&&(id, _)| tabs_enabled || !matches!(id, "File/Close Tab" | "File/Next Tab" | "File/Previous Tab"))
-        .count() + 1; // +1 for header
+    let builtin_count = BUILTIN_SHORTCUTS
+        .iter()
+        .filter(|&&(id, _)| {
+            tabs_enabled || !matches!(id, "File/Close Tab" | "File/Next Tab" | "File/Previous Tab")
+        })
+        .count()
+        + 1; // +1 for header
     let builtin_total_h = builtin_count as i32 * (ROW_HEIGHT + 2); // 2 = pack spacing
     let row_w_builtin = if builtin_total_h > content_h - 10 {
         scroll_w - SCROLLBAR_SIZE
@@ -157,7 +159,11 @@ pub fn show_shortcut_dialog(
             continue;
         }
 
-        let actual_default = if id == "File/New" && !tabs_enabled { "Ctrl+N" } else { default };
+        let actual_default = if id == "File/New" && !tabs_enabled {
+            "Ctrl+N"
+        } else {
+            default
+        };
         let effective = registry.effective_shortcut(id, actual_default);
 
         let row = create_shortcut_row(
@@ -180,7 +186,8 @@ pub fn show_shortcut_dialog(
     let plugin_list = plugins.list_plugins();
     let has_plugin_shortcuts = plugin_list.iter().any(|p| !p.menu_items.is_empty());
     let plugins_row_count = if has_plugin_shortcuts {
-        plugin_list.iter()
+        plugin_list
+            .iter()
             .filter(|p| !p.menu_items.is_empty())
             .map(|p| 1 + p.menu_items.len()) // section header + action rows
             .sum::<usize>()
@@ -413,19 +420,45 @@ fn key_name(key: Key) -> Option<String> {
     }
 
     // Arrow keys
-    if key == Key::Left { return Some("Left".to_string()); }
-    if key == Key::Right { return Some("Right".to_string()); }
-    if key == Key::Up { return Some("Up".to_string()); }
-    if key == Key::Down { return Some("Down".to_string()); }
-    if key == Key::Home { return Some("Home".to_string()); }
-    if key == Key::End { return Some("End".to_string()); }
-    if key == Key::PageUp { return Some("PageUp".to_string()); }
-    if key == Key::PageDown { return Some("PageDown".to_string()); }
-    if key == Key::Insert { return Some("Insert".to_string()); }
-    if key == Key::Tab { return Some("Tab".to_string()); }
-    if key == Key::Escape { return Some("Escape".to_string()); }
-    if key == Key::BackSpace { return Some("Backspace".to_string()); }
-    if key == Key::Delete { return Some("Delete".to_string()); }
+    if key == Key::Left {
+        return Some("Left".to_string());
+    }
+    if key == Key::Right {
+        return Some("Right".to_string());
+    }
+    if key == Key::Up {
+        return Some("Up".to_string());
+    }
+    if key == Key::Down {
+        return Some("Down".to_string());
+    }
+    if key == Key::Home {
+        return Some("Home".to_string());
+    }
+    if key == Key::End {
+        return Some("End".to_string());
+    }
+    if key == Key::PageUp {
+        return Some("PageUp".to_string());
+    }
+    if key == Key::PageDown {
+        return Some("PageDown".to_string());
+    }
+    if key == Key::Insert {
+        return Some("Insert".to_string());
+    }
+    if key == Key::Tab {
+        return Some("Tab".to_string());
+    }
+    if key == Key::Escape {
+        return Some("Escape".to_string());
+    }
+    if key == Key::BackSpace {
+        return Some("Backspace".to_string());
+    }
+    if key == Key::Delete {
+        return Some("Delete".to_string());
+    }
 
     // Modifier-only and unsupported keys return None
     None
@@ -444,15 +477,22 @@ fn shortcut_string_from_event() -> Option<String> {
     let alt = state.contains(fltk::enums::Shortcut::Alt);
 
     // Require at least one modifier, unless it's an F-key
-    let is_fkey = name.starts_with('F') && name.len() >= 2 && name[1..].chars().all(|c| c.is_ascii_digit());
+    let is_fkey =
+        name.starts_with('F') && name.len() >= 2 && name[1..].chars().all(|c| c.is_ascii_digit());
     if !ctrl && !shift && !alt && !is_fkey {
         return None;
     }
 
     let mut parts = Vec::new();
-    if ctrl { parts.push("Ctrl"); }
-    if shift { parts.push("Shift"); }
-    if alt { parts.push("Alt"); }
+    if ctrl {
+        parts.push("Ctrl");
+    }
+    if shift {
+        parts.push("Shift");
+    }
+    if alt {
+        parts.push("Alt");
+    }
     parts.push(&name);
 
     Some(parts.join("+"))

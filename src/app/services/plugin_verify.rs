@@ -5,8 +5,8 @@
 //! - ed25519 digital signatures to verify plugin authenticity
 //! - Static Lua source analysis to detect suspicious patterns
 
-use ed25519_dalek::{Signature, VerifyingKey, Verifier};
-use sha2::{Sha256, Digest};
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use sha2::{Digest, Sha256};
 
 use crate::app::infrastructure::error::AppError;
 
@@ -16,10 +16,8 @@ use crate::app::infrastructure::error::AppError;
 /// Generated with: plugin-signer keygen (ferrispad-plugins/tools/signer)
 /// The corresponding private key is kept offline for signing plugins.
 const PLUGIN_PUBLIC_KEY: [u8; 32] = [
-    0x7f, 0x14, 0x24, 0xc5, 0x14, 0x5d, 0x99, 0xd7,
-    0xf0, 0xfd, 0x7c, 0x12, 0xdd, 0x5c, 0x3d, 0x8b,
-    0x8f, 0x6d, 0x6b, 0x4e, 0xe7, 0xba, 0xb1, 0x2c,
-    0xd0, 0xdb, 0xdf, 0xbc, 0x17, 0x54, 0xff, 0x56,
+    0x7f, 0x14, 0x24, 0xc5, 0x14, 0x5d, 0x99, 0xd7, 0xf0, 0xfd, 0x7c, 0x12, 0xdd, 0x5c, 0x3d, 0x8b,
+    0x8f, 0x6d, 0x6b, 0x4e, 0xe7, 0xba, 0xb1, 0x2c, 0xd0, 0xdb, 0xdf, 0xbc, 0x17, 0x54, 0xff, 0x56,
 ];
 
 /// Result of plugin verification
@@ -93,7 +91,10 @@ pub fn build_signed_message(
     init_lua_checksum: &str,
     plugin_toml_checksum: &str,
 ) -> String {
-    format!("{}:{}:{}:{}", path, version, init_lua_checksum, plugin_toml_checksum)
+    format!(
+        "{}:{}:{}:{}",
+        path, version, init_lua_checksum, plugin_toml_checksum
+    )
 }
 
 /// Verify plugin signature against embedded public key
@@ -122,13 +123,13 @@ pub fn verify_signature(
     };
 
     // Decode signature from base64
-    let signature_bytes = match base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        signature_b64,
-    ) {
-        Ok(b) => b,
-        Err(e) => return VerificationStatus::Invalid(format!("Invalid signature encoding: {}", e)),
-    };
+    let signature_bytes =
+        match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, signature_b64) {
+            Ok(b) => b,
+            Err(e) => {
+                return VerificationStatus::Invalid(format!("Invalid signature encoding: {}", e));
+            }
+        };
 
     // ed25519 signatures are exactly 64 bytes
     if signature_bytes.len() != 64 {
@@ -197,7 +198,13 @@ pub fn verify_plugin(
     };
 
     // Verify signature
-    Ok(verify_signature(path, version, init_checksum, toml_checksum, sig))
+    Ok(verify_signature(
+        path,
+        version,
+        init_checksum,
+        toml_checksum,
+        sig,
+    ))
 }
 
 /// Result of static Lua source analysis
@@ -259,7 +266,9 @@ pub fn scan_lua_source(source: &str) -> LuaScanResult {
 
         // Blocked: load( but not load_plugin, loaded, etc.
         // Look for "load(" preceded by a non-alphanumeric/non-underscore char or at start of line
-        if !blocked.iter().any(|m| m == "Dynamic code execution attempt (load)")
+        if !blocked
+            .iter()
+            .any(|m| m == "Dynamic code execution attempt (load)")
             && contains_load_call(trimmed)
         {
             blocked.push("Dynamic code execution attempt (load)".to_string());
@@ -281,21 +290,24 @@ pub fn scan_lua_source(source: &str) -> LuaScanResult {
         }
 
         // Blocked: rawset + _G on the same line
-        if trimmed.contains("rawset") && trimmed.contains("_G")
+        if trimmed.contains("rawset")
+            && trimmed.contains("_G")
             && !blocked.iter().any(|m| m.contains("rawset"))
         {
             blocked.push("Global table manipulation (rawset _G)".to_string());
         }
 
         // Blocked: rawget + _G on the same line
-        if trimmed.contains("rawget") && trimmed.contains("_G")
+        if trimmed.contains("rawget")
+            && trimmed.contains("_G")
             && !blocked.iter().any(|m| m.contains("rawget"))
         {
             blocked.push("Global table manipulation (rawget _G)".to_string());
         }
 
         // Blocked: setmetatable + string on the same line
-        if trimmed.contains("setmetatable") && trimmed.contains("string")
+        if trimmed.contains("setmetatable")
+            && trimmed.contains("string")
             && !blocked.iter().any(|m| m.contains("metatable"))
         {
             blocked.push("String metatable poisoning attempt".to_string());
@@ -380,19 +392,15 @@ mod tests {
     #[test]
     fn test_verify_checksum_failure() {
         let data = b"test content";
-        let wrong_checksum = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
+        let wrong_checksum =
+            "sha256:0000000000000000000000000000000000000000000000000000000000000000";
         let result = verify_checksum(data, wrong_checksum, "test.txt");
         assert!(matches!(result, Err(AppError::ChecksumMismatch(_, _, _))));
     }
 
     #[test]
     fn test_build_signed_message() {
-        let msg = build_signed_message(
-            "python-lint/",
-            "2.1.0",
-            "sha256:abc123",
-            "sha256:def456",
-        );
+        let msg = build_signed_message("python-lint/", "2.1.0", "sha256:abc123", "sha256:def456");
         assert_eq!(msg, "python-lint/:2.1.0:sha256:abc123:sha256:def456");
     }
 

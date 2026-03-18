@@ -97,7 +97,10 @@ pub enum Message {
     PluginsReloadAll,
     CheckPluginPermissions,
     /// A plugin's custom menu action was triggered
-    PluginMenuAction { plugin_name: String, action: String },
+    PluginMenuAction {
+        plugin_name: String,
+        action: String,
+    },
     /// Open the plugin manager dialog
     ShowPluginManager,
     /// Open the plugin settings dialog (Run All Checks config)
@@ -112,14 +115,14 @@ pub enum Message {
     // Diagnostics
     DiagnosticsUpdate(Vec<Diagnostic>),
     DiagnosticsClear,
-    DiagnosticGoto(u32),  // Go to line number (single click)
-    DiagnosticOpenDocs(u32),  // Open documentation URL (double click)
+    DiagnosticGoto(u32),     // Go to line number (single click)
+    DiagnosticOpenDocs(u32), // Open documentation URL (double click)
     DiagnosticsAutoDismiss,  // Auto-dismiss "All checks passed" green bar after timeout
 
     // Line annotations (gutter + inline highlights)
     AnnotationsUpdate(Vec<LineAnnotation>),
     AnnotationsClear,
-    ManualHighlight,  // Triggered by Ctrl+Shift+L
+    ManualHighlight, // Triggered by Ctrl+Shift+L
 
     // Toast notifications
     ToastShow(ToastLevel, String),
@@ -168,9 +171,15 @@ pub enum Message {
     },
 
     /// Deferred plugin hooks for large files (run after event loop processes banner)
-    DeferredPluginHooks { path: String, content: String },
+    DeferredPluginHooks {
+        path: String,
+        content: String,
+    },
     /// Deferred tree view refresh on tab switch (avoids blocking UI for large files)
-    DeferredTreeRefresh { path: Option<String>, content: String },
+    DeferredTreeRefresh {
+        path: Option<String>,
+        content: String,
+    },
     /// Show "Loading..." placeholder in tree panel (keeps panel visible during refresh)
     TreeViewLoading,
     /// Deferred session restore (runs after window is shown so UI is visible immediately)

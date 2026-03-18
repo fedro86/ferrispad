@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::app::infrastructure::error::AppError;
 use crate::app::plugins::get_plugin_dir;
 use crate::app::services::plugin_verify::{
-    scan_lua_source, verify_checksum, verify_plugin, LuaScanResult, VerificationStatus,
+    LuaScanResult, VerificationStatus, scan_lua_source, verify_checksum, verify_plugin,
 };
 
 /// URL to the official plugin registry
@@ -271,9 +271,7 @@ pub fn fetch_community_registry() -> Result<CommunityRegistry, AppError> {
         .with_header("User-Agent", "FerrisPad")
         .with_timeout(10)
         .send()
-        .map_err(|e| {
-            AppError::Network(format!("Failed to fetch community registry: {}", e))
-        })?;
+        .map_err(|e| AppError::Network(format!("Failed to fetch community registry: {}", e)))?;
 
     if response.status_code == 403 || response.status_code == 429 {
         return Err(AppError::Network(
@@ -381,9 +379,9 @@ pub fn parse_github_url(url: &str) -> Result<(String, String), AppError> {
 
     // Expect https://github.com/{owner}/{repo}
     let prefix = "https://github.com/";
-    let path = stripped.strip_prefix(prefix).ok_or_else(|| {
-        AppError::Network(format!("Not a GitHub URL: {}", url))
-    })?;
+    let path = stripped
+        .strip_prefix(prefix)
+        .ok_or_else(|| AppError::Network(format!("Not a GitHub URL: {}", url)))?;
 
     let parts: Vec<&str> = path.splitn(3, '/').collect();
     if parts.len() < 2 || parts[0].is_empty() || parts[1].is_empty() {
@@ -400,13 +398,45 @@ pub fn parse_github_url(url: &str) -> Result<(String, String), AppError> {
 // Community plugin helpers
 // ---------------------------------------------------------------------------
 
+/// Fetch the default branch name for a GitHub repository via the API.
+///
+/// Falls back to `"main"` if the API call fails (e.g. rate-limited).
+pub fn fetch_default_branch(repo_url: &str) -> String {
+    let Ok((owner, repo)) = parse_github_url(repo_url) else {
+        return "main".to_string();
+    };
+    let api_url = format!("https://api.github.com/repos/{}/{}", owner, repo);
+    let response = minreq::get(&api_url)
+        .with_header("User-Agent", "FerrisPad")
+        .with_header("Accept", "application/vnd.github.v3+json")
+        .with_timeout(10)
+        .send();
+    match response {
+        Ok(resp) if resp.status_code == 200 => {
+            let body = resp.as_str().unwrap_or("");
+            // Lightweight extraction — avoid pulling in a JSON library
+            if let Some(pos) = body.find("\"default_branch\"") {
+                let rest = &body[pos..];
+                if let Some(start) = rest.find(':') {
+                    let after_colon = rest[start + 1..].trim_start();
+                    if let Some(branch) = after_colon
+                        .strip_prefix('"')
+                        .and_then(|s| s.split('"').next())
+                    {
+                        return branch.to_string();
+                    }
+                }
+            }
+            "main".to_string()
+        }
+        _ => "main".to_string(),
+    }
+}
+
 /// Fetch the `plugin.toml` from a community plugin's GitHub repository.
 ///
 /// Enforces a 10 KB size limit to prevent abuse.
-pub fn fetch_community_plugin_toml(
-    repo_url: &str,
-    branch: &str,
-) -> Result<String, AppError> {
+pub fn fetch_community_plugin_toml(repo_url: &str, branch: &str) -> Result<String, AppError> {
     let (owner, repo) = parse_github_url(repo_url)?;
     let url = format!(
         "https://raw.githubusercontent.com/{}/{}/{}/plugin.toml",
@@ -534,7 +564,11 @@ pub fn install_community_plugin(
     // Verify checksums if provided
     if let Some(cs) = checksums {
         verify_checksum(init_lua_content.as_bytes(), &cs.init_lua, "init.lua")?;
-        verify_checksum(plugin_toml_content.as_bytes(), &cs.plugin_toml, "plugin.toml")?;
+        verify_checksum(
+            plugin_toml_content.as_bytes(),
+            &cs.plugin_toml,
+            "plugin.toml",
+        )?;
     }
 
     // Static Lua analysis — reject if blocked patterns are found
@@ -596,11 +630,8 @@ pub fn is_plugin_installed(plugin_name: &str) -> bool {
 /// Compare version strings (simple semver comparison)
 /// Returns true if available > installed
 pub fn is_update_available(installed_version: &str, available_version: &str) -> bool {
-    let parse_version = |v: &str| -> Vec<u32> {
-        v.split('.')
-            .filter_map(|s| s.parse().ok())
-            .collect()
-    };
+    let parse_version =
+        |v: &str| -> Vec<u32> { v.split('.').filter_map(|s| s.parse().ok()).collect() };
 
     let installed = parse_version(installed_version);
     let available = parse_version(available_version);
@@ -659,8 +690,7 @@ mod tests {
 
     #[test]
     fn test_parse_github_url_git_suffix() {
-        let (owner, repo) =
-            parse_github_url("https://github.com/someuser/somerepo.git").unwrap();
+        let (owner, repo) = parse_github_url("https://github.com/someuser/somerepo.git").unwrap();
         assert_eq!(owner, "someuser");
         assert_eq!(repo, "somerepo");
     }
@@ -704,8 +734,14 @@ mod tests {
 
     #[test]
     fn test_plugin_tier_from_str() {
-        assert_eq!("official".parse::<PluginTier>().unwrap(), PluginTier::Official);
-        assert_eq!("Community".parse::<PluginTier>().unwrap(), PluginTier::Community);
+        assert_eq!(
+            "official".parse::<PluginTier>().unwrap(),
+            PluginTier::Official
+        );
+        assert_eq!(
+            "Community".parse::<PluginTier>().unwrap(),
+            PluginTier::Community
+        );
         assert_eq!("MANUAL".parse::<PluginTier>().unwrap(), PluginTier::Manual);
         assert!("unknown".parse::<PluginTier>().is_err());
     }
@@ -719,7 +755,11 @@ mod tests {
             installed_date: "2026-01-01".to_string(),
         };
         let toml_str = toml::to_string(&source).unwrap();
-        assert!(toml_str.contains("tier = \"official\""), "Expected lowercase tier in TOML: {}", toml_str);
+        assert!(
+            toml_str.contains("tier = \"official\""),
+            "Expected lowercase tier in TOML: {}",
+            toml_str
+        );
     }
 
     #[test]

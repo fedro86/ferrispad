@@ -42,10 +42,7 @@ pub struct CommunityInstallReview {
 /// Show the community install review dialog.
 ///
 /// Returns `true` if the user clicks "Install Anyway", `false` if cancelled.
-pub fn show_community_install_dialog(
-    review: &CommunityInstallReview,
-    theme: &DialogTheme,
-) -> bool {
+pub fn show_community_install_dialog(review: &CommunityInstallReview, theme: &DialogTheme) -> bool {
     // ── Calculate dynamic height based on content ──
     let mut content_height = 0i32;
 
@@ -256,11 +253,9 @@ pub fn show_community_install_dialog(
     disclaimer.set_label_size(11);
 
     if review.is_manual {
-        let mut manual_warn = Frame::default()
-            .with_size(content_width, 18)
-            .with_label(
-                "This plugin is not listed in the community index. No integrity checks are available.",
-            );
+        let mut manual_warn = Frame::default().with_size(content_width, 18).with_label(
+            "This plugin is not listed in the community index. No integrity checks are available.",
+        );
         manual_warn.set_label_color(warning_color);
         manual_warn.set_align(Align::Left | Align::Inside | Align::Wrap);
         manual_warn.set_label_size(11);

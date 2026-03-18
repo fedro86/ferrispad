@@ -46,8 +46,13 @@ impl FindState {
             *sp.borrow()
         };
 
-        let found = find_in_text(&text, query, start_pos, case_sensitive)
-            .or_else(|| if start_pos > 0 { find_in_text(&text, query, 0, case_sensitive) } else { None });
+        let found = find_in_text(&text, query, start_pos, case_sensitive).or_else(|| {
+            if start_pos > 0 {
+                find_in_text(&text, query, 0, case_sensitive)
+            } else {
+                None
+            }
+        });
 
         if let Some(pos) = found {
             buf.select(pos as i32, (pos + query.len()) as i32);
@@ -78,8 +83,13 @@ impl FindState {
             *sp.borrow()
         };
 
-        let found = find_in_text_backward(&text, query, start_pos, case_sensitive)
-            .or_else(|| if start_pos < text.len() { find_in_text_backward(&text, query, text.len(), case_sensitive) } else { None });
+        let found = find_in_text_backward(&text, query, start_pos, case_sensitive).or_else(|| {
+            if start_pos < text.len() {
+                find_in_text_backward(&text, query, text.len(), case_sensitive)
+            } else {
+                None
+            }
+        });
 
         if let Some(pos) = found {
             buf.select(pos as i32, (pos + query.len()) as i32);
@@ -99,25 +109,43 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
         .with_label("Find & Replace")
         .center_screen();
 
-    Frame::default().with_pos(20, 20).with_size(80, 30).with_label("Find what:");
+    Frame::default()
+        .with_pos(20, 20)
+        .with_size(80, 30)
+        .with_label("Find what:");
     let find_input = Input::default().with_pos(110, 20).with_size(270, 30);
 
-    Frame::default().with_pos(20, 60).with_size(80, 30).with_label("Replace:");
+    Frame::default()
+        .with_pos(20, 60)
+        .with_size(80, 30)
+        .with_label("Replace:");
     let replace_input = Input::default().with_pos(110, 60).with_size(270, 30);
 
     let case_check = CheckButton::default()
-        .with_pos(110, 100).with_size(200, 25).with_label("Match case");
+        .with_pos(110, 100)
+        .with_size(200, 25)
+        .with_label("Match case");
 
     let mut find_prev_btn = Button::default()
-        .with_pos(20, 140).with_size(90, 30).with_label("Find Prev");
+        .with_pos(20, 140)
+        .with_size(90, 30)
+        .with_label("Find Prev");
     let mut find_btn = Button::default()
-        .with_pos(120, 140).with_size(90, 30).with_label("Find Next");
+        .with_pos(120, 140)
+        .with_size(90, 30)
+        .with_label("Find Next");
     let mut replace_btn = Button::default()
-        .with_pos(220, 140).with_size(90, 30).with_label("Replace");
+        .with_pos(220, 140)
+        .with_size(90, 30)
+        .with_label("Replace");
     let mut replace_all_btn = Button::default()
-        .with_pos(20, 180).with_size(100, 30).with_label("Replace All");
+        .with_pos(20, 180)
+        .with_size(100, 30)
+        .with_label("Replace All");
     let mut close_btn = Button::default()
-        .with_pos(300, 180).with_size(90, 30).with_label("Close");
+        .with_pos(300, 180)
+        .with_size(90, 30)
+        .with_label("Close");
 
     dialog_win.end();
     dialog_win.make_resizable(false);
@@ -141,7 +169,14 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
             dialog::message_default("Please enter text to find");
             return;
         }
-        FindState::find_next(st.clone(), sp.clone(), &query, &mut tb1, &mut te1, case_check1.is_checked());
+        FindState::find_next(
+            st.clone(),
+            sp.clone(),
+            &query,
+            &mut tb1,
+            &mut te1,
+            case_check1.is_checked(),
+        );
     });
 
     // Find Previous button
@@ -158,7 +193,14 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
             dialog::message_default("Please enter text to find");
             return;
         }
-        FindState::find_prev(st_prev.clone(), sp_prev.clone(), &query, &mut tb_prev, &mut te_prev, case_check_prev.is_checked());
+        FindState::find_prev(
+            st_prev.clone(),
+            sp_prev.clone(),
+            &query,
+            &mut tb_prev,
+            &mut te_prev,
+            case_check_prev.is_checked(),
+        );
     });
 
     // Replace button
@@ -180,22 +222,23 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
         }
 
         if let Some((start, end)) = tb2.selection_position()
-            && start != end {
-                let selected = tb2.selection_text();
-                let case_sensitive = case_check2.is_checked();
+            && start != end
+        {
+            let selected = tb2.selection_text();
+            let case_sensitive = case_check2.is_checked();
 
-                let matches = if case_sensitive {
-                    selected == query
-                } else {
-                    selected.to_lowercase() == query.to_lowercase()
-                };
+            let matches = if case_sensitive {
+                selected == query
+            } else {
+                selected.to_lowercase() == query.to_lowercase()
+            };
 
-                if matches {
-                    tb2.replace_selection(&replacement);
-                    te2.set_insert_position(start + replacement.len() as i32);
-                    *sp2.borrow_mut() = (start as usize) + replacement.len();
-                }
+            if matches {
+                tb2.replace_selection(&replacement);
+                te2.set_insert_position(start + replacement.len() as i32);
+                *sp2.borrow_mut() = (start as usize) + replacement.len();
             }
+        }
 
         find_btn2.do_callback();
     });
@@ -258,18 +301,29 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
         .with_label("Find")
         .center_screen();
 
-    Frame::default().with_pos(20, 20).with_size(80, 30).with_label("Find what:");
+    Frame::default()
+        .with_pos(20, 20)
+        .with_size(80, 30)
+        .with_label("Find what:");
     let find_input = Input::default().with_pos(110, 20).with_size(270, 30);
 
     let case_check = CheckButton::default()
-        .with_pos(110, 60).with_size(200, 25).with_label("Match case");
+        .with_pos(110, 60)
+        .with_size(200, 25)
+        .with_label("Match case");
 
     let mut find_prev_btn2 = Button::default()
-        .with_pos(110, 100).with_size(90, 30).with_label("Find Prev");
+        .with_pos(110, 100)
+        .with_size(90, 30)
+        .with_label("Find Prev");
     let mut find_btn = Button::default()
-        .with_pos(210, 100).with_size(90, 30).with_label("Find Next");
+        .with_pos(210, 100)
+        .with_size(90, 30)
+        .with_label("Find Next");
     let mut close_btn = Button::default()
-        .with_pos(310, 100).with_size(80, 30).with_label("Close");
+        .with_pos(310, 100)
+        .with_size(80, 30)
+        .with_label("Close");
 
     dialog_win.end();
     dialog_win.make_resizable(false);
@@ -291,7 +345,14 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
             dialog::message_default("Please enter text to find");
             return;
         }
-        FindState::find_next(st.clone(), sp.clone(), &query, &mut tb1, &mut te1, case_check1.is_checked());
+        FindState::find_next(
+            st.clone(),
+            sp.clone(),
+            &query,
+            &mut tb1,
+            &mut te1,
+            case_check1.is_checked(),
+        );
     });
 
     // Find Previous button (simple dialog)
@@ -308,7 +369,14 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
             dialog::message_default("Please enter text to find");
             return;
         }
-        FindState::find_prev(st2.clone(), sp2.clone(), &query, &mut tb2, &mut te2, case_check2.is_checked());
+        FindState::find_prev(
+            st2.clone(),
+            sp2.clone(),
+            &query,
+            &mut tb2,
+            &mut te2,
+            case_check2.is_checked(),
+        );
     });
 
     // Enter key on find input triggers Find Next

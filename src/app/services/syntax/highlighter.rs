@@ -1,7 +1,7 @@
-use syntect::highlighting::{HighlightState, Highlighter, HighlightIterator, Style, ThemeSet};
+use syntect::highlighting::{HighlightIterator, HighlightState, Highlighter, Style, ThemeSet};
 use syntect::parsing::{ParseState, ScopeStack, SyntaxReference, SyntaxSet};
 
-use super::checkpoint::{SparseCheckpoints, CHECKPOINT_INTERVAL};
+use super::checkpoint::{CHECKPOINT_INTERVAL, SparseCheckpoints};
 use super::style_map::StyleMap;
 
 pub struct FullResult {
@@ -49,7 +49,10 @@ pub fn highlight_full(
         }
     }
 
-    FullResult { style_string, checkpoints }
+    FullResult {
+        style_string,
+        checkpoints,
+    }
 }
 
 /// Incremental re-highlight starting from `edit_line` (0-indexed).
@@ -73,9 +76,8 @@ pub fn highlight_incremental(
     let total_lines = LinesWithEndings::new(text).count();
 
     // Find the nearest checkpoint at or before the edit line
-    let start_cp_idx = SparseCheckpoints::checkpoint_index(
-        edit_line.min(total_lines.saturating_sub(1)),
-    );
+    let start_cp_idx =
+        SparseCheckpoints::checkpoint_index(edit_line.min(total_lines.saturating_sub(1)));
     let start_line = SparseCheckpoints::checkpoint_line(start_cp_idx);
 
     // Resume from cached states at the checkpoint
@@ -85,7 +87,10 @@ pub fn highlight_incremental(
             checkpoints.highlight_states[start_cp_idx].clone(),
         )
     } else {
-        (ParseState::new(syntax), HighlightState::new(&highlighter, ScopeStack::new()))
+        (
+            ParseState::new(syntax),
+            HighlightState::new(&highlighter, ScopeStack::new()),
+        )
     };
 
     // Compute byte_start and iterate lines without collecting into Vec
@@ -106,14 +111,15 @@ pub fn highlight_incremental(
             let cp_idx = line_idx / CHECKPOINT_INTERVAL;
 
             // Check convergence at checkpoint boundaries (skip the starting checkpoint)
-            if cp_idx > start_cp_idx && cp_idx < checkpoints.len()
+            if cp_idx > start_cp_idx
+                && cp_idx < checkpoints.len()
                 && parse_state == checkpoints.parse_states[cp_idx]
-                    && highlight_state == checkpoints.highlight_states[cp_idx]
-                {
-                    // Converged — no more changes needed
-                    _converged_at_cp = Some(cp_idx);
-                    break;
-                }
+                && highlight_state == checkpoints.highlight_states[cp_idx]
+            {
+                // Converged — no more changes needed
+                _converged_at_cp = Some(cp_idx);
+                break;
+            }
 
             // Update checkpoint in place (or push if we're past the old length)
             if cp_idx < checkpoints.len() {
@@ -173,7 +179,11 @@ impl<'a> Iterator for LinesWithEndings<'a> {
         if self.text.is_empty() {
             return None;
         }
-        let end = self.text.find('\n').map(|i| i + 1).unwrap_or(self.text.len());
+        let end = self
+            .text
+            .find('\n')
+            .map(|i| i + 1)
+            .unwrap_or(self.text.len());
         let line = &self.text[..end];
         self.text = &self.text[end..];
         Some(line)

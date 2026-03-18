@@ -29,21 +29,21 @@ use super::domain::settings::{AppSettings, FontChoice, SyntaxTheme, ThemeMode};
 use super::infrastructure::buffer::buffer_text_no_leak;
 use super::infrastructure::defer::defer_send;
 use super::infrastructure::platform::detect_system_dark_mode;
+use super::plugins::{PluginHook, PluginManager, get_plugin_dir};
 use super::services::session;
-use super::plugins::{PluginManager, PluginHook, get_plugin_dir};
 use super::services::shortcut_registry::ShortcutRegistry;
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::editor_container::EditorContainer;
 use crate::ui::tab_bar::TabBar;
-use crate::ui::theme::{apply_theme, apply_syntax_theme_colors};
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
+use crate::ui::theme::{apply_syntax_theme_colors, apply_theme};
 
 pub struct AppState {
     pub tab_manager: TabManager,
     pub tabs_enabled: bool,
     pub tab_bar: Option<TabBar>,
-    #[allow(dead_code)]  // Holds ownership; editor clone is extracted in constructor
+    #[allow(dead_code)] // Holds ownership; editor clone is extracted in constructor
     pub editor_container: EditorContainer,
     pub editor: TextEditor,
     pub window: Window,
@@ -98,7 +98,8 @@ impl AppState {
         let font_size = settings.borrow().font_size as i32;
         let highlighting_enabled = settings.borrow().highlighting_enabled;
         let syntax_theme = settings.borrow().current_syntax_theme(dark_mode);
-        let highlight = HighlightController::new(syntax_theme, font, font_size, highlighting_enabled);
+        let highlight =
+            HighlightController::new(syntax_theme, font, font_size, highlighting_enabled);
 
         let preview = PreviewController::new();
 
@@ -131,7 +132,8 @@ impl AppState {
             plugins.call_hook(PluginHook::Init);
         }
 
-        let shortcut_registry = ShortcutRegistry::from_settings(&settings.borrow().shortcut_overrides);
+        let shortcut_registry =
+            ShortcutRegistry::from_settings(&settings.borrow().shortcut_overrides);
 
         let editor = editor_container.editor().clone();
 
@@ -165,8 +167,6 @@ impl AppState {
             text_change_timer_active: false,
         }
     }
-
-
 
     /// Get the active document's buffer
     pub fn active_buffer(&self) -> TextBuffer {
@@ -203,8 +203,7 @@ impl AppState {
                 prefix, doc.display_name
             ));
         } else {
-            self.window
-                .set_label("Untitled - \u{1f980} FerrisPad");
+            self.window.set_label("Untitled - \u{1f980} FerrisPad");
         }
     }
 
@@ -259,7 +258,8 @@ impl AppState {
 
         // If a tree view is currently visible, refresh it for the new document.
         // YAML/JSON files get a new tree; other files close the stale tree.
-        self.widget.refresh_tree_view_for_active_doc(&self.tab_manager);
+        self.widget
+            .refresh_tree_view_for_active_doc(&self.tab_manager);
     }
 
     /// Execute the tree view refresh (called directly or from deferred message).
@@ -290,7 +290,9 @@ impl AppState {
     /// - Preview in Browser (only for markdown)
     /// - Plugin menu items (based on their supported file extensions)
     pub fn update_menus_for_file_type(&mut self) {
-        let file_path = self.tab_manager.active_doc()
+        let file_path = self
+            .tab_manager
+            .active_doc()
             .and_then(|doc| doc.file_path.as_ref())
             .map(|p| p.as_str());
 
@@ -318,39 +320,46 @@ impl AppState {
     pub fn close_tab(&mut self, id: DocumentId) -> bool {
         // Check if document is dirty
         if let Some(doc) = self.tab_manager.doc_by_id(id)
-            && doc.is_dirty() {
-                let name = doc.display_name.clone();
-                let choice = dialog::choice2_default(
-                    &format!("\"{}\" has unsaved changes.", name),
-                    "Save",
-                    "Discard",
-                    "Cancel",
-                );
+            && doc.is_dirty()
+        {
+            let name = doc.display_name.clone();
+            let choice = dialog::choice2_default(
+                &format!("\"{}\" has unsaved changes.", name),
+                "Save",
+                "Discard",
+                "Cancel",
+            );
 
-                match choice {
-                    Some(0) => {
-                        let was_active = self.tab_manager.active_id();
-                        if was_active != Some(id) {
-                            self.switch_to_document(id);
-                        }
-                        self.file_save();
-                        if let Some(doc) = self.tab_manager.doc_by_id(id)
-                            && doc.is_dirty() {
-                                if let Some(prev) = was_active
-                                    && prev != id {
-                                        self.switch_to_document(prev);
-                                    }
-                                return false;
-                            }
+            match choice {
+                Some(0) => {
+                    let was_active = self.tab_manager.active_id();
+                    if was_active != Some(id) {
+                        self.switch_to_document(id);
                     }
-                    Some(1) => {}
-                    _ => return false,
+                    self.file_save();
+                    if let Some(doc) = self.tab_manager.doc_by_id(id)
+                        && doc.is_dirty()
+                    {
+                        if let Some(prev) = was_active
+                            && prev != id
+                        {
+                            self.switch_to_document(prev);
+                        }
+                        return false;
+                    }
                 }
+                Some(1) => {}
+                _ => return false,
             }
+        }
 
         // Call plugin hook before closing
-        let close_path = self.tab_manager.doc_by_id(id).and_then(|d| d.file_path.clone());
-        self.plugins.call_hook(PluginHook::OnDocumentClose { path: close_path });
+        let close_path = self
+            .tab_manager
+            .doc_by_id(id)
+            .and_then(|d| d.file_path.clone());
+        self.plugins
+            .call_hook(PluginHook::OnDocumentClose { path: close_path });
 
         self.tab_manager.remove(id);
 
@@ -376,11 +385,9 @@ impl AppState {
     }
 
     pub fn file_save(&mut self) {
-        let actions = self.file.file_save(
-            &mut self.tab_manager,
-            &self.plugins,
-            self.tabs_enabled,
-        );
+        let actions = self
+            .file
+            .file_save(&mut self.tab_manager, &self.plugins, self.tabs_enabled);
         self.dispatch_file_actions(actions);
     }
 
@@ -392,7 +399,10 @@ impl AppState {
                 FileAction::RebuildTabBar => self.rebuild_tab_bar(),
                 FileAction::DetectAndHighlight(id, path) => {
                     self.highlight.detect_and_highlight(
-                        id, &path, &mut self.tab_manager, &self.sender,
+                        id,
+                        &path,
+                        &mut self.tab_manager,
+                        &self.sender,
                     );
                 }
                 FileAction::BindHighlightData(id) => {
@@ -408,7 +418,11 @@ impl AppState {
                     self.run_open_hooks(path, content);
                 }
                 FileAction::DeferOpenHooks { path, content } => {
-                    defer_send(self.sender, 0.0, Message::DeferredPluginHooks { path, content });
+                    defer_send(
+                        self.sender,
+                        0.0,
+                        Message::DeferredPluginHooks { path, content },
+                    );
                 }
                 FileAction::RunPluginOpenHook { path } => {
                     let result = self.plugins.call_hook(PluginHook::OnDocumentOpen {
@@ -461,9 +475,8 @@ impl AppState {
 
         // Apply syntax highlighting for each restored document
         for (id, path) in &result.highlight_docs {
-            self.highlight.detect_and_highlight(
-                *id, path, &mut self.tab_manager, &self.sender,
-            );
+            self.highlight
+                .detect_and_highlight(*id, path, &mut self.tab_manager, &self.sender);
         }
 
         self.bind_active_buffer();
@@ -537,9 +550,10 @@ impl AppState {
                             self.switch_to_document(id);
                             self.file_save();
                             if let Some(doc) = self.tab_manager.doc_by_id(id)
-                                && doc.is_dirty() {
-                                    return false;
-                                }
+                                && doc.is_dirty()
+                            {
+                                return false;
+                            }
                         }
                         true
                     }
@@ -548,10 +562,7 @@ impl AppState {
                 }
             }
         } else {
-            let is_dirty = self
-                .tab_manager
-                .active_doc()
-                .is_some_and(|d| d.is_dirty());
+            let is_dirty = self.tab_manager.active_doc().is_some_and(|d| d.is_dirty());
 
             if is_dirty {
                 let choice = dialog::choice2_default(
@@ -564,10 +575,7 @@ impl AppState {
                 match choice {
                     Some(0) => {
                         self.file_save();
-                        !self
-                            .tab_manager
-                            .active_doc()
-                            .is_some_and(|d| d.is_dirty())
+                        !self.tab_manager.active_doc().is_some_and(|d| d.is_dirty())
                     }
                     Some(1) => true,
                     _ => false,
@@ -581,13 +589,16 @@ impl AppState {
             // Call plugin shutdown hook
             self.plugins.call_hook(PluginHook::Shutdown);
 
-            let _ = session::save_session(&self.tab_manager, session_mode, self.file.last_open_directory.as_deref())
-                .inspect_err(|e| eprintln!("Failed to save session: {}", e));
+            let _ = session::save_session(
+                &self.tab_manager,
+                session_mode,
+                self.file.last_open_directory.as_deref(),
+            )
+            .inspect_err(|e| eprintln!("Failed to save session: {}", e));
         }
 
         should_quit
     }
-
 
     pub fn switch_to_next_tab(&mut self) {
         if let Some(next_id) = self.tab_manager.next_doc_id() {
@@ -611,7 +622,10 @@ impl AppState {
         self.view.dark_mode = !self.view.dark_mode;
 
         // Set syntax theme first to get the background color
-        let theme = self.settings.borrow().current_syntax_theme(self.view.dark_mode);
+        let theme = self
+            .settings
+            .borrow()
+            .current_syntax_theme(self.view.dark_mode);
         self.highlight.set_theme(theme);
 
         // Get syntax theme colors
@@ -640,17 +654,21 @@ impl AppState {
 
         // Split panel theme is applied via Message::SplitViewShow (panel lives in MainWidgets)
 
-        self.highlight.rehighlight_all_documents(&mut self.tab_manager, &self.sender);
+        self.highlight
+            .rehighlight_all_documents(&mut self.tab_manager, &self.sender);
         self.bind_active_buffer();
 
         // Call plugin hook
-        self.plugins.call_hook(PluginHook::OnThemeChanged { is_dark: self.view.dark_mode });
+        self.plugins.call_hook(PluginHook::OnThemeChanged {
+            is_dark: self.view.dark_mode,
+        });
     }
 
     pub fn toggle_highlighting(&mut self) {
         self.highlight.highlighting_enabled = !self.highlight.highlighting_enabled;
         if self.highlight.highlighting_enabled {
-            self.highlight.rehighlight_all_documents(&mut self.tab_manager, &self.sender);
+            self.highlight
+                .rehighlight_all_documents(&mut self.tab_manager, &self.sender);
             self.bind_active_buffer();
         } else {
             self.highlight.disable_highlighting(
@@ -753,7 +771,8 @@ impl AppState {
         let fg = self.highlight.highlighter().theme_foreground();
         apply_syntax_theme_colors(&mut self.editor, bg, fg);
 
-        self.highlight.rehighlight_all_documents(&mut self.tab_manager, &self.sender);
+        self.highlight
+            .rehighlight_all_documents(&mut self.tab_manager, &self.sender);
         self.bind_active_buffer();
     }
 
@@ -839,11 +858,16 @@ impl AppState {
         self.update_menu_checkbox("View/Toggle Word Wrap", self.view.word_wrap);
 
         // Apply tab size to all document buffers
-        self.tab_manager.set_all_tab_distance(new_settings.tab_size as i32);
+        self.tab_manager
+            .set_all_tab_distance(new_settings.tab_size as i32);
 
-        let highlighting_changed = self.highlight.highlighting_enabled != new_settings.highlighting_enabled;
+        let highlighting_changed =
+            self.highlight.highlighting_enabled != new_settings.highlighting_enabled;
         self.highlight.highlighting_enabled = new_settings.highlighting_enabled;
-        self.update_menu_checkbox("View/Toggle Syntax Highlighting", self.highlight.highlighting_enabled);
+        self.update_menu_checkbox(
+            "View/Toggle Syntax Highlighting",
+            self.highlight.highlighting_enabled,
+        );
 
         self.editor.redraw();
 
@@ -861,7 +885,8 @@ impl AppState {
             );
             self.bind_active_buffer();
         } else if self.highlight.highlighting_enabled {
-            self.highlight.rehighlight_all_documents(&mut self.tab_manager, &self.sender);
+            self.highlight
+                .rehighlight_all_documents(&mut self.tab_manager, &self.sender);
             self.bind_active_buffer();
         }
     }
@@ -869,20 +894,22 @@ impl AppState {
     fn update_menu_checkbox(&self, path: &str, checked: bool) {
         let idx = self.menu.find_index(path);
         if idx >= 0
-            && let Some(mut item) = self.menu.at(idx) {
-                if checked {
-                    item.set();
-                } else {
-                    item.clear();
-                }
+            && let Some(mut item) = self.menu.at(idx)
+        {
+            if checked {
+                item.set();
+            } else {
+                item.clear();
             }
+        }
     }
 
     // --- Syntax highlighting (delegates to HighlightController) ---
 
     pub fn schedule_rehighlight(&mut self, id: DocumentId, pos: i32) {
         self.highlight.schedule_rehighlight(
-            id, pos,
+            id,
+            pos,
             &mut self.tab_manager,
             &self.sender,
             &mut HighlightWidgets {
@@ -895,11 +922,22 @@ impl AppState {
     }
 
     /// Schedule a debounced OnTextChanged plugin hook (300ms after last edit).
-    pub fn schedule_text_change_hook(&mut self, id: DocumentId, pos: i32, inserted: i32, deleted: i32) {
+    pub fn schedule_text_change_hook(
+        &mut self,
+        id: DocumentId,
+        pos: i32,
+        inserted: i32,
+        deleted: i32,
+    ) {
         // Coalesce: keep earliest position, sum inserted/deleted
         match self.pending_text_change {
             Some((existing_id, existing_pos, existing_ins, existing_del)) if existing_id == id => {
-                self.pending_text_change = Some((id, pos.min(existing_pos), existing_ins + inserted, existing_del + deleted));
+                self.pending_text_change = Some((
+                    id,
+                    pos.min(existing_pos),
+                    existing_ins + inserted,
+                    existing_del + deleted,
+                ));
             }
             _ => {
                 self.pending_text_change = Some((id, pos, inserted, deleted));
@@ -922,7 +960,9 @@ impl AppState {
         };
 
         // Only fire for the active document
-        let path = self.tab_manager.doc_by_id(id)
+        let path = self
+            .tab_manager
+            .doc_by_id(id)
             .and_then(|d| d.file_path.clone());
 
         let result = self.plugins.call_hook(PluginHook::OnTextChanged {
@@ -1013,10 +1053,8 @@ impl AppState {
 
         let result = if selected_plugins.is_empty() {
             // Call all enabled plugins (default behavior)
-            self.plugins.call_hook(PluginHook::OnHighlightRequest {
-                path,
-                content,
-            })
+            self.plugins
+                .call_hook(PluginHook::OnHighlightRequest { path, content })
         } else {
             // Call only selected plugins
             let mut combined = super::plugins::HookResult::default();
@@ -1029,7 +1067,9 @@ impl AppState {
                     },
                 ) {
                     combined.diagnostics.extend(plugin_result.diagnostics);
-                    combined.line_annotations.extend(plugin_result.line_annotations);
+                    combined
+                        .line_annotations
+                        .extend(plugin_result.line_annotations);
                     if plugin_result.status_message.is_some() {
                         combined.status_message = plugin_result.status_message;
                     }

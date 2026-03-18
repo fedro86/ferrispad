@@ -40,7 +40,12 @@ fn test_discover_ignores_dirs_without_init_lua() {
     let dir = tempdir().unwrap();
 
     // Plugin with init.lua -> should be discovered
-    create_plugin_dir(dir.path(), "good-plugin", "return {}", &default_plugin_toml("good", "1.0.0"));
+    create_plugin_dir(
+        dir.path(),
+        "good-plugin",
+        "return {}",
+        &default_plugin_toml("good", "1.0.0"),
+    );
 
     // Directory with only plugin.toml (no init.lua) -> should NOT be discovered
     let bad_dir = dir.path().join("incomplete-plugin");
@@ -109,9 +114,24 @@ default = "false"
 fn test_discover_multiple_plugins_sorted() {
     let dir = tempdir().unwrap();
 
-    create_plugin_dir(dir.path(), "charlie", "return {}", &default_plugin_toml("charlie", "1.0.0"));
-    create_plugin_dir(dir.path(), "alpha", "return {}", &default_plugin_toml("alpha", "1.0.0"));
-    create_plugin_dir(dir.path(), "bravo", "return {}", &default_plugin_toml("bravo", "1.0.0"));
+    create_plugin_dir(
+        dir.path(),
+        "charlie",
+        "return {}",
+        &default_plugin_toml("charlie", "1.0.0"),
+    );
+    create_plugin_dir(
+        dir.path(),
+        "alpha",
+        "return {}",
+        &default_plugin_toml("alpha", "1.0.0"),
+    );
+    create_plugin_dir(
+        dir.path(),
+        "bravo",
+        "return {}",
+        &default_plugin_toml("bravo", "1.0.0"),
+    );
 
     let plugins = discover_plugins(dir.path());
     assert_eq!(plugins.len(), 3);

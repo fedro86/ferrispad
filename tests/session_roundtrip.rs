@@ -44,12 +44,18 @@ fn test_session_roundtrip_via_disk() {
     assert_eq!(loaded.version, 1);
     assert_eq!(loaded.active_index, 2);
     assert_eq!(loaded.documents.len(), 2);
-    assert_eq!(loaded.documents[0].file_path.as_deref(), Some("/tmp/test.rs"));
+    assert_eq!(
+        loaded.documents[0].file_path.as_deref(),
+        Some("/tmp/test.rs")
+    );
     assert_eq!(loaded.documents[0].cursor_position, 55);
     assert_eq!(loaded.documents[0].group_index, Some(0));
     assert_eq!(loaded.documents[1].display_name, "Untitled");
     assert!(loaded.documents[1].was_dirty);
-    assert_eq!(loaded.documents[1].temp_file.as_deref(), Some("deadbeef.tmp"));
+    assert_eq!(
+        loaded.documents[1].temp_file.as_deref(),
+        Some("deadbeef.tmp")
+    );
     assert_eq!(loaded.last_open_directory.as_deref(), Some("/home/user"));
     assert_eq!(loaded.instance_id.as_deref(), Some("9999"));
 }
@@ -156,6 +162,18 @@ fn test_session_unicode_paths() {
     let loaded: SessionData = serde_json::from_str(&json).unwrap();
 
     assert_eq!(loaded.documents[0].display_name, "\u{6587}\u{4EF6}.txt");
-    assert!(loaded.documents[1].file_path.as_ref().unwrap().contains("\u{1F600}"));
-    assert!(loaded.last_open_directory.as_ref().unwrap().contains("\u{6587}\u{4EF6}\u{5939}"));
+    assert!(
+        loaded.documents[1]
+            .file_path
+            .as_ref()
+            .unwrap()
+            .contains("\u{1F600}")
+    );
+    assert!(
+        loaded
+            .last_open_directory
+            .as_ref()
+            .unwrap()
+            .contains("\u{6587}\u{4EF6}\u{5939}")
+    );
 }

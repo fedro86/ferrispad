@@ -10,17 +10,17 @@ mod dispatch;
 
 use fltk::{app as fltk_app, prelude::*};
 use std::cell::RefCell;
-use std::rc::Rc;
 use std::env;
+use std::rc::Rc;
 
-use crate::app::services::updater::{check_for_updates, should_check_now, UpdateCheckResult};
-use crate::app::services::session;
-use crate::app::services::shortcut_registry::ShortcutRegistry;
-use crate::app::state::AppState;
 use crate::app::domain::settings::TreePanelPosition;
 use crate::app::infrastructure::defer::defer_send;
-use crate::app::{detect_system_dark_mode, AppSettings, Message, ThemeMode};
-use crate::ui::main_window::{build_main_window, LayoutWidgets};
+use crate::app::services::session;
+use crate::app::services::shortcut_registry::ShortcutRegistry;
+use crate::app::services::updater::{UpdateCheckResult, check_for_updates, should_check_now};
+use crate::app::state::AppState;
+use crate::app::{AppSettings, Message, ThemeMode, detect_system_dark_mode};
+use crate::ui::main_window::{LayoutWidgets, build_main_window};
 use crate::ui::menu::build_menu;
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
@@ -95,7 +95,14 @@ fn main() {
     let shortcut_registry = ShortcutRegistry::from_settings(&settings.shortcut_overrides);
 
     // Build menu (all items are one-liner message sends)
-    build_menu(&mut w.menu, &sender, &settings, initial_dark_mode, tabs_enabled, &shortcut_registry);
+    build_menu(
+        &mut w.menu,
+        &sender,
+        &settings,
+        initial_dark_mode,
+        tabs_enabled,
+        &shortcut_registry,
+    );
 
     // Initialize state
     let app_settings = Rc::new(RefCell::new(settings.clone()));
@@ -266,86 +273,124 @@ fn main() {
         if let Some(msg) = receiver.recv() {
             let result = match msg {
                 // File
-                Message::FileNew | Message::FileOpen | Message::FileSave
-                | Message::FileSaveAs | Message::FileQuit | Message::WindowClose =>
-                    dispatch::handle_file(msg, &mut state),
+                Message::FileNew
+                | Message::FileOpen
+                | Message::FileSave
+                | Message::FileSaveAs
+                | Message::FileQuit
+                | Message::WindowClose => dispatch::handle_file(msg, &mut state),
 
                 // Tabs
-                Message::TabSwitch(_) | Message::TabClose(_) | Message::TabCloseActive
-                | Message::TabMove(..) | Message::TabNext | Message::TabPrevious
-                | Message::TabGroupCreate(_) | Message::TabGroupDelete(_)
-                | Message::TabGroupClose(_) | Message::TabGroupRename(_)
-                | Message::TabGroupRecolor(..) | Message::TabGroupAddTab(..)
-                | Message::TabGroupRemoveTab(_) | Message::TabGroupToggle(_)
-                | Message::TabGroupByDrag(..) | Message::TabGroupMove(..)
-                | Message::TabMoveToGroup(..) =>
-                    dispatch::handle_tab(msg, &mut state, &mut lw),
+                Message::TabSwitch(_)
+                | Message::TabClose(_)
+                | Message::TabCloseActive
+                | Message::TabMove(..)
+                | Message::TabNext
+                | Message::TabPrevious
+                | Message::TabGroupCreate(_)
+                | Message::TabGroupDelete(_)
+                | Message::TabGroupClose(_)
+                | Message::TabGroupRename(_)
+                | Message::TabGroupRecolor(..)
+                | Message::TabGroupAddTab(..)
+                | Message::TabGroupRemoveTab(_)
+                | Message::TabGroupToggle(_)
+                | Message::TabGroupByDrag(..)
+                | Message::TabGroupMove(..)
+                | Message::TabMoveToGroup(..) => dispatch::handle_tab(msg, &mut state, &mut lw),
 
                 // Edit
-                Message::EditUndo | Message::EditRedo | Message::EditCut
-                | Message::EditCopy | Message::EditPaste | Message::SelectAll
-                | Message::ShowFind | Message::ShowReplace | Message::ShowGoToLine => {
+                Message::EditUndo
+                | Message::EditRedo
+                | Message::EditCut
+                | Message::EditCopy
+                | Message::EditPaste
+                | Message::SelectAll
+                | Message::ShowFind
+                | Message::ShowReplace
+                | Message::ShowGoToLine => {
                     dispatch::handle_edit(msg, &mut state);
                     dispatch::DispatchResult::Continue
                 }
 
                 // View & Format
-                Message::ToggleLineNumbers | Message::ToggleWordWrap
-                | Message::ToggleDarkMode | Message::ToggleHighlighting
-                | Message::TogglePreview | Message::SetFont(_) | Message::SetFontSize(_) => {
+                Message::ToggleLineNumbers
+                | Message::ToggleWordWrap
+                | Message::ToggleDarkMode
+                | Message::ToggleHighlighting
+                | Message::TogglePreview
+                | Message::SetFont(_)
+                | Message::SetFontSize(_) => {
                     dispatch::handle_view(msg, &mut state, &mut lw);
                     dispatch::DispatchResult::Continue
                 }
 
                 // Settings & Help
-                Message::OpenSettings | Message::CheckForUpdates
-                | Message::ShowAbout | Message::ShowKeyShortcuts => {
+                Message::OpenSettings
+                | Message::CheckForUpdates
+                | Message::ShowAbout
+                | Message::ShowKeyShortcuts => {
                     dispatch::handle_settings(msg, &mut state, &mut lw);
                     dispatch::DispatchResult::Continue
                 }
 
                 // Syntax highlighting
-                Message::BufferModified { .. } | Message::DoRehighlight
-                | Message::ContinueHighlight | Message::DoTextChangeHook => {
+                Message::BufferModified { .. }
+                | Message::DoRehighlight
+                | Message::ContinueHighlight
+                | Message::DoTextChangeHook => {
                     dispatch::handle_highlight(msg, &mut state);
                     dispatch::DispatchResult::Continue
                 }
 
                 // Background updates
-                Message::BackgroundUpdateResult(_) | Message::ShowBannerUpdate
-                | Message::DismissBanner | Message::PreviewSyntaxTheme(_) => {
+                Message::BackgroundUpdateResult(_)
+                | Message::ShowBannerUpdate
+                | Message::DismissBanner
+                | Message::PreviewSyntaxTheme(_) => {
                     dispatch::handle_update(msg, &mut state);
                     dispatch::DispatchResult::Continue
                 }
 
                 // Plugins
-                Message::PluginsToggleGlobal | Message::PluginToggle(_)
-                | Message::PluginsReloadAll | Message::CheckPluginPermissions
-                | Message::PluginMenuAction { .. } | Message::ShowPluginManager
-                | Message::ShowPluginSettings | Message::ShowPluginConfig(_)
-                | Message::CheckPluginUpdates | Message::PluginUpdatesChecked(_) => {
+                Message::PluginsToggleGlobal
+                | Message::PluginToggle(_)
+                | Message::PluginsReloadAll
+                | Message::CheckPluginPermissions
+                | Message::PluginMenuAction { .. }
+                | Message::ShowPluginManager
+                | Message::ShowPluginSettings
+                | Message::ShowPluginConfig(_)
+                | Message::CheckPluginUpdates
+                | Message::PluginUpdatesChecked(_) => {
                     dispatch::handle_plugin(msg, &mut state);
                     dispatch::DispatchResult::Continue
                 }
 
                 // Diagnostics
-                Message::DiagnosticsUpdate(_) | Message::DiagnosticsClear
-                | Message::DiagnosticsAutoDismiss | Message::DiagnosticGoto(_)
-                | Message::DiagnosticOpenDocs(_) | Message::ToggleDiagnosticsPanel => {
+                Message::DiagnosticsUpdate(_)
+                | Message::DiagnosticsClear
+                | Message::DiagnosticsAutoDismiss
+                | Message::DiagnosticGoto(_)
+                | Message::DiagnosticOpenDocs(_)
+                | Message::ToggleDiagnosticsPanel => {
                     dispatch::handle_diagnostic(msg, &mut state, &mut lw);
                     dispatch::DispatchResult::Continue
                 }
 
                 // Annotations
-                Message::AnnotationsUpdate(_) | Message::AnnotationsClear
+                Message::AnnotationsUpdate(_)
+                | Message::AnnotationsClear
                 | Message::ManualHighlight => {
                     dispatch::handle_annotation(msg, &mut state);
                     dispatch::DispatchResult::Continue
                 }
 
                 // Deferred actions
-                Message::DeferredPluginHooks { .. } | Message::DeferredTreeRefresh { .. }
-                | Message::DeferredSessionRestore | Message::DeferredOpenFile(_) => {
+                Message::DeferredPluginHooks { .. }
+                | Message::DeferredTreeRefresh { .. }
+                | Message::DeferredSessionRestore
+                | Message::DeferredOpenFile(_) => {
                     dispatch::handle_deferred(msg, &mut state, &mut lw, tabs_enabled);
                     dispatch::DispatchResult::Continue
                 }
@@ -358,17 +403,22 @@ fn main() {
 
                 // Split view
                 Message::SplitViewShow { .. }
-                | Message::SplitViewAccept(_) | Message::SplitViewReject(_)
-                | Message::SplitViewResize(_) | Message::DiffTabActivate(_)
+                | Message::SplitViewAccept(_)
+                | Message::SplitViewReject(_)
+                | Message::SplitViewResize(_)
+                | Message::DiffTabActivate(_)
                 | Message::SplitViewToggleMode(_) => {
                     dispatch::handle_split_view(msg, &mut state, &mut lw);
                     dispatch::DispatchResult::Continue
                 }
 
                 // Tree view
-                Message::TreeViewShow { .. } | Message::TreeViewHide(_)
-                | Message::TreeViewLoading | Message::TreeViewNodeClicked { .. }
-                | Message::TreeViewContextAction { .. } | Message::TreeViewSearch { .. }
+                Message::TreeViewShow { .. }
+                | Message::TreeViewHide(_)
+                | Message::TreeViewLoading
+                | Message::TreeViewNodeClicked { .. }
+                | Message::TreeViewContextAction { .. }
+                | Message::TreeViewSearch { .. }
                 | Message::TreeViewResize(_) => {
                     dispatch::handle_tree_view(msg, &mut state, &mut lw);
                     dispatch::DispatchResult::Continue
@@ -399,6 +449,7 @@ fn main() {
             &state.tab_manager,
             session_mode,
             state.file.last_open_directory.as_deref(),
-        ).inspect_err(|e| eprintln!("Post-loop session save failed: {}", e));
+        )
+        .inspect_err(|e| eprintln!("Post-loop session save failed: {}", e));
     }
 }

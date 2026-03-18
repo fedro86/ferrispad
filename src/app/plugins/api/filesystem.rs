@@ -4,9 +4,9 @@
 
 use std::process::Command;
 
-use super::super::security::{validate_path, PathValidation};
-use super::sandbox::{resolve_and_validate, scan_dir_recursive};
+use super::super::security::{PathValidation, validate_path};
 use super::EditorApi;
+use super::sandbox::{resolve_and_validate, scan_dir_recursive};
 
 /// Check if a file exists at the given path.
 /// Returns true if the file exists AND is within project root, false otherwise.
@@ -18,8 +18,7 @@ pub fn file_exists(_: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Resul
     match validate_path(&path, project_root) {
         PathValidation::Valid(canonical) => Ok(canonical.exists()),
         PathValidation::NotFound => Ok(false),
-        PathValidation::OutsideProjectRoot
-        | PathValidation::InvalidPath(_) => {
+        PathValidation::OutsideProjectRoot | PathValidation::InvalidPath(_) => {
             eprintln!(
                 "[plugin:security] file_exists blocked: '{}' outside project root",
                 path
@@ -41,21 +40,22 @@ pub fn read_file(
     };
 
     match validate_path(&path, project_root) {
-        PathValidation::Valid(canonical) => {
-            match std::fs::read_to_string(&canonical) {
-                Ok(content) => {
-                    let lua_str = lua.create_string(&content)?;
-                    Ok((mlua::Value::String(lua_str), None))
-                }
-                Err(e) => Ok((mlua::Value::Nil, Some(e.to_string()))),
+        PathValidation::Valid(canonical) => match std::fs::read_to_string(&canonical) {
+            Ok(content) => {
+                let lua_str = lua.create_string(&content)?;
+                Ok((mlua::Value::String(lua_str), None))
             }
-        }
+            Err(e) => Ok((mlua::Value::Nil, Some(e.to_string()))),
+        },
         _ => {
             eprintln!(
                 "[plugin:security] read_file blocked: '{}' outside project root",
                 path
             );
-            Ok((mlua::Value::Nil, Some("Path outside project root".to_string())))
+            Ok((
+                mlua::Value::Nil,
+                Some("Path outside project root".to_string()),
+            ))
         }
     }
 }
@@ -74,11 +74,7 @@ pub fn is_file(_: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Result<bo
 
 /// List entries in a single directory (non-recursive).
 /// Returns array of { name = "...", is_dir = bool } or nil on failure.
-pub fn list_dir(
-    lua: &mlua::Lua,
-    this: &EditorApi,
-    path: String,
-) -> mlua::Result<mlua::Value> {
+pub fn list_dir(lua: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Result<mlua::Value> {
     let Some(ref project_root) = this.project_root else {
         return Ok(mlua::Value::Nil);
     };
@@ -98,7 +94,10 @@ pub fn list_dir(
 
     for entry in sorted {
         let t = lua.create_table()?;
-        t.set("name", entry.file_name().to_string_lossy().as_ref().to_owned())?;
+        t.set(
+            "name",
+            entry.file_name().to_string_lossy().as_ref().to_owned(),
+        )?;
         t.set("is_dir", entry.path().is_dir())?;
         result.set(idx, t)?;
         idx += 1;
@@ -141,11 +140,7 @@ pub fn scan_dir(
 
 /// Create a new empty file. Fails if the file already exists (no truncation).
 /// Returns (true, "") on success, (false, error_msg) on failure.
-pub fn create_file(
-    _: &mlua::Lua,
-    this: &EditorApi,
-    path: String,
-) -> mlua::Result<(bool, String)> {
+pub fn create_file(_: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Result<(bool, String)> {
     let Some(ref project_root) = this.project_root else {
         return Ok((false, "No project root".to_string()));
     };
@@ -165,11 +160,7 @@ pub fn create_file(
 
 /// Create a directory (and all missing parents).
 /// Returns (true, "") on success, (false, error_msg) on failure.
-pub fn create_dir(
-    _: &mlua::Lua,
-    this: &EditorApi,
-    path: String,
-) -> mlua::Result<(bool, String)> {
+pub fn create_dir(_: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Result<(bool, String)> {
     let Some(ref project_root) = this.project_root else {
         return Ok((false, "No project root".to_string()));
     };
@@ -209,11 +200,7 @@ pub fn rename(
 
 /// Remove a file or directory (recursive for directories).
 /// Returns (true, "") on success, (false, error_msg) on failure.
-pub fn remove(
-    _: &mlua::Lua,
-    this: &EditorApi,
-    path: String,
-) -> mlua::Result<(bool, String)> {
+pub fn remove(_: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Result<(bool, String)> {
     let Some(ref project_root) = this.project_root else {
         return Ok((false, "No project root".to_string()));
     };
@@ -236,11 +223,7 @@ pub fn remove(
 
 /// Query git status for a directory.
 /// Returns a table mapping relative file paths to status codes, or nil on error.
-pub fn git_status(
-    lua: &mlua::Lua,
-    this: &EditorApi,
-    path: String,
-) -> mlua::Result<mlua::Value> {
+pub fn git_status(lua: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Result<mlua::Value> {
     let validated_path = if let Some(ref project_root) = this.project_root {
         match validate_path(&path, project_root) {
             PathValidation::Valid(canonical) => canonical,

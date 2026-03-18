@@ -91,7 +91,6 @@ impl HighlightColor {
             _ => None,
         }
     }
-
 }
 
 /// An action button in the split view
@@ -123,15 +122,16 @@ impl SplitViewRequest {
         };
 
         // Parse actions
-        let actions = if let Ok(mlua::Value::Table(actions_table)) = table.get::<mlua::Value>("actions") {
-            actions_table
-                .pairs::<i32, mlua::Table>()
-                .flatten()
-                .filter_map(|(_, action_table)| SplitViewAction::from_lua_table(&action_table))
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let actions =
+            if let Ok(mlua::Value::Table(actions_table)) = table.get::<mlua::Value>("actions") {
+                actions_table
+                    .pairs::<i32, mlua::Table>()
+                    .flatten()
+                    .filter_map(|(_, action_table)| SplitViewAction::from_lua_table(&action_table))
+                    .collect()
+            } else {
+                Vec::new()
+            };
 
         // Parse display mode
         let display_mode = if let Ok(mode_str) = table.get::<String>("display_mode") {
@@ -167,7 +167,9 @@ impl SplitPane {
         let read_only: bool = table.get("read_only").unwrap_or(true);
 
         // Parse highlights
-        let highlights = if let Ok(mlua::Value::Table(highlights_table)) = table.get::<mlua::Value>("highlights") {
+        let highlights = if let Ok(mlua::Value::Table(highlights_table)) =
+            table.get::<mlua::Value>("highlights")
+        {
             highlights_table
                 .pairs::<i32, mlua::Table>()
                 .flatten()
@@ -238,10 +240,22 @@ mod tests {
 
     #[test]
     fn test_highlight_color_from_str() {
-        assert_eq!(HighlightColor::from_str("green"), Some(HighlightColor::Added));
-        assert_eq!(HighlightColor::from_str("added"), Some(HighlightColor::Added));
-        assert_eq!(HighlightColor::from_str("red"), Some(HighlightColor::Removed));
-        assert_eq!(HighlightColor::from_str("yellow"), Some(HighlightColor::Modified));
+        assert_eq!(
+            HighlightColor::from_str("green"),
+            Some(HighlightColor::Added)
+        );
+        assert_eq!(
+            HighlightColor::from_str("added"),
+            Some(HighlightColor::Added)
+        );
+        assert_eq!(
+            HighlightColor::from_str("red"),
+            Some(HighlightColor::Removed)
+        );
+        assert_eq!(
+            HighlightColor::from_str("yellow"),
+            Some(HighlightColor::Modified)
+        );
         assert_eq!(HighlightColor::from_str("unknown"), None);
     }
 

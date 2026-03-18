@@ -8,9 +8,15 @@ fn main() {
 
         // "Details" tab in file Properties
         res.set("ProductName", "FerrisPad");
-        res.set("FileDescription", "FerrisPad — A blazingly fast text editor");
+        res.set(
+            "FileDescription",
+            "FerrisPad — A blazingly fast text editor",
+        );
         res.set("CompanyName", "Federico Conticello");
-        res.set("LegalCopyright", "\u{00a9} 2025-2026 Federico Conticello — MIT License");
+        res.set(
+            "LegalCopyright",
+            "\u{00a9} 2025-2026 Federico Conticello — MIT License",
+        );
         res.set("OriginalFilename", "FerrisPad.exe");
 
         // Auto-sync version from Cargo.toml

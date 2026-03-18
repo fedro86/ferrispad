@@ -29,10 +29,10 @@ impl ToastLevel {
     /// Get background color for this level (dark mode)
     fn bg_color_dark(&self) -> Color {
         match self {
-            ToastLevel::Success => Color::from_rgb(46, 125, 50),   // Green
-            ToastLevel::Info => Color::from_rgb(25, 118, 210),     // Blue
-            ToastLevel::Warning => Color::from_rgb(245, 124, 0),   // Orange
-            ToastLevel::Error => Color::from_rgb(198, 40, 40),     // Red
+            ToastLevel::Success => Color::from_rgb(46, 125, 50), // Green
+            ToastLevel::Info => Color::from_rgb(25, 118, 210),   // Blue
+            ToastLevel::Warning => Color::from_rgb(245, 124, 0), // Orange
+            ToastLevel::Error => Color::from_rgb(198, 40, 40),   // Red
         }
     }
 
@@ -79,8 +79,7 @@ pub struct Toast {
 impl Toast {
     /// Create a new toast notification widget
     pub fn new(sender: Sender<Message>) -> Self {
-        let mut frame = Frame::default()
-            .with_size(0, TOAST_HEIGHT);
+        let mut frame = Frame::default().with_size(0, TOAST_HEIGHT);
         frame.set_frame(FrameType::FlatBox);
         frame.set_label_font(Font::Helvetica);
         frame.set_label_size(12);

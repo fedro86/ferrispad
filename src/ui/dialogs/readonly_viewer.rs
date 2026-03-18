@@ -128,12 +128,7 @@ impl ViewerState {
         self.file_size
     }
 
-    fn go_to_line(
-        &mut self,
-        target_line: usize,
-        buffer: &mut TextBuffer,
-        pos_label: &mut Frame,
-    ) {
+    fn go_to_line(&mut self, target_line: usize, buffer: &mut TextBuffer, pos_label: &mut Frame) {
         if target_line == 0 {
             return;
         }
@@ -174,11 +169,7 @@ impl ViewerState {
         // Update current page to match start
         self.current_page = start_offset / PAGE_SIZE;
 
-        pos_label.set_label(&format!(
-            "Lines {}-{}",
-            start_line,
-            end_line,
-        ));
+        pos_label.set_label(&format!("Lines {}-{}", start_line, end_line,));
     }
 
     fn search(
@@ -319,10 +310,7 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) {
         }
     };
 
-    let filename = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("file");
+    let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
 
     // Create shared state
     let state = Rc::new(RefCell::new(ViewerState::new(mmap, file_size)));
@@ -520,7 +508,9 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) {
     {
         let mut buf = buffer.clone();
         let mut pos_label = position_label.clone();
-        state.borrow_mut().load_current_page(&mut buf, &mut pos_label);
+        state
+            .borrow_mut()
+            .load_current_page(&mut buf, &mut pos_label);
     }
 
     // Close button

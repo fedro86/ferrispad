@@ -2,7 +2,7 @@
 
 use std::process::Command;
 
-use super::super::security::{validate_command_arg, DEFAULT_COMMAND_TIMEOUT};
+use super::super::security::{DEFAULT_COMMAND_TIMEOUT, validate_command_arg};
 use super::EditorApi;
 
 /// Run an external command and return its output.
@@ -41,7 +41,11 @@ pub fn run_command(
         .and_then(|n| n.to_str())
         .unwrap_or(cmd);
 
-    if !this.allowed_commands.iter().any(|c| c == cmd_basename || c == cmd) {
+    if !this
+        .allowed_commands
+        .iter()
+        .any(|c| c == cmd_basename || c == cmd)
+    {
         if this.allowed_commands.is_empty() {
             eprintln!(
                 "[plugin:security] {} tried to run '{}' but has no approved commands. \
@@ -66,7 +70,10 @@ pub fn run_command(
 
     // Security: Validate command name (no shell injection in command itself)
     if let Err(reason) = validate_command_arg(cmd) {
-        eprintln!("[plugin:security] run_command blocked command '{}': {}", cmd, reason);
+        eprintln!(
+            "[plugin:security] run_command blocked command '{}': {}",
+            cmd, reason
+        );
         return Err(mlua::Error::RuntimeError(format!(
             "Invalid command: {}",
             reason
@@ -183,10 +190,10 @@ pub fn run_command(
                     );
                     let result = lua.create_table()?;
                     result.set("stdout", "")?;
-                    result.set("stderr", format!(
-                        "Command timed out after {} seconds",
-                        timeout.as_secs()
-                    ))?;
+                    result.set(
+                        "stderr",
+                        format!("Command timed out after {} seconds", timeout.as_secs()),
+                    )?;
                     result.set("success", false)?;
                     Ok(mlua::Value::Table(result))
                 }

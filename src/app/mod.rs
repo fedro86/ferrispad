@@ -25,4 +25,4 @@ pub use services::updater::UpdateChannel;
 
 // Plugin re-exports (used internally by state.rs)
 #[allow(unused_imports)]
-pub use plugins::{PluginManager, PluginHook, get_plugin_dir};
+pub use plugins::{PluginHook, PluginManager, get_plugin_dir};

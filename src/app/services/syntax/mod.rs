@@ -6,10 +6,12 @@ use std::path::Path;
 
 use fltk::enums::Font;
 use fltk::text::StyleTableEntryExt;
-use syntect::highlighting::{HighlightState, Highlighter, HighlightIterator, ThemeSet};
-use syntect::parsing::{ParseState, ScopeStack, SyntaxDefinition, SyntaxReference, SyntaxSet, SyntaxSetBuilder};
+use syntect::highlighting::{HighlightIterator, HighlightState, Highlighter, ThemeSet};
+use syntect::parsing::{
+    ParseState, ScopeStack, SyntaxDefinition, SyntaxReference, SyntaxSet, SyntaxSetBuilder,
+};
 
-use checkpoint::{SparseCheckpoints, CHECKPOINT_INTERVAL};
+use checkpoint::{CHECKPOINT_INTERVAL, SparseCheckpoints};
 use highlighter::LinesWithEndings;
 use style_map::StyleMap;
 
@@ -65,7 +67,11 @@ impl SyntaxHighlighterInner {
 
     /// Get the SyntaxSet that owns a given syntax (needed for parse_line).
     fn syntax_set_for(&self, syntax_name: &str) -> &SyntaxSet {
-        if self.toml_syntax_set.find_syntax_by_name(syntax_name).is_some() {
+        if self
+            .toml_syntax_set
+            .find_syntax_by_name(syntax_name)
+            .is_some()
+        {
             &self.toml_syntax_set
         } else {
             &self.syntax_set
@@ -155,19 +161,17 @@ impl SyntaxHighlighter {
     }
 
     /// Perform a full highlight. Returns style string + sparse checkpoints.
-    pub fn highlight_full(
-        &mut self,
-        text: &str,
-        syntax_name: &str,
-    ) -> FullHighlightResult {
+    pub fn highlight_full(&mut self, text: &str, syntax_name: &str) -> FullHighlightResult {
         self.ensure_loaded();
         let inner = self.inner.as_ref().unwrap();
         let syntax = match inner.find_syntax_by_name(syntax_name) {
             Some(s) => s.clone(),
-            None => return FullHighlightResult {
-                style_string: make_default_style(text),
-                checkpoints: SparseCheckpoints::new(),
-            },
+            None => {
+                return FullHighlightResult {
+                    style_string: make_default_style(text),
+                    checkpoints: SparseCheckpoints::new(),
+                };
+            }
         };
         let syntax_set = inner.syntax_set_for(syntax_name);
         let result = highlighter::highlight_full(
@@ -197,10 +201,12 @@ impl SyntaxHighlighter {
         let inner = self.inner.as_ref().unwrap();
         let syntax = match inner.find_syntax_by_name(syntax_name) {
             Some(s) => s.clone(),
-            None => return IncrementalHighlightResult {
-                byte_start: 0,
-                style_chars: make_default_style(text),
-            },
+            None => {
+                return IncrementalHighlightResult {
+                    byte_start: 0,
+                    style_chars: make_default_style(text),
+                };
+            }
         };
         let syntax_set = inner.syntax_set_for(syntax_name);
         let result = highlighter::highlight_incremental(
@@ -336,10 +342,14 @@ impl SyntaxHighlighter {
 
             // Only save checkpoint at interval boundaries
             if cs.next_line % CHECKPOINT_INTERVAL == 0 {
-                cs.checkpoints.push(cs.parse_state.clone(), cs.highlight_state.clone());
+                cs.checkpoints
+                    .push(cs.parse_state.clone(), cs.highlight_state.clone());
             }
 
-            let ops = cs.parse_state.parse_line(line, syntax_set).unwrap_or_default();
+            let ops = cs
+                .parse_state
+                .parse_line(line, syntax_set)
+                .unwrap_or_default();
             let iter = HighlightIterator::new(&mut cs.highlight_state, &ops, line, &highlighter);
             for (style, piece) in iter {
                 let ch = self.style_map.get_or_insert(style.foreground);
