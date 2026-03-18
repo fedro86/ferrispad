@@ -20,17 +20,19 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::app::plugins::loader::parse_plugin_toml_content;
-use crate::app::plugins::{plugin_display_name, PluginManager};
+use crate::app::plugins::{PluginManager, plugin_display_name};
 use crate::app::services::plugin_registry::{
-    determine_plugin_tier, fetch_community_plugin_toml, fetch_community_registry,
-    fetch_plugin_registry, install_community_plugin, install_plugin, is_plugin_installed,
-    is_update_available, parse_github_url, AvailablePluginInfo, CommunityPluginInfo,
-    PluginTier,
+    AvailablePluginInfo, CommunityPluginInfo, PluginTier, determine_plugin_tier,
+    fetch_community_plugin_toml, fetch_community_registry, fetch_plugin_registry,
+    install_community_plugin, install_plugin, is_plugin_installed, is_update_available,
+    parse_github_url,
 };
-use crate::app::services::plugin_verify::{detects_text_change_hook, scan_lua_source, LuaScanResult};
+use crate::app::services::plugin_verify::{
+    LuaScanResult, detects_text_change_hook, scan_lua_source,
+};
 
-use super::community_install::{show_community_install_dialog, CommunityInstallReview};
-use super::DialogTheme;
+use super::community_install::{CommunityInstallReview, show_community_install_dialog};
+use super::{DialogTheme, SCROLLBAR_SIZE};
 
 // Layout constants
 const DIALOG_WIDTH: i32 = 550;
@@ -39,6 +41,8 @@ const PADDING: i32 = 10;
 const TAB_HEIGHT: i32 = 30;
 const BUTTON_HEIGHT: i32 = 30;
 const PLUGIN_ROW_HEIGHT: i32 = 70;
+const SEARCH_HEIGHT: i32 = 25;
+const SEARCH_MARGIN: i32 = 5;
 
 // Row layout constants
 const ICON_SIZE: i32 = 32;
@@ -51,16 +55,105 @@ const DESC_MAX_CHARS: usize = 60; // Increased due to wider rows
 /// Result from the plugin manager dialog
 #[derive(Debug, Clone)]
 pub enum PluginManagerResult {
-    /// User toggled plugins on/off: (name, enabled)
-    ToggledPlugins(Vec<(String, bool)>),
     /// User requested reload all
     ReloadAll,
-    /// User installed new plugins
-    InstalledPlugins(Vec<String>),
-    /// User uninstalled plugins
-    UninstalledPlugins(Vec<String>),
+    /// User made changes (toggles, installs, and/or uninstalls)
+    Changed {
+        toggled: Vec<(String, bool)>,
+        installed: Vec<String>,
+        uninstalled: Vec<String>,
+    },
     /// Dialog closed with no changes
     Cancelled,
+}
+
+/// Determine the row width based on whether a vertical scrollbar is needed.
+pub fn row_width_for_scroll(content_h: i32, viewport_h: i32, full_width: i32) -> i32 {
+    if content_h > viewport_h {
+        full_width - SCROLLBAR_SIZE
+    } else {
+        full_width
+    }
+}
+
+fn adjust_pack_width(pack: &mut Pack, full_width: i32) {
+    let viewport_h = pack.parent().map(|p| p.h()).unwrap_or(i32::MAX);
+    let spacing = pack.spacing();
+    let n = pack.children();
+    let visible_count = (0..n)
+        .filter_map(|i| pack.child(i))
+        .filter(|c| c.visible())
+        .count() as i32;
+    let content_h: i32 = (0..n)
+        .filter_map(|i| pack.child(i))
+        .filter(|c| c.visible())
+        .map(|c| c.h())
+        .sum::<i32>()
+        + spacing * (visible_count.max(1) - 1);
+    let target_w = row_width_for_scroll(content_h, viewport_h, full_width);
+    if pack.w() != target_w {
+        pack.set_size(target_w, pack.h());
+        for i in 0..pack.children() {
+            if let Some(mut child) = pack.child(i) {
+                child.set_size(target_w, child.h());
+            }
+        }
+        pack.redraw();
+    }
+}
+
+fn create_placeholder_input(
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    placeholder: &str,
+    theme: &DialogTheme,
+) -> Input {
+    let mut input = Input::default().with_pos(x, y).with_size(w, h);
+    input.set_frame(FrameType::FlatBox);
+    input.set_color(theme.input_bg);
+    input.set_text_color(theme.text);
+
+    let placeholder = placeholder.to_string();
+    let dim_color = theme.text_dim;
+    let bg_color = theme.input_bg;
+    let text_size = input.text_size();
+    input.draw(move |input| {
+        fltk::draw::draw_box(
+            FrameType::FlatBox,
+            input.x(),
+            input.y(),
+            input.w(),
+            input.h(),
+            bg_color,
+        );
+        if input.value().is_empty() {
+            fltk::draw::set_draw_color(dim_color);
+            fltk::draw::set_font(Font::Helvetica, text_size);
+            fltk::draw::draw_text2(
+                &placeholder,
+                input.x() + 6,
+                input.y(),
+                input.w() - 12,
+                input.h(),
+                Align::Left | Align::Inside,
+            );
+        } else {
+            fltk::draw::set_draw_color(input.text_color());
+            fltk::draw::set_font(input.text_font(), text_size);
+            fltk::draw::draw_text2(
+                &input.value(),
+                input.x() + 6,
+                input.y(),
+                input.w() - 12,
+                input.h(),
+                Align::Left | Align::Inside,
+            );
+        }
+    });
+
+    input
 }
 
 /// Truncate text to max_chars, adding "..." if truncated
@@ -140,8 +233,7 @@ pub fn show_plugin_manager_dialog(
         Rc::new(RefCell::new(HashMap::new()));
 
     // Cross-tab sync: map of plugin name -> Installed tab row (to hide on update)
-    let installed_rows: Rc<RefCell<HashMap<String, Group>>> =
-        Rc::new(RefCell::new(HashMap::new()));
+    let installed_rows: Rc<RefCell<HashMap<String, Group>>> = Rc::new(RefCell::new(HashMap::new()));
 
     // Create tabs
     let tabs_y = PADDING;
@@ -165,18 +257,34 @@ pub fn show_plugin_manager_dialog(
     // Child group color should match active tab color so panel blends with tab
     installed_group.set_color(theme.tab_active_bg);
 
-    // Original working scroll/pack positions
+    // Search bar for installed tab
+    let search_installed_y = tabs_y + TAB_HEIGHT + SEARCH_MARGIN;
+    let search_installed_w = DIALOG_WIDTH - PADDING * 2 - 10;
+    let mut search_installed_input = create_placeholder_input(
+        PADDING + 5,
+        search_installed_y,
+        search_installed_w,
+        SEARCH_HEIGHT,
+        "Search installed plugins...",
+        &theme,
+    );
+
+    // Original working scroll/pack positions (shifted down for search bar)
+    let scroll_installed_y = search_installed_y + SEARCH_HEIGHT + SEARCH_MARGIN;
+    let scroll_installed_h = tabs_height - TAB_HEIGHT - 10 - SEARCH_HEIGHT - SEARCH_MARGIN * 2;
     let mut scroll_installed = Scroll::default()
-        .with_pos(PADDING + 5, tabs_y + TAB_HEIGHT + 5)
-        .with_size(DIALOG_WIDTH - PADDING * 2 - 10, tabs_height - TAB_HEIGHT - 10);
+        .with_pos(PADDING + 5, scroll_installed_y)
+        .with_size(DIALOG_WIDTH - PADDING * 2 - 10, scroll_installed_h);
     scroll_installed.set_color(theme.bg);
+    scroll_installed.set_type(fltk::group::ScrollType::Vertical);
     theme.style_scroll(&mut scroll_installed);
 
-    // Row width: original was 500, keep it the same to avoid horizontal scrollbar
-    let row_width = DIALOG_WIDTH - PADDING * 2 - 10; // 550 - 20 - 30 = 500
+    // Row width: use scroll width
+    let scroll_w = DIALOG_WIDTH - PADDING * 2 - 10;
+    let row_width = scroll_w;
 
     let mut pack_installed_inner = Pack::default()
-        .with_pos(PADDING + 5, tabs_y + TAB_HEIGHT + 5)
+        .with_pos(PADDING + 5, scroll_installed_y)
         .with_size(row_width, 0);
     pack_installed_inner.set_type(PackType::Vertical);
     pack_installed_inner.set_spacing(5);
@@ -187,6 +295,11 @@ pub fn show_plugin_manager_dialog(
     let empty_label_for_tracking: Rc<RefCell<Option<Frame>>> = Rc::new(RefCell::new(None));
     // Store row_width for use in callbacks
     let row_width_for_callback = row_width;
+
+    // Track installed data for search: (Group, name, description)
+    type InstalledRow = (Group, String, String);
+    let installed_search_data: Rc<RefCell<Vec<InstalledRow>>> = Rc::new(RefCell::new(Vec::new()));
+
     if plugin_list.is_empty() {
         let mut empty_label = Frame::default()
             .with_size(row_width, 40)
@@ -210,21 +323,54 @@ pub fn show_plugin_manager_dialog(
                 community_buttons.clone(),
                 installed_rows.clone(),
                 tier,
+                Rc::new(RefCell::new(pack_installed_inner.clone())),
+                row_width,
             );
             // Track installed row for cross-tab sync (hide on update)
             installed_rows
                 .borrow_mut()
                 .insert(plugin.name.clone(), row.clone());
+            installed_search_data.borrow_mut().push((
+                row.clone(),
+                plugin.name.clone(),
+                plugin.description.clone(),
+            ));
             pack_installed_inner.add(&row);
         }
     }
 
     pack_installed_inner.end();
+    adjust_pack_width(&mut pack_installed_inner, row_width);
     scroll_installed.end();
     installed_group.end();
 
     // Wrap pack_installed for cross-tab sharing
     let pack_installed: Rc<RefCell<Pack>> = Rc::new(RefCell::new(pack_installed_inner));
+
+    // Installed tab search callback
+    {
+        search_installed_input.set_trigger(CallbackTrigger::Changed);
+        let installed_data_search = installed_search_data.clone();
+        let pack_installed_search = pack_installed.clone();
+        let rw = row_width;
+        search_installed_input.set_callback(move |input| {
+            let query = input.value().to_lowercase();
+            let data = installed_data_search.borrow();
+            for (row, name, desc) in data.iter() {
+                let matches = query.is_empty()
+                    || name.to_lowercase().contains(&query)
+                    || desc.to_lowercase().contains(&query);
+                let mut row = row.clone();
+                if matches {
+                    row.show();
+                } else {
+                    row.hide();
+                }
+            }
+            adjust_pack_width(&mut pack_installed_search.borrow_mut(), rw);
+            pack_installed_search.borrow_mut().redraw();
+        });
+    }
 
     // Copy the empty label reference for cross-tab sync
     let empty_installed_label = empty_label_for_tracking.clone();
@@ -238,17 +384,36 @@ pub fn show_plugin_manager_dialog(
     // Child group color should match active tab color so panel blends with tab
     available_group.set_color(theme.tab_active_bg);
 
+    // Search bar for official tab
+    let search_official_y = tabs_y + TAB_HEIGHT + SEARCH_MARGIN;
+    let search_official_w = DIALOG_WIDTH - PADDING * 2 - 10;
+    let mut search_official_input = create_placeholder_input(
+        PADDING + 5,
+        search_official_y,
+        search_official_w,
+        SEARCH_HEIGHT,
+        "Search official plugins...",
+        &theme,
+    );
+
+    let scroll_official_y = search_official_y + SEARCH_HEIGHT + SEARCH_MARGIN;
+    let scroll_official_h = tabs_height - TAB_HEIGHT - 10 - SEARCH_HEIGHT - SEARCH_MARGIN * 2;
     let mut scroll_available = Scroll::default()
-        .with_pos(PADDING + 5, tabs_y + TAB_HEIGHT + 5)
-        .with_size(DIALOG_WIDTH - PADDING * 2 - 10, tabs_height - TAB_HEIGHT - 10);
+        .with_pos(PADDING + 5, scroll_official_y)
+        .with_size(DIALOG_WIDTH - PADDING * 2 - 10, scroll_official_h);
     scroll_available.set_color(theme.bg);
+    scroll_available.set_type(fltk::group::ScrollType::Vertical);
     theme.style_scroll(&mut scroll_available);
 
     let mut pack_available = Pack::default()
-        .with_pos(PADDING + 5, tabs_y + TAB_HEIGHT + 5)
+        .with_pos(PADDING + 5, scroll_official_y)
         .with_size(row_width, 0);
     pack_available.set_type(PackType::Vertical);
     pack_available.set_spacing(5);
+
+    // Track official data for search: (Group, name, description, tags)
+    type OfficialRow = (Group, String, String, Vec<String>);
+    let official_search_data: Rc<RefCell<Vec<OfficialRow>>> = Rc::new(RefCell::new(Vec::new()));
 
     // Fetch available plugins
     let fetch_result = fetch_plugin_registry();
@@ -264,12 +429,7 @@ pub fn show_plugin_manager_dialog(
                 // Get installed plugin versions for update detection
                 let installed_versions: Vec<(String, String)> = plugin_list
                     .iter()
-                    .map(|p| {
-                        (
-                            p.name.to_lowercase().replace(' ', "-"),
-                            p.version.clone(),
-                        )
-                    })
+                    .map(|p| (p.name.to_lowercase().replace(' ', "-"), p.version.clone()))
                     .collect();
 
                 for plugin_info in &registry.plugins {
@@ -299,6 +459,12 @@ pub fn show_plugin_manager_dialog(
                         empty_installed_label.clone(),
                         installed_rows.clone(),
                     );
+                    official_search_data.borrow_mut().push((
+                        row.clone(),
+                        plugin_info.name.clone(),
+                        plugin_info.description.clone(),
+                        plugin_info.tags.clone(),
+                    ));
                     pack_available.add(&row);
                 }
             }
@@ -317,8 +483,35 @@ pub fn show_plugin_manager_dialog(
     }
 
     pack_available.end();
+    adjust_pack_width(&mut pack_available, row_width);
     scroll_available.end();
     available_group.end();
+
+    // Official tab search callback
+    {
+        search_official_input.set_trigger(CallbackTrigger::Changed);
+        let official_data_search = official_search_data.clone();
+        let pack_available_rc = Rc::new(RefCell::new(pack_available));
+        let rw = row_width;
+        search_official_input.set_callback(move |input| {
+            let query = input.value().to_lowercase();
+            let data = official_data_search.borrow();
+            for (row, name, desc, tags) in data.iter() {
+                let matches = query.is_empty()
+                    || name.to_lowercase().contains(&query)
+                    || desc.to_lowercase().contains(&query)
+                    || tags.iter().any(|t| t.to_lowercase().contains(&query));
+                let mut row = row.clone();
+                if matches {
+                    row.show();
+                } else {
+                    row.hide();
+                }
+            }
+            adjust_pack_width(&mut pack_available_rc.borrow_mut(), rw);
+            pack_available_rc.borrow_mut().redraw();
+        });
+    }
 
     // ============ COMMUNITY TAB ============
     let mut community_group = Group::default()
@@ -333,13 +526,14 @@ pub fn show_plugin_manager_dialog(
     let header_width = DIALOG_WIDTH - PADDING * 2 - 10;
 
     // Search input
-    let mut search_input = Input::default()
-        .with_pos(PADDING + 5, header_y)
-        .with_size(header_width, 25);
-    search_input.set_frame(FrameType::FlatBox);
-    search_input.set_color(theme.input_bg);
-    search_input.set_text_color(theme.text);
-    search_input.set_tooltip("Search community plugins...");
+    let mut search_input = create_placeholder_input(
+        PADDING + 5,
+        header_y,
+        header_width,
+        25,
+        "Search plugins...",
+        &theme,
+    );
 
     // "or install from URL" label
     let url_label_y = header_y + 30;
@@ -354,13 +548,14 @@ pub fn show_plugin_manager_dialog(
     let url_y = url_label_y + 20;
     let url_btn_width = 70;
     let url_input_width = header_width - url_btn_width - 5;
-    let mut url_input = Input::default()
-        .with_pos(PADDING + 5, url_y)
-        .with_size(url_input_width, 25);
-    url_input.set_frame(FrameType::FlatBox);
-    url_input.set_color(theme.input_bg);
-    url_input.set_text_color(theme.text);
-    url_input.set_tooltip("https://github.com/user/plugin-repo");
+    let url_input = create_placeholder_input(
+        PADDING + 5,
+        url_y,
+        url_input_width,
+        25,
+        "Paste GitHub URL...",
+        &theme,
+    );
 
     let mut url_install_btn = Button::default()
         .with_pos(PADDING + 5 + url_input_width + 5, url_y)
@@ -380,6 +575,7 @@ pub fn show_plugin_manager_dialog(
         .with_pos(PADDING + 5, list_y)
         .with_size(header_width, list_height);
     scroll_community.set_color(theme.bg);
+    scroll_community.set_type(fltk::group::ScrollType::Vertical);
     theme.style_scroll(&mut scroll_community);
 
     let mut pack_community_inner = Pack::default()
@@ -440,64 +636,61 @@ pub fn show_plugin_manager_dialog(
                 && child.label() == "Community"
                 && !*community_loaded_cb.borrow()
             {
-                    *community_loaded_cb.borrow_mut() = true;
+                *community_loaded_cb.borrow_mut() = true;
 
-                    // Remove loading label
-                    loading_label_cb.hide();
+                // Remove loading label
+                loading_label_cb.hide();
 
-                    match fetch_community_registry() {
-                        Ok(registry) => {
-                            if registry.plugins.is_empty() {
-                                let mut empty = Frame::default()
-                                    .with_size(row_width_cb, 40)
-                                    .with_label("No community plugins available");
-                                empty.set_label_color(theme_cb.text_dim);
-                                pack_community_cb.borrow_mut().add(&empty);
-                            } else {
-                                for plugin_info in &registry.plugins {
-                                    let already_installed =
-                                        is_plugin_installed(&plugin_info.name);
-                                    let row = create_community_plugin_row(
-                                        plugin_info,
-                                        already_installed,
-                                        &theme_cb,
-                                        row_width_cb,
-                                        installed_cb.clone(),
-                                        toggles_cb.clone(),
-                                        uninstalled_cb.clone(),
-                                        pack_installed_cb.clone(),
-                                        available_buttons_cb.clone(),
-                                        community_buttons_cb.clone(),
-                                        empty_installed_label_cb.clone(),
-                                        installed_rows_cb.clone(),
-                                    );
-                                    community_data_cb.borrow_mut().push((
-                                        row.clone(),
-                                        plugin_info.name.clone(),
-                                        plugin_info.description.clone(),
-                                        plugin_info.tags.clone(),
-                                    ));
-                                    pack_community_cb.borrow_mut().add(&row);
-                                }
+                match fetch_community_registry() {
+                    Ok(registry) => {
+                        if registry.plugins.is_empty() {
+                            let mut empty = Frame::default()
+                                .with_size(row_width_cb, 40)
+                                .with_label("No community plugins available");
+                            empty.set_label_color(theme_cb.text_dim);
+                            pack_community_cb.borrow_mut().add(&empty);
+                        } else {
+                            for plugin_info in &registry.plugins {
+                                let already_installed = is_plugin_installed(&plugin_info.name);
+                                let row = create_community_plugin_row(
+                                    plugin_info,
+                                    already_installed,
+                                    &theme_cb,
+                                    row_width_cb,
+                                    installed_cb.clone(),
+                                    toggles_cb.clone(),
+                                    uninstalled_cb.clone(),
+                                    pack_installed_cb.clone(),
+                                    available_buttons_cb.clone(),
+                                    community_buttons_cb.clone(),
+                                    empty_installed_label_cb.clone(),
+                                    installed_rows_cb.clone(),
+                                );
+                                community_data_cb.borrow_mut().push((
+                                    row.clone(),
+                                    plugin_info.name.clone(),
+                                    plugin_info.description.clone(),
+                                    plugin_info.tags.clone(),
+                                ));
+                                pack_community_cb.borrow_mut().add(&row);
                             }
                         }
-                        Err(e) => {
-                            let error_color = if theme_cb.is_dark() {
-                                Color::from_rgb(255, 120, 120)
-                            } else {
-                                Color::from_rgb(180, 0, 0)
-                            };
-                            let mut error_label = Frame::default()
-                                .with_size(row_width_cb, 60)
-                                .with_label(&format!(
-                                    "Failed to fetch community plugins:\n{}",
-                                    e
-                                ));
-                            error_label.set_label_color(error_color);
-                            pack_community_cb.borrow_mut().add(&error_label);
-                        }
                     }
-                    pack_community_cb.borrow_mut().redraw();
+                    Err(e) => {
+                        let error_color = if theme_cb.is_dark() {
+                            Color::from_rgb(255, 120, 120)
+                        } else {
+                            Color::from_rgb(180, 0, 0)
+                        };
+                        let mut error_label = Frame::default()
+                            .with_size(row_width_cb, 60)
+                            .with_label(&format!("Failed to fetch community plugins:\n{}", e));
+                        error_label.set_label_color(error_color);
+                        pack_community_cb.borrow_mut().add(&error_label);
+                    }
+                }
+                adjust_pack_width(&mut pack_community_cb.borrow_mut(), row_width_cb);
+                pack_community_cb.borrow_mut().redraw();
             }
         });
     }
@@ -507,6 +700,7 @@ pub fn show_plugin_manager_dialog(
         search_input.set_trigger(CallbackTrigger::Changed);
         let community_data_search = community_data.clone();
         let pack_community_search = pack_community.clone();
+        let rw = row_width;
         search_input.set_callback(move |input| {
             let query = input.value().to_lowercase();
             let data = community_data_search.borrow();
@@ -522,6 +716,7 @@ pub fn show_plugin_manager_dialog(
                     row.hide();
                 }
             }
+            adjust_pack_width(&mut pack_community_search.borrow_mut(), rw);
             pack_community_search.borrow_mut().redraw();
         });
     }
@@ -563,10 +758,7 @@ pub fn show_plugin_manager_dialog(
                 Err(e) => {
                     btn.set_label("Install");
                     btn.activate();
-                    fltk::dialog::alert_default(&format!(
-                        "Failed to fetch plugin.toml:\n{}",
-                        e
-                    ));
+                    fltk::dialog::alert_default(&format!("Failed to fetch plugin.toml:\n{}", e));
                     return;
                 }
             };
@@ -627,6 +819,10 @@ pub fn show_plugin_manager_dialog(
             ) {
                 Ok(()) => {
                     btn.set_label("Done!");
+                    // Name normalization: remove from uninstalled if present
+                    uninstalled_url.borrow_mut().retain(|n| {
+                        n.to_lowercase().replace(' ', "-") != name.to_lowercase().replace(' ', "-")
+                    });
                     installed_rc.borrow_mut().push(name.clone());
 
                     if let Some(ref mut label) = *empty_installed_label_url.borrow_mut() {
@@ -650,11 +846,14 @@ pub fn show_plugin_manager_dialog(
                         community_buttons_url.clone(),
                         installed_rows_url.clone(),
                         PluginTier::Manual,
+                        pack_installed_url.clone(),
+                        row_width_for_url,
                     );
                     installed_rows_url
                         .borrow_mut()
                         .insert(name.clone(), new_row.clone());
                     pack_installed_url.borrow_mut().add(&new_row);
+                    adjust_pack_width(&mut pack_installed_url.borrow_mut(), row_width_for_url);
                     pack_installed_url.borrow_mut().redraw();
                 }
                 Err(e) => {
@@ -705,12 +904,12 @@ pub fn show_plugin_manager_dialog(
         let inst = installed_close.borrow().clone();
         let uninst = uninstalled_close.borrow().clone();
 
-        if !uninst.is_empty() {
-            *result_close.borrow_mut() = PluginManagerResult::UninstalledPlugins(uninst);
-        } else if !inst.is_empty() {
-            *result_close.borrow_mut() = PluginManagerResult::InstalledPlugins(inst);
-        } else if !toggled.is_empty() {
-            *result_close.borrow_mut() = PluginManagerResult::ToggledPlugins(toggled);
+        if !toggled.is_empty() || !inst.is_empty() || !uninst.is_empty() {
+            *result_close.borrow_mut() = PluginManagerResult::Changed {
+                toggled,
+                installed: inst,
+                uninstalled: uninst,
+            };
         } else {
             *result_close.borrow_mut() = PluginManagerResult::Cancelled;
         }
@@ -727,12 +926,12 @@ pub fn show_plugin_manager_dialog(
         let inst = installed_x.borrow().clone();
         let uninst = uninstalled_x.borrow().clone();
 
-        if !uninst.is_empty() {
-            *result_x.borrow_mut() = PluginManagerResult::UninstalledPlugins(uninst);
-        } else if !inst.is_empty() {
-            *result_x.borrow_mut() = PluginManagerResult::InstalledPlugins(inst);
-        } else if !toggled.is_empty() {
-            *result_x.borrow_mut() = PluginManagerResult::ToggledPlugins(toggled);
+        if !toggled.is_empty() || !inst.is_empty() || !uninst.is_empty() {
+            *result_x.borrow_mut() = PluginManagerResult::Changed {
+                toggled,
+                installed: inst,
+                uninstalled: uninst,
+            };
         }
         w.hide();
     });
@@ -758,6 +957,8 @@ fn create_installed_plugin_row(
     community_buttons: Rc<RefCell<HashMap<String, Button>>>,
     installed_rows: Rc<RefCell<HashMap<String, Group>>>,
     tier: PluginTier,
+    pack_installed: Rc<RefCell<Pack>>,
+    pack_row_width: i32,
 ) -> Group {
     let is_dark = theme.is_dark();
 
@@ -901,6 +1102,8 @@ fn create_installed_plugin_row(
 
     // Uninstall callback - clone row to hide it after confirmation
     let mut row_to_hide = row.clone();
+    let pack_for_uninstall = pack_installed;
+    let rw_for_uninstall = pack_row_width;
     uninstall_btn.set_callback(move |_btn| {
         // Confirmation dialog
         let choice = fltk::dialog::choice2_default(
@@ -917,6 +1120,8 @@ fn create_installed_plugin_row(
             uninstalled.borrow_mut().push(plugin_name_uninstall.clone());
             // Hide the entire row immediately
             row_to_hide.hide();
+            // Adjust pack width after hiding
+            adjust_pack_width(&mut pack_for_uninstall.borrow_mut(), rw_for_uninstall);
             // Trigger parent redraw
             if let Some(mut parent) = row_to_hide.parent() {
                 parent.redraw();
@@ -1072,10 +1277,7 @@ fn create_available_plugin_row(
         let url = readme_url.clone();
         details_btn.set_callback(move |_| {
             let choice = fltk::dialog::choice2_default(
-                &format!(
-                    "This will open your browser to:\n\n{}\n\nContinue?",
-                    url
-                ),
+                &format!("This will open your browser to:\n\n{}\n\nContinue?", url),
                 "Cancel",
                 "Open in Browser",
                 "",
@@ -1125,6 +1327,11 @@ fn create_available_plugin_row(
                 match status {
                     VerificationStatus::Verified | VerificationStatus::Unverified => {
                         btn.set_label("Done!");
+                        // Name normalization: remove from uninstalled if present
+                        uninstalled.borrow_mut().retain(|n| {
+                            n.to_lowercase().replace(' ', "-")
+                                != info.name.to_lowercase().replace(' ', "-")
+                        });
                         installed_rc.borrow_mut().push(info.name.clone());
 
                         // Hide "No plugins installed" label if present
@@ -1166,12 +1373,15 @@ fn create_available_plugin_row(
                             community_buttons_cb.clone(),
                             installed_rows.clone(),
                             PluginTier::Official,
+                            pack_installed.clone(),
+                            row_width_clone,
                         );
                         // Track the new row for future updates
                         installed_rows
                             .borrow_mut()
                             .insert(info.name.clone(), new_row.clone());
                         pack_installed.borrow_mut().add(&new_row);
+                        adjust_pack_width(&mut pack_installed.borrow_mut(), row_width_clone);
                         pack_installed.borrow_mut().redraw();
                     }
                     VerificationStatus::Invalid(reason) => {
@@ -1305,10 +1515,7 @@ fn create_community_plugin_row(
         let url = plugin_info.repo.clone();
         details_btn.set_callback(move |_| {
             let choice = fltk::dialog::choice2_default(
-                &format!(
-                    "This will open your browser to:\n\n{}\n\nContinue?",
-                    url
-                ),
+                &format!("This will open your browser to:\n\n{}\n\nContinue?", url),
                 "Cancel",
                 "Open in Browser",
                 "",
@@ -1397,6 +1604,10 @@ fn create_community_plugin_row(
         ) {
             Ok(()) => {
                 btn.set_label("Done!");
+                // Name normalization: remove from uninstalled if present
+                uninstalled.borrow_mut().retain(|n| {
+                    n.to_lowercase().replace(' ', "-") != info.name.to_lowercase().replace(' ', "-")
+                });
                 installed_rc.borrow_mut().push(info.name.clone());
 
                 // Hide "No plugins installed" label
@@ -1422,11 +1633,14 @@ fn create_community_plugin_row(
                     community_buttons.clone(),
                     installed_rows.clone(),
                     PluginTier::Community,
+                    pack_installed.clone(),
+                    row_width_clone,
                 );
                 installed_rows
                     .borrow_mut()
                     .insert(info.name.clone(), new_row.clone());
                 pack_installed.borrow_mut().add(&new_row);
+                adjust_pack_width(&mut pack_installed.borrow_mut(), row_width_clone);
                 pack_installed.borrow_mut().redraw();
             }
             Err(e) => {

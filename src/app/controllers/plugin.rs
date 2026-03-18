@@ -1,14 +1,60 @@
 use std::cell::RefCell;
+use std::collections::HashSet;
+use std::path::Path;
 use std::rc::Rc;
 
 use fltk::{app::Sender, menu::MenuBar};
 
 use crate::app::domain::messages::Message;
 use crate::app::domain::settings::AppSettings;
-use crate::app::plugins::{get_plugin_dir, PluginManager, WidgetManager};
+use crate::app::plugins::{PluginManager, WidgetManager, get_plugin_dir};
 use crate::app::services::shortcut_registry::ShortcutRegistry;
-use crate::ui::dialogs::plugin_manager::{show_plugin_manager_dialog, PluginManagerResult};
-use crate::ui::dialogs::plugin_permissions::{show_permission_dialog, ApprovalResult, PermissionRequest};
+use crate::ui::dialogs::plugin_manager::{PluginManagerResult, show_plugin_manager_dialog};
+use crate::ui::dialogs::plugin_permissions::{
+    ApprovalResult, PermissionRequest, show_permission_dialog,
+};
+
+/// Normalize a plugin name to its directory form (lowercase, spaces→dashes).
+fn normalize_plugin_name(name: &str) -> String {
+    name.to_lowercase().replace(' ', "-")
+}
+
+/// Process plugin uninstalls: delete plugin directories, skipping any that were reinstalled.
+///
+/// Returns `(actually_deleted, errors)` — names that were deleted and error messages.
+pub fn apply_plugin_uninstalls(
+    plugins_dir: &Path,
+    installed: &[String],
+    uninstalled: &[String],
+) -> (Vec<String>, Vec<String>) {
+    let installed_normalized: HashSet<String> =
+        installed.iter().map(|n| normalize_plugin_name(n)).collect();
+
+    let mut deleted = Vec::new();
+    let mut errors = Vec::new();
+
+    for name in uninstalled {
+        let dir_name = normalize_plugin_name(name);
+
+        // Skip if this plugin was reinstalled during the same session
+        if installed_normalized.contains(&dir_name) {
+            eprintln!("[plugins] Skipping uninstall of {} (was reinstalled)", name);
+            continue;
+        }
+
+        let plugin_path = plugins_dir.join(&dir_name);
+        if plugin_path.exists() {
+            if let Err(e) = std::fs::remove_dir_all(&plugin_path) {
+                errors.push(format!("{}: {}", name, e));
+            } else {
+                eprintln!("[plugins] Uninstalled: {}", name);
+                deleted.push(name.clone());
+            }
+        }
+    }
+
+    (deleted, errors)
+}
 
 /// Manages plugin lifecycle operations (toggle, reload, permissions, config dialogs).
 ///
@@ -41,10 +87,7 @@ impl PluginController {
     }
 
     /// Check plugin permissions and show approval dialog for unapproved commands.
-    pub fn check_permissions(
-        plugins: &mut PluginManager,
-        settings: &Rc<RefCell<AppSettings>>,
-    ) {
+    pub fn check_permissions(plugins: &mut PluginManager, settings: &Rc<RefCell<AppSettings>>) {
         for plugin in plugins.plugins_mut() {
             let unapproved: Vec<String> = plugin
                 .permissions
@@ -69,10 +112,7 @@ impl PluginController {
                     plugin.approved_commands.extend(cmds.clone());
                     {
                         let mut s = settings.borrow_mut();
-                        let approvals = s
-                            .plugin_approvals
-                            .entry(plugin.name.clone())
-                            .or_default();
+                        let approvals = s.plugin_approvals.entry(plugin.name.clone()).or_default();
                         for cmd in cmds {
                             if !approvals.approved_commands.contains(&cmd) {
                                 approvals.approved_commands.push(cmd);
@@ -127,7 +167,11 @@ impl PluginController {
 
         // Collect plugin names before disabling (set_enabled(false) clears the list)
         let pre_disable_names: Vec<String> = if !new_enabled {
-            plugins.list_plugins().iter().map(|p| p.name.clone()).collect()
+            plugins
+                .list_plugins()
+                .iter()
+                .map(|p| p.name.clone())
+                .collect()
         } else {
             Vec::new()
         };
@@ -229,42 +273,19 @@ impl PluginController {
         let result = show_plugin_manager_dialog(plugins, theme_bg);
 
         match result {
-            PluginManagerResult::ToggledPlugins(toggles) => {
-                for (name, enabled) in toggles {
-                    plugins.toggle_plugin(&name, enabled);
-                }
-                {
-                    let mut s = settings.borrow_mut();
-                    s.disabled_plugins = plugins.disabled_plugin_names();
-                    let _ = s.save();
-                }
-                self.rebuild_plugins_menu(settings, plugins, shortcut_registry);
-            }
             PluginManagerResult::ReloadAll => {
                 self.sender.send(Message::PluginsReloadAll);
             }
-            PluginManagerResult::InstalledPlugins(names) => {
-                self.sender.send(Message::PluginsReloadAll);
-                eprintln!("[plugins] Installed plugins: {}", names.join(", "));
-            }
-            PluginManagerResult::UninstalledPlugins(names) => {
-                use std::fs;
-
+            PluginManagerResult::Changed {
+                toggled,
+                installed,
+                uninstalled,
+            } => {
+                // 1. Handle uninstalls first (delete plugin directories,
+                //    skipping any that were reinstalled in the same session)
                 let plugins_dir = crate::app::plugins::loader::get_plugin_dir();
-                let mut errors = Vec::new();
-
-                for name in &names {
-                    let dir_name = name.to_lowercase().replace(' ', "-");
-                    let plugin_path = plugins_dir.join(&dir_name);
-
-                    if plugin_path.exists() {
-                        if let Err(e) = fs::remove_dir_all(&plugin_path) {
-                            errors.push(format!("{}: {}", name, e));
-                        } else {
-                            eprintln!("[plugins] Uninstalled: {}", name);
-                        }
-                    }
-                }
+                let (actually_deleted, errors) =
+                    apply_plugin_uninstalls(&plugins_dir, &installed, &uninstalled);
 
                 if !errors.is_empty() {
                     fltk::dialog::alert_default(&format!(
@@ -273,20 +294,46 @@ impl PluginController {
                     ));
                 }
 
-                plugins.reload_all(&get_plugin_dir());
-                let disabled = settings.borrow().disabled_plugins.clone();
-                for disabled_name in &disabled {
-                    plugins.toggle_plugin(disabled_name, false);
+                // 2. Handle installs (reload picks them up)
+                if !installed.is_empty() {
+                    eprintln!("[plugins] Installed plugins: {}", installed.join(", "));
                 }
 
-                crate::ui::menu::rebuild_plugins_menu_with_orphans(
-                    &mut self.menu,
-                    &self.sender,
-                    &settings.borrow(),
-                    plugins,
-                    &names,
-                    shortcut_registry,
-                );
+                // 3. If any install or uninstall happened, reload all plugins
+                if !installed.is_empty() || !actually_deleted.is_empty() {
+                    plugins.reload_all(&get_plugin_dir());
+                    let disabled = settings.borrow().disabled_plugins.clone();
+                    for disabled_name in &disabled {
+                        plugins.toggle_plugin(disabled_name, false);
+                    }
+                }
+
+                // 4. Apply toggles
+                if !toggled.is_empty() {
+                    for (name, enabled) in &toggled {
+                        plugins.toggle_plugin(name, *enabled);
+                    }
+                }
+
+                // 5. Save settings and rebuild menu
+                {
+                    let mut s = settings.borrow_mut();
+                    s.disabled_plugins = plugins.disabled_plugin_names();
+                    let _ = s.save();
+                }
+
+                if !actually_deleted.is_empty() {
+                    crate::ui::menu::rebuild_plugins_menu_with_orphans(
+                        &mut self.menu,
+                        &self.sender,
+                        &settings.borrow(),
+                        plugins,
+                        &actually_deleted,
+                        shortcut_registry,
+                    );
+                } else {
+                    self.rebuild_plugins_menu(settings, plugins, shortcut_registry);
+                }
             }
             PluginManagerResult::Cancelled => {}
         }
@@ -308,11 +355,9 @@ impl PluginController {
             .map(|p| (p.name.clone(), p.enabled))
             .collect();
 
-        if let Some(result) = show_plugin_settings_dialog(
-            &settings.borrow(),
-            &available_plugins,
-            theme_bg,
-        ) {
+        if let Some(result) =
+            show_plugin_settings_dialog(&settings.borrow(), &available_plugins, theme_bg)
+        {
             {
                 let mut s = settings.borrow_mut();
                 s.run_all_checks_plugins = result.run_all_checks_plugins;
@@ -335,7 +380,10 @@ impl PluginController {
         use crate::app::domain::settings::PluginConfig;
         use crate::ui::dialogs::plugin_config::show_plugin_config_dialog;
 
-        let plugin = plugins.list_plugins().iter().find(|p| p.name == plugin_name);
+        let plugin = plugins
+            .list_plugins()
+            .iter()
+            .find(|p| p.name == plugin_name);
 
         let Some(plugin) = plugin else {
             eprintln!("[plugins] Plugin not found: {}", plugin_name);
@@ -361,8 +409,7 @@ impl PluginController {
             };
             {
                 let mut s = settings.borrow_mut();
-                s.plugin_configs
-                    .insert(plugin_name.to_string(), new_config);
+                s.plugin_configs.insert(plugin_name.to_string(), new_config);
                 let _ = s.save();
             }
             plugins.set_plugin_config(plugin_name, result.params);
@@ -375,15 +422,13 @@ impl PluginController {
         use crate::app::services::plugin_update_checker::check_for_plugin_updates;
 
         let sender = *sender;
-        std::thread::spawn(move || {
-            match check_for_plugin_updates() {
-                Ok(updates) => {
-                    sender.send(Message::PluginUpdatesChecked(updates));
-                }
-                Err(e) => {
-                    eprintln!("[plugin-update-checker] Error: {}", e);
-                    sender.send(Message::PluginUpdatesChecked(Vec::new()));
-                }
+        std::thread::spawn(move || match check_for_plugin_updates() {
+            Ok(updates) => {
+                sender.send(Message::PluginUpdatesChecked(updates));
+            }
+            Err(e) => {
+                eprintln!("[plugin-update-checker] Error: {}", e);
+                sender.send(Message::PluginUpdatesChecked(Vec::new()));
             }
         });
     }
