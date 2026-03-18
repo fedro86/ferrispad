@@ -3,6 +3,7 @@
 //! This module provides cryptographic verification for plugins:
 //! - SHA-256 checksums to verify file integrity
 //! - ed25519 digital signatures to verify plugin authenticity
+//! - Static Lua source analysis to detect suspicious patterns
 
 use ed25519_dalek::{Signature, VerifyingKey, Verifier};
 use sha2::{Sha256, Digest};
@@ -199,6 +200,155 @@ pub fn verify_plugin(
     Ok(verify_signature(path, version, init_checksum, toml_checksum, sig))
 }
 
+/// Result of static Lua source analysis
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LuaScanResult {
+    /// Source code is clean — no suspicious patterns found
+    Clean,
+    /// Source has warning patterns but is allowed to install
+    Warnings(Vec<String>),
+    /// Source has blocked patterns — installation should be rejected
+    Blocked(Vec<String>),
+}
+
+/// Perform static analysis on Lua source code to detect suspicious patterns.
+///
+/// Checks for blocked patterns (dynamic code execution, FFI access, debug library,
+/// global table manipulation, string metatable poisoning) and warning patterns
+/// (URLs, very long lines that may indicate obfuscation).
+///
+/// Comment lines (starting with `--`) are skipped for blocked pattern detection
+/// to reduce false positives.
+///
+/// # Arguments
+/// * `source` - The Lua source code to scan
+///
+/// # Returns
+/// * `LuaScanResult::Clean` if no suspicious patterns found
+/// * `LuaScanResult::Warnings(msgs)` if only warning-level patterns found
+/// * `LuaScanResult::Blocked(msgs)` if any blocked patterns found
+pub fn scan_lua_source(source: &str) -> LuaScanResult {
+    let mut blocked: Vec<String> = Vec::new();
+    let mut warned: Vec<String> = Vec::new();
+    let mut warned_urls = false;
+    let mut warned_long_lines = false;
+
+    for line in source.lines() {
+        let trimmed = line.trim();
+
+        // Warning checks apply to all lines (including comments)
+        if !warned_urls && (trimmed.contains("http://") || trimmed.contains("https://")) {
+            warned.push("Source contains URLs (potential network intent)".to_string());
+            warned_urls = true;
+        }
+
+        if !warned_long_lines && line.len() > 1000 {
+            warned.push("Contains very long lines (potential obfuscation)".to_string());
+            warned_long_lines = true;
+        }
+
+        // Skip comment lines for blocked pattern detection
+        if trimmed.starts_with("--") {
+            continue;
+        }
+
+        // Blocked: loadstring
+        if trimmed.contains("loadstring") && !blocked.iter().any(|m| m.contains("loadstring")) {
+            blocked.push("Dynamic code execution attempt (loadstring)".to_string());
+        }
+
+        // Blocked: load( but not load_plugin, loaded, etc.
+        // Look for "load(" preceded by a non-alphanumeric/non-underscore char or at start of line
+        if !blocked.iter().any(|m| m == "Dynamic code execution attempt (load)")
+            && contains_load_call(trimmed)
+        {
+            blocked.push("Dynamic code execution attempt (load)".to_string());
+        }
+
+        // Blocked: FFI access — ffi.cdef, ffi.new, ffi.load, or require.*ffi
+        if !blocked.iter().any(|m| m.contains("FFI"))
+            && (trimmed.contains("ffi.cdef")
+                || trimmed.contains("ffi.new")
+                || trimmed.contains("ffi.load")
+                || (trimmed.contains("require") && trimmed.contains("ffi")))
+        {
+            blocked.push("FFI access attempt".to_string());
+        }
+
+        // Blocked: jit.
+        if trimmed.contains("jit.") && !blocked.iter().any(|m| m.contains("LuaJIT")) {
+            blocked.push("LuaJIT access attempt".to_string());
+        }
+
+        // Blocked: rawset + _G on the same line
+        if trimmed.contains("rawset") && trimmed.contains("_G")
+            && !blocked.iter().any(|m| m.contains("rawset"))
+        {
+            blocked.push("Global table manipulation (rawset _G)".to_string());
+        }
+
+        // Blocked: rawget + _G on the same line
+        if trimmed.contains("rawget") && trimmed.contains("_G")
+            && !blocked.iter().any(|m| m.contains("rawget"))
+        {
+            blocked.push("Global table manipulation (rawget _G)".to_string());
+        }
+
+        // Blocked: setmetatable + string on the same line
+        if trimmed.contains("setmetatable") && trimmed.contains("string")
+            && !blocked.iter().any(|m| m.contains("metatable"))
+        {
+            blocked.push("String metatable poisoning attempt".to_string());
+        }
+
+        // Blocked: debug.
+        if trimmed.contains("debug.") && !blocked.iter().any(|m| m.contains("debug")) {
+            blocked.push("debug library access attempt".to_string());
+        }
+    }
+
+    if !blocked.is_empty() {
+        LuaScanResult::Blocked(blocked)
+    } else if !warned.is_empty() {
+        LuaScanResult::Warnings(warned)
+    } else {
+        LuaScanResult::Clean
+    }
+}
+
+/// Check if a line contains a `load(` call that is not part of a longer identifier
+/// like `loaded`, `load_plugin`, `loadstring`, etc.
+fn contains_load_call(line: &str) -> bool {
+    let mut search_from = 0;
+    while let Some(pos) = line[search_from..].find("load(") {
+        let abs_pos = search_from + pos;
+        // Check character before "load(" — must not be alphanumeric or underscore
+        if abs_pos == 0 {
+            return true;
+        }
+        let prev_char = line.as_bytes()[abs_pos - 1];
+        if !prev_char.is_ascii_alphanumeric() && prev_char != b'_' {
+            return true;
+        }
+        search_from = abs_pos + 5; // skip past "load("
+    }
+    false
+}
+
+/// Check whether a plugin's init.lua registers an `on_text_changed` hook.
+///
+/// This is a simple string-based heuristic used to flag plugins that respond
+/// to every keystroke, which may have performance implications.
+///
+/// # Arguments
+/// * `init_lua` - The content of the plugin's init.lua file
+///
+/// # Returns
+/// `true` if the source contains `on_text_changed`
+pub fn detects_text_change_hook(init_lua: &str) -> bool {
+    init_lua.contains("on_text_changed")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,5 +454,118 @@ mod tests {
             "dG9vIHNob3J0", // "too short" in base64
         );
         assert!(matches!(status, VerificationStatus::Invalid(_)));
+    }
+
+    // --- Static Lua analysis tests ---
+
+    #[test]
+    fn test_scan_lua_clean() {
+        let source = r#"
+local M = {}
+M.name = "test"
+function M.on_document_open(doc)
+    return { status_message = "opened" }
+end
+return M
+"#;
+        assert_eq!(scan_lua_source(source), LuaScanResult::Clean);
+    }
+
+    #[test]
+    fn test_scan_lua_blocked_loadstring() {
+        let source = "local f = loadstring('print(1)')";
+        match scan_lua_source(source) {
+            LuaScanResult::Blocked(msgs) => assert!(msgs.iter().any(|m| m.contains("loadstring"))),
+            other => panic!("Expected Blocked, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_scan_lua_blocked_debug() {
+        let source = "debug.getinfo(1)";
+        match scan_lua_source(source) {
+            LuaScanResult::Blocked(msgs) => assert!(msgs.iter().any(|m| m.contains("debug"))),
+            other => panic!("Expected Blocked, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_scan_lua_blocked_ffi() {
+        let source = "local ffi = require('ffi')";
+        match scan_lua_source(source) {
+            LuaScanResult::Blocked(msgs) => assert!(msgs.iter().any(|m| m.contains("FFI"))),
+            other => panic!("Expected Blocked, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_scan_lua_blocked_rawset_global() {
+        let source = "rawset(_G, 'evil', true)";
+        match scan_lua_source(source) {
+            LuaScanResult::Blocked(msgs) => assert!(msgs.iter().any(|m| m.contains("rawset"))),
+            other => panic!("Expected Blocked, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_scan_lua_blocked_string_metatable() {
+        let source = "setmetatable(string, {})";
+        match scan_lua_source(source) {
+            LuaScanResult::Blocked(msgs) => assert!(msgs.iter().any(|m| m.contains("metatable"))),
+            other => panic!("Expected Blocked, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_scan_lua_warning_urls() {
+        let source = r#"local url = "https://example.com/api""#;
+        match scan_lua_source(source) {
+            LuaScanResult::Warnings(msgs) => assert!(msgs.iter().any(|m| m.contains("URL"))),
+            other => panic!("Expected Warnings, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_scan_lua_warning_long_lines() {
+        let long_line = "x".repeat(1001);
+        let source = format!("local s = '{}'", long_line);
+        match scan_lua_source(&source) {
+            LuaScanResult::Warnings(msgs) => assert!(msgs.iter().any(|m| m.contains("long lines"))),
+            other => panic!("Expected Warnings, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_scan_lua_comment_lines_ignored() {
+        let source = "-- debug.getinfo is just a comment\nlocal x = 1";
+        assert_eq!(scan_lua_source(source), LuaScanResult::Clean);
+    }
+
+    #[test]
+    fn test_scan_lua_blocked_load_call() {
+        let source = "local f = load('return 1')";
+        match scan_lua_source(source) {
+            LuaScanResult::Blocked(msgs) => assert!(msgs.iter().any(|m| m.contains("load"))),
+            other => panic!("Expected Blocked, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_scan_lua_load_in_identifier_ok() {
+        // "loaded" or "load_plugin" should NOT trigger the load( check
+        let source = "local loaded = true\nlocal load_plugin = require('plugin')";
+        assert_eq!(scan_lua_source(source), LuaScanResult::Clean);
+    }
+
+    #[test]
+    fn test_detects_text_change_hook_true() {
+        let source = r#"function M.on_text_changed(doc) end"#;
+        assert!(detects_text_change_hook(source));
+    }
+
+    #[test]
+    fn test_detects_text_change_hook_false() {
+        let source = r#"function M.on_document_open(doc) end"#;
+        assert!(!detects_text_change_hook(source));
     }
 }

@@ -7,7 +7,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::app::plugins::get_plugin_dir;
 use crate::app::plugins::loader::{discover_plugins, load_plugin_toml};
-use crate::app::services::plugin_registry::{fetch_plugin_registry, is_update_available};
+use crate::app::services::plugin_registry::{
+    fetch_community_registry, fetch_plugin_registry, is_update_available, read_plugin_source,
+    PluginTier,
+};
 
 /// Information about an available plugin update
 #[derive(Debug, Clone)]
@@ -59,7 +62,7 @@ pub fn check_for_plugin_updates() -> Result<Vec<PluginUpdateInfo>, String> {
     let mut updates = Vec::new();
 
     // For each installed plugin, check if an update is available
-    for plugin_path in installed_plugins {
+    for plugin_path in &installed_plugins {
         // Get the directory name (plugin identifier)
         let dir_name = match plugin_path.file_name().and_then(|n| n.to_str()) {
             Some(name) => name,
@@ -67,7 +70,7 @@ pub fn check_for_plugin_updates() -> Result<Vec<PluginUpdateInfo>, String> {
         };
 
         // Load the installed plugin's metadata
-        let metadata = match load_plugin_toml(&plugin_path) {
+        let metadata = match load_plugin_toml(plugin_path) {
             Some(m) => m,
             None => continue, // Skip plugins without plugin.toml
         };
@@ -87,6 +90,52 @@ pub fn check_for_plugin_updates() -> Result<Vec<PluginUpdateInfo>, String> {
                 installed_version: metadata.version.clone(),
                 available_version: available.version.clone(),
             });
+        }
+    }
+
+    // Check community registry for updates to community plugins
+    match fetch_community_registry() {
+        Ok(community_registry) => {
+            // Re-discover installed plugins to check community sources
+            for plugin_path in discover_plugins(&plugin_dir) {
+                let dir_name = match plugin_path.file_name().and_then(|n| n.to_str()) {
+                    Some(name) => name,
+                    None => continue,
+                };
+
+                // Only check plugins with a community .source file
+                let source = match read_plugin_source(dir_name) {
+                    Some(s) if s.tier == PluginTier::Community => s,
+                    _ => continue,
+                };
+
+                // Find in community registry by name
+                let community_plugin = community_registry
+                    .plugins
+                    .iter()
+                    .find(|p| p.name == dir_name);
+
+                if let Some(available) = community_plugin
+                    && is_update_available(&source.installed_version, &available.version)
+                {
+                    // Don't add duplicates (in case it was already caught by official check)
+                    if !updates.iter().any(|u| u.plugin_name == dir_name) {
+                        // Load the plugin metadata for display name
+                        let display_name = load_plugin_toml(&plugin_path)
+                            .map(|m| m.name)
+                            .unwrap_or_else(|| dir_name.to_string());
+                        updates.push(PluginUpdateInfo {
+                            plugin_name: display_name,
+                            installed_version: source.installed_version.clone(),
+                            available_version: available.version.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            // Community registry fetch failure should not block official updates
+            eprintln!("[plugin-update-checker] Community registry fetch failed: {}", e);
         }
     }
 

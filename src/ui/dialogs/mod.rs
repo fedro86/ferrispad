@@ -1,4 +1,5 @@
 pub mod about;
+pub mod community_install;
 pub mod find;
 pub mod goto_line;
 pub mod large_file;
