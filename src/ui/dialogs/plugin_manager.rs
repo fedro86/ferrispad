@@ -1585,7 +1585,7 @@ fn create_community_plugin_row(
             &info.branch,
             &plugin_toml,
             PluginTier::Community,
-            info.checksums.as_ref(),
+            Some(&info.checksums),
         ) {
             Ok(()) => {
                 btn.set_label("Done!");

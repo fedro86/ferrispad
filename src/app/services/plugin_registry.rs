@@ -171,9 +171,8 @@ pub struct CommunityPluginInfo {
     pub min_ferrispad_version: String,
     /// Tags for categorization
     pub tags: Vec<String>,
-    /// Optional SHA-256 checksums of plugin files
-    #[serde(default)]
-    pub checksums: Option<PluginChecksums>,
+    /// SHA-256 checksums of plugin files (required for community plugins)
+    pub checksums: PluginChecksums,
 }
 
 fn default_branch() -> String {
