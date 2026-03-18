@@ -115,35 +115,20 @@ fn create_placeholder_input(
     input.set_color(theme.input_bg);
     input.set_text_color(theme.text);
 
+    // Enable FLTK's base class draw (renders input background, text, cursor),
+    // then overlay placeholder text on top when the input is empty.
     let placeholder = placeholder.to_string();
     let dim_color = theme.text_dim;
-    let bg_color = theme.input_bg;
     let text_size = input.text_size();
+    input.super_draw(true);
+    input.super_draw_first(true);
     input.draw(move |input| {
-        fltk::draw::draw_box(
-            FrameType::FlatBox,
-            input.x(),
-            input.y(),
-            input.w(),
-            input.h(),
-            bg_color,
-        );
+        // Base class already drew the input with cursor — just overlay placeholder
         if input.value().is_empty() {
             fltk::draw::set_draw_color(dim_color);
             fltk::draw::set_font(Font::Helvetica, text_size);
             fltk::draw::draw_text2(
                 &placeholder,
-                input.x() + 6,
-                input.y(),
-                input.w() - 12,
-                input.h(),
-                Align::Left | Align::Inside,
-            );
-        } else {
-            fltk::draw::set_draw_color(input.text_color());
-            fltk::draw::set_font(input.text_font(), text_size);
-            fltk::draw::draw_text2(
-                &input.value(),
                 input.x() + 6,
                 input.y(),
                 input.w() - 12,
