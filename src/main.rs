@@ -15,6 +15,7 @@ use std::rc::Rc;
 
 use crate::app::domain::settings::TreePanelPosition;
 use crate::app::infrastructure::defer::defer_send;
+use crate::app::services::editor_context::EditorContextWriter;
 use crate::app::services::session;
 use crate::app::services::shortcut_registry::ShortcutRegistry;
 use crate::app::services::updater::{UpdateCheckResult, check_for_updates, should_check_now};
@@ -228,10 +229,15 @@ fn main() {
         tree_panel: w.tree_panel,
         terminal_panel: w.terminal_panel,
         toast: w.toast,
+        status_bar: w.status_bar,
         content_row: w.content_row,
         right_col: w.right_col,
         tree_position: w.tree_position,
     };
+
+    // Apply initial theme to status bar
+    lw.status_bar
+        .apply_theme(state.highlight.highlighter().theme_background());
 
     // Check plugin permissions now that UI is ready (dialog needs event loop)
     sender.send(Message::CheckPluginPermissions);
@@ -276,6 +282,9 @@ fn main() {
             });
         }
     }
+
+    // Editor context file writer (for AI agent selection context)
+    let mut editor_context = EditorContextWriter::new();
 
     // Track whether file_quit() completed successfully
     let mut quit_clean = false;
@@ -463,6 +472,16 @@ fn main() {
                 fltk_app::quit();
             }
         }
+
+        // Update status bar and editor context on every event loop iteration,
+        // not just message dispatch — mouse selection doesn't generate messages.
+        lw.status_bar.update(&state.editor);
+        let file_path = state
+            .tab_manager
+            .active_doc()
+            .and_then(|d| d.file_path.as_deref());
+        editor_context.update(&state.editor, file_path);
+
         state.session.auto_save_if_needed(
             &state.tab_manager,
             &state.settings,
@@ -470,8 +489,9 @@ fn main() {
         );
     }
 
-    // Clean up MCP port file
+    // Clean up MCP port file and editor context file
     app::mcp::cleanup_port_file();
+    editor_context.cleanup();
 
     // Safety-net: save session if file_quit() was never called or didn't complete
     if !quit_clean {

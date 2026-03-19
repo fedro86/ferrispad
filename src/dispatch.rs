@@ -269,6 +269,7 @@ pub fn handle_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) {
                     .apply_theme(state.view.dark_mode, theme_bg);
             }
             lw.diagnostic_panel.apply_theme(state.view.dark_mode);
+            lw.status_bar.apply_theme(theme_bg);
             lw.toast.apply_theme(state.view.dark_mode);
         }
         Message::ToggleHighlighting => state.toggle_highlighting(),

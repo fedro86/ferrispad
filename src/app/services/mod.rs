@@ -7,6 +7,7 @@
 //! - Syntax highlighting
 //! - Plugin registry
 
+pub mod editor_context;
 pub mod file_size;
 pub mod plugin_registry;
 pub mod plugin_update_checker;

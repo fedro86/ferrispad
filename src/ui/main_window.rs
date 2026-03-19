@@ -6,6 +6,7 @@ use fltk::{
 use super::diagnostic_panel::DiagnosticPanel;
 use super::editor_container::EditorContainer;
 use super::split_panel::SplitPanel;
+use super::status_bar::{STATUS_BAR_HEIGHT, StatusBar};
 use super::tab_bar::{TAB_BAR_HEIGHT, TabBar};
 use super::terminal_panel::TerminalPanel;
 use super::toast::Toast;
@@ -23,6 +24,7 @@ pub struct LayoutWidgets {
     pub tree_panel: TreePanel,
     pub terminal_panel: TerminalPanel,
     pub toast: Toast,
+    pub status_bar: StatusBar,
     pub content_row: Flex,
     pub right_col: Option<Flex>,
     pub tree_position: TreePanelPosition,
@@ -55,6 +57,7 @@ pub struct MainWidgets {
     pub diagnostic_panel: DiagnosticPanel,
     pub tree_panel: TreePanel,
     pub terminal_panel: TerminalPanel,
+    pub status_bar: StatusBar,
     /// Inner row flex for left/right tree panel positioning
     pub content_row: Flex,
     /// Column flex holding editor + split panel (for Left/Right tree positions)
@@ -267,6 +270,10 @@ pub fn build_main_window(
     diagnostic_panel.hide();
     flex.fixed(diagnostic_panel.widget(), 0);
 
+    // Status bar (bottom of window, always visible)
+    let status_bar = StatusBar::new();
+    flex.fixed(status_bar.widget(), STATUS_BAR_HEIGHT);
+
     flex.end();
     wind.resizable(&flex);
 
@@ -282,6 +289,7 @@ pub fn build_main_window(
         diagnostic_panel,
         tree_panel,
         terminal_panel,
+        status_bar,
         content_row,
         right_col,
         tree_position,

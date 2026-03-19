@@ -141,6 +141,7 @@ impl UserData for EditorApi {
         methods.add_method("get_config_bool", editor::get_config_bool);
         methods.add_method("get_mcp_port", editor::get_mcp_port);
         methods.add_method("get_binary_path", editor::get_binary_path);
+        methods.add_method("get_home_dir", editor::get_home_dir);
 
         // ── Command execution ────────────────────────────────────────
         methods.add_method("run_command", commands::run_command);

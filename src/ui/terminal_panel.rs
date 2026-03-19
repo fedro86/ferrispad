@@ -662,7 +662,13 @@ fn encode_key(key: Key, text: &str) -> Vec<u8> {
     match key {
         Key::Enter => vec![b'\r'],
         Key::BackSpace => vec![0x7f],
-        Key::Tab => vec![b'\t'],
+        Key::Tab => {
+            if fltk::app::event_state().contains(fltk::enums::Shortcut::Shift) {
+                b"\x1b[Z".to_vec() // Shift+Tab (reverse tab / back tab)
+            } else {
+                vec![b'\t']
+            }
+        }
         Key::Escape => vec![0x1b],
         Key::Up => b"\x1b[A".to_vec(),
         Key::Down => b"\x1b[B".to_vec(),

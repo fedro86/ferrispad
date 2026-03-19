@@ -128,3 +128,9 @@ pub fn get_binary_path(_: &mlua::Lua, _this: &EditorApi, _: ()) -> mlua::Result<
         .ok()
         .map(|p| p.to_string_lossy().into_owned()))
 }
+
+/// Get the user's home directory.
+/// Returns nil if the home directory cannot be determined.
+pub fn get_home_dir(_: &mlua::Lua, _this: &EditorApi, _: ()) -> mlua::Result<Option<String>> {
+    Ok(dirs::home_dir().map(|p| p.to_string_lossy().into_owned()))
+}
