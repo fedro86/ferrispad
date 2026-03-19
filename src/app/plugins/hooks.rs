@@ -4,7 +4,7 @@
 //! No async, no background threads. This ensures 0% CPU when idle.
 
 use super::annotations::LineAnnotation;
-use super::widgets::{SplitViewRequest, TreeViewRequest};
+use super::widgets::{SplitViewRequest, TerminalViewRequest, TreeViewRequest};
 use crate::ui::toast::ToastLevel;
 
 /// Diagnostic severity level
@@ -57,10 +57,10 @@ pub struct Diagnostic {
 #[derive(Debug, Clone)]
 pub enum PluginHook {
     /// Called once when plugin loads
-    Init,
+    Init { project_root: Option<String> },
 
     /// Called when application is shutting down
-    Shutdown,
+    Shutdown { project_root: Option<String> },
 
     /// Called after a document is opened
     OnDocumentOpen {
@@ -126,8 +126,8 @@ impl PluginHook {
     /// Get the Lua function name for this hook
     pub fn lua_name(&self) -> &'static str {
         match self {
-            Self::Init => "init",
-            Self::Shutdown => "shutdown",
+            Self::Init { .. } => "init",
+            Self::Shutdown { .. } => "shutdown",
             Self::OnDocumentOpen { .. } => "on_document_open",
             Self::OnDocumentSave { .. } => "on_document_save",
             Self::OnDocumentClose { .. } => "on_document_close",
@@ -180,6 +180,8 @@ pub struct HookResult {
     pub split_view: Option<SplitViewRequest>,
     /// Request to show a tree view widget
     pub tree_view: Option<TreeViewRequest>,
+    /// Request to show a terminal view widget
+    pub terminal_view: Option<TerminalViewRequest>,
     /// Request to open a file (from tree view clicks, etc.)
     pub open_file: Option<String>,
     /// Text to copy to the system clipboard (e.g., from tree node context actions)
@@ -230,8 +232,11 @@ mod tests {
 
     #[test]
     fn test_plugin_hook_lua_names() {
-        assert_eq!(PluginHook::Init.lua_name(), "init");
-        assert_eq!(PluginHook::Shutdown.lua_name(), "shutdown");
+        assert_eq!(PluginHook::Init { project_root: None }.lua_name(), "init");
+        assert_eq!(
+            PluginHook::Shutdown { project_root: None }.lua_name(),
+            "shutdown"
+        );
         assert_eq!(
             PluginHook::OnDocumentLint {
                 path: String::new(),

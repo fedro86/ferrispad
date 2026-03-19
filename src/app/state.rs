@@ -29,6 +29,7 @@ use super::domain::settings::{AppSettings, FontChoice, SyntaxTheme, ThemeMode};
 use super::infrastructure::buffer::buffer_text_no_leak;
 use super::infrastructure::defer::defer_send;
 use super::infrastructure::platform::detect_system_dark_mode;
+use super::mcp::McpResponses;
 use super::plugins::{PluginHook, PluginManager, get_plugin_dir};
 use super::services::session;
 use super::services::shortcut_registry::ShortcutRegistry;
@@ -66,6 +67,8 @@ pub struct AppState {
     pending_text_change: Option<(DocumentId, i32, i32, i32)>,
     /// Whether a DoTextChangeHook timer is active
     text_change_timer_active: bool,
+    /// MCP response channels keyed by request_id
+    pub mcp_responses: McpResponses,
 }
 
 impl AppState {
@@ -129,7 +132,9 @@ impl AppState {
             for name in &disabled_plugins {
                 plugins.toggle_plugin(name, false);
             }
-            plugins.call_hook(PluginHook::Init);
+            plugins.call_hook(PluginHook::Init {
+                project_root: super::mcp::cwd_as_string(),
+            });
         }
 
         let shortcut_registry =
@@ -165,6 +170,7 @@ impl AppState {
             widget: WidgetController::new(sender),
             pending_text_change: None,
             text_change_timer_active: false,
+            mcp_responses: Default::default(),
         }
     }
 
@@ -587,7 +593,9 @@ impl AppState {
 
         if should_quit {
             // Call plugin shutdown hook
-            self.plugins.call_hook(PluginHook::Shutdown);
+            self.plugins.call_hook(PluginHook::Shutdown {
+                project_root: super::mcp::cwd_as_string(),
+            });
 
             let _ = session::save_session(
                 &self.tab_manager,

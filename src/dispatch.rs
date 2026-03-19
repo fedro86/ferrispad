@@ -12,6 +12,7 @@ use crate::app::controllers::update::BannerWidgets;
 use crate::app::domain::messages::Message;
 use crate::app::domain::settings::TreePanelPosition;
 use crate::app::infrastructure::defer::defer_send;
+use crate::app::mcp;
 use crate::app::plugins::widgets::SplitDisplayMode;
 use crate::app::services::updater::current_timestamp;
 use crate::app::state::AppState;
@@ -22,6 +23,7 @@ use crate::ui::dialogs::update::check_for_updates_ui;
 use crate::ui::main_window::LayoutWidgets;
 use crate::ui::split_panel::SplitPanel;
 use crate::ui::tab_bar::TAB_BAR_HEIGHT;
+use crate::ui::terminal_panel::TerminalPanel;
 use crate::ui::tree_panel::TreePanel;
 
 /// Result from a dispatch handler that may request quit.
@@ -261,6 +263,10 @@ pub fn handle_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) {
             }
             if lw.split_panel.is_visible() {
                 lw.split_panel.apply_theme(state.view.dark_mode, theme_bg);
+            }
+            if lw.terminal_panel.is_visible() {
+                lw.terminal_panel
+                    .apply_theme(state.view.dark_mode, theme_bg);
             }
             lw.diagnostic_panel.apply_theme(state.view.dark_mode);
             lw.toast.apply_theme(state.view.dark_mode);
@@ -932,5 +938,110 @@ pub fn handle_window(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets)
             }
         }
         _ => {}
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Terminal View
+// ---------------------------------------------------------------------------
+
+pub fn handle_terminal_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) {
+    match msg {
+        Message::TerminalViewShow {
+            session_id,
+            plugin_name: _,
+            mut request,
+        } => {
+            // Default working_dir to the project root from the active document
+            if request.working_dir.is_none()
+                && let Some(path) = state
+                    .tab_manager
+                    .active_doc()
+                    .and_then(|d| d.file_path.as_ref())
+            {
+                let project_root =
+                    crate::app::plugins::security::find_project_root(std::path::Path::new(path));
+                if let Some(root) = project_root {
+                    request.working_dir = Some(root.to_string_lossy().to_string());
+                } else if let Some(parent) = std::path::Path::new(path).parent() {
+                    request.working_dir = Some(parent.to_string_lossy().to_string());
+                }
+            }
+
+            let theme_bg = state.highlight.highlighter().theme_background();
+            lw.terminal_panel
+                .apply_theme(state.view.dark_mode, theme_bg);
+            lw.terminal_panel.show_request(session_id, &request);
+
+            let width = lw.terminal_panel.current_width();
+            lw.content_row.fixed(lw.terminal_panel.widget(), width);
+            if let Some(ref mut div) = lw.terminal_panel.divider {
+                div.show();
+                lw.content_row.fixed(div, TerminalPanel::DIVIDER_WIDTH);
+            }
+            lw.content_row.recalc();
+            if let Some(ref mut tb) = state.tab_bar {
+                tb.handle_resize();
+            }
+            lw.wind.redraw();
+        }
+        Message::TerminalViewHide(_session_id) => {
+            lw.terminal_panel.close();
+            lw.content_row.fixed(lw.terminal_panel.widget(), 0);
+            if let Some(ref mut div) = lw.terminal_panel.divider {
+                div.hide();
+                lw.content_row.fixed(div, 0);
+            }
+            lw.content_row.recalc();
+            if let Some(ref mut tb) = state.tab_bar {
+                tb.handle_resize();
+            }
+            lw.wind.redraw();
+        }
+        Message::TerminalOutput(_) => {
+            lw.terminal_panel.process_output();
+        }
+        Message::TerminalExited => {
+            eprintln!("[terminal] Child process exited");
+        }
+        Message::TerminalViewResize(mouse_x) => {
+            let content_x = lw.content_row.x();
+            let content_w = lw.content_row.w();
+            let max_width = content_w * 4 / 5;
+            let new_width = (content_x + content_w - mouse_x).clamp(200, max_width);
+            lw.content_row.fixed(lw.terminal_panel.widget(), new_width);
+            lw.content_row.recalc();
+            lw.terminal_panel.handle_resize();
+            if let Some(ref mut tb) = state.tab_bar {
+                tb.handle_resize();
+            }
+            lw.wind.redraw();
+        }
+        _ => {}
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MCP
+// ---------------------------------------------------------------------------
+
+pub fn handle_mcp(msg: Message, state: &mut AppState) {
+    if let Message::McpRequest {
+        request_id,
+        json_rpc_id,
+        method,
+        params,
+    } = msg
+    {
+        let response = match method.as_str() {
+            "initialize" => mcp::protocol::handle_initialize(&json_rpc_id),
+            "tools/list" => mcp::tools::handle_list(&json_rpc_id),
+            "tools/call" => mcp::tools::handle_call(&json_rpc_id, &params, state),
+            _ => mcp::protocol::json_rpc_error(&json_rpc_id, -32601, "Method not found"),
+        };
+
+        if let Some(tx) = state.mcp_responses.lock().unwrap().remove(&request_id) {
+            let _ = tx.send(response);
+        }
     }
 }

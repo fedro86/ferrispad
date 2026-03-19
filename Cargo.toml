@@ -39,6 +39,8 @@ sha2 = "0.10"
 base64 = "0.22"
 hex = "0.4"
 similar = "2"
+portable-pty = "0.9"
+vte = "0.13"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 tikv-jemallocator = "0.6"

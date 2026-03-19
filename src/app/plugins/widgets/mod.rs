@@ -11,12 +11,14 @@
 //! are sent back to plugins via the OnWidgetAction hook.
 
 pub mod split_view;
+pub mod terminal_view;
 pub mod tree_view;
 
 pub use split_view::{
     HighlightColor, IntralineSpan, LineHighlight, SplitDisplayMode, SplitPane, SplitViewAction,
     SplitViewRequest,
 };
+pub use terminal_view::TerminalViewRequest;
 pub use tree_view::{ContextMenuItem, ContextMenuTarget, TreeClickMode, TreeNode, TreeViewRequest};
 
 use std::collections::HashMap;
@@ -48,6 +50,7 @@ pub struct WidgetSession {
 pub enum WidgetType {
     SplitView,
     TreeView,
+    TerminalView,
 }
 
 /// Manages widget sessions created by plugins
@@ -89,6 +92,21 @@ impl WidgetManager {
                 id,
                 plugin_name: plugin_name.to_string(),
                 widget_type: WidgetType::TreeView,
+                persistent,
+            },
+        );
+        id
+    }
+
+    /// Create a new terminal view session
+    pub fn create_terminal_view_session(&mut self, plugin_name: &str, persistent: bool) -> u32 {
+        let id = next_session_id();
+        self.sessions.insert(
+            id,
+            WidgetSession {
+                id,
+                plugin_name: plugin_name.to_string(),
+                widget_type: WidgetType::TerminalView,
                 persistent,
             },
         );
@@ -139,6 +157,14 @@ impl WidgetManager {
         self.sessions
             .values()
             .find(|s| s.widget_type == WidgetType::TreeView && s.persistent)
+            .map(|s| s.id)
+    }
+
+    /// Find any active terminal view session and return its ID.
+    pub fn any_terminal_view_session(&self) -> Option<u32> {
+        self.sessions
+            .values()
+            .find(|s| s.widget_type == WidgetType::TerminalView)
             .map(|s| s.id)
     }
 

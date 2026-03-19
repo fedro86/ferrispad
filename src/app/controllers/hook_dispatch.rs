@@ -160,4 +160,21 @@ pub fn process_widget_requests(
             request: tree_request.clone(),
         });
     }
+
+    // Check for terminal view request
+    if let Some(ref terminal_request) = result.terminal_view
+        && terminal_request.is_valid()
+    {
+        // Reuse existing terminal view session if one exists
+        let session_id = if let Some(existing_id) = widget_manager.any_terminal_view_session() {
+            existing_id
+        } else {
+            widget_manager.create_terminal_view_session(effective_name, terminal_request.persistent)
+        };
+        sender.send(Message::TerminalViewShow {
+            session_id,
+            plugin_name: effective_name.to_string(),
+            request: terminal_request.clone(),
+        });
+    }
 }

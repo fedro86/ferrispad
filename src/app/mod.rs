@@ -11,6 +11,7 @@
 pub mod controllers;
 pub mod domain;
 pub mod infrastructure;
+pub mod mcp;
 pub mod plugins;
 pub mod services;
 pub mod state;

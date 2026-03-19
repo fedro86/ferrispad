@@ -112,3 +112,19 @@ pub fn get_config_bool(_: &mlua::Lua, this: &EditorApi, key: String) -> mlua::Re
         .map(|v| v.eq_ignore_ascii_case("true"))
         .unwrap_or(false))
 }
+
+/// Get the MCP server port (read from ~/.config/ferrispad/mcp-port).
+/// Returns nil if the port file doesn't exist or is invalid.
+pub fn get_mcp_port(_: &mlua::Lua, _this: &EditorApi, _: ()) -> mlua::Result<Option<u16>> {
+    Ok(crate::app::mcp::port_file_path()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| s.trim().parse().ok()))
+}
+
+/// Get the absolute path to the FerrisPad binary.
+/// Returns nil if the path cannot be determined.
+pub fn get_binary_path(_: &mlua::Lua, _this: &EditorApi, _: ()) -> mlua::Result<Option<String>> {
+    Ok(std::env::current_exe()
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned()))
+}

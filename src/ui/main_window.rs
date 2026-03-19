@@ -7,6 +7,7 @@ use super::diagnostic_panel::DiagnosticPanel;
 use super::editor_container::EditorContainer;
 use super::split_panel::SplitPanel;
 use super::tab_bar::{TAB_BAR_HEIGHT, TabBar};
+use super::terminal_panel::TerminalPanel;
 use super::toast::Toast;
 use super::tree_panel::TreePanel;
 use crate::app::Message;
@@ -20,6 +21,7 @@ pub struct LayoutWidgets {
     pub split_panel: SplitPanel,
     pub diagnostic_panel: DiagnosticPanel,
     pub tree_panel: TreePanel,
+    pub terminal_panel: TerminalPanel,
     pub toast: Toast,
     pub content_row: Flex,
     pub right_col: Option<Flex>,
@@ -52,6 +54,7 @@ pub struct MainWidgets {
     pub split_panel: SplitPanel,
     pub diagnostic_panel: DiagnosticPanel,
     pub tree_panel: TreePanel,
+    pub terminal_panel: TerminalPanel,
     /// Inner row flex for left/right tree panel positioning
     pub content_row: Flex,
     /// Column flex holding editor + split panel (for Left/Right tree positions)
@@ -109,6 +112,7 @@ pub fn build_main_window(
     content_row.set_margin(0);
     content_row.set_pad(0);
     let tree_panel;
+    let terminal_panel;
     let tab_bar;
     let editor_container;
     let split_panel;
@@ -152,8 +156,18 @@ pub fn build_main_window(
             rc.fixed(sp.widget(), 0);
 
             rc.end();
+
+            // Terminal panel divider + panel (right side, hidden until requested)
+            let term_div = TerminalPanel::new_divider(*sender);
+            content_row.fixed(&term_div, 0);
+            let mut term = TerminalPanel::new(*sender);
+            term.divider = Some(term_div);
+            term.hide();
+            content_row.fixed(term.widget(), 0);
+
             content_row.end();
             tree_panel = tp;
+            terminal_panel = term;
             split_panel = sp;
             right_col = Some(rc);
         }
@@ -186,6 +200,14 @@ pub fn build_main_window(
 
             rc.end();
 
+            // Terminal panel divider + panel (right side, hidden until requested)
+            let term_div = TerminalPanel::new_divider(*sender);
+            content_row.fixed(&term_div, 0);
+            let mut term = TerminalPanel::new(*sender);
+            term.divider = Some(term_div);
+            term.hide();
+            content_row.fixed(term.widget(), 0);
+
             // Draggable divider before tree panel (4px, hidden until tree panel is shown)
             let mut tp = TreePanel::new(*sender);
             tp.create_divider(*sender);
@@ -197,6 +219,7 @@ pub fn build_main_window(
 
             content_row.end();
             tree_panel = tp;
+            terminal_panel = term;
             split_panel = sp;
             right_col = Some(rc);
         }
@@ -210,6 +233,15 @@ pub fn build_main_window(
                 None
             };
             editor_container = EditorContainer::new(&content_row);
+
+            // Terminal panel divider + panel (right side, hidden until requested)
+            let term_div = TerminalPanel::new_divider(*sender);
+            content_row.fixed(&term_div, 0);
+            let mut term = TerminalPanel::new(*sender);
+            term.divider = Some(term_div);
+            term.hide();
+            content_row.fixed(term.widget(), 0);
+
             content_row.end();
 
             // Tree panel in the outer column flex (below editor area)
@@ -225,6 +257,7 @@ pub fn build_main_window(
             sp.divider = Some(split_div);
             flex.fixed(sp.widget(), 0);
             split_panel = sp;
+            terminal_panel = term;
             right_col = None;
         }
     }
@@ -248,6 +281,7 @@ pub fn build_main_window(
         split_panel,
         diagnostic_panel,
         tree_panel,
+        terminal_panel,
         content_row,
         right_col,
         tree_position,

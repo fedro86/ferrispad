@@ -26,6 +26,11 @@ use crate::ui::menu::build_menu;
 use crate::ui::theme::set_windows_titlebar_theme;
 
 fn main() {
+    // Check for --mcp-server bridge mode (no GUI, just stdin↔TCP bridge)
+    if std::env::args().any(|a| a == "--mcp-server") {
+        app::mcp::run_bridge();
+    }
+
     // Strip snap library paths from LD_LIBRARY_PATH before GTK loads.
     // Snap's broken libpthread causes crashes when GTK is initialized.
     #[cfg(target_os = "linux")]
@@ -104,6 +109,9 @@ fn main() {
         &shortcut_registry,
     );
 
+    // Start MCP TCP server before AppState (plugins need the port file during init)
+    let mcp_responses = app::mcp::start_tcp_server(sender).map(|(_port, responses)| responses);
+
     // Initialize state
     let app_settings = Rc::new(RefCell::new(settings.clone()));
 
@@ -121,6 +129,9 @@ fn main() {
         tabs_enabled,
         w.tab_bar,
     );
+    if let Some(responses) = mcp_responses {
+        state.mcp_responses = responses;
+    }
 
     // Bind the initial document's buffer to the editor
     state.bind_active_buffer();
@@ -215,6 +226,7 @@ fn main() {
         split_panel: w.split_panel,
         diagnostic_panel: w.diagnostic_panel,
         tree_panel: w.tree_panel,
+        terminal_panel: w.terminal_panel,
         toast: w.toast,
         content_row: w.content_row,
         right_col: w.right_col,
@@ -424,6 +436,22 @@ fn main() {
                     dispatch::DispatchResult::Continue
                 }
 
+                // Terminal view
+                Message::TerminalViewShow { .. }
+                | Message::TerminalViewHide(_)
+                | Message::TerminalOutput(_)
+                | Message::TerminalExited
+                | Message::TerminalViewResize(_) => {
+                    dispatch::handle_terminal_view(msg, &mut state, &mut lw);
+                    dispatch::DispatchResult::Continue
+                }
+
+                // MCP
+                Message::McpRequest { .. } => {
+                    dispatch::handle_mcp(msg, &mut state);
+                    dispatch::DispatchResult::Continue
+                }
+
                 // Window events
                 Message::WindowResize | Message::MallocTrim => {
                     dispatch::handle_window(msg, &mut state, &mut lw);
@@ -441,6 +469,9 @@ fn main() {
             state.file.last_open_directory.as_deref(),
         );
     }
+
+    // Clean up MCP port file
+    app::mcp::cleanup_port_file();
 
     // Safety-net: save session if file_quit() was never called or didn't complete
     if !quit_clean {

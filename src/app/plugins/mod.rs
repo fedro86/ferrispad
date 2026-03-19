@@ -29,7 +29,7 @@ use mlua::Table;
 pub use annotations::{AnnotationColor, GutterMark, InlineHighlight, LineAnnotation};
 pub use hooks::{Diagnostic, DiagnosticLevel, HookResult, PluginHook, WidgetActionData};
 pub use loader::{ConfigParamDef, PluginConfigDef, PluginMenuItem, get_plugin_dir};
-pub use widgets::{SplitViewRequest, TreeViewRequest, WidgetManager};
+pub use widgets::{SplitViewRequest, TerminalViewRequest, TreeViewRequest, WidgetManager};
 // Re-export widget types for public API (may not be used internally yet)
 #[allow(unused_imports)]
 pub use widgets::{
@@ -381,7 +381,9 @@ impl PluginManager {
         );
 
         // Call init hook on all enabled plugins
-        self.call_hook(PluginHook::Init);
+        self.call_hook(PluginHook::Init {
+            project_root: crate::app::mcp::cwd_as_string(),
+        });
     }
 
     /// Enable/disable the entire plugin system
@@ -441,7 +443,7 @@ mod tests {
     #[test]
     fn test_call_hook_no_plugins() {
         let pm = PluginManager::new(true);
-        let result = pm.call_hook(PluginHook::Init);
+        let result = pm.call_hook(PluginHook::Init { project_root: None });
         assert!(result.modified_content.is_none());
     }
 

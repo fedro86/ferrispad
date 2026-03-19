@@ -3,7 +3,9 @@ use fltk::enums::Font;
 use super::document::DocumentId;
 use super::settings::SyntaxTheme;
 use crate::app::controllers::tabs::{GroupColor, GroupId};
-use crate::app::plugins::{Diagnostic, LineAnnotation, SplitViewRequest, TreeViewRequest};
+use crate::app::plugins::{
+    Diagnostic, LineAnnotation, SplitViewRequest, TerminalViewRequest, TreeViewRequest,
+};
 use crate::app::services::plugin_update_checker::PluginUpdateInfo;
 use crate::app::services::updater::ReleaseInfo;
 use crate::ui::toast::ToastLevel;
@@ -192,8 +194,32 @@ pub enum Message {
     /// User dragged the split panel divider to resize
     SplitViewResize(i32),
 
+    // Widget API - Terminal View
+    /// Show a terminal view requested by a plugin
+    TerminalViewShow {
+        session_id: u32,
+        plugin_name: String,
+        request: TerminalViewRequest,
+    },
+    /// Hide the current terminal view
+    TerminalViewHide(u32),
+    /// Terminal produced output (signal to drain shared buffer)
+    TerminalOutput(Vec<u8>),
+    /// Terminal child process exited
+    TerminalExited,
+    /// User dragged the terminal panel divider to resize
+    TerminalViewResize(i32),
+
     /// Deferred malloc_trim to return freed C++ pages to the OS without blocking UI
     MallocTrim,
+
+    /// MCP request from the TCP server thread
+    McpRequest {
+        request_id: u64,
+        json_rpc_id: serde_json::Value,
+        method: String,
+        params: serde_json::Value,
+    },
 
     /// User clicked the diff tab in the tab bar
     DiffTabActivate(u32),

@@ -6,6 +6,7 @@ pub mod main_window;
 pub mod menu;
 pub mod split_panel;
 pub mod tab_bar;
+pub mod terminal_panel;
 pub mod theme;
 pub mod toast;
 pub mod tree_panel;

@@ -14,6 +14,7 @@ pub mod plugin_verify;
 pub mod session;
 pub mod shortcut_registry;
 pub mod syntax;
+pub mod terminal;
 pub mod text_ops;
 pub mod updater;
 pub mod yaml_parser;

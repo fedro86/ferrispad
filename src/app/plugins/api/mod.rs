@@ -65,6 +65,14 @@ impl EditorApi {
         path.and_then(|p| find_project_root(std::path::Path::new(p)))
     }
 
+    /// Create an EditorApi with a known project root directory (for init/shutdown hooks)
+    pub fn with_project_root(root: Option<String>) -> Self {
+        Self {
+            project_root: root.map(PathBuf::from),
+            ..Default::default()
+        }
+    }
+
     /// Create an EditorApi with just a file path (for open/close hooks)
     pub fn with_path(path: Option<String>) -> Self {
         let project_root = Self::compute_project_root(path.as_deref());
@@ -131,6 +139,8 @@ impl UserData for EditorApi {
         methods.add_method("get_config", editor::get_config);
         methods.add_method("get_config_number", editor::get_config_number);
         methods.add_method("get_config_bool", editor::get_config_bool);
+        methods.add_method("get_mcp_port", editor::get_mcp_port);
+        methods.add_method("get_binary_path", editor::get_binary_path);
 
         // ── Command execution ────────────────────────────────────────
         methods.add_method("run_command", commands::run_command);
@@ -143,6 +153,7 @@ impl UserData for EditorApi {
         methods.add_method("list_dir", filesystem::list_dir);
         methods.add_method("scan_dir", filesystem::scan_dir);
         methods.add_method("create_file", filesystem::create_file);
+        methods.add_method("write_file", filesystem::write_file);
         methods.add_method("create_dir", filesystem::create_dir);
         methods.add_method("rename", filesystem::rename);
         methods.add_method("remove", filesystem::remove);

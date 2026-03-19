@@ -221,6 +221,35 @@ pub fn remove(_: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Result<(bo
     }
 }
 
+/// Write content to a file inside the project root.
+/// Creates the file if it doesn't exist, overwrites if it does.
+/// Also creates any missing parent directories.
+/// Returns (true, "") on success, (false, error_msg) on failure.
+pub fn write_file(
+    _: &mlua::Lua,
+    this: &EditorApi,
+    (path, content): (String, String),
+) -> mlua::Result<(bool, String)> {
+    let Some(ref project_root) = this.project_root else {
+        return Ok((false, "No project root".to_string()));
+    };
+    let resolved = match resolve_and_validate(&path, project_root)? {
+        Some(p) => p,
+        None => return Ok((false, "Path outside project root".to_string())),
+    };
+    // Create parent directories if they don't exist
+    if let Some(parent) = resolved.parent()
+        && !parent.exists()
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        return Ok((false, e.to_string()));
+    }
+    match std::fs::write(&resolved, &content) {
+        Ok(_) => Ok((true, String::new())),
+        Err(e) => Ok((false, e.to_string())),
+    }
+}
+
 /// Query git status for a directory.
 /// Returns a table mapping relative file paths to status codes, or nil on error.
 pub fn git_status(lua: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Result<mlua::Value> {
