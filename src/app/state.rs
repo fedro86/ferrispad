@@ -628,7 +628,9 @@ impl AppState {
             bg,
         );
         #[cfg(target_os = "windows")]
-        set_windows_titlebar_theme(&self.window, self.view.dark_mode);
+        if self.window.shown() {
+            set_windows_titlebar_theme(&self.window, is_dark);
+        }
 
         // Apply syntax theme colors to editor
         apply_syntax_theme_colors(&mut self.editor, bg, fg);
