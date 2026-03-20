@@ -3,6 +3,7 @@
 use fltk::prelude::DisplayExt;
 use serde_json::{Value, json};
 
+use crate::app::domain::messages::Message;
 use crate::app::infrastructure::buffer::{buffer_text_no_leak, selection_text_no_leak};
 use crate::app::state::AppState;
 
@@ -75,6 +76,15 @@ pub fn handle_list(id: &Value) -> String {
                     },
                     "required": ["line"]
                 }
+            },
+            {
+                "name": "refresh_tree",
+                "description": "Refresh the file explorer tree view to reflect filesystem changes. Call this after creating, renaming, moving, or deleting files.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
             }
         ]
     });
@@ -97,6 +107,7 @@ pub fn handle_call(id: &Value, params: &Value, state: &mut AppState) -> String {
         "list_open_files" => tool_list_open_files(state),
         "open_file" => tool_open_file(state, &arguments),
         "goto_line" => tool_goto_line(state, &arguments),
+        "refresh_tree" => tool_refresh_tree(state),
         _ => Err(format!("Unknown tool: {}", tool_name)),
     };
 
@@ -213,6 +224,37 @@ fn tool_goto_line(state: &mut AppState, args: &Value) -> Result<String, String> 
 
     state.goto_line(line);
     Ok(json!({"jumped_to_line": line}).to_string())
+}
+
+fn tool_refresh_tree(state: &mut AppState) -> Result<String, String> {
+    if !state.widget.tree_view_active {
+        return Ok(json!({"refreshed": false, "reason": "tree panel not visible"}).to_string());
+    }
+
+    let session_id = match state.widget.widget_manager.any_tree_view_session() {
+        Some(id) => id,
+        None => {
+            return Ok(
+                json!({"refreshed": false, "reason": "no tree view session"}).to_string(),
+            );
+        }
+    };
+
+    // Invalidate cached tree so it gets rebuilt from disk
+    if let Some(doc) = state.tab_manager.active_doc_mut() {
+        doc.cached_tree = None;
+    }
+
+    // Trigger the same "refresh" action as the tree panel's Refresh button
+    state.sender.send(Message::TreeViewContextAction {
+        session_id,
+        action: "refresh".to_string(),
+        node_path: vec![],
+        input_text: None,
+        target_path: None,
+    });
+
+    Ok(json!({"refreshed": true}).to_string())
 }
 
 /// Get the 1-indexed line number of the cursor position.
