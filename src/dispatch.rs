@@ -974,6 +974,19 @@ pub fn handle_terminal_view(msg: Message, state: &mut AppState, lw: &mut LayoutW
                 .apply_theme(state.view.dark_mode, theme_bg);
             lw.terminal_panel.show_request(session_id, &request);
 
+            // Expand window to accommodate terminal panel
+            let term_width =
+                lw.terminal_panel.current_width() + TerminalPanel::DIVIDER_WIDTH;
+            let (scr_x, _scr_y, scr_w, _scr_h) = fltk::app::screen_work_area(0);
+            let max_right = scr_x + scr_w;
+            let current_right = lw.wind.x() + lw.wind.w();
+            let available = (max_right - current_right).max(0);
+            let grow = term_width.min(available);
+            if grow > 0 {
+                lw.wind.set_size(lw.wind.w() + grow, lw.wind.h());
+                lw.flex.resize(0, 0, lw.wind.w(), lw.wind.h());
+            }
+
             let width = lw.terminal_panel.current_width();
             lw.content_row.fixed(lw.terminal_panel.widget(), width);
             if let Some(ref mut div) = lw.terminal_panel.divider {
@@ -987,6 +1000,16 @@ pub fn handle_terminal_view(msg: Message, state: &mut AppState, lw: &mut LayoutW
             lw.wind.redraw();
         }
         Message::TerminalViewHide(_session_id) => {
+            // Shrink window back after closing terminal panel
+            let term_width =
+                lw.terminal_panel.current_width() + TerminalPanel::DIVIDER_WIDTH;
+            let (scr_x, _scr_y, _scr_w, _scr_h) = fltk::app::screen_work_area(0);
+            let min_w = 400;
+            let new_w = (lw.wind.w() - term_width).max(min_w);
+            let new_x = lw.wind.x().max(scr_x);
+            lw.wind.resize(new_x, lw.wind.y(), new_w, lw.wind.h());
+            lw.flex.resize(0, 0, new_w, lw.wind.h());
+
             lw.terminal_panel.close();
             lw.content_row.fixed(lw.terminal_panel.widget(), 0);
             if let Some(ref mut div) = lw.terminal_panel.divider {
