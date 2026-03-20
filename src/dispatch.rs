@@ -916,6 +916,7 @@ pub fn handle_window(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets)
             if let Some(ref mut tab_bar) = state.tab_bar {
                 tab_bar.handle_resize();
             }
+            lw.terminal_panel.handle_resize();
             if lw.split_panel.is_visible() && lw.split_panel.is_tab_mode() {
                 let parent = split_parent!(lw);
                 let full_height = parent.h() - TAB_BAR_HEIGHT;
