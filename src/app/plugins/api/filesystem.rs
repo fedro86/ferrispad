@@ -270,7 +270,7 @@ pub fn git_status(lua: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Resu
     let path_str = validated_path.to_string_lossy();
 
     let output = match Command::new("git")
-        .args(["-C", &path_str, "status", "--porcelain=v1", "-uall"])
+        .args(["-C", &path_str, "status", "--porcelain=v1", "-uall", "--ignored"])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .output()
