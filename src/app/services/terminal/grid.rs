@@ -55,8 +55,10 @@ pub struct TerminalGrid {
     scroll_top: usize,
     /// Scroll region bottom (inclusive, 0-indexed)
     scroll_bottom: usize,
-    /// Whether cursor is visible
+    /// Whether cursor is visible (tracked from CSI ?25h/l)
     pub cursor_visible: bool,
+    /// Current reverse video state (SGR 7)
+    pub current_reverse: bool,
     /// Saved cursor position (for DECSC/DECRC)
     saved_cursor: Option<(usize, usize)>,
 }
@@ -79,6 +81,7 @@ impl TerminalGrid {
             scroll_top: 0,
             scroll_bottom: rows.saturating_sub(1),
             cursor_visible: true,
+            current_reverse: false,
             saved_cursor: None,
         }
     }
@@ -91,10 +94,21 @@ impl TerminalGrid {
             self.newline();
         }
         if self.cursor_row < self.rows && self.cursor_col < self.cols {
+            let (fg, bg) = if self.current_reverse {
+                // Reverse video: swap fg and bg
+                let visual_bg = if self.current_bg == Color::TransparentBg {
+                    Color::XtermBlack
+                } else {
+                    self.current_bg
+                };
+                (visual_bg, self.current_fg)
+            } else {
+                (self.current_fg, self.current_bg)
+            };
             self.cells[self.cursor_row][self.cursor_col] = Cell {
                 ch,
-                fg: self.current_fg,
-                bg: self.current_bg,
+                fg,
+                bg,
                 bold: self.current_bold,
             };
             self.cursor_col += 1;
@@ -366,6 +380,7 @@ impl TerminalGrid {
         self.current_fg = Color::XtermWhite;
         self.current_bg = Color::TransparentBg;
         self.current_bold = false;
+        self.current_reverse = false;
     }
 }
 

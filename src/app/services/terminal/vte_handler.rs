@@ -225,7 +225,11 @@ impl VteHandler<'_> {
             match params[i] {
                 0 => self.grid.reset_attrs(),
                 1 => self.grid.current_bold = true,
+                // Reverse video
+                7 => self.grid.current_reverse = true,
                 22 => self.grid.current_bold = false,
+                // Reset reverse video
+                27 => self.grid.current_reverse = false,
                 // Foreground 30-37
                 30..=37 => self.grid.current_fg = ansi_to_color(params[i] as u8 - 30),
                 // Bright foreground 90-97

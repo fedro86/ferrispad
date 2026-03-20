@@ -37,6 +37,61 @@ const TERM_FONT: Font = Font::Courier;
 /// Internal padding around the terminal content (px)
 const TERM_PAD: i32 = 4;
 
+/// Colors derived from the editor theme for terminal rendering.
+#[derive(Clone, Copy)]
+struct TerminalTheme {
+    /// Terminal content background (slightly darker than editor)
+    bg: Color,
+}
+
+impl TerminalTheme {
+    /// Readable text on dark backgrounds
+    const TEXT_ON_DARK: Color = Color::from_rgb(220, 220, 220);
+    /// Readable text on light backgrounds
+    const TEXT_ON_LIGHT: Color = Color::from_rgb(30, 30, 30);
+
+    fn from_theme(is_dark: bool, theme_bg: (u8, u8, u8)) -> Self {
+        let (r, g, b) = theme_bg;
+        let bg = if is_dark {
+            Color::from_rgb(r.saturating_sub(10), g.saturating_sub(10), b.saturating_sub(10))
+        } else {
+            Color::from_rgb(r.saturating_sub(15), g.saturating_sub(15), b.saturating_sub(15))
+        };
+        Self { bg }
+    }
+
+    /// Divider color between editor and terminal panel.
+    const fn divider_color(is_dark: bool) -> Color {
+        if is_dark {
+            Color::from_rgb(60, 60, 60)
+        } else {
+            Color::from_rgb(200, 200, 200)
+        }
+    }
+
+    /// Compute the effective fg color for a cell, applying contrast adjustment.
+    /// Used for both text rendering and cursor block color.
+    fn effective_fg(cell_fg: Color, cell_bg: Color, terminal_bg: Color) -> Color {
+        let effective_bg = if cell_bg != Color::TransparentBg {
+            cell_bg
+        } else {
+            terminal_bg
+        };
+        let (br, bg_g, bb) = effective_bg.to_rgb();
+        let bg_bright = (br as u32 + bg_g as u32 + bb as u32) / 3;
+        let (fr, fg_g, fb) = cell_fg.to_rgb();
+        let fg_bright = (fr as u32 + fg_g as u32 + fb as u32) / 3;
+
+        if bg_bright < 100 && fg_bright < 80 {
+            Self::TEXT_ON_DARK
+        } else if bg_bright > 160 && fg_bright > 180 {
+            Self::TEXT_ON_LIGHT
+        } else {
+            cell_fg
+        }
+    }
+}
+
 /// Snapshot of grid state for the draw callback (avoids lifetime issues)
 struct GridSnapshot {
     cells: Vec<Vec<Cell>>,
@@ -332,23 +387,8 @@ impl TerminalPanel {
     fn setup_draw_callback(&mut self) {
         let snapshot = Arc::clone(&self.snapshot);
         let scroll_offset = Arc::clone(&self.scroll_offset);
-        let is_dark = self.is_dark;
-
-        // Derive terminal bg: slightly darker in dark mode, slightly darker in light mode
-        let (tr, tg, tb) = self.theme_bg;
-        let bg_color = if is_dark {
-            Color::from_rgb(
-                tr.saturating_sub(10),
-                tg.saturating_sub(10),
-                tb.saturating_sub(10),
-            )
-        } else {
-            Color::from_rgb(
-                tr.saturating_sub(15),
-                tg.saturating_sub(15),
-                tb.saturating_sub(15),
-            )
-        };
+        let term_theme = TerminalTheme::from_theme(self.is_dark, self.theme_bg);
+        let bg_color = term_theme.bg;
 
         self.canvas.draw(move |f| {
             let x = f.x();
@@ -423,27 +463,7 @@ impl TerminalPanel {
                     }
 
                     if cell.ch != ' ' {
-                        // Ensure readable contrast: check fg brightness against
-                        // the cell's actual background (or terminal bg if transparent)
-                        let effective_bg = if cell.bg != Color::TransparentBg {
-                            cell.bg
-                        } else {
-                            bg_color
-                        };
-                        let (br, bg_g, bb) = effective_bg.to_rgb();
-                        let bg_bright = (br as u32 + bg_g as u32 + bb as u32) / 3;
-                        let (fr, fg_g, fb) = cell.fg.to_rgb();
-                        let fg_bright = (fr as u32 + fg_g as u32 + fb as u32) / 3;
-
-                        let fg = if bg_bright < 100 && fg_bright < 80 {
-                            // Dark bg + dark fg → make fg light
-                            Color::from_rgb(220, 220, 220)
-                        } else if bg_bright > 160 && fg_bright > 180 {
-                            // Light bg + light fg → make fg dark
-                            Color::from_rgb(30, 30, 30)
-                        } else {
-                            cell.fg
-                        };
+                        let fg = TerminalTheme::effective_fg(cell.fg, cell.bg, bg_color);
                         fltk::draw::set_draw_color(fg);
                         if cell.bold {
                             fltk::draw::set_font(Font::CourierBold, TERM_FONT_SIZE);
@@ -467,8 +487,8 @@ impl TerminalPanel {
                 }
             }
 
-            // Draw cursor when at bottom and application hasn't hidden it.
-            // CLIs like Claude Code hide the VT cursor and render their own.
+            // Draw VT cursor when visible. TUI apps that hide the cursor
+            // (CSI ?25l) render their own via reverse video (SGR 7).
             if offset == 0
                 && grid.cursor_visible
                 && grid.cursor_row < grid.rows
@@ -478,14 +498,11 @@ impl TerminalPanel {
             {
                 let cx = ox + (grid.cursor_col as i32) * char_w;
                 let cy = oy + (grid.cursor_row as i32) * char_h;
-                fltk::draw::set_draw_color(if is_dark {
-                    Color::from_rgb(200, 200, 200)
-                } else {
-                    Color::from_rgb(50, 50, 50)
-                });
+                let cell = &grid.cells[grid.cursor_row][grid.cursor_col];
+                let cursor_color = TerminalTheme::effective_fg(cell.fg, cell.bg, bg_color);
+                fltk::draw::set_draw_color(cursor_color);
                 fltk::draw::draw_rectf(cx, cy, char_w, char_h);
 
-                let cell = &grid.cells[grid.cursor_row][grid.cursor_col];
                 if cell.ch != ' ' {
                     fltk::draw::set_draw_color(bg_color);
                     let mut buf = [0u8; 4];
@@ -593,11 +610,7 @@ impl TerminalPanel {
         self.header.set_label_color(theme.text);
 
         if let Some(ref mut div) = self.divider {
-            div.set_color(if is_dark {
-                Color::from_rgb(60, 60, 60)
-            } else {
-                Color::from_rgb(200, 200, 200)
-            });
+            div.set_color(TerminalTheme::divider_color(is_dark));
         }
 
         // Re-set the draw callback with updated dark mode
