@@ -20,6 +20,7 @@ use fltk::{
 };
 
 use super::dialogs::{DialogTheme, SCROLLBAR_SIZE, darken, lighten};
+use super::theme::divider_color_from_bg;
 use crate::app::Message;
 use crate::app::plugins::widgets::{
     ContextMenuItem, ContextMenuTarget, TreeClickMode, TreeNode, TreeViewRequest,
@@ -250,7 +251,6 @@ impl TreePanel {
     pub fn create_divider(&mut self, sender: Sender<Message>) {
         let mut divider = Frame::default();
         divider.set_frame(FrameType::FlatBox);
-        divider.set_color(Color::from_rgb(80, 80, 80));
         divider.hide();
 
         let dragging = Rc::new(Cell::new(false));
@@ -294,8 +294,6 @@ impl TreePanel {
         self.divider = Some(divider);
     }
 
-    /// Width of the draggable divider
-    pub const DIVIDER_WIDTH: i32 = 4;
 
     /// Get a reference to the container widget for layout
     pub fn widget(&self) -> &Flex {
@@ -1003,6 +1001,10 @@ impl TreePanel {
         self.is_dark = is_dark;
         let theme = DialogTheme::from_theme_bg(theme_bg);
         let (r, g, b) = theme_bg;
+
+        if let Some(ref mut div) = self.divider {
+            div.set_color(divider_color_from_bg(theme_bg));
+        }
 
         // Tree background matches the editor background
         self.tree.set_color(Color::from_rgb(r, g, b));

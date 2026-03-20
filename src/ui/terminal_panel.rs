@@ -60,15 +60,6 @@ impl TerminalTheme {
         Self { bg }
     }
 
-    /// Divider color between editor and terminal panel.
-    const fn divider_color(is_dark: bool) -> Color {
-        if is_dark {
-            Color::from_rgb(60, 60, 60)
-        } else {
-            Color::from_rgb(200, 200, 200)
-        }
-    }
-
     /// Compute the effective fg color for a cell, applying contrast adjustment.
     /// Used for both text rendering and cursor block color.
     fn effective_fg(cell_fg: Color, cell_bg: Color, terminal_bg: Color) -> Color {
@@ -206,7 +197,6 @@ impl TerminalPanel {
     pub fn new_divider(sender: Sender<Message>) -> Frame {
         let mut div = Frame::default();
         div.set_frame(FrameType::FlatBox);
-        div.set_color(Color::from_rgb(60, 60, 60));
         div.hide();
 
         div.handle(move |f, ev| match ev {
@@ -230,8 +220,6 @@ impl TerminalPanel {
         div
     }
 
-    /// Divider width constant
-    pub const DIVIDER_WIDTH: i32 = 4;
 
     /// Show a terminal from a plugin request. Lazy-initializes PTY on first call.
     pub fn show_request(&mut self, session_id: u32, request: &TerminalViewRequest) {
@@ -610,7 +598,7 @@ impl TerminalPanel {
         self.header.set_label_color(theme.text);
 
         if let Some(ref mut div) = self.divider {
-            div.set_color(TerminalTheme::divider_color(is_dark));
+            div.set_color(super::theme::divider_color_from_bg(theme_bg));
         }
 
         // Re-set the draw callback with updated dark mode

@@ -555,8 +555,6 @@ impl SplitPanel {
         }
     }
 
-    /// Height of the draggable divider
-    pub const DIVIDER_HEIGHT: i32 = 4;
 
     /// Get a reference to the container widget for layout
     pub fn widget(&self) -> &Flex {
@@ -570,7 +568,6 @@ impl SplitPanel {
     pub fn new_divider(sender: Sender<Message>) -> Frame {
         let mut divider = Frame::default();
         divider.set_frame(FrameType::FlatBox);
-        divider.set_color(Color::from_rgb(80, 80, 80));
         divider.hide();
 
         let dragging = Rc::new(Cell::new(false));
@@ -929,6 +926,10 @@ impl SplitPanel {
         let (r, g, b) = theme_bg;
         self.is_dark = theme.is_dark();
         self.theme_bg = theme_bg;
+
+        if let Some(ref mut div) = self.divider {
+            div.set_color(super::theme::divider_color_from_bg(theme_bg));
+        }
 
         self.header.set_color(theme.bg);
         self.header.set_label_color(theme.text);

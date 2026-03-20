@@ -21,10 +21,8 @@ use crate::ui::dialogs::find::{show_find_dialog, show_replace_dialog};
 use crate::ui::dialogs::goto_line::show_goto_line_dialog;
 use crate::ui::dialogs::update::check_for_updates_ui;
 use crate::ui::main_window::LayoutWidgets;
-use crate::ui::split_panel::SplitPanel;
 use crate::ui::tab_bar::TAB_BAR_HEIGHT;
-use crate::ui::terminal_panel::TerminalPanel;
-use crate::ui::tree_panel::TreePanel;
+use crate::ui::theme::DIVIDER_WIDTH;
 
 /// Result from a dispatch handler that may request quit.
 pub enum DispatchResult {
@@ -675,7 +673,7 @@ pub fn handle_split_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidg
                 parent.fixed(lw.split_panel.widget(), height);
                 if let Some(ref mut div) = lw.split_panel.divider {
                     div.show();
-                    parent.fixed(div, SplitPanel::DIVIDER_HEIGHT);
+                    parent.fixed(div, DIVIDER_WIDTH);
                 }
             }
             parent.recalc();
@@ -754,7 +752,7 @@ pub fn handle_split_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidg
                     parent.fixed(lw.split_panel.widget(), height);
                     if let Some(ref mut div) = lw.split_panel.divider {
                         div.show();
-                        parent.fixed(div, SplitPanel::DIVIDER_HEIGHT);
+                        parent.fixed(div, DIVIDER_WIDTH);
                     }
                     if let Some(ref mut tb) = state.tab_bar {
                         tb.clear_diff_tab();
@@ -811,7 +809,7 @@ pub fn handle_tree_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidge
                     lw.content_row.fixed(lw.tree_panel.widget(), width);
                     if let Some(ref mut div) = lw.tree_panel.divider {
                         div.show();
-                        lw.content_row.fixed(div, TreePanel::DIVIDER_WIDTH);
+                        lw.content_row.fixed(div, DIVIDER_WIDTH);
                     }
                     lw.content_row.recalc();
                 }
@@ -977,7 +975,7 @@ pub fn handle_terminal_view(msg: Message, state: &mut AppState, lw: &mut LayoutW
 
             // Expand window to accommodate terminal panel
             let term_width =
-                lw.terminal_panel.current_width() + TerminalPanel::DIVIDER_WIDTH;
+                lw.terminal_panel.current_width() + DIVIDER_WIDTH;
             let (scr_x, _scr_y, scr_w, _scr_h) = fltk::app::screen_work_area(0);
             let max_right = scr_x + scr_w;
             let current_right = lw.wind.x() + lw.wind.w();
@@ -992,7 +990,7 @@ pub fn handle_terminal_view(msg: Message, state: &mut AppState, lw: &mut LayoutW
             lw.content_row.fixed(lw.terminal_panel.widget(), width);
             if let Some(ref mut div) = lw.terminal_panel.divider {
                 div.show();
-                lw.content_row.fixed(div, TerminalPanel::DIVIDER_WIDTH);
+                lw.content_row.fixed(div, DIVIDER_WIDTH);
             }
             lw.content_row.recalc();
             if let Some(ref mut tb) = state.tab_bar {
@@ -1003,7 +1001,7 @@ pub fn handle_terminal_view(msg: Message, state: &mut AppState, lw: &mut LayoutW
         Message::TerminalViewHide(_session_id) => {
             // Shrink window back after closing terminal panel
             let term_width =
-                lw.terminal_panel.current_width() + TerminalPanel::DIVIDER_WIDTH;
+                lw.terminal_panel.current_width() + DIVIDER_WIDTH;
             let (scr_x, _scr_y, _scr_w, _scr_h) = fltk::app::screen_work_area(0);
             let min_w = 400;
             let new_w = (lw.wind.w() - term_width).max(min_w);

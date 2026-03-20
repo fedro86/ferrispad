@@ -11,6 +11,21 @@ use fltk::{
 use super::dialogs::{SCROLLBAR_SIZE, darken, lighten};
 use super::tab_bar::{ThemeRgb, theme_colors_from_bg};
 
+/// Width of all draggable panel dividers (tree, split, terminal).
+pub const DIVIDER_WIDTH: i32 = 2;
+
+/// Derive divider color from the syntax theme background.
+/// Uses the same darkening as the tab bar background for visual consistency.
+pub fn divider_color_from_bg(theme_bg: (u8, u8, u8)) -> Color {
+    let rgb = ThemeRgb::from_tuple(theme_bg);
+    let bar_bg = if rgb.brightness() < 128 {
+        rgb.darken(0.65)
+    } else {
+        rgb.darken(0.85)
+    };
+    bar_bg.to_fltk()
+}
+
 /// Apply syntax theme colors (background/foreground) to the editor.
 /// Used for live preview when changing syntax themes in settings.
 pub fn apply_syntax_theme_colors(
