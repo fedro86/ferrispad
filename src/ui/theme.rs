@@ -239,6 +239,12 @@ pub fn set_windows_titlebar_theme(window: &Window, is_dark: bool) {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Dwm::{DWMWINDOWATTRIBUTE, DwmSetWindowAttribute};
 
+    // Guard: raw_handle() panics if called before window.show().
+    // During initial apply_settings(), the window isn't shown yet — skip silently.
+    if !window.shown() {
+        return;
+    }
+
     // SAFETY: We call Windows DWM API to set the title bar dark mode attribute.
     // Preconditions:
     //   - window.show() has been called (HWND is valid)
