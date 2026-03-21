@@ -202,14 +202,18 @@ impl AppState {
 
     /// Update the window title based on active document
     pub fn update_window_title(&mut self) {
+        let suffix = if cfg!(target_os = "windows") {
+            "FerrisPad"
+        } else {
+            "\u{1f980} FerrisPad"
+        };
         if let Some(doc) = self.tab_manager.active_doc() {
             let prefix = if doc.is_dirty() { "*" } else { "" };
-            self.window.set_label(&format!(
-                "{}{} - \u{1f980} FerrisPad",
-                prefix, doc.display_name
-            ));
+            self.window
+                .set_label(&format!("{}{} - {}", prefix, doc.display_name, suffix));
         } else {
-            self.window.set_label("Untitled - \u{1f980} FerrisPad");
+            self.window
+                .set_label(&format!("Untitled - {}", suffix));
         }
     }
 

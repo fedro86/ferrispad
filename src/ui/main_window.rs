@@ -1,6 +1,6 @@
 use fltk::{
-    app::Sender, enums::Color, frame::Frame, group::Flex, image::PngImage, menu::MenuBar,
-    prelude::*, window::Window,
+    app::Sender, enums::Color, enums::ColorDepth, frame::Frame, group::Flex, image::PngImage,
+    image::RgbImage, menu::MenuBar, prelude::*, window::Window,
 };
 
 use super::diagnostic_panel::DiagnosticPanel;
@@ -66,20 +66,66 @@ pub struct MainWidgets {
     pub tree_position: TreePanelPosition,
 }
 
+/// Convert a PNG icon to an RGBA image with rounded corners (circular mask).
+/// Pixels outside the circle are made fully transparent.
+#[cfg(not(target_os = "macos"))]
+fn round_icon(png: &PngImage) -> RgbImage {
+    use fltk::prelude::ImageExt;
+
+    let w = png.data_w() as usize;
+    let h = png.data_h() as usize;
+    let depth = png.depth() as usize;
+    let raw = png.to_rgb_data();
+
+    let mut rgba = Vec::with_capacity(w * h * 4);
+    let cx = w as f64 / 2.0;
+    let cy = h as f64 / 2.0;
+    let r = cx.min(cy);
+
+    for y in 0..h {
+        for x in 0..w {
+            let src = (y * w + x) * depth;
+            let dx = x as f64 + 0.5 - cx;
+            let dy = y as f64 + 0.5 - cy;
+            let inside = (dx * dx + dy * dy).sqrt() <= r;
+
+            rgba.push(raw[src]); // R
+            rgba.push(raw[src + 1]); // G
+            rgba.push(raw[src + 2]); // B
+            rgba.push(if inside {
+                if depth >= 4 { raw[src + 3] } else { 255 }
+            } else {
+                0
+            });
+        }
+    }
+
+    RgbImage::new(&rgba, w as i32, h as i32, ColorDepth::Rgba8).unwrap()
+}
+
 pub fn build_main_window(
     tabs_enabled: bool,
     sender: &Sender<Message>,
     tree_position: TreePanelPosition,
 ) -> MainWidgets {
-    let mut wind = Window::new(100, 100, 640, 480, "Untitled - \u{1f980} FerrisPad");
+    let title = if cfg!(target_os = "windows") {
+        "Untitled - FerrisPad"
+    } else {
+        "Untitled - \u{1f980} FerrisPad"
+    };
+    let mut wind = Window::new(100, 100, 640, 480, title);
     wind.set_xclass("FerrisPad");
 
-    // Load and set the crab emoji as window icon
-    let icon_data = include_bytes!("../../assets/crab-notepad-emoji-8bit.png");
-    if let Ok(mut icon) = PngImage::from_data(icon_data) {
-        icon.scale(32, 32, true, true);
-        #[cfg(target_os = "linux")]
-        wind.set_icon(Some(icon));
+    // Load and set the crab icon (title bar on Linux/Windows).
+    // macOS uses the .app bundle icon instead.
+    #[cfg(not(target_os = "macos"))]
+    {
+        let icon_data = include_bytes!("../../assets/crab-notepad-emoji-8bit.png");
+        if let Ok(mut icon) = PngImage::from_data(icon_data) {
+            icon.scale(32, 32, true, true);
+            let icon = round_icon(&icon);
+            wind.set_icon(Some(icon));
+        }
     }
 
     let mut flex = Flex::new(0, 0, 640, 480, None);
