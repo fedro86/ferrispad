@@ -149,8 +149,9 @@ impl WidgetController {
         tree_panel.apply_theme(view.dark_mode, theme_bg);
 
         // If YAML content is provided, parse it into a tree
-        let final_request = if request.yaml_content.is_some() && request.root.is_none() {
-            let yaml_content = request.yaml_content.as_ref().unwrap();
+        let final_request = if let (Some(yaml_content), None) =
+            (request.yaml_content.as_ref(), request.root.as_ref())
+        {
             let root =
                 crate::app::services::yaml_parser::parse_yaml_to_tree(yaml_content, &request.title);
             crate::app::plugins::TreeViewRequest {

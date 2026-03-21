@@ -255,7 +255,7 @@ pub fn set_windows_titlebar_theme(window: &Window, is_dark: bool) {
     //   - We try both attribute 19 and 20 for version compatibility
     // Results are ignored because older Windows versions may not support these.
     unsafe {
-        let hwnd = HWND(window.raw_handle() as *mut std::ffi::c_void);
+        let hwnd = HWND(window.raw_handle());
 
         let on: i32 = if is_dark { 1 } else { 0 };
 
