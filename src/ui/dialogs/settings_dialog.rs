@@ -107,6 +107,7 @@ pub fn show_settings_dialog(
         .with_size(COL_WIDTH - 20, 25);
     theme_light_choice.set_color(theme.input_bg);
     theme_light_choice.set_text_color(theme.text);
+    theme_light_choice.set_selection_color(theme.button_bg);
     for syntax_theme in SyntaxTheme::all() {
         theme_light_choice.add_choice(syntax_theme.display_name());
     }
@@ -127,6 +128,7 @@ pub fn show_settings_dialog(
         .with_size(COL_WIDTH - 20, 25);
     theme_dark_choice.set_color(theme.input_bg);
     theme_dark_choice.set_text_color(theme.text);
+    theme_dark_choice.set_selection_color(theme.button_bg);
     for syntax_theme in SyntaxTheme::all() {
         theme_dark_choice.add_choice(syntax_theme.display_name());
     }
