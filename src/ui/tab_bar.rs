@@ -1311,9 +1311,10 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                 };
                 draw::set_draw_color(text_color);
                 draw::set_font(Font::HelveticaBold, 16);
+                let plus_nudge = if cfg!(target_os = "linux") { 1 } else { 0 };
                 draw::draw_text2(
                     "+",
-                    circle_x + 1,
+                    circle_x + plus_nudge,
                     circle_y,
                     circle_size,
                     circle_size,
