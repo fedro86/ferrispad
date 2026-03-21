@@ -303,6 +303,7 @@ pub fn show_plugin_manager_dialog(
                 &theme,
                 row_width,
                 toggles.clone(),
+                installed.clone(),
                 uninstalled.clone(),
                 available_buttons.clone(),
                 community_buttons.clone(),
@@ -826,6 +827,7 @@ pub fn show_plugin_manager_dialog(
                         &theme_for_url,
                         row_width_for_url,
                         toggles_url.clone(),
+                        installed_rc.clone(),
                         uninstalled_url.clone(),
                         available_buttons_url.clone(),
                         community_buttons_url.clone(),
@@ -937,6 +939,7 @@ fn create_installed_plugin_row(
     theme: &DialogTheme,
     row_width: i32,
     toggles: Rc<RefCell<Vec<(String, bool)>>>,
+    installed: Rc<RefCell<Vec<String>>>,
     uninstalled: Rc<RefCell<Vec<String>>>,
     available_buttons: Rc<RefCell<HashMap<String, Button>>>,
     community_buttons: Rc<RefCell<HashMap<String, Button>>>,
@@ -1103,6 +1106,11 @@ fn create_installed_plugin_row(
 
         if choice == Some(1) {
             uninstalled.borrow_mut().push(plugin_name_uninstall.clone());
+            // Remove from installed list (install-then-uninstall in same session)
+            let norm = plugin_name_uninstall.to_lowercase().replace(' ', "-");
+            installed.borrow_mut().retain(|n| {
+                n.to_lowercase().replace(' ', "-") != norm
+            });
             // Hide the entire row immediately
             row_to_hide.hide();
             // Adjust pack width after hiding
@@ -1353,6 +1361,7 @@ fn create_available_plugin_row(
                             &theme_clone,
                             row_width_clone,
                             toggles.clone(),
+                            installed_rc.clone(),
                             uninstalled.clone(),
                             available_buttons.clone(),
                             community_buttons_cb.clone(),
@@ -1613,6 +1622,7 @@ fn create_community_plugin_row(
                     &theme_clone,
                     row_width_clone,
                     toggles.clone(),
+                    installed_rc.clone(),
                     uninstalled.clone(),
                     available_buttons.clone(),
                     community_buttons.clone(),
