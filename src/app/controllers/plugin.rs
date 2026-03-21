@@ -306,6 +306,8 @@ impl PluginController {
                     for disabled_name in &disabled {
                         plugins.toggle_plugin(disabled_name, false);
                     }
+                    // Check permissions for newly installed plugins
+                    Self::check_permissions(plugins, settings);
                 }
 
                 // 4. Apply toggles
