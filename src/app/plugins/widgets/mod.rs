@@ -11,9 +11,14 @@
 //! are sent back to plugins via the OnWidgetAction hook.
 
 pub mod split_view;
+pub mod terminal_view;
 pub mod tree_view;
 
-pub use split_view::{HighlightColor, IntralineSpan, LineHighlight, SplitDisplayMode, SplitPane, SplitViewAction, SplitViewRequest};
+pub use split_view::{
+    HighlightColor, IntralineSpan, LineHighlight, SplitDisplayMode, SplitPane, SplitViewAction,
+    SplitViewRequest,
+};
+pub use terminal_view::TerminalViewRequest;
 pub use tree_view::{ContextMenuItem, ContextMenuTarget, TreeClickMode, TreeNode, TreeViewRequest};
 
 use std::collections::HashMap;
@@ -45,6 +50,7 @@ pub struct WidgetSession {
 pub enum WidgetType {
     SplitView,
     TreeView,
+    TerminalView,
 }
 
 /// Manages widget sessions created by plugins
@@ -92,6 +98,21 @@ impl WidgetManager {
         id
     }
 
+    /// Create a new terminal view session
+    pub fn create_terminal_view_session(&mut self, plugin_name: &str, persistent: bool) -> u32 {
+        let id = next_session_id();
+        self.sessions.insert(
+            id,
+            WidgetSession {
+                id,
+                plugin_name: plugin_name.to_string(),
+                widget_type: WidgetType::TerminalView,
+                persistent,
+            },
+        );
+        id
+    }
+
     /// Get a session by ID
     pub fn get_session(&self, id: u32) -> Option<&WidgetSession> {
         self.sessions.get(&id)
@@ -119,28 +140,38 @@ impl WidgetManager {
 
     /// Remove all sessions for a plugin (called when plugin is disabled/reloaded)
     pub fn clear_plugin_sessions(&mut self, plugin_name: &str) {
-        self.sessions
-            .retain(|_, s| s.plugin_name != plugin_name);
+        self.sessions.retain(|_, s| s.plugin_name != plugin_name);
     }
 
     /// Find any active tree view session and return its ID.
     /// Used for toggle behavior (show/hide on repeated menu action).
     pub fn any_tree_view_session(&self) -> Option<u32> {
-        self.sessions.values()
+        self.sessions
+            .values()
             .find(|s| s.widget_type == WidgetType::TreeView)
             .map(|s| s.id)
     }
 
     /// Find a persistent tree view session (e.g., file explorer).
     pub fn persistent_tree_session(&self) -> Option<u32> {
-        self.sessions.values()
+        self.sessions
+            .values()
             .find(|s| s.widget_type == WidgetType::TreeView && s.persistent)
+            .map(|s| s.id)
+    }
+
+    /// Find any active terminal view session and return its ID.
+    pub fn any_terminal_view_session(&self) -> Option<u32> {
+        self.sessions
+            .values()
+            .find(|s| s.widget_type == WidgetType::TerminalView)
             .map(|s| s.id)
     }
 
     /// Find a non-persistent tree view session (e.g., YAML viewer overlay).
     pub fn non_persistent_tree_session(&self) -> Option<u32> {
-        self.sessions.values()
+        self.sessions
+            .values()
             .find(|s| s.widget_type == WidgetType::TreeView && !s.persistent)
             .map(|s| s.id)
     }

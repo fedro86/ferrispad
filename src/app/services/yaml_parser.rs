@@ -171,7 +171,9 @@ items:
         let yaml = "invalid: yaml: content:";
         let tree = parse_yaml_to_tree(yaml, "config.yaml");
         // Should have an error node as root
-        assert!(tree.label.contains("Error") || tree.children.iter().any(|c| c.label.contains("Error")));
+        assert!(
+            tree.label.contains("Error") || tree.children.iter().any(|c| c.label.contains("Error"))
+        );
     }
 
     #[test]

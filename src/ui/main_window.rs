@@ -1,22 +1,20 @@
 use fltk::{
-    app::Sender,
-    enums::Color,
-    frame::Frame,
-    group::Flex,
-    image::PngImage,
-    menu::MenuBar,
-    prelude::*,
+    app::Sender, enums::Color, frame::Frame, group::Flex, menu::MenuBar, prelude::*,
     window::Window,
 };
+#[cfg(not(target_os = "macos"))]
+use fltk::image::PngImage;
 
-use crate::app::domain::settings::TreePanelPosition;
-use crate::app::Message;
 use super::diagnostic_panel::DiagnosticPanel;
 use super::editor_container::EditorContainer;
-use super::tab_bar::{TabBar, TAB_BAR_HEIGHT};
-use super::toast::Toast;
 use super::split_panel::SplitPanel;
+use super::status_bar::{STATUS_BAR_HEIGHT, StatusBar};
+use super::tab_bar::{TAB_BAR_HEIGHT, TabBar};
+use super::terminal_panel::TerminalPanel;
+use super::toast::Toast;
 use super::tree_panel::TreePanel;
+use crate::app::Message;
+use crate::app::domain::settings::TreePanelPosition;
 
 /// Subset of MainWidgets used during the dispatch loop.
 /// Created after `editor_container` and `tab_bar` are moved into AppState.
@@ -26,7 +24,9 @@ pub struct LayoutWidgets {
     pub split_panel: SplitPanel,
     pub diagnostic_panel: DiagnosticPanel,
     pub tree_panel: TreePanel,
+    pub terminal_panel: TerminalPanel,
     pub toast: Toast,
+    pub status_bar: StatusBar,
     pub content_row: Flex,
     pub right_col: Option<Flex>,
     pub tree_position: TreePanelPosition,
@@ -40,7 +40,10 @@ pub struct LayoutWidgets {
 #[macro_export]
 macro_rules! split_parent {
     ($lw:expr) => {
-        $lw.right_col.as_mut().map(|rc| rc as &mut fltk::group::Flex).unwrap_or(&mut $lw.flex)
+        $lw.right_col
+            .as_mut()
+            .map(|rc| rc as &mut fltk::group::Flex)
+            .unwrap_or(&mut $lw.flex)
     };
 }
 
@@ -55,6 +58,8 @@ pub struct MainWidgets {
     pub split_panel: SplitPanel,
     pub diagnostic_panel: DiagnosticPanel,
     pub tree_panel: TreePanel,
+    pub terminal_panel: TerminalPanel,
+    pub status_bar: StatusBar,
     /// Inner row flex for left/right tree panel positioning
     pub content_row: Flex,
     /// Column flex holding editor + split panel (for Left/Right tree positions)
@@ -63,16 +68,28 @@ pub struct MainWidgets {
     pub tree_position: TreePanelPosition,
 }
 
-pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_position: TreePanelPosition) -> MainWidgets {
-    let mut wind = Window::new(100, 100, 640, 480, "Untitled - \u{1f980} FerrisPad");
+pub fn build_main_window(
+    tabs_enabled: bool,
+    sender: &Sender<Message>,
+    tree_position: TreePanelPosition,
+) -> MainWidgets {
+    let title = if cfg!(target_os = "windows") {
+        "Untitled - FerrisPad"
+    } else {
+        "Untitled - \u{1f980} FerrisPad"
+    };
+    let mut wind = Window::new(100, 100, 640, 480, title);
     wind.set_xclass("FerrisPad");
 
-    // Load and set the crab emoji as window icon
-    let icon_data = include_bytes!("../../assets/crab-notepad-emoji-8bit.png");
-    if let Ok(mut icon) = PngImage::from_data(icon_data) {
-        icon.scale(32, 32, true, true);
-        #[cfg(target_os = "linux")]
-        wind.set_icon(Some(icon));
+    // Load and set the crab icon (title bar on Linux/Windows).
+    // macOS uses the .app bundle icon instead.
+    // Use the pre-rendered 32x32 icon to avoid decompressing the 1024x1024 source.
+    #[cfg(not(target_os = "macos"))]
+    {
+        let icon_data = include_bytes!("../../icons/hicolor/32x32/apps/ferrispad.png");
+        if let Ok(icon) = PngImage::from_data(icon_data) {
+            wind.set_icon(Some(icon));
+        }
     }
 
     let mut flex = Flex::new(0, 0, 640, 480, None);
@@ -108,6 +125,7 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
     content_row.set_margin(0);
     content_row.set_pad(0);
     let tree_panel;
+    let terminal_panel;
     let tab_bar;
     let editor_container;
     let split_panel;
@@ -151,8 +169,18 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
             rc.fixed(sp.widget(), 0);
 
             rc.end();
+
+            // Terminal panel divider + panel (right side, hidden until requested)
+            let term_div = TerminalPanel::new_divider(*sender);
+            content_row.fixed(&term_div, 0);
+            let mut term = TerminalPanel::new(*sender);
+            term.divider = Some(term_div);
+            term.hide();
+            content_row.fixed(term.widget(), 0);
+
             content_row.end();
             tree_panel = tp;
+            terminal_panel = term;
             split_panel = sp;
             right_col = Some(rc);
         }
@@ -185,6 +213,14 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
 
             rc.end();
 
+            // Terminal panel divider + panel (right side, hidden until requested)
+            let term_div = TerminalPanel::new_divider(*sender);
+            content_row.fixed(&term_div, 0);
+            let mut term = TerminalPanel::new(*sender);
+            term.divider = Some(term_div);
+            term.hide();
+            content_row.fixed(term.widget(), 0);
+
             // Draggable divider before tree panel (4px, hidden until tree panel is shown)
             let mut tp = TreePanel::new(*sender);
             tp.create_divider(*sender);
@@ -196,6 +232,7 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
 
             content_row.end();
             tree_panel = tp;
+            terminal_panel = term;
             split_panel = sp;
             right_col = Some(rc);
         }
@@ -209,6 +246,15 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
                 None
             };
             editor_container = EditorContainer::new(&content_row);
+
+            // Terminal panel divider + panel (right side, hidden until requested)
+            let term_div = TerminalPanel::new_divider(*sender);
+            content_row.fixed(&term_div, 0);
+            let mut term = TerminalPanel::new(*sender);
+            term.divider = Some(term_div);
+            term.hide();
+            content_row.fixed(term.widget(), 0);
+
             content_row.end();
 
             // Tree panel in the outer column flex (below editor area)
@@ -224,6 +270,7 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
             sp.divider = Some(split_div);
             flex.fixed(sp.widget(), 0);
             split_panel = sp;
+            terminal_panel = term;
             right_col = None;
         }
     }
@@ -232,6 +279,10 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
     let mut diagnostic_panel = DiagnosticPanel::new(*sender);
     diagnostic_panel.hide();
     flex.fixed(diagnostic_panel.widget(), 0);
+
+    // Status bar (bottom of window, always visible)
+    let status_bar = StatusBar::new();
+    flex.fixed(status_bar.widget(), STATUS_BAR_HEIGHT);
 
     flex.end();
     wind.resizable(&flex);
@@ -247,6 +298,8 @@ pub fn build_main_window(tabs_enabled: bool, sender: &Sender<Message>, tree_posi
         split_panel,
         diagnostic_panel,
         tree_panel,
+        terminal_panel,
+        status_bar,
         content_row,
         right_col,
         tree_position,

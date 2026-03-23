@@ -18,7 +18,7 @@ use crate::app::services::updater;
 
 /// Check for updates and show UI dialog (manual check)
 pub fn check_for_updates_ui(settings: &Rc<RefCell<AppSettings>>) {
-    use crate::app::services::updater::{check_for_updates, current_timestamp, UpdateCheckResult};
+    use crate::app::services::updater::{UpdateCheckResult, check_for_updates, current_timestamp};
 
     let current_version = env!("CARGO_PKG_VERSION");
     let settings_borrowed = settings.borrow();
@@ -52,7 +52,10 @@ pub fn check_for_updates_ui(settings: &Rc<RefCell<AppSettings>>) {
 }
 
 /// Show update available dialog with options
-pub fn show_update_available_dialog(release: updater::ReleaseInfo, settings: &Rc<RefCell<AppSettings>>) {
+pub fn show_update_available_dialog(
+    release: updater::ReleaseInfo,
+    settings: &Rc<RefCell<AppSettings>>,
+) {
     let current_version = env!("CARGO_PKG_VERSION");
     let asset_name = updater::get_platform_asset_name();
     let direct_asset = release.assets.iter().find(|a| a.name.contains(asset_name));
@@ -73,7 +76,8 @@ pub fn show_update_available_dialog(release: updater::ReleaseInfo, settings: &Rc
     // Version info
     let version_text = format!(
         "Current version: {}\nLatest version:  {}",
-        current_version, release.version()
+        current_version,
+        release.version()
     );
     let mut version_frame = Frame::default().with_label(&version_text);
     version_frame.set_label_size(14);

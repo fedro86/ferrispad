@@ -4,7 +4,7 @@
 
 use super::annotations::{AnnotationColor, GutterMark, InlineHighlight, LineAnnotation};
 use super::hooks::{Diagnostic, DiagnosticLevel, HookResult, StatusMessage};
-use super::widgets::{SplitViewRequest, TreeViewRequest};
+use super::widgets::{SplitViewRequest, TerminalViewRequest, TreeViewRequest};
 
 use mlua::Table;
 
@@ -18,6 +18,7 @@ pub(super) fn parse_lint_result(table: &Table, plugin_name: &str, result: &mut H
     let has_status_key: bool = table.contains_key("status_message").unwrap_or(false);
     let has_split_view_key: bool = table.contains_key("split_view").unwrap_or(false);
     let has_tree_view_key: bool = table.contains_key("tree_view").unwrap_or(false);
+    let has_terminal_view_key: bool = table.contains_key("terminal_view").unwrap_or(false);
     let has_open_file_key: bool = table.contains_key("open_file").unwrap_or(false);
     let has_clipboard_text_key: bool = table.contains_key("clipboard_text").unwrap_or(false);
     let has_goto_line_key: bool = table.contains_key("goto_line").unwrap_or(false);
@@ -27,6 +28,7 @@ pub(super) fn parse_lint_result(table: &Table, plugin_name: &str, result: &mut H
         || has_status_key
         || has_split_view_key
         || has_tree_view_key
+        || has_terminal_view_key
         || has_open_file_key
         || has_clipboard_text_key
         || has_goto_line_key
@@ -53,6 +55,12 @@ pub(super) fn parse_lint_result(table: &Table, plugin_name: &str, result: &mut H
         // Parse optional tree view request
         if let Ok(mlua::Value::Table(tree_view_table)) = table.get::<mlua::Value>("tree_view") {
             result.tree_view = TreeViewRequest::from_lua_table(&tree_view_table);
+        }
+        // Parse optional terminal view request
+        if let Ok(mlua::Value::Table(terminal_view_table)) =
+            table.get::<mlua::Value>("terminal_view")
+        {
+            result.terminal_view = TerminalViewRequest::from_lua_table(&terminal_view_table);
         }
         // Parse optional open_file request
         if let Ok(mlua::Value::String(s)) = table.get::<mlua::Value>("open_file")

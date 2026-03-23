@@ -11,6 +11,7 @@
 pub mod controllers;
 pub mod domain;
 pub mod infrastructure;
+pub mod mcp;
 pub mod plugins;
 pub mod services;
 pub mod state;
@@ -25,4 +26,4 @@ pub use services::updater::UpdateChannel;
 
 // Plugin re-exports (used internally by state.rs)
 #[allow(unused_imports)]
-pub use plugins::{PluginManager, PluginHook, get_plugin_dir};
+pub use plugins::{PluginHook, PluginManager, get_plugin_dir};

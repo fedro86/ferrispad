@@ -1,6 +1,10 @@
 use fltk::dialog::{NativeFileChooser, NativeFileChooserType};
 
-fn show_chooser(title: &str, chooser_type: NativeFileChooserType, directory: Option<&str>) -> NativeFileChooser {
+fn show_chooser(
+    title: &str,
+    chooser_type: NativeFileChooserType,
+    directory: Option<&str>,
+) -> NativeFileChooser {
     let mut chooser = NativeFileChooser::new(chooser_type);
     chooser.set_title(title);
     if let Some(dir) = directory {
@@ -21,7 +25,11 @@ pub fn native_open_dialog(directory: Option<&str>) -> Option<String> {
 }
 
 pub fn native_open_multi_dialog(directory: Option<&str>) -> Vec<String> {
-    let chooser = show_chooser("Open Files", NativeFileChooserType::BrowseMultiFile, directory);
+    let chooser = show_chooser(
+        "Open Files",
+        NativeFileChooserType::BrowseMultiFile,
+        directory,
+    );
     chooser
         .filenames()
         .into_iter()

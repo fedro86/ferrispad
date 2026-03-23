@@ -4,18 +4,18 @@ use std::rc::Rc;
 
 use fltk::dialog;
 
-use super::preview::{wrap_html_for_preview, PreviewController};
+use super::preview::{PreviewController, wrap_html_for_preview};
 use super::tabs::TabManager;
 use crate::app::domain::document::DocumentId;
 use crate::app::domain::settings::AppSettings;
 use crate::app::infrastructure::buffer::buffer_text_no_leak;
 use crate::app::plugins::{HookResult, PluginHook, PluginManager};
 use crate::app::services::file_size::{
-    check_file_size, read_chunk, read_tail, FileSizeCheck, TAIL_LINE_COUNT,
+    FileSizeCheck, TAIL_LINE_COUNT, check_file_size, read_chunk, read_tail,
 };
 use crate::ui::dialogs::large_file::{
-    load_to_buffer_with_progress, show_file_too_large_dialog, show_large_file_warning,
-    StreamLoadResult, TooLargeAction,
+    StreamLoadResult, TooLargeAction, load_to_buffer_with_progress, show_file_too_large_dialog,
+    show_large_file_warning,
 };
 use crate::ui::file_dialogs::{native_open_dialog, native_open_multi_dialog, native_save_dialog};
 
@@ -35,11 +35,19 @@ pub enum FileAction {
     UpdateWindowTitle,
     UpdateMenusForFileType,
     /// Run plugin on_document_open hooks with content (normal files).
-    RunOpenHooks { path: String, content: String },
+    RunOpenHooks {
+        path: String,
+        content: String,
+    },
     /// Defer plugin hooks to next event loop iteration (large files).
-    DeferOpenHooks { path: String, content: String },
+    DeferOpenHooks {
+        path: String,
+        content: String,
+    },
     /// Run plugin on_document_open hook without content (tail/chunk files).
-    RunPluginOpenHook { path: String },
+    RunPluginOpenHook {
+        path: String,
+    },
     /// Process lint result from save hooks.
     ProcessLintResult(Box<HookResult>),
     /// Update markdown preview file if applicable.
@@ -108,10 +116,7 @@ impl FileController {
                                 );
                             }
                             Err(e) => {
-                                dialog::alert_default(&format!(
-                                    "Failed to read file tail: {}",
-                                    e
-                                ));
+                                dialog::alert_default(&format!("Failed to read file tail: {}", e));
                                 return vec![];
                             }
                         }
@@ -135,10 +140,7 @@ impl FileController {
                                 );
                             }
                             Err(e) => {
-                                dialog::alert_default(&format!(
-                                    "Failed to read file chunk: {}",
-                                    e
-                                ));
+                                dialog::alert_default(&format!("Failed to read file chunk: {}", e));
                                 return vec![];
                             }
                         }
@@ -175,9 +177,7 @@ impl FileController {
         }
 
         match fs::read_to_string(&path) {
-            Ok(content) => {
-                self.open_file_content(path, content, tab_manager, tabs_enabled)
-            }
+            Ok(content) => self.open_file_content(path, content, tab_manager, tabs_enabled),
             Err(e) => {
                 dialog::alert_default(&format!("Error opening file: {}", e));
                 vec![]
@@ -188,10 +188,7 @@ impl FileController {
     pub fn file_new(&self, tab_manager: &mut TabManager, tabs_enabled: bool) -> Vec<FileAction> {
         if tabs_enabled {
             let id = tab_manager.add_untitled();
-            vec![
-                FileAction::SwitchToDocument(id),
-                FileAction::RebuildTabBar,
-            ]
+            vec![FileAction::SwitchToDocument(id), FileAction::RebuildTabBar]
         } else {
             if let Some(doc) = tab_manager.active_doc_mut() {
                 doc.buffer.set_text("");
@@ -221,13 +218,7 @@ impl FileController {
             let paths = native_open_multi_dialog(dir);
             let mut actions = Vec::new();
             for path in paths {
-                actions.extend(self.open_file(
-                    path,
-                    tab_manager,
-                    settings,
-                    theme_bg,
-                    tabs_enabled,
-                ));
+                actions.extend(self.open_file(path, tab_manager, settings, theme_bg, tabs_enabled));
             }
             actions
         } else if let Some(path) = native_open_dialog(dir) {
@@ -245,8 +236,8 @@ impl FileController {
     ) -> Vec<FileAction> {
         let (file_path, text, doc_id, is_partial) = {
             if let Some(doc) = tab_manager.active_doc() {
-                let is_partial = doc.display_name.contains("(tail)")
-                    || doc.display_name.contains("(lines ");
+                let is_partial =
+                    doc.display_name.contains("(tail)") || doc.display_name.contains("(lines ");
                 (
                     doc.file_path.clone(),
                     buffer_text_no_leak(&doc.buffer),
@@ -434,10 +425,7 @@ impl FileController {
             ];
 
             if content.len() > DEFERRED_THRESHOLD {
-                actions.push(FileAction::DeferOpenHooks {
-                    path,
-                    content,
-                });
+                actions.push(FileAction::DeferOpenHooks { path, content });
             } else {
                 actions.push(FileAction::RunOpenHooks { path, content });
             }
@@ -457,10 +445,7 @@ impl FileController {
             actions.push(FileAction::UpdateMenusForFileType);
 
             if content.len() > DEFERRED_THRESHOLD {
-                actions.push(FileAction::DeferOpenHooks {
-                    path,
-                    content,
-                });
+                actions.push(FileAction::DeferOpenHooks { path, content });
             } else {
                 actions.push(FileAction::RunOpenHooks { path, content });
             }
@@ -500,14 +485,10 @@ impl FileController {
             if let Some(untitled_id) = empty_untitled {
                 tab_manager.remove(untitled_id);
             }
-            vec![
-                FileAction::SwitchToDocument(id),
-                FileAction::RebuildTabBar,
-            ]
+            vec![FileAction::SwitchToDocument(id), FileAction::RebuildTabBar]
         } else {
             if let Some(doc) = tab_manager.active_doc_mut() {
-                let content =
-                    crate::app::infrastructure::buffer::buffer_text_no_leak(&buffer);
+                let content = crate::app::infrastructure::buffer::buffer_text_no_leak(&buffer);
                 doc.buffer.set_text(&content);
                 doc.has_unsaved_changes.set(false);
                 doc.file_path = Some(path);

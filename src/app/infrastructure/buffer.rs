@@ -13,7 +13,6 @@
 pub fn buffer_text_no_leak(buf: &fltk::text::TextBuffer) -> String {
     unsafe extern "C" {
         fn Fl_Text_Buffer_text(buf: *mut std::ffi::c_void) -> *mut std::ffi::c_char;
-        fn free(ptr: *mut std::ffi::c_void);
     }
 
     // SAFETY: We call FLTK's C API directly to get the text pointer, copy it
@@ -30,9 +29,35 @@ pub fn buffer_text_no_leak(buf: &fltk::text::TextBuffer) -> String {
     unsafe {
         let inner = buf.as_ptr() as *mut std::ffi::c_void;
         let ptr = Fl_Text_Buffer_text(inner);
-        if ptr.is_null() {
-            return String::new();
-        }
+        ffi_string_no_leak(ptr)
+    }
+}
+
+/// Read the selected text from an FLTK TextBuffer without leaking the C-allocated copy.
+/// Same leak pattern as `text()` — see `buffer_text_no_leak` for details.
+pub fn selection_text_no_leak(buf: &fltk::text::TextBuffer) -> String {
+    unsafe extern "C" {
+        fn Fl_Text_Buffer_selection_text(buf: *mut std::ffi::c_void) -> *mut std::ffi::c_char;
+    }
+
+    unsafe {
+        let inner = buf.as_ptr() as *mut std::ffi::c_void;
+        let ptr = Fl_Text_Buffer_selection_text(inner);
+        ffi_string_no_leak(ptr)
+    }
+}
+
+/// Convert a C-allocated string pointer to a Rust String and free the C memory.
+/// Returns an empty string if the pointer is null.
+unsafe fn ffi_string_no_leak(ptr: *mut std::ffi::c_char) -> String {
+    unsafe extern "C" {
+        fn free(ptr: *mut std::ffi::c_void);
+    }
+
+    if ptr.is_null() {
+        return String::new();
+    }
+    unsafe {
         let cstr = std::ffi::CStr::from_ptr(ptr);
         let result = cstr.to_string_lossy().into_owned();
         free(ptr as *mut std::ffi::c_void);

@@ -15,8 +15,8 @@ use fltk::{
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::app::plugins::{Diagnostic, DiagnosticLevel};
 use crate::app::Message;
+use crate::app::plugins::{Diagnostic, DiagnosticLevel};
 
 /// Height of the diagnostic panel when visible
 pub const DIAGNOSTIC_PANEL_HEIGHT: i32 = 120;
@@ -49,8 +49,7 @@ impl DiagnosticPanel {
         container.set_frame(FrameType::FlatBox);
 
         // Header bar with summary
-        let mut header = Frame::default()
-            .with_size(0, HEADER_HEIGHT);
+        let mut header = Frame::default().with_size(0, HEADER_HEIGHT);
         header.set_frame(FrameType::FlatBox);
         header.set_color(Color::from_rgb(60, 60, 60));
         header.set_label_color(Color::White);
@@ -108,52 +107,67 @@ impl DiagnosticPanel {
 
         if self.diagnostics.is_empty() {
             // All good - show green success state
-            self.header.set_color(Color::from_rgb(46, 125, 50));  // Green
+            self.header.set_color(Color::from_rgb(46, 125, 50)); // Green
             self.header.set_label("  \u{2714} All checks passed");
             self.browser.hide();
             self.expanded = false;
             self.container.show();
         } else {
             // Count by severity
-            let error_count = self.diagnostics.iter()
+            let error_count = self
+                .diagnostics
+                .iter()
                 .filter(|d| d.level == DiagnosticLevel::Error)
                 .count();
-            let warning_count = self.diagnostics.iter()
+            let warning_count = self
+                .diagnostics
+                .iter()
                 .filter(|d| d.level == DiagnosticLevel::Warning)
                 .count();
-            let info_count = self.diagnostics.iter()
+            let info_count = self
+                .diagnostics
+                .iter()
                 .filter(|d| d.level == DiagnosticLevel::Info || d.level == DiagnosticLevel::Hint)
                 .count();
 
             // Set header color based on most severe
             if error_count > 0 {
-                self.header.set_color(Color::from_rgb(198, 40, 40));  // Red
+                self.header.set_color(Color::from_rgb(198, 40, 40)); // Red
             } else if warning_count > 0 {
-                self.header.set_color(Color::from_rgb(245, 124, 0));  // Orange
+                self.header.set_color(Color::from_rgb(245, 124, 0)); // Orange
             } else {
-                self.header.set_color(Color::from_rgb(25, 118, 210));  // Blue
+                self.header.set_color(Color::from_rgb(25, 118, 210)); // Blue
             }
 
             // Build header label
             let mut parts = Vec::new();
             if error_count > 0 {
-                parts.push(format!("{} error{}", error_count, if error_count == 1 { "" } else { "s" }));
+                parts.push(format!(
+                    "{} error{}",
+                    error_count,
+                    if error_count == 1 { "" } else { "s" }
+                ));
             }
             if warning_count > 0 {
-                parts.push(format!("{} warning{}", warning_count, if warning_count == 1 { "" } else { "s" }));
+                parts.push(format!(
+                    "{} warning{}",
+                    warning_count,
+                    if warning_count == 1 { "" } else { "s" }
+                ));
             }
             if info_count > 0 {
                 parts.push(format!("{} info", info_count));
             }
-            self.header.set_label(&format!("  \u{26A0} {}", parts.join(", ")));
+            self.header
+                .set_label(&format!("  \u{26A0} {}", parts.join(", ")));
 
             // Populate browser with diagnostic entries
             for diag in &self.diagnostics {
                 let (icon, color) = match diag.level {
-                    DiagnosticLevel::Error => ("\u{2718}", "@C88"),    // Red X
-                    DiagnosticLevel::Warning => ("\u{26A0}", "@C94"),  // Orange warning
-                    DiagnosticLevel::Info => ("\u{2139}", "@C12"),     // Blue info
-                    DiagnosticLevel::Hint => ("\u{2022}", "@C8"),      // Gray dot
+                    DiagnosticLevel::Error => ("\u{2718}", "@C88"), // Red X
+                    DiagnosticLevel::Warning => ("\u{26A0}", "@C94"), // Orange warning
+                    DiagnosticLevel::Info => ("\u{2139}", "@C12"),  // Blue info
+                    DiagnosticLevel::Hint => ("\u{2022}", "@C8"),   // Gray dot
                 };
 
                 let col_info = if let Some(col) = diag.column {
@@ -232,7 +246,7 @@ impl DiagnosticPanel {
     pub fn setup_hover_handler(&mut self) {
         // Enable tooltips and set a short delay
         Tooltip::enable(true);
-        Tooltip::set_delay(0.5);  // 500ms delay before showing
+        Tooltip::set_delay(0.5); // 500ms delay before showing
 
         // Share diagnostics with the event handler
         let diagnostics: Rc<RefCell<Vec<Diagnostic>>> = Rc::new(RefCell::new(Vec::new()));
@@ -246,25 +260,26 @@ impl DiagnosticPanel {
         let sender = self.sender;
 
         // Helper to update tooltip for a given item index
-        let update_tooltip = |b: &mut HoldBrowser, diags: &Rc<RefCell<Vec<Diagnostic>>>, item_idx: i32| {
-            let borrowed = diags.borrow();
-            if item_idx >= 0 && (item_idx as usize) < borrowed.len() {
-                let diag = &borrowed[item_idx as usize];
-                let mut tooltip = format!(
-                    "Line {}: {}\nSource: {}",
-                    diag.line, diag.message, diag.source
-                );
-                if let Some(ref fix) = diag.fix_message {
-                    tooltip.push_str(&format!("\n\nFix: {}", fix));
+        let update_tooltip =
+            |b: &mut HoldBrowser, diags: &Rc<RefCell<Vec<Diagnostic>>>, item_idx: i32| {
+                let borrowed = diags.borrow();
+                if item_idx >= 0 && (item_idx as usize) < borrowed.len() {
+                    let diag = &borrowed[item_idx as usize];
+                    let mut tooltip = format!(
+                        "Line {}: {}\nSource: {}",
+                        diag.line, diag.message, diag.source
+                    );
+                    if let Some(ref fix) = diag.fix_message {
+                        tooltip.push_str(&format!("\n\nFix: {}", fix));
+                    }
+                    if let Some(ref url) = diag.url {
+                        tooltip.push_str(&format!("\nDocs: {}  (double-click to open)", url));
+                    }
+                    b.set_tooltip(&tooltip);
+                } else {
+                    b.set_tooltip("");
                 }
-                if let Some(ref url) = diag.url {
-                    tooltip.push_str(&format!("\nDocs: {}  (double-click to open)", url));
-                }
-                b.set_tooltip(&tooltip);
-            } else {
-                b.set_tooltip("");
-            }
-        };
+            };
 
         // Combined handler for hover (tooltip) and click (goto/open docs)
         self.browser.handle(move |b, ev| {
@@ -302,7 +317,7 @@ impl DiagnosticPanel {
                         *last.borrow_mut() = idx - 1;
                         update_tooltip(b, &diags, idx - 1);
                     }
-                    false  // Don't consume - let FLTK handle selection
+                    false // Don't consume - let FLTK handle selection
                 }
                 Event::Push => {
                     // Double click - open docs

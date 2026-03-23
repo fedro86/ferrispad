@@ -53,7 +53,16 @@ pub fn show_permission_dialog(request: &PermissionRequest) -> ApprovalResult {
     let desc_height = if has_description { LABEL_HEIGHT + 5 } else { 0 };
     let commands_height = request.commands.len() as i32 * ITEM_HEIGHT;
 
-    let dialog_height = MARGIN + LABEL_HEIGHT + 5 + desc_height + commands_height + SECTION_GAP + LABEL_HEIGHT + SECTION_GAP + BUTTON_HEIGHT + MARGIN;
+    let dialog_height = MARGIN
+        + LABEL_HEIGHT
+        + 5
+        + desc_height
+        + commands_height
+        + SECTION_GAP
+        + LABEL_HEIGHT
+        + SECTION_GAP
+        + BUTTON_HEIGHT
+        + MARGIN;
 
     let mut dialog = Window::default()
         .with_size(DIALOG_WIDTH, dialog_height.max(200))

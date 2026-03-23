@@ -1,12 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use fltk::{
-    frame::Frame,
-    group::Flex,
-    prelude::*,
-    window::Window,
-};
+use fltk::{frame::Frame, group::Flex, prelude::*, window::Window};
 
 use crate::app::domain::settings::AppSettings;
 use crate::app::services::updater::ReleaseInfo;
@@ -46,7 +41,11 @@ impl UpdateController {
         self.show_banner(&version, widgets);
     }
 
-    pub fn show_update_dialog(&mut self, settings: &Rc<RefCell<AppSettings>>, widgets: &mut BannerWidgets) {
+    pub fn show_update_dialog(
+        &mut self,
+        settings: &Rc<RefCell<AppSettings>>,
+        widgets: &mut BannerWidgets,
+    ) {
         if let Some(release) = self.pending_update.take() {
             show_update_available_dialog(release, settings);
             self.hide_banner(widgets);

@@ -42,9 +42,7 @@ fn test_load_script_and_call_hooks() {
     assert!(!result.is_nil());
 
     // Call non-existent hook -> Nil
-    let nil_result = runtime
-        .call_hook(&table, "on_nonexistent", ())
-        .unwrap();
+    let nil_result = runtime.call_hook(&table, "on_nonexistent", ()).unwrap();
     assert!(nil_result.is_nil());
 }
 

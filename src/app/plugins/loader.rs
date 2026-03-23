@@ -134,9 +134,14 @@ pub fn load_plugin_toml(plugin_dir: &std::path::Path) -> Option<PluginMetadata> 
     if !toml_path.exists() {
         return None;
     }
-
     let content = std::fs::read_to_string(&toml_path).ok()?;
-    let parsed: toml::Value = toml::from_str(&content).ok()?;
+    parse_plugin_toml_content(&content)
+}
+
+/// Parse plugin.toml content from a string.
+/// Same parsing as `load_plugin_toml()` but takes content directly.
+pub fn parse_plugin_toml_content(content: &str) -> Option<PluginMetadata> {
+    let parsed: toml::Value = toml::from_str(content).ok()?;
 
     let name = parsed
         .get("name")
@@ -374,5 +379,29 @@ action = "good"
         // Only the valid menu item should be present
         assert_eq!(metadata.menu_items.len(), 1);
         assert_eq!(metadata.menu_items[0].label, "Good Label");
+    }
+
+    #[test]
+    fn test_parse_plugin_toml_content_directly() {
+        let content = r#"
+name = "Direct Parse"
+version = "2.0.0"
+description = "Parsed from string"
+
+[[menu_items]]
+label = "Do Thing"
+action = "thing"
+"#;
+        let metadata = parse_plugin_toml_content(content).unwrap();
+        assert_eq!(metadata.name, "Direct Parse");
+        assert_eq!(metadata.version, "2.0.0");
+        assert_eq!(metadata.description, "Parsed from string");
+        assert_eq!(metadata.menu_items.len(), 1);
+        assert_eq!(metadata.menu_items[0].action, "thing");
+    }
+
+    #[test]
+    fn test_parse_plugin_toml_content_invalid() {
+        assert!(parse_plugin_toml_content("not valid toml {{{").is_none());
     }
 }

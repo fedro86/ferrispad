@@ -175,8 +175,8 @@ impl HighlightController {
                     doc.checkpoints = result.checkpoints;
                 }
             } else {
-                let was_empty = self.highlight_queue.is_empty()
-                    && self.highlighter.chunked_doc_id().is_none();
+                let was_empty =
+                    self.highlight_queue.is_empty() && self.highlighter.chunked_doc_id().is_none();
                 self.highlight_queue.push(id);
                 if was_empty {
                     defer_send(*sender, 0.0, Message::ContinueHighlight);
@@ -188,7 +188,14 @@ impl HighlightController {
         }
     }
 
-    fn rehighlight_document(&mut self, id: DocumentId, pos: i32, tab_manager: &mut TabManager, sender: &Sender<Message>, widgets: &mut HighlightWidgets) {
+    fn rehighlight_document(
+        &mut self,
+        id: DocumentId,
+        pos: i32,
+        tab_manager: &mut TabManager,
+        sender: &Sender<Message>,
+        widgets: &mut HighlightWidgets,
+    ) {
         let (syntax_name, text, edit_line, checkpoints_empty) = {
             if let Some(doc) = tab_manager.doc_by_id(id) {
                 match doc.syntax_name {
@@ -270,7 +277,10 @@ impl HighlightController {
         }
 
         if self.highlighter.chunked_doc_id() == Some(id) {
-            if let (Some(cp), Some(doc)) = (self.highlighter.cancel_chunked(), tab_manager.doc_by_id_mut(id)) {
+            if let (Some(cp), Some(doc)) = (
+                self.highlighter.cancel_chunked(),
+                tab_manager.doc_by_id_mut(id),
+            ) {
                 doc.checkpoints = cp;
             }
             self.hide_highlight_banner(widgets);
@@ -341,7 +351,9 @@ impl HighlightController {
             }
 
             if output.done {
-                if let (Some(doc), Some(cp)) = (tab_manager.doc_by_id_mut(doc_id), output.final_checkpoints) {
+                if let (Some(doc), Some(cp)) =
+                    (tab_manager.doc_by_id_mut(doc_id), output.final_checkpoints)
+                {
                     doc.checkpoints = cp;
                 }
                 self.start_next_queued_highlight(tab_manager, sender, widgets);
@@ -414,8 +426,7 @@ impl HighlightController {
         tab_manager: &mut TabManager,
         sender: &Sender<Message>,
     ) {
-        let doc_ids: Vec<DocumentId> =
-            tab_manager.documents().iter().map(|d| d.id).collect();
+        let doc_ids: Vec<DocumentId> = tab_manager.documents().iter().map(|d| d.id).collect();
         for id in doc_ids {
             let (syntax_name, text) = {
                 if let Some(doc) = tab_manager.doc_by_id(id) {
@@ -436,8 +447,8 @@ impl HighlightController {
                     doc.checkpoints = result.checkpoints;
                 }
             } else {
-                let was_empty = self.highlight_queue.is_empty()
-                    && self.highlighter.chunked_doc_id().is_none();
+                let was_empty =
+                    self.highlight_queue.is_empty() && self.highlighter.chunked_doc_id().is_none();
                 self.highlight_queue.push(id);
                 if was_empty {
                     defer_send(*sender, 0.0, Message::ContinueHighlight);
@@ -457,8 +468,7 @@ impl HighlightController {
         self.hide_highlight_banner(widgets);
         self.pending_rehighlight = None;
 
-        let doc_ids: Vec<DocumentId> =
-            tab_manager.documents().iter().map(|d| d.id).collect();
+        let doc_ids: Vec<DocumentId> = tab_manager.documents().iter().map(|d| d.id).collect();
         for id in doc_ids {
             if let Some(doc) = tab_manager.doc_by_id_mut(id) {
                 doc.checkpoints.clear();
@@ -558,11 +568,9 @@ impl HighlightController {
                 && line_len > 0
             {
                 let marker_char = get_marker_char(self, &gutter_mark.color);
-                let marker_str: String = std::iter::repeat_n(
-                    marker_char,
-                    (line_end_with_newline - line_start) as usize,
-                )
-                .collect();
+                let marker_str: String =
+                    std::iter::repeat_n(marker_char, (line_end_with_newline - line_start) as usize)
+                        .collect();
                 style_buf.replace(line_start, line_end_with_newline, &marker_str);
             }
 
@@ -601,11 +609,7 @@ impl HighlightController {
 
     /// Clear line annotations by re-highlighting the active document only.
     /// This restores the original syntax highlighting without annotation overlays.
-    pub fn clear_annotations(
-        &mut self,
-        tab_manager: &mut TabManager,
-        editor: &mut TextEditor,
-    ) {
+    pub fn clear_annotations(&mut self, tab_manager: &mut TabManager, editor: &mut TextEditor) {
         let Some(doc) = tab_manager.active_doc() else {
             return;
         };

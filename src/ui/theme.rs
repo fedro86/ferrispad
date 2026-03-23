@@ -8,8 +8,23 @@ use fltk::{
     window::Window,
 };
 
-use super::dialogs::{darken, lighten, SCROLLBAR_SIZE};
-use super::tab_bar::{theme_colors_from_bg, ThemeRgb};
+use super::dialogs::{SCROLLBAR_SIZE, darken, lighten};
+use super::tab_bar::{ThemeRgb, theme_colors_from_bg};
+
+/// Width of all draggable panel dividers (tree, split, terminal).
+pub const DIVIDER_WIDTH: i32 = 2;
+
+/// Derive divider color from the syntax theme background.
+/// Uses the same darkening as the tab bar background for visual consistency.
+pub fn divider_color_from_bg(theme_bg: (u8, u8, u8)) -> Color {
+    let rgb = ThemeRgb::from_tuple(theme_bg);
+    let bar_bg = if rgb.brightness() < 128 {
+        rgb.darken(0.65)
+    } else {
+        rgb.darken(0.85)
+    };
+    bar_bg.to_fltk()
+}
 
 /// Apply syntax theme colors (background/foreground) to the editor.
 /// Used for live preview when changing syntax themes in settings.
@@ -222,7 +237,13 @@ pub fn set_windows_titlebar_theme(window: &Window, is_dark: bool) {
     use std::mem::size_of;
     use std::ptr::from_ref;
     use windows::Win32::Foundation::HWND;
-    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWINDOWATTRIBUTE};
+    use windows::Win32::Graphics::Dwm::{DWMWINDOWATTRIBUTE, DwmSetWindowAttribute};
+
+    // Guard: raw_handle() panics if called before window.show().
+    // During initial apply_settings(), the window isn't shown yet — skip silently.
+    if !window.shown() {
+        return;
+    }
 
     // SAFETY: We call Windows DWM API to set the title bar dark mode attribute.
     // Preconditions:
@@ -234,7 +255,7 @@ pub fn set_windows_titlebar_theme(window: &Window, is_dark: bool) {
     //   - We try both attribute 19 and 20 for version compatibility
     // Results are ignored because older Windows versions may not support these.
     unsafe {
-        let hwnd = HWND(window.raw_handle() as *mut std::ffi::c_void);
+        let hwnd = HWND(window.raw_handle());
 
         let on: i32 = if is_dark { 1 } else { 0 };
 

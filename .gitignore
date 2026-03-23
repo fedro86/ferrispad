@@ -20,3 +20,4 @@ FerrisPad.iconset/
 # Sh excluded files
 scripts/trigger_build_gh_worflow.sh
 CLAUDE.md
+.mcp.json

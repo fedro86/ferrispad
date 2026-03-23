@@ -3,11 +3,11 @@
 //! All functions are free functions that take `&LuaRuntime` and `&[LoadedPlugin]`
 //! as parameters instead of requiring `&self` on `PluginManager`.
 
+use super::LoadedPlugin;
 use super::api::EditorApi;
 use super::hook_result_parser;
 use super::hooks::{Diagnostic, DiagnosticLevel, HookResult, PluginHook, StatusMessage};
 use super::runtime::LuaRuntime;
-use super::LoadedPlugin;
 
 /// Call a hook on a specific plugin by name.
 /// Returns None if the plugin is not found or not enabled.
@@ -123,27 +123,26 @@ pub(super) fn call_hook(
                     .to_string();
 
                 // Check if this is a permission error - add clickable action to open plugin folder
-                let (fix_message, url) = if clean_msg.contains("No permissions")
-                    || clean_msg.contains("not approved")
-                {
-                    // Create file:// URL to the plugin directory
-                    // On Windows paths are C:\..., need file:///C:/...
-                    let plugin_url = {
-                        let p = plugin.path.to_string_lossy();
-                        let slash_path = p.replace('\\', "/");
-                        if slash_path.starts_with('/') {
-                            format!("file://{}", slash_path)
-                        } else {
-                            format!("file:///{}", slash_path)
-                        }
+                let (fix_message, url) =
+                    if clean_msg.contains("No permissions") || clean_msg.contains("not approved") {
+                        // Create file:// URL to the plugin directory
+                        // On Windows paths are C:\..., need file:///C:/...
+                        let plugin_url = {
+                            let p = plugin.path.to_string_lossy();
+                            let slash_path = p.replace('\\', "/");
+                            if slash_path.starts_with('/') {
+                                format!("file://{}", slash_path)
+                            } else {
+                                format!("file:///{}", slash_path)
+                            }
+                        };
+                        (
+                            Some("Double-click to open plugin folder".to_string()),
+                            Some(plugin_url),
+                        )
+                    } else {
+                        (None, None)
                     };
-                    (
-                        Some("Double-click to open plugin folder".to_string()),
-                        Some(plugin_url),
-                    )
-                } else {
-                    (None, None)
-                };
 
                 // Error in diagnostic panel
                 result.diagnostics.push(Diagnostic {
@@ -182,7 +181,7 @@ fn call_plugin_hook(
 
     // Call the hook with appropriate arguments
     let value = match hook {
-        PluginHook::Init | PluginHook::Shutdown => {
+        PluginHook::Init { .. } | PluginHook::Shutdown { .. } => {
             runtime.call_hook(&plugin.table, hook_name, api)?
         }
 
@@ -359,7 +358,9 @@ fn call_plugin_hook(
 /// Create an EditorApi instance for a specific hook with plugin context
 fn create_api_for_hook(hook: &PluginHook, plugin: &LoadedPlugin) -> EditorApi {
     let mut api = match hook {
-        PluginHook::Init | PluginHook::Shutdown => EditorApi::default(),
+        PluginHook::Init { project_root } | PluginHook::Shutdown { project_root } => {
+            EditorApi::with_project_root(project_root.clone())
+        }
 
         PluginHook::OnDocumentOpen { path, content } => {
             // Use passed content (avoids disk re-read for large files).

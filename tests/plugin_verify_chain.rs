@@ -3,7 +3,7 @@ use tempfile::tempdir;
 
 use ferris_pad::app::infrastructure::error::AppError;
 use ferris_pad::app::services::plugin_verify::{
-    compute_checksum, verify_checksum, verify_plugin, verify_signature, VerificationStatus,
+    VerificationStatus, compute_checksum, verify_checksum, verify_plugin, verify_signature,
 };
 
 #[test]

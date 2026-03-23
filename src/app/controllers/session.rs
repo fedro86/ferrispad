@@ -6,7 +6,7 @@ use std::time::Instant;
 use super::tabs::{GroupColor, GroupId, TabGroup, TabManager};
 use crate::app::domain::document::DocumentId;
 use crate::app::domain::settings::AppSettings;
-use crate::app::services::file_size::{check_file_size, format_size, FileSizeCheck};
+use crate::app::services::file_size::{FileSizeCheck, check_file_size, format_size};
 use crate::app::services::session::{self, SessionRestore};
 
 /// Result of restoring a session. AppState uses this to perform

@@ -1,11 +1,13 @@
-pub mod theme;
-pub mod file_dialogs;
-pub mod dialogs;
 pub mod diagnostic_panel;
+pub mod dialogs;
 pub mod editor_container;
+pub mod file_dialogs;
 pub mod main_window;
 pub mod menu;
 pub mod split_panel;
+pub mod status_bar;
 pub mod tab_bar;
+pub mod terminal_panel;
+pub mod theme;
 pub mod toast;
 pub mod tree_panel;

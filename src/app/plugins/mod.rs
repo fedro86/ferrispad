@@ -28,13 +28,15 @@ use mlua::Table;
 
 pub use annotations::{AnnotationColor, GutterMark, InlineHighlight, LineAnnotation};
 pub use hooks::{Diagnostic, DiagnosticLevel, HookResult, PluginHook, WidgetActionData};
-pub use loader::{get_plugin_dir, ConfigParamDef, PluginConfigDef, PluginMenuItem};
-pub use widgets::{SplitViewRequest, TreeViewRequest, WidgetManager};
+pub use loader::{ConfigParamDef, PluginConfigDef, PluginMenuItem, get_plugin_dir};
+pub use widgets::{SplitViewRequest, TerminalViewRequest, TreeViewRequest, WidgetManager};
 // Re-export widget types for public API (may not be used internally yet)
 #[allow(unused_imports)]
-pub use widgets::{HighlightColor, IntralineSpan, LineHighlight, SplitPane, SplitViewAction, TreeNode};
+pub use widgets::{
+    HighlightColor, IntralineSpan, LineHighlight, SplitPane, SplitViewAction, TreeNode,
+};
 
-use loader::{discover_plugins, load_plugin_toml, PluginPermissions};
+use loader::{PluginPermissions, discover_plugins, load_plugin_toml};
 use runtime::LuaRuntime;
 
 /// Convert a plugin directory name (e.g. "yaml-json-viewer") into a display name
@@ -124,7 +126,7 @@ impl PluginManager {
     }
 
     /// Create a disabled plugin manager (no runtime, no plugins)
-    #[allow(dead_code)]  // Reserved for fallback error handling
+    #[allow(dead_code)] // Reserved for fallback error handling
     pub fn disabled() -> Self {
         Self {
             runtime: None,
@@ -134,7 +136,7 @@ impl PluginManager {
     }
 
     /// Check if the plugin system is enabled
-    #[allow(dead_code)]  // Reserved for future UI
+    #[allow(dead_code)] // Reserved for future UI
     pub fn is_enabled(&self) -> bool {
         self.enabled && self.runtime.is_some()
     }
@@ -155,11 +157,7 @@ impl PluginManager {
                     self.plugins.push(plugin);
                 }
                 Err(e) => {
-                    eprintln!(
-                        "[plugins] Failed to load {}: {}",
-                        plugin_path.display(),
-                        e
-                    );
+                    eprintln!("[plugins] Failed to load {}: {}", plugin_path.display(), e);
                 }
             }
         }
@@ -186,12 +184,10 @@ impl PluginManager {
             if !meta.name.is_empty() {
                 meta.name.clone()
             } else {
-                get_lua_string(&table, "name")
-                    .unwrap_or_else(|| dir_name(plugin_path))
+                get_lua_string(&table, "name").unwrap_or_else(|| dir_name(plugin_path))
             }
         } else {
-            get_lua_string(&table, "name")
-                .unwrap_or_else(|| dir_name(plugin_path))
+            get_lua_string(&table, "name").unwrap_or_else(|| dir_name(plugin_path))
         };
 
         // Get version
@@ -199,12 +195,10 @@ impl PluginManager {
             if !meta.version.is_empty() {
                 meta.version.clone()
             } else {
-                get_lua_string(&table, "version")
-                    .unwrap_or_else(|| "0.0.0".to_string())
+                get_lua_string(&table, "version").unwrap_or_else(|| "0.0.0".to_string())
             }
         } else {
-            get_lua_string(&table, "version")
-                .unwrap_or_else(|| "0.0.0".to_string())
+            get_lua_string(&table, "version").unwrap_or_else(|| "0.0.0".to_string())
         };
 
         // Get description
@@ -212,12 +206,10 @@ impl PluginManager {
             if !meta.description.is_empty() {
                 meta.description.clone()
             } else {
-                get_lua_string(&table, "description")
-                    .unwrap_or_default()
+                get_lua_string(&table, "description").unwrap_or_default()
             }
         } else {
-            get_lua_string(&table, "description")
-                .unwrap_or_default()
+            get_lua_string(&table, "description").unwrap_or_default()
         };
 
         // Get permissions from manifest (defaults to empty if no manifest)
@@ -389,7 +381,9 @@ impl PluginManager {
         );
 
         // Call init hook on all enabled plugins
-        self.call_hook(PluginHook::Init);
+        self.call_hook(PluginHook::Init {
+            project_root: crate::app::mcp::cwd_as_string(),
+        });
     }
 
     /// Enable/disable the entire plugin system
@@ -415,13 +409,10 @@ impl PluginManager {
 
 /// Helper to get a string field from a Lua table
 fn get_lua_string(table: &Table, key: &str) -> Option<String> {
-    table
-        .get::<mlua::Value>(key)
-        .ok()
-        .and_then(|v| match v {
-            mlua::Value::String(s) => s.to_str().ok().map(|s| s.to_string()),
-            _ => None,
-        })
+    table.get::<mlua::Value>(key).ok().and_then(|v| match v {
+        mlua::Value::String(s) => s.to_str().ok().map(|s| s.to_string()),
+        _ => None,
+    })
 }
 
 /// Helper to get directory name as string
@@ -452,7 +443,7 @@ mod tests {
     #[test]
     fn test_call_hook_no_plugins() {
         let pm = PluginManager::new(true);
-        let result = pm.call_hook(PluginHook::Init);
+        let result = pm.call_hook(PluginHook::Init { project_root: None });
         assert!(result.modified_content.is_none());
     }
 

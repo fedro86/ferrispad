@@ -17,7 +17,12 @@ pub struct ViewController {
 }
 
 impl ViewController {
-    pub fn new(editor: TextEditor, dark_mode: bool, show_linenumbers: bool, word_wrap: bool) -> Self {
+    pub fn new(
+        editor: TextEditor,
+        dark_mode: bool,
+        show_linenumbers: bool,
+        word_wrap: bool,
+    ) -> Self {
         Self {
             dark_mode,
             show_linenumbers,

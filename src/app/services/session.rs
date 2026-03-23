@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
+use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
@@ -64,7 +64,11 @@ pub fn session_dir() -> PathBuf {
 }
 
 /// Save the current session to disk.
-pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_directory: Option<&str>) -> Result<(), AppError> {
+pub fn save_session(
+    tab_manager: &TabManager,
+    mode: SessionRestore,
+    last_open_directory: Option<&str>,
+) -> Result<(), AppError> {
     if mode == SessionRestore::Off {
         return Ok(());
     }
@@ -89,11 +93,14 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
 
     // Build group sessions and a mapping from GroupId -> index
     let groups = tab_manager.groups();
-    let group_sessions: Vec<GroupSession> = groups.iter().map(|g| GroupSession {
-        name: g.name.clone(),
-        color: g.color.as_str().to_string(),
-        collapsed: g.collapsed,
-    }).collect();
+    let group_sessions: Vec<GroupSession> = groups
+        .iter()
+        .map(|g| GroupSession {
+            name: g.name.clone(),
+            color: g.color.as_str().to_string(),
+            collapsed: g.collapsed,
+        })
+        .collect();
 
     let mut doc_sessions = Vec::new();
 
@@ -102,9 +109,9 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
         let has_path = doc.file_path.is_some();
 
         // Find group index for this document
-        let group_index = doc.group_id.and_then(|gid| {
-            groups.iter().position(|g| g.id == gid)
-        });
+        let group_index = doc
+            .group_id
+            .and_then(|gid| groups.iter().position(|g| g.id == gid));
 
         match mode {
             SessionRestore::SavedFiles => {
@@ -161,44 +168,47 @@ pub fn save_session(tab_manager: &TabManager, mode: SessionRestore, last_open_di
     if !doc_sessions.is_empty()
         && let Ok(existing_json) = fs::read_to_string(&session_file)
         && let Ok(existing) = serde_json::from_str::<SessionData>(&existing_json)
-        && existing.instance_id.as_deref() != Some(&instance_id) {
-            // Clone to owned HashSets to allow mutable push below (borrow checker requirement)
-            let our_paths: HashSet<String> = doc_sessions
-                .iter()
-                .filter_map(|d| d.file_path.clone())
-                .collect();
-            let our_temp_files: HashSet<String> = doc_sessions
-                .iter()
-                .filter_map(|d| d.temp_file.clone())
-                .collect();
-            let our_untitled_names: HashSet<String> = doc_sessions
-                .iter()
-                .filter(|d| d.file_path.is_none())
-                .map(|d| d.display_name.clone())
-                .collect();
+        && existing.instance_id.as_deref() != Some(&instance_id)
+    {
+        // Clone to owned HashSets to allow mutable push below (borrow checker requirement)
+        let our_paths: HashSet<String> = doc_sessions
+            .iter()
+            .filter_map(|d| d.file_path.clone())
+            .collect();
+        let our_temp_files: HashSet<String> = doc_sessions
+            .iter()
+            .filter_map(|d| d.temp_file.clone())
+            .collect();
+        let our_untitled_names: HashSet<String> = doc_sessions
+            .iter()
+            .filter(|d| d.file_path.is_none())
+            .map(|d| d.display_name.clone())
+            .collect();
 
-            for doc in existing.documents {
-                match &doc.file_path {
-                    Some(path) if !our_paths.contains(path) => {
-                        // Saved file from another instance — keep it
+        for doc in existing.documents {
+            match &doc.file_path {
+                Some(path) if !our_paths.contains(path) => {
+                    // Saved file from another instance — keep it
+                    doc_sessions.push(doc);
+                }
+                None if mode == SessionRestore::Full && doc.temp_file.is_some() => {
+                    // Untitled doc from another instance — only keep if not a duplicate
+                    // Check both temp file and display name to catch the same doc
+                    // that may have gotten a new temp file hash due to id change
+                    let temp_dup = doc
+                        .temp_file
+                        .as_ref()
+                        .is_some_and(|tf| our_temp_files.contains(tf));
+                    let name_dup = our_untitled_names.contains(&doc.display_name);
+
+                    if !temp_dup && !name_dup {
                         doc_sessions.push(doc);
                     }
-                    None if mode == SessionRestore::Full && doc.temp_file.is_some() => {
-                        // Untitled doc from another instance — only keep if not a duplicate
-                        // Check both temp file and display name to catch the same doc
-                        // that may have gotten a new temp file hash due to id change
-                        let temp_dup = doc.temp_file.as_ref()
-                            .is_some_and(|tf| our_temp_files.contains(tf));
-                        let name_dup = our_untitled_names.contains(&doc.display_name);
-
-                        if !temp_dup && !name_dup {
-                            doc_sessions.push(doc);
-                        }
-                    }
-                    _ => {} // duplicate or empty — skip
                 }
+                _ => {} // duplicate or empty — skip
             }
         }
+    }
 
     let session_data = SessionData {
         version: CURRENT_SESSION_VERSION,
@@ -316,7 +326,10 @@ mod tests {
         assert_eq!(loaded.version, 1);
         assert_eq!(loaded.active_index, 0);
         assert_eq!(loaded.documents.len(), 1);
-        assert_eq!(loaded.documents[0].file_path, Some("/tmp/test.txt".to_string()));
+        assert_eq!(
+            loaded.documents[0].file_path,
+            Some("/tmp/test.txt".to_string())
+        );
         assert_eq!(loaded.documents[0].cursor_position, 42);
     }
 

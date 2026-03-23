@@ -30,25 +30,30 @@ pub fn dispatch_hook_result(result: HookResult, plugin_name: &str, ctx: &mut Hoo
     // Update diagnostics — send even when empty if a lint plugin ran,
     // so the diagnostic panel shows "All checks passed"
     if !result.diagnostics.is_empty() || result.had_lint_results {
-        ctx.sender.send(Message::DiagnosticsUpdate(result.diagnostics));
+        ctx.sender
+            .send(Message::DiagnosticsUpdate(result.diagnostics));
     }
 
     // Update line annotations
     if !result.line_annotations.is_empty() {
-        ctx.sender.send(Message::AnnotationsUpdate(result.line_annotations));
+        ctx.sender
+            .send(Message::AnnotationsUpdate(result.line_annotations));
     }
 
     // Show status message
     if let Some(status) = result.status_message {
-        ctx.sender.send(Message::ToastShow(status.level, status.text));
+        ctx.sender
+            .send(Message::ToastShow(status.level, status.text));
     }
 
     // Handle open_file request with security validation
     if let Some(ref file_path) = result.open_file {
-        use crate::app::plugins::security::{validate_path, PathValidation, find_project_root};
+        use crate::app::plugins::security::{PathValidation, find_project_root, validate_path};
 
         // Determine project root from current document
-        let project_root = ctx.tab_manager.active_doc()
+        let project_root = ctx
+            .tab_manager
+            .active_doc()
             .and_then(|d| d.file_path.as_ref())
             .and_then(|p| find_project_root(std::path::Path::new(p)));
 
@@ -56,16 +61,24 @@ pub fn dispatch_hook_result(result: HookResult, plugin_name: &str, ctx: &mut Hoo
             match validate_path(file_path, root) {
                 PathValidation::Valid(_) => {
                     eprintln!("[plugin:{}] open_file approved: {}", plugin_name, file_path);
-                    ctx.sender.send(Message::DeferredOpenFile(file_path.clone()));
+                    ctx.sender
+                        .send(Message::DeferredOpenFile(file_path.clone()));
                 }
                 other => {
-                    eprintln!("[plugin:security] open_file BLOCKED for '{}': '{}' - {:?}", plugin_name, file_path, other);
+                    eprintln!(
+                        "[plugin:security] open_file BLOCKED for '{}': '{}' - {:?}",
+                        plugin_name, file_path, other
+                    );
                 }
             }
         } else {
             // No project root - allow (same as file_exists behavior for untitled docs)
-            eprintln!("[plugin:{}] open_file (no project root): {}", plugin_name, file_path);
-            ctx.sender.send(Message::DeferredOpenFile(file_path.clone()));
+            eprintln!(
+                "[plugin:{}] open_file (no project root): {}",
+                plugin_name, file_path
+            );
+            ctx.sender
+                .send(Message::DeferredOpenFile(file_path.clone()));
         }
     }
 
@@ -90,11 +103,13 @@ pub fn dispatch_lint_result(result: HookResult, ctx: &mut HookContext<'_>) {
 
     // Only send diagnostics if at least one plugin actually linted this file.
     if result.had_lint_results {
-        ctx.sender.send(Message::DiagnosticsUpdate(result.diagnostics));
+        ctx.sender
+            .send(Message::DiagnosticsUpdate(result.diagnostics));
 
         // Update or clear annotations
         if !result.line_annotations.is_empty() {
-            ctx.sender.send(Message::AnnotationsUpdate(result.line_annotations));
+            ctx.sender
+                .send(Message::AnnotationsUpdate(result.line_annotations));
         } else {
             // Clear any existing annotations when no issues found
             ctx.sender.send(Message::AnnotationsClear);
@@ -102,7 +117,8 @@ pub fn dispatch_lint_result(result: HookResult, ctx: &mut HookContext<'_>) {
     }
 
     if let Some(status) = result.status_message {
-        ctx.sender.send(Message::ToastShow(status.level, status.text));
+        ctx.sender
+            .send(Message::ToastShow(status.level, status.text));
     }
 }
 
@@ -136,11 +152,29 @@ pub fn process_widget_requests(
     if let Some(ref tree_request) = result.tree_view
         && tree_request.is_valid()
     {
-        let session_id = widget_manager.create_tree_view_session(effective_name, tree_request.persistent);
+        let session_id =
+            widget_manager.create_tree_view_session(effective_name, tree_request.persistent);
         sender.send(Message::TreeViewShow {
             session_id,
             plugin_name: effective_name.to_string(),
             request: tree_request.clone(),
+        });
+    }
+
+    // Check for terminal view request
+    if let Some(ref terminal_request) = result.terminal_view
+        && terminal_request.is_valid()
+    {
+        // Reuse existing terminal view session if one exists
+        let session_id = if let Some(existing_id) = widget_manager.any_terminal_view_session() {
+            existing_id
+        } else {
+            widget_manager.create_terminal_view_session(effective_name, terminal_request.persistent)
+        };
+        sender.send(Message::TerminalViewShow {
+            session_id,
+            plugin_name: effective_name.to_string(),
+            request: terminal_request.clone(),
         });
     }
 }

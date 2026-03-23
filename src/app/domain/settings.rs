@@ -289,7 +289,7 @@ fn default_font() -> FontChoice {
 }
 
 fn default_font_size() -> u32 {
-    16  // Medium size
+    16 // Medium size
 }
 
 fn default_auto_check_updates() -> bool {
@@ -381,15 +381,13 @@ impl AppSettings {
         let config_path = Self::get_config_path();
 
         match fs::read_to_string(&config_path) {
-            Ok(contents) => {
-                match serde_json::from_str(&contents) {
-                    Ok(settings) => settings,
-                    Err(e) => {
-                        eprintln!("Failed to parse settings: {}. Using defaults.", e);
-                        Self::default()
-                    }
+            Ok(contents) => match serde_json::from_str(&contents) {
+                Ok(settings) => settings,
+                Err(e) => {
+                    eprintln!("Failed to parse settings: {}. Using defaults.", e);
+                    Self::default()
                 }
-            }
+            },
             Err(_) => {
                 // File doesn't exist, use defaults
                 let default = Self::default();
@@ -417,8 +415,7 @@ impl AppSettings {
 
     /// Get config file path (cross-platform)
     pub fn get_config_path() -> PathBuf {
-        let mut path = dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."));
+        let mut path = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
         path.push("ferrispad");
         path.push("settings.json");
         path
@@ -457,8 +454,8 @@ mod tests {
         // Simulate old config missing new fields
         let json = r#"{"line_numbers_enabled": false}"#;
         let settings: AppSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(settings.font_size, 16);  // Should use default
-        assert!(!settings.line_numbers_enabled);  // Should use file value
+        assert_eq!(settings.font_size, 16); // Should use default
+        assert!(!settings.line_numbers_enabled); // Should use file value
     }
 
     #[test]

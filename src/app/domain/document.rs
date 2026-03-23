@@ -128,11 +128,7 @@ fn register_modify_callback(
     // remove_modify_callback in cleanup(). The Document struct stores this
     // pointer in modify_cb_data and cleanup() is called via Drop.
     unsafe {
-        Fl_Text_Buffer_add_modify_callback(
-            buffer.as_ptr() as *mut c_void,
-            Some(modify_shim),
-            data,
-        );
+        Fl_Text_Buffer_add_modify_callback(buffer.as_ptr() as *mut c_void, Some(modify_shim), data);
     }
 
     data
@@ -196,7 +192,12 @@ impl Document {
         }
     }
 
-    pub fn new_from_file(id: DocumentId, path: String, content: &str, sender: Sender<Message>) -> Self {
+    pub fn new_from_file(
+        id: DocumentId,
+        path: String,
+        content: &str,
+        sender: Sender<Message>,
+    ) -> Self {
         let display_name = extract_filename(&path);
 
         let buffer = TextBuffer::default();

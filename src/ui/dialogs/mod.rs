@@ -1,4 +1,5 @@
 pub mod about;
+pub mod community_install;
 pub mod find;
 pub mod goto_line;
 pub mod large_file;
@@ -11,7 +12,13 @@ pub mod settings_dialog;
 pub mod shortcut_dialog;
 pub mod update;
 
-use fltk::{app, enums::{Color, FrameType}, group::Scroll, prelude::*, window::Window};
+use fltk::{
+    app,
+    enums::{Color, FrameType},
+    group::Scroll,
+    prelude::*,
+    window::Window,
+};
 
 /// Global scrollbar width used across all dialogs.
 pub const SCROLLBAR_SIZE: i32 = 12;
@@ -126,10 +133,7 @@ impl DialogTheme {
                 Color::from_rgb(140, 140, 140),
             )
         } else {
-            (
-                Color::from_rgb(0, 0, 0),
-                Color::from_rgb(80, 80, 80),
-            )
+            (Color::from_rgb(0, 0, 0), Color::from_rgb(80, 80, 80))
         };
 
         // Scrollbar colors

@@ -3,7 +3,9 @@ use fltk::enums::Font;
 use super::document::DocumentId;
 use super::settings::SyntaxTheme;
 use crate::app::controllers::tabs::{GroupColor, GroupId};
-use crate::app::plugins::{Diagnostic, LineAnnotation, SplitViewRequest, TreeViewRequest};
+use crate::app::plugins::{
+    Diagnostic, LineAnnotation, SplitViewRequest, TerminalViewRequest, TreeViewRequest,
+};
 use crate::app::services::plugin_update_checker::PluginUpdateInfo;
 use crate::app::services::updater::ReleaseInfo;
 use crate::ui::toast::ToastLevel;
@@ -97,7 +99,10 @@ pub enum Message {
     PluginsReloadAll,
     CheckPluginPermissions,
     /// A plugin's custom menu action was triggered
-    PluginMenuAction { plugin_name: String, action: String },
+    PluginMenuAction {
+        plugin_name: String,
+        action: String,
+    },
     /// Open the plugin manager dialog
     ShowPluginManager,
     /// Open the plugin settings dialog (Run All Checks config)
@@ -112,14 +117,14 @@ pub enum Message {
     // Diagnostics
     DiagnosticsUpdate(Vec<Diagnostic>),
     DiagnosticsClear,
-    DiagnosticGoto(u32),  // Go to line number (single click)
-    DiagnosticOpenDocs(u32),  // Open documentation URL (double click)
+    DiagnosticGoto(u32),     // Go to line number (single click)
+    DiagnosticOpenDocs(u32), // Open documentation URL (double click)
     DiagnosticsAutoDismiss,  // Auto-dismiss "All checks passed" green bar after timeout
 
     // Line annotations (gutter + inline highlights)
     AnnotationsUpdate(Vec<LineAnnotation>),
     AnnotationsClear,
-    ManualHighlight,  // Triggered by Ctrl+Shift+L
+    ManualHighlight, // Triggered by Ctrl+Shift+L
 
     // Toast notifications
     ToastShow(ToastLevel, String),
@@ -168,9 +173,15 @@ pub enum Message {
     },
 
     /// Deferred plugin hooks for large files (run after event loop processes banner)
-    DeferredPluginHooks { path: String, content: String },
+    DeferredPluginHooks {
+        path: String,
+        content: String,
+    },
     /// Deferred tree view refresh on tab switch (avoids blocking UI for large files)
-    DeferredTreeRefresh { path: Option<String>, content: String },
+    DeferredTreeRefresh {
+        path: Option<String>,
+        content: String,
+    },
     /// Show "Loading..." placeholder in tree panel (keeps panel visible during refresh)
     TreeViewLoading,
     /// Deferred session restore (runs after window is shown so UI is visible immediately)
@@ -183,8 +194,32 @@ pub enum Message {
     /// User dragged the split panel divider to resize
     SplitViewResize(i32),
 
+    // Widget API - Terminal View
+    /// Show a terminal view requested by a plugin
+    TerminalViewShow {
+        session_id: u32,
+        plugin_name: String,
+        request: TerminalViewRequest,
+    },
+    /// Hide the current terminal view
+    TerminalViewHide(u32),
+    /// Terminal produced output (signal to drain shared buffer)
+    TerminalOutput(Vec<u8>),
+    /// Terminal child process exited
+    TerminalExited,
+    /// User dragged the terminal panel divider to resize
+    TerminalViewResize(i32),
+
     /// Deferred malloc_trim to return freed C++ pages to the OS without blocking UI
     MallocTrim,
+
+    /// MCP request from the TCP server thread
+    McpRequest {
+        request_id: u64,
+        json_rpc_id: serde_json::Value,
+        method: String,
+        params: serde_json::Value,
+    },
 
     /// User clicked the diff tab in the tab bar
     DiffTabActivate(u32),

@@ -14,7 +14,11 @@
 //! - cli_args: Validates CLI arguments (blocks shell metacharacters)
 //! - regex:PATTERN: Validates against a custom regex pattern
 
-use fltk::{enums::{Color, FrameType}, prelude::*, *};
+use fltk::{
+    enums::{Color, FrameType},
+    prelude::*,
+    *,
+};
 use regex_lite::Regex;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -81,12 +85,12 @@ fn validate_param_value(value: &str, validate_rule: &str, label: &str) -> Result
 
 const DIALOG_WIDTH: i32 = 480;
 const MIN_DIALOG_HEIGHT: i32 = 200;
-const ROW_HEIGHT: i32 = 55;           // Label (20) + gap (5) + field (25) + spacing (5)
+const ROW_HEIGHT: i32 = 55; // Label (20) + gap (5) + field (25) + spacing (5)
 const SPACING: i32 = 5;
 const LABEL_HEIGHT: i32 = 20;
-const FIELD_Y_OFFSET: i32 = 25;       // Field starts below label
-const FIELD_X: i32 = 20;              // Aligned with label
-const FIELD_WIDTH: i32 = 440;         // Full width minus margins
+const FIELD_Y_OFFSET: i32 = 25; // Field starts below label
+const FIELD_X: i32 = 20; // Aligned with label
+const FIELD_WIDTH: i32 = 440; // Full width minus margins
 const ERROR_ROW_HEIGHT: i32 = 20;
 
 /// Result from the plugin config dialog
@@ -346,8 +350,7 @@ pub fn show_plugin_config_dialog(
                 && let ParamWidget::Input(inp) = &info.widget
             {
                 let value = inp.value();
-                if let Err(error_msg) = validate_param_value(&value, validate_rule, &info.label)
-                {
+                if let Err(error_msg) = validate_param_value(&value, validate_rule, &info.label) {
                     let mut err = error_label_save.borrow_mut();
                     err.set_label(&error_msg);
                     err.show();

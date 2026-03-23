@@ -11,9 +11,7 @@ use super::view::ViewController;
 use crate::app::domain::messages::Message;
 use crate::app::infrastructure::buffer::buffer_text_no_leak;
 use crate::app::infrastructure::defer::defer_send;
-use crate::app::plugins::{
-    HookResult, PluginHook, PluginManager, WidgetActionData, WidgetManager,
-};
+use crate::app::plugins::{HookResult, PluginHook, PluginManager, WidgetActionData, WidgetManager};
 use crate::ui::split_panel::SplitPanel;
 use crate::ui::tree_panel::TreePanel;
 
@@ -55,12 +53,12 @@ impl WidgetController {
         let syntax_name = tab_manager.active_doc().and_then(|d| d.syntax_name.clone());
 
         // Run syntect on both panes if syntax is known
-        let left_syntax = syntax_name.as_ref().map(|name| {
-            highlight.highlight_full(&request.left.content, name)
-        });
-        let right_syntax = syntax_name.as_ref().map(|name| {
-            highlight.highlight_full(&request.right.content, name)
-        });
+        let left_syntax = syntax_name
+            .as_ref()
+            .map(|name| highlight.highlight_full(&request.left.content, name));
+        let right_syntax = syntax_name
+            .as_ref()
+            .map(|name| highlight.highlight_full(&request.right.content, name));
 
         let style_table = highlight.style_table();
 
@@ -151,9 +149,11 @@ impl WidgetController {
         tree_panel.apply_theme(view.dark_mode, theme_bg);
 
         // If YAML content is provided, parse it into a tree
-        let final_request = if request.yaml_content.is_some() && request.root.is_none() {
-            let yaml_content = request.yaml_content.as_ref().unwrap();
-            let root = crate::app::services::yaml_parser::parse_yaml_to_tree(yaml_content, &request.title);
+        let final_request = if let (Some(yaml_content), None) =
+            (request.yaml_content.as_ref(), request.root.as_ref())
+        {
+            let root =
+                crate::app::services::yaml_parser::parse_yaml_to_tree(yaml_content, &request.title);
             crate::app::plugins::TreeViewRequest {
                 title: request.title.clone(),
                 root: Some(root),
@@ -206,10 +206,10 @@ impl WidgetController {
 
         let plugin_name = session.plugin_name.clone();
 
-        let current_path = tab_manager.active_doc()
-            .and_then(|d| d.file_path.clone());
+        let current_path = tab_manager.active_doc().and_then(|d| d.file_path.clone());
 
-        let buffer_content = tab_manager.active_doc()
+        let buffer_content = tab_manager
+            .active_doc()
             .map(|d| buffer_text_no_leak(&d.buffer))
             .unwrap_or_default();
 
@@ -261,8 +261,7 @@ impl WidgetController {
 
         let plugin_name = session.plugin_name.clone();
 
-        let current_path = tab_manager.active_doc()
-            .and_then(|d| d.file_path.clone());
+        let current_path = tab_manager.active_doc().and_then(|d| d.file_path.clone());
 
         let result = plugins.call_hook_on_plugin(
             &plugin_name,
@@ -305,7 +304,9 @@ impl WidgetController {
         // If any tree view is already open, remove it so process_widget_requests
         // will create a fresh one (refresh, not toggle off).
         if let Some(existing_id) = self.widget_manager.any_tree_view_session() {
-            let is_persistent = self.widget_manager.get_session(existing_id)
+            let is_persistent = self
+                .widget_manager
+                .get_session(existing_id)
                 .is_some_and(|s| s.persistent);
             if !is_persistent {
                 self.sender.send(Message::TreeViewHide(existing_id));
@@ -313,10 +314,11 @@ impl WidgetController {
         }
 
         // Get current document info for the hook
-        let path = tab_manager.active_doc().and_then(|d| {
-            d.file_path.as_ref().cloned()
-        });
-        let content = tab_manager.active_doc()
+        let path = tab_manager
+            .active_doc()
+            .and_then(|d| d.file_path.as_ref().cloned());
+        let content = tab_manager
+            .active_doc()
             .map(|d| buffer_text_no_leak(&d.buffer))
             .unwrap_or_default();
         let hook = PluginHook::OnMenuAction {
@@ -353,18 +355,24 @@ impl WidgetController {
     }
 
     /// Refresh the tree view panel for the current active document.
-    pub fn refresh_tree_view_for_active_doc(
-        &mut self,
-        tab_manager: &TabManager,
-    ) {
+    pub fn refresh_tree_view_for_active_doc(&mut self, tab_manager: &TabManager) {
         // Handle persistent + non-persistent coexistence
         if let Some(persistent_id) = self.widget_manager.persistent_tree_session() {
             if let Some(non_persistent_id) = self.widget_manager.non_persistent_tree_session() {
                 self.widget_manager.remove_session(non_persistent_id);
                 self.widget_manager.remove_session(persistent_id);
-                let path = tab_manager.active_doc().and_then(|doc| doc.file_path.clone());
+                let path = tab_manager
+                    .active_doc()
+                    .and_then(|doc| doc.file_path.clone());
                 self.sender.send(Message::TreeViewLoading);
-                defer_send(self.sender, 0.0, Message::DeferredTreeRefresh { path, content: String::new() });
+                defer_send(
+                    self.sender,
+                    0.0,
+                    Message::DeferredTreeRefresh {
+                        path,
+                        content: String::new(),
+                    },
+                );
                 return;
             }
             // Only persistent, no overlay — nothing to do
@@ -375,14 +383,17 @@ impl WidgetController {
 
         // If active doc has a cached tree, show it
         if self.tree_view_active
-            && let Some((cached_plugin, cached_request)) = tab_manager.active_doc()
+            && let Some((cached_plugin, cached_request)) = tab_manager
+                .active_doc()
                 .and_then(|doc| doc.cached_tree.clone())
         {
             if let Some(id) = existing_id {
                 self.widget_manager.remove_session(id);
             }
             let persistent = cached_request.persistent;
-            let new_id = self.widget_manager.create_tree_view_session(&cached_plugin, persistent);
+            let new_id = self
+                .widget_manager
+                .create_tree_view_session(&cached_plugin, persistent);
             self.sender.send(Message::TreeViewShow {
                 session_id: new_id,
                 plugin_name: cached_plugin,
@@ -396,19 +407,37 @@ impl WidgetController {
             Some(id) => id,
             None => {
                 if self.tree_view_active {
-                    let path = tab_manager.active_doc().and_then(|doc| doc.file_path.clone());
+                    let path = tab_manager
+                        .active_doc()
+                        .and_then(|doc| doc.file_path.clone());
                     self.sender.send(Message::TreeViewLoading);
-                    defer_send(self.sender, 0.0, Message::DeferredTreeRefresh { path, content: String::new() });
+                    defer_send(
+                        self.sender,
+                        0.0,
+                        Message::DeferredTreeRefresh {
+                            path,
+                            content: String::new(),
+                        },
+                    );
                 }
                 return;
             }
         };
 
         // Cache miss: defer to avoid blocking tab switch
-        let path = tab_manager.active_doc().and_then(|doc| doc.file_path.clone());
+        let path = tab_manager
+            .active_doc()
+            .and_then(|doc| doc.file_path.clone());
         self.widget_manager.remove_session(existing_id);
         self.sender.send(Message::TreeViewLoading);
-        defer_send(self.sender, 0.0, Message::DeferredTreeRefresh { path, content: String::new() });
+        defer_send(
+            self.sender,
+            0.0,
+            Message::DeferredTreeRefresh {
+                path,
+                content: String::new(),
+            },
+        );
     }
 
     /// Process widget requests from a hook result (convenience wrapper).

@@ -3,6 +3,7 @@
 //! Provides user-facing dialogs for files that may be too large to load safely.
 //! Also provides progress dialog for loading large files.
 
+use super::{DialogTheme, darken, lighten};
 use fltk::{
     app,
     button::Button,
@@ -16,24 +17,21 @@ use fltk::{
     text::TextBuffer,
     window::Window,
 };
-use super::{DialogTheme, darken, lighten};
 use std::cell::RefCell;
 use std::io::{self, Read};
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::{
+    Arc,
     atomic::{AtomicBool, Ordering},
-    mpsc, Arc,
+    mpsc,
 };
 
 use crate::app::services::file_size::format_size;
 
 /// Show warning for large file, return true if user wants to proceed
 pub fn show_large_file_warning(path: &Path, size: u64) -> bool {
-    let filename = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("file");
+    let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
 
     let msg = format!(
         "Large File Warning\n\n\
@@ -62,7 +60,12 @@ pub enum TooLargeAction {
 }
 
 /// Show dialog for file that exceeds the configured max editable size, offering view and tail options
-pub fn show_file_too_large_dialog(path: &Path, size: u64, theme_bg: (u8, u8, u8), max_editable_mb: u32) -> TooLargeAction {
+pub fn show_file_too_large_dialog(
+    path: &Path,
+    size: u64,
+    theme_bg: (u8, u8, u8),
+    max_editable_mb: u32,
+) -> TooLargeAction {
     let filename = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -99,7 +102,8 @@ pub fn show_file_too_large_dialog(path: &Path, size: u64, theme_bg: (u8, u8, u8)
     main_flex.fixed(&msg_frame, 80);
 
     // View Read-Only button
-    let mut view_btn = Button::default().with_label("View Read-Only (browse entire file, no editing)");
+    let mut view_btn =
+        Button::default().with_label("View Read-Only (browse entire file, no editing)");
     view_btn.set_frame(FrameType::RFlatBox);
     view_btn.set_color(theme.button_bg);
     view_btn.set_label_color(theme.text);
@@ -197,8 +201,16 @@ pub fn show_file_too_large_dialog(path: &Path, size: u64, theme_bg: (u8, u8, u8)
     let start_input_clone = start_input.clone();
     let end_input_clone = end_input.clone();
     lines_btn.set_callback(move |_| {
-        let start = start_input_clone.value().trim().parse::<usize>().unwrap_or(1);
-        let end = end_input_clone.value().trim().parse::<usize>().unwrap_or(10000);
+        let start = start_input_clone
+            .value()
+            .trim()
+            .parse::<usize>()
+            .unwrap_or(1);
+        let end = end_input_clone
+            .value()
+            .trim()
+            .parse::<usize>()
+            .unwrap_or(10000);
         *result_lines.borrow_mut() = TooLargeAction::OpenChunk(start, end);
         dialog_lines.hide();
     });
@@ -358,11 +370,7 @@ pub fn load_to_buffer_with_progress(path: &Path, size: u64) -> StreamLoadResult 
 
 /// Read file in chunks and send each chunk to the channel.
 /// This runs in a background thread.
-fn read_file_in_chunks(
-    path: &Path,
-    cancelled: &AtomicBool,
-    tx: mpsc::Sender<ChunkMessage>,
-) {
+fn read_file_in_chunks(path: &Path, cancelled: &AtomicBool, tx: mpsc::Sender<ChunkMessage>) {
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(e) => {

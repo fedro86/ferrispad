@@ -4,7 +4,7 @@
 //! No async, no background threads. This ensures 0% CPU when idle.
 
 use super::annotations::LineAnnotation;
-use super::widgets::{SplitViewRequest, TreeViewRequest};
+use super::widgets::{SplitViewRequest, TerminalViewRequest, TreeViewRequest};
 use crate::ui::toast::ToastLevel;
 
 /// Diagnostic severity level
@@ -57,10 +57,10 @@ pub struct Diagnostic {
 #[derive(Debug, Clone)]
 pub enum PluginHook {
     /// Called once when plugin loads
-    Init,
+    Init { project_root: Option<String> },
 
     /// Called when application is shutting down
-    Shutdown,
+    Shutdown { project_root: Option<String> },
 
     /// Called after a document is opened
     OnDocumentOpen {
@@ -71,15 +71,10 @@ pub enum PluginHook {
 
     /// Called before a document is saved.
     /// Plugin can return modified content.
-    OnDocumentSave {
-        path: String,
-        content: String,
-    },
+    OnDocumentSave { path: String, content: String },
 
     /// Called when a document is closed
-    OnDocumentClose {
-        path: Option<String>,
-    },
+    OnDocumentClose { path: Option<String> },
 
     /// Called after text is changed in the editor
     OnTextChanged {
@@ -89,16 +84,11 @@ pub enum PluginHook {
     },
 
     /// Called when theme changes between light/dark
-    OnThemeChanged {
-        is_dark: bool,
-    },
+    OnThemeChanged { is_dark: bool },
 
     /// Called after save to lint/check the document.
     /// Plugins return a list of diagnostics and optional line annotations.
-    OnDocumentLint {
-        path: String,
-        content: String,
-    },
+    OnDocumentLint { path: String, content: String },
 
     /// Called on manual highlight request (Ctrl+Shift+L).
     /// Plugins return line annotations for highlighting.
@@ -136,8 +126,8 @@ impl PluginHook {
     /// Get the Lua function name for this hook
     pub fn lua_name(&self) -> &'static str {
         match self {
-            Self::Init => "init",
-            Self::Shutdown => "shutdown",
+            Self::Init { .. } => "init",
+            Self::Shutdown { .. } => "shutdown",
             Self::OnDocumentOpen { .. } => "on_document_open",
             Self::OnDocumentSave { .. } => "on_document_save",
             Self::OnDocumentClose { .. } => "on_document_close",
@@ -190,6 +180,8 @@ pub struct HookResult {
     pub split_view: Option<SplitViewRequest>,
     /// Request to show a tree view widget
     pub tree_view: Option<TreeViewRequest>,
+    /// Request to show a terminal view widget
+    pub terminal_view: Option<TerminalViewRequest>,
     /// Request to open a file (from tree view clicks, etc.)
     pub open_file: Option<String>,
     /// Text to copy to the system clipboard (e.g., from tree node context actions)
@@ -213,7 +205,10 @@ mod tests {
     fn test_diagnostic_level_from_str() {
         assert_eq!(DiagnosticLevel::from_str("error"), DiagnosticLevel::Error);
         assert_eq!(DiagnosticLevel::from_str("ERROR"), DiagnosticLevel::Error);
-        assert_eq!(DiagnosticLevel::from_str("warning"), DiagnosticLevel::Warning);
+        assert_eq!(
+            DiagnosticLevel::from_str("warning"),
+            DiagnosticLevel::Warning
+        );
         assert_eq!(DiagnosticLevel::from_str("warn"), DiagnosticLevel::Warning);
         assert_eq!(DiagnosticLevel::from_str("info"), DiagnosticLevel::Info);
         assert_eq!(DiagnosticLevel::from_str("hint"), DiagnosticLevel::Hint);
@@ -237,8 +232,11 @@ mod tests {
 
     #[test]
     fn test_plugin_hook_lua_names() {
-        assert_eq!(PluginHook::Init.lua_name(), "init");
-        assert_eq!(PluginHook::Shutdown.lua_name(), "shutdown");
+        assert_eq!(PluginHook::Init { project_root: None }.lua_name(), "init");
+        assert_eq!(
+            PluginHook::Shutdown { project_root: None }.lua_name(),
+            "shutdown"
+        );
         assert_eq!(
             PluginHook::OnDocumentLint {
                 path: String::new(),
