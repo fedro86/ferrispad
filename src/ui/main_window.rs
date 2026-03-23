@@ -1,7 +1,9 @@
 use fltk::{
-    app::Sender, enums::Color, frame::Frame, group::Flex, image::PngImage, menu::MenuBar,
-    prelude::*, window::Window,
+    app::Sender, enums::Color, frame::Frame, group::Flex, menu::MenuBar, prelude::*,
+    window::Window,
 };
+#[cfg(not(target_os = "macos"))]
+use fltk::image::PngImage;
 
 use super::diagnostic_panel::DiagnosticPanel;
 use super::editor_container::EditorContainer;

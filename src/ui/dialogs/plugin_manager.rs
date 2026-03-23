@@ -91,8 +91,8 @@ fn adjust_pack_width(pack: &mut Pack, full_width: i32) {
         .sum::<i32>()
         + spacing * (visible_count.max(1) - 1);
     let target_w = row_width_for_scroll(content_h, viewport_h, full_width);
-    if pack.w() != target_w {
-        pack.set_size(target_w, pack.h());
+    if pack.w() != target_w || pack.h() != content_h {
+        pack.set_size(target_w, content_h);
         for i in 0..pack.children() {
             if let Some(mut child) = pack.child(i) {
                 child.set_size(target_w, child.h());
@@ -465,6 +465,7 @@ pub fn show_plugin_manager_dialog(
                 .with_size(row_width, 60)
                 .with_label(&format!("Failed to fetch plugins:\n{}", e));
             error_label.set_label_color(error_color);
+            pack_available.add(&error_label);
         }
     }
 
