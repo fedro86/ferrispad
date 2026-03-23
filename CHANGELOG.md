@@ -5,6 +5,35 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2026-03-23
+
+### Added
+- **Embedded Terminal Panel**: PTY-backed terminal with VTE parsing, SGR colors, reverse video support, and automatic window resize when panel opens.
+- **MCP Server**: AI tool integration via stdio transport (`--mcp-server` flag) with `refresh_tree` tool for file explorer updates.
+- **`setup_mcp_config` Plugin API**: Plugins can write `.mcp.json` project configs; auto-appends to `.gitignore`.
+- **Community Plugins**: Three-tier trust model (Official, Community, Manual) with git tag pinning and mandatory SHA-256 checksums.
+- **Community Plugin Install Dialog**: Checksum-verified installation flow for community plugins.
+- **Plugin Manager Search**: Search bars in all three tabs (Installed, Official, Community).
+- **Status Bar**: Displays cursor position and file information.
+- **Editor Context Service**: Provides structured editor state for MCP tools and plugins.
+- **`git_status` API Enhancement**: Plugin API now includes gitignored files.
+
+### Fixed
+- **Plugin Manager**: Install-then-uninstall in same session now works correctly.
+- **Plugin Permissions**: Permissions checked immediately after installing from plugin manager.
+- **macOS**: Plugin manager tabs no longer show empty.
+- **Windows**: Centered plus sign in new tab button; removed black crab emoji from title bar; rounded window icon.
+- **Windows Titlebar**: Guard `set_windows_titlebar_theme` against pre-show null handle.
+- **Theme-Aware Dropdowns**: Syntax theme dropdowns use theme-aware selection color.
+- **Window Icon**: Use pre-rendered 32x32 icon instead of decompressing 1024x1024 source.
+- **Search Input Cursor**: Preserve cursor position in search inputs using `super_draw` for placeholder.
+- **Terminal Resize**: Terminal panel resizes correctly on window resize.
+
+### Changed
+- Centralized divider width and color in `theme.rs`.
+- Applied rustfmt formatting across codebase.
+- Fixed clippy warnings.
+
 ## [0.9.2] - 2026-03-16
 
 ### Added
