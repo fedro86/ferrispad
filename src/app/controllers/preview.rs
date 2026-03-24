@@ -165,7 +165,42 @@ impl Drop for PreviewController {
     }
 }
 
+/// Allowed URL schemes for links and resources in preview HTML.
+/// Any URL with a scheme not in this list is neutralized to prevent
+/// protocol-handler attacks (e.g. SMB, ms-msdt, search-ms).
+const ALLOWED_SCHEMES: &[&str] = &[
+    "https://", "http://", "file://", "data:", "mailto:",
+];
+
+/// Check whether a URL uses an allowed scheme or is a relative/anchor reference.
+fn is_safe_url(url: &str) -> bool {
+    // Fragment-only links (#section) are always safe
+    if url.starts_with('#') {
+        return true;
+    }
+    // Absolute paths are safe (resolved to file://)
+    if url.starts_with('/') {
+        return true;
+    }
+    // Check against allowed schemes
+    if ALLOWED_SCHEMES.iter().any(|s| url.starts_with(s)) {
+        return true;
+    }
+    // No colon before the first slash means it's a relative path (safe)
+    // e.g. "images/logo.png", "docs/readme.md"
+    // A colon before any slash means it's an unknown scheme (unsafe)
+    // e.g. "smb://...", "ms-msdt:/...", "custom:..."
+    match url.find(':') {
+        Some(colon_pos) => match url.find('/') {
+            Some(slash_pos) => slash_pos < colon_pos, // relative path like "dir/file:name"
+            None => false,                             // "scheme:payload" with no slash
+        },
+        None => true, // No colon at all — relative path
+    }
+}
+
 /// Convert relative paths in src/href attributes to absolute file:// URLs.
+/// Neutralizes URLs with disallowed protocol schemes to prevent RCE attacks.
 fn resolve_relative_paths<'a>(html: &'a str, base_dir: &Path) -> Cow<'a, str> {
     let re_src = regex_lite::Regex::new(r#"(src|href)="([^"]+)""#).unwrap();
 
@@ -176,18 +211,36 @@ fn resolve_relative_paths<'a>(html: &'a str, base_dir: &Path) -> Cow<'a, str> {
     let base_str = base_dir.to_string_lossy();
     let result = re_src.replace_all(html, |caps: &regex_lite::Captures| {
         let attr = &caps[1];
-        let path = &caps[2];
+        let url = &caps[2];
 
-        // Skip absolute URLs and paths
-        if path.starts_with("https://")
-            || path.starts_with("http://")
-            || path.starts_with("file://")
-            || path.starts_with("data:")
-            || path.starts_with('/')
+        // Neutralize URLs with disallowed schemes
+        if !is_safe_url(url) {
+            // Replace with a safe fragment that explains why the link was blocked
+            return format!(
+                r##"{}="#" title="Blocked: unsafe protocol""##,
+                attr
+            );
+        }
+
+        // Block data: URIs in href attributes (XSS via data:text/html navigation).
+        // data: is safe in src attributes (inline images/media) but dangerous in
+        // links because the browser navigates to a new document without CSP.
+        if attr == "href" && url.starts_with("data:") {
+            return format!(
+                r##"{}="#" title="Blocked: data URI in link""##,
+                attr
+            );
+        }
+
+        // Preserve allowed absolute URLs
+        if ALLOWED_SCHEMES.iter().any(|s| url.starts_with(s))
+            || url.starts_with('/')
+            || url.starts_with('#')
         {
-            format!(r#"{}="{}""#, attr, path)
+            format!(r#"{}="{}""#, attr, url)
         } else {
-            format!(r#"{}="file://{}/{}""#, attr, base_str, path)
+            // Relative path — resolve against base directory
+            format!(r#"{}="file://{}/{}""#, attr, base_str, url)
         }
     });
 
@@ -213,6 +266,7 @@ pub fn wrap_html_for_preview(html: &str, dark_mode: bool, base_dir: Option<&Path
 <html>
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src file: data: https: http:; media-src file:; font-src file:;">
     <title>FerrisPad Preview</title>
     <style>
         body {{
@@ -346,5 +400,101 @@ mod tests {
         let result = resolve_relative_paths(html, Path::new("/home/user"));
         assert!(result.contains(r#"src="https://example.com/img.png""#));
         assert!(result.contains(r#"src="/absolute/path.png""#));
+    }
+
+    // --- CVE-2026-20841 mitigation tests ---
+
+    #[test]
+    fn test_is_safe_url() {
+        // Safe URLs
+        assert!(is_safe_url("https://example.com"));
+        assert!(is_safe_url("http://example.com"));
+        assert!(is_safe_url("file:///tmp/test.html"));
+        assert!(is_safe_url("data:image/png;base64,abc"));
+        assert!(is_safe_url("mailto:user@example.com"));
+        assert!(is_safe_url("#section"));
+        assert!(is_safe_url("/absolute/path.png"));
+        assert!(is_safe_url("relative/path.png"));
+        assert!(is_safe_url("image.png"));
+        assert!(is_safe_url("dir/file:with-colon.txt")); // colon after slash = relative
+
+        // Unsafe URLs — protocol handler attacks
+        assert!(!is_safe_url("smb://attacker/share/payload.exe"));
+        assert!(!is_safe_url("ms-msdt:/id"));
+        assert!(!is_safe_url("search-ms:query=attacker"));
+        assert!(!is_safe_url("vbscript:MsgBox"));
+        assert!(!is_safe_url("javascript:alert(1)"));
+        assert!(!is_safe_url("custom:anything"));
+    }
+
+    #[test]
+    fn test_blocks_smb_links() {
+        let html = r#"<a href="smb://attacker/share/malware.exe">Click</a>"#;
+        let result = resolve_relative_paths(html, Path::new("/home/user"));
+        assert!(!result.contains("smb://"));
+        assert!(result.contains(r##"href="#""##));
+        assert!(result.contains("Blocked: unsafe protocol"));
+    }
+
+    #[test]
+    fn test_blocks_ms_msdt_protocol() {
+        let html = r#"<a href="ms-msdt:/id">Exploit</a>"#;
+        let result = resolve_relative_paths(html, Path::new("/home/user"));
+        assert!(!result.contains("ms-msdt"));
+        assert!(result.contains("Blocked: unsafe protocol"));
+    }
+
+    #[test]
+    fn test_blocks_search_ms_protocol() {
+        let html = r#"<a href="search-ms:query=attacker&amp;crumb=location:\\attacker">Search</a>"#;
+        let result = resolve_relative_paths(html, Path::new("/home/user"));
+        assert!(!result.contains("search-ms"));
+        assert!(result.contains("Blocked: unsafe protocol"));
+    }
+
+    #[test]
+    fn test_blocks_javascript_protocol() {
+        let html = r#"<a href="javascript:alert(document.cookie)">XSS</a>"#;
+        let result = resolve_relative_paths(html, Path::new("/home/user"));
+        assert!(!result.contains("javascript:"));
+        assert!(result.contains("Blocked: unsafe protocol"));
+    }
+
+    #[test]
+    fn test_blocks_data_uri_in_href() {
+        // data:text/html in links enables XSS — must be blocked
+        let html = r#"<a href="data:text/html,<script>alert(1)</script>">XSS</a>"#;
+        let result = resolve_relative_paths(html, Path::new("/home/user"));
+        assert!(!result.contains("data:text/html"));
+        assert!(result.contains("Blocked: data URI in link"));
+    }
+
+    #[test]
+    fn test_allows_data_uri_in_img_src() {
+        // data: in img src is safe (inline images)
+        let html = r#"<img src="data:image/png;base64,iVBOR">"#;
+        let result = resolve_relative_paths(html, Path::new("/home/user"));
+        assert!(result.contains("data:image/png;base64,iVBOR"));
+    }
+
+    #[test]
+    fn test_allows_mailto_links() {
+        let html = r#"<a href="mailto:user@example.com">Email</a>"#;
+        let result = resolve_relative_paths(html, Path::new("/home/user"));
+        assert!(result.contains("mailto:user@example.com"));
+    }
+
+    #[test]
+    fn test_allows_fragment_links() {
+        let html = r##"<a href="#section-2">Jump</a>"##;
+        let result = resolve_relative_paths(html, Path::new("/home/user"));
+        assert!(result.contains(r##"href="#section-2""##));
+    }
+
+    #[test]
+    fn test_csp_header_present() {
+        let html = wrap_html_for_preview("<p>Test</p>", false, None);
+        assert!(html.contains("Content-Security-Policy"));
+        assert!(html.contains("default-src 'none'"));
     }
 }
