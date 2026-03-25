@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::path::Path;
+
 use fltk::app::Sender;
 use fltk::text::TextBuffer;
 
@@ -130,6 +133,7 @@ impl TabManager {
         let doc = Document::new_from_file(id, path, content, self.sender);
         self.documents.push(doc);
         self.active_id = Some(id);
+        self.disambiguate_display_names();
         id
     }
 
@@ -147,6 +151,7 @@ impl TabManager {
         let doc = Document::new_from_buffer(id, path, buffer, self.sender, skip_style_init);
         self.documents.push(doc);
         self.active_id = Some(id);
+        self.disambiguate_display_names();
         id
     }
 
@@ -193,6 +198,7 @@ impl TabManager {
                 self.active_id = Some(self.documents[new_idx].id);
             }
         }
+        self.disambiguate_display_names();
     }
 
     /// Move a tab from one index to another.
@@ -345,6 +351,92 @@ impl TabManager {
             .iter()
             .find(|d| d.file_path.as_deref() == Some(path))
             .map(|d| d.id)
+    }
+
+    /// Recompute disambiguated tab labels for documents with duplicate filenames.
+    /// Uses minimal parent directory segments to make each label unique (VS Code style).
+    pub fn disambiguate_display_names(&mut self) {
+        // Group document indices by display_name
+        let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
+        for (i, doc) in self.documents.iter().enumerate() {
+            groups
+                .entry(doc.display_name.clone())
+                .or_default()
+                .push(i);
+        }
+
+        for (filename, indices) in &groups {
+            if indices.len() <= 1 {
+                // Unique name — clear any previous disambiguation
+                self.documents[indices[0]].disambiguated_name = None;
+                continue;
+            }
+
+            // Collect reversed parent path segments for each duplicate
+            let rev_segments: Vec<Vec<String>> = indices
+                .iter()
+                .map(|&i| {
+                    self.documents[i]
+                        .file_path
+                        .as_ref()
+                        .map(|p| {
+                            Path::new(p)
+                                .parent()
+                                .unwrap_or(Path::new(""))
+                                .components()
+                                .rev()
+                                .map(|c| c.as_os_str().to_string_lossy().to_string())
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                })
+                .collect();
+
+            // Find minimum depth where all suffixes are unique
+            let max_depth = rev_segments.iter().map(|s| s.len()).max().unwrap_or(0);
+            let mut depth = 1;
+            while depth <= max_depth {
+                let suffixes: Vec<String> = rev_segments
+                    .iter()
+                    .map(|segs| {
+                        segs.iter()
+                            .take(depth)
+                            .rev()
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join("/")
+                    })
+                    .collect();
+                let unique = suffixes.iter().collect::<std::collections::HashSet<_>>().len()
+                    == suffixes.len();
+                if unique {
+                    // Apply disambiguated names
+                    for (j, &idx) in indices.iter().enumerate() {
+                        self.documents[idx].disambiguated_name =
+                            Some(format!("{} ({})", filename, suffixes[j]));
+                    }
+                    break;
+                }
+                depth += 1;
+            }
+
+            // Fallback: if we exhausted depth without uniqueness, use full parent path
+            if depth > max_depth {
+                for &idx in indices {
+                    let suffix = self.documents[idx]
+                        .file_path
+                        .as_ref()
+                        .and_then(|p| {
+                            Path::new(p)
+                                .parent()
+                                .map(|pp| pp.to_string_lossy().to_string())
+                        })
+                        .unwrap_or_default();
+                    self.documents[idx].disambiguated_name =
+                        Some(format!("{} ({})", filename, suffix));
+                }
+            }
+        }
     }
 
     pub fn doc_by_id(&self, id: DocumentId) -> Option<&Document> {

@@ -276,7 +276,7 @@ impl TabBar {
         for doc in documents {
             st.tabs.push(TabInfo {
                 id: doc.id,
-                display_name: doc.display_name.clone(),
+                display_name: doc.tab_label().to_string(),
                 is_dirty: doc.is_dirty(),
                 is_active: !diff_tab_active && active_id == Some(doc.id),
                 group_id: doc.group_id,

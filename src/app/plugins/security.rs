@@ -125,36 +125,55 @@ pub fn validate_command_arg(arg: &str) -> Result<(), String> {
 
 /// Get the project root from a file path.
 ///
-/// Walks up the directory tree looking for common project markers:
-/// - `.git` directory
+/// Uses a two-pass approach to correctly handle workspaces:
+/// 1. First, walk up looking for `.git` — the authoritative VCS root
+/// 2. If no `.git` found, fall back to other project markers
+///
+/// This ensures that workspace subprojects (uv, npm, cargo) don't shadow
+/// the actual workspace root where `.git` lives.
+///
+/// Supported markers:
+/// - `.git` directory (preferred — always wins)
 /// - `Cargo.toml` (Rust)
 /// - `package.json` (Node.js)
 /// - `pyproject.toml` or `setup.py` (Python)
+/// - `.ferrispad` (custom marker)
 ///
 /// If no marker is found, returns the file's parent directory.
 pub fn find_project_root(file_path: &Path) -> Option<PathBuf> {
-    let mut current = if file_path.is_file() {
+    let start = if file_path.is_file() {
         file_path.parent()?.to_path_buf()
     } else {
         file_path.to_path_buf()
     };
 
-    let markers = [
-        ".git",
+    // Pass 1: prefer .git (handles workspaces correctly)
+    let mut current = start.clone();
+    loop {
+        if current.join(".git").exists() {
+            return Some(current);
+        }
+        match current.parent() {
+            Some(parent) => current = parent.to_path_buf(),
+            None => break,
+        }
+    }
+
+    // Pass 2: fallback to other project markers
+    let fallback_markers = [
         "Cargo.toml",
         "package.json",
         "pyproject.toml",
         "setup.py",
-        ".ferrispad", // Our own marker
+        ".ferrispad",
     ];
-
+    current = start;
     loop {
-        for marker in &markers {
+        for marker in &fallback_markers {
             if current.join(marker).exists() {
                 return Some(current);
             }
         }
-
         match current.parent() {
             Some(parent) => current = parent.to_path_buf(),
             None => break,
