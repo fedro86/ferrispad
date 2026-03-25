@@ -1,11 +1,11 @@
 use ferris_pad::app::services::plugin_registry::{
-    fetch_community_registry, fetch_plugin_registry,
+    fetch_community_registry_cached, fetch_plugin_registry_cached,
 };
 
 #[test]
 #[ignore] // requires network access — run with: cargo test --test plugin_registry_fetch -- --ignored
 fn test_fetch_official_registry() {
-    let result = fetch_plugin_registry();
+    let result = fetch_plugin_registry_cached();
     assert!(
         result.is_ok(),
         "Failed to fetch official registry: {:?}",
@@ -30,7 +30,7 @@ fn test_fetch_official_registry() {
 #[test]
 #[ignore] // requires network access
 fn test_fetch_community_registry() {
-    let result = fetch_community_registry();
+    let result = fetch_community_registry_cached();
     assert!(
         result.is_ok(),
         "Failed to fetch community registry: {:?}",

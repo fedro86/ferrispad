@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::app::plugins::get_plugin_dir;
 use crate::app::plugins::loader::{discover_plugins, load_plugin_toml};
 use crate::app::services::plugin_registry::{
-    PluginTier, fetch_community_registry, fetch_plugin_registry, is_update_available,
+    PluginTier, fetch_community_registry_cached, fetch_plugin_registry_cached, is_update_available,
     read_plugin_source,
 };
 
@@ -54,7 +54,7 @@ pub fn current_timestamp() -> i64 {
 pub fn check_for_plugin_updates() -> Result<Vec<PluginUpdateInfo>, String> {
     // Fetch the plugin registry
     let registry =
-        fetch_plugin_registry().map_err(|e| format!("Failed to fetch registry: {}", e))?;
+        fetch_plugin_registry_cached().map_err(|e| format!("Failed to fetch registry: {}", e))?;
 
     // Discover installed plugins
     let plugin_dir = get_plugin_dir();
@@ -95,7 +95,7 @@ pub fn check_for_plugin_updates() -> Result<Vec<PluginUpdateInfo>, String> {
     }
 
     // Check community registry for updates to community plugins
-    match fetch_community_registry() {
+    match fetch_community_registry_cached() {
         Ok(community_registry) => {
             // Re-discover installed plugins to check community sources
             for plugin_path in discover_plugins(&plugin_dir) {

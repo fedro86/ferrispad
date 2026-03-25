@@ -23,7 +23,7 @@ use crate::app::plugins::loader::parse_plugin_toml_content;
 use crate::app::plugins::{PluginManager, plugin_display_name};
 use crate::app::services::plugin_registry::{
     AvailablePluginInfo, CommunityPluginInfo, PluginTier, determine_plugin_tier,
-    fetch_community_plugin_toml, fetch_community_registry, fetch_plugin_registry,
+    fetch_community_plugin_toml, fetch_community_registry_cached, fetch_plugin_registry_cached,
     install_community_plugin, install_plugin, is_plugin_installed, is_update_available,
     parse_github_url,
 };
@@ -402,7 +402,7 @@ pub fn show_plugin_manager_dialog(
     let official_search_data: Rc<RefCell<Vec<OfficialRow>>> = Rc::new(RefCell::new(Vec::new()));
 
     // Fetch available plugins
-    let fetch_result = fetch_plugin_registry();
+    let fetch_result = fetch_plugin_registry_cached();
 
     match fetch_result {
         Ok(registry) => {
@@ -628,7 +628,7 @@ pub fn show_plugin_manager_dialog(
                 // Remove loading label
                 loading_label_cb.hide();
 
-                match fetch_community_registry() {
+                match fetch_community_registry_cached() {
                     Ok(registry) => {
                         if registry.plugins.is_empty() {
                             let mut empty = Frame::default()

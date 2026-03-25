@@ -2,7 +2,9 @@
 //! and community sources.
 
 use std::fmt;
+use std::path::PathBuf;
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::app::infrastructure::error::AppError;
@@ -23,7 +25,7 @@ pub const COMMUNITY_REGISTRY_URL: &str =
     "https://raw.githubusercontent.com/fedro86/ferrispad-plugins/main/community-plugins.json";
 
 /// The plugin registry containing available plugins
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct PluginRegistry {
     /// Schema version
     #[serde(rename = "version")]
@@ -36,7 +38,7 @@ pub struct PluginRegistry {
 }
 
 /// Information about an available plugin in the registry
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AvailablePluginInfo {
     /// Plugin name (directory name in repo)
     pub name: String,
@@ -68,7 +70,7 @@ pub struct AvailablePluginInfo {
 }
 
 /// SHA-256 checksums for plugin files
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PluginChecksums {
     /// Checksum of init.lua in format "sha256:hexstring"
     #[serde(rename = "init.lua")]
@@ -139,7 +141,7 @@ pub struct PluginSource {
 }
 
 /// The community plugin registry
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CommunityRegistry {
     /// Schema version
     pub version: u32,
@@ -150,7 +152,7 @@ pub struct CommunityRegistry {
 }
 
 /// Information about a community plugin
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CommunityPluginInfo {
     /// Plugin name (directory name)
     pub name: String,
@@ -242,12 +244,18 @@ fn today_date_string() -> String {
 // ---------------------------------------------------------------------------
 
 /// Fetch the official plugin registry from GitHub
-pub fn fetch_plugin_registry() -> Result<PluginRegistry, AppError> {
+fn fetch_plugin_registry() -> Result<PluginRegistry, AppError> {
     let response = minreq::get(REGISTRY_URL)
         .with_header("User-Agent", "FerrisPad")
         .with_timeout(10)
         .send()
         .map_err(|e| AppError::Network(format!("Failed to fetch plugin registry: {}", e)))?;
+
+    if response.status_code == 403 || response.status_code == 429 {
+        return Err(AppError::Network(
+            "GitHub rate limit reached. Try again in a few minutes.".to_string(),
+        ));
+    }
 
     if response.status_code != 200 {
         return Err(AppError::Network(format!(
@@ -262,7 +270,7 @@ pub fn fetch_plugin_registry() -> Result<PluginRegistry, AppError> {
 }
 
 /// Fetch the community plugin registry from GitHub
-pub fn fetch_community_registry() -> Result<CommunityRegistry, AppError> {
+fn fetch_community_registry() -> Result<CommunityRegistry, AppError> {
     let response = minreq::get(COMMUNITY_REGISTRY_URL)
         .with_header("User-Agent", "FerrisPad")
         .with_timeout(10)
@@ -285,6 +293,98 @@ pub fn fetch_community_registry() -> Result<CommunityRegistry, AppError> {
     response
         .json()
         .map_err(|e| AppError::Network(format!("Invalid JSON in community registry: {}", e)))
+}
+
+// ---------------------------------------------------------------------------
+// Registry caching
+// ---------------------------------------------------------------------------
+
+/// Cache TTL: 1 hour
+const CACHE_MAX_AGE_SECS: u64 = 3600;
+
+fn cache_dir() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("ferrispad")
+        .join("cache")
+}
+
+fn read_cached<T: DeserializeOwned>(filename: &str, max_age_secs: u64) -> Option<T> {
+    let path = cache_dir().join(filename);
+    let metadata = std::fs::metadata(&path).ok()?;
+    let age = metadata
+        .modified()
+        .ok()?
+        .elapsed()
+        .unwrap_or(std::time::Duration::MAX);
+    if age.as_secs() > max_age_secs {
+        return None; // stale
+    }
+    let data = std::fs::read_to_string(&path).ok()?;
+    serde_json::from_str(&data).ok()
+}
+
+fn read_stale_cache<T: DeserializeOwned>(filename: &str) -> Option<T> {
+    let path = cache_dir().join(filename);
+    let data = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&data).ok()
+}
+
+fn write_cache(filename: &str, data: &str) {
+    let dir = cache_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(dir.join(filename), data);
+}
+
+/// Fetch the official registry with local caching.
+/// Returns fresh cache if available, otherwise fetches from network.
+/// Falls back to stale cache on network errors (including rate limits).
+pub fn fetch_plugin_registry_cached() -> Result<PluginRegistry, AppError> {
+    if let Some(cached) = read_cached::<PluginRegistry>("plugins.json", CACHE_MAX_AGE_SECS) {
+        return Ok(cached);
+    }
+
+    match fetch_plugin_registry() {
+        Ok(registry) => {
+            if let Ok(json) = serde_json::to_string(&registry) {
+                write_cache("plugins.json", &json);
+            }
+            Ok(registry)
+        }
+        Err(e) => {
+            // Serve stale cache as fallback
+            if let Some(stale) = read_stale_cache::<PluginRegistry>("plugins.json") {
+                Ok(stale)
+            } else {
+                Err(e)
+            }
+        }
+    }
+}
+
+/// Fetch the community registry with local caching.
+pub fn fetch_community_registry_cached() -> Result<CommunityRegistry, AppError> {
+    if let Some(cached) =
+        read_cached::<CommunityRegistry>("community-plugins.json", CACHE_MAX_AGE_SECS)
+    {
+        return Ok(cached);
+    }
+
+    match fetch_community_registry() {
+        Ok(registry) => {
+            if let Ok(json) = serde_json::to_string(&registry) {
+                write_cache("community-plugins.json", &json);
+            }
+            Ok(registry)
+        }
+        Err(e) => {
+            if let Some(stale) = read_stale_cache::<CommunityRegistry>("community-plugins.json") {
+                Ok(stale)
+            } else {
+                Err(e)
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
