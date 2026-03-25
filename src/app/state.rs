@@ -236,8 +236,9 @@ impl AppState {
             current.cursor_position = self.editor.insert_position();
         }
 
-        // Set new active
+        // Set new active and expand collapsed group if needed
         self.tab_manager.set_active(id);
+        self.tab_manager.expand_group_of(id);
 
         // Bind new buffer and restore state
         if let Some(doc) = self.tab_manager.active_doc_mut() {

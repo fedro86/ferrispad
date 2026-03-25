@@ -556,6 +556,19 @@ impl TabManager {
         }
     }
 
+    /// Expand the group containing this document, if it's collapsed.
+    pub fn expand_group_of(&mut self, doc_id: DocumentId) {
+        if let Some(group_id) = self
+            .documents
+            .iter()
+            .find(|d| d.id == doc_id)
+            .and_then(|d| d.group_id)
+            && let Some(g) = self.groups.iter_mut().find(|g| g.id == group_id)
+        {
+            g.collapsed = false;
+        }
+    }
+
     pub fn group_by_id(&self, id: GroupId) -> Option<&TabGroup> {
         self.groups.iter().find(|g| g.id == id)
     }
