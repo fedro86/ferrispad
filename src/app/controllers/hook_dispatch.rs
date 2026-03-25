@@ -15,6 +15,8 @@ pub struct HookContext<'a> {
     pub view: &'a mut ViewController,
     pub widget_manager: &'a mut WidgetManager,
     pub sender: Sender<Message>,
+    /// Approved commands for the source plugin (used by terminal_view security check).
+    pub approved_commands: Vec<String>,
 }
 
 /// Process the result from a plugin hook (diagnostics, annotations, status message, open_file, clipboard, goto_line).
@@ -99,7 +101,7 @@ pub fn dispatch_hook_result(result: HookResult, plugin_name: &str, ctx: &mut Hoo
 /// Process lint result from plugin hook: send diagnostics, annotations, and toast.
 pub fn dispatch_lint_result(result: HookResult, ctx: &mut HookContext<'_>) {
     // Process any widget requests (e.g., tree view updates from on_document_lint)
-    process_widget_requests(&result, "", ctx.widget_manager, ctx.sender);
+    process_widget_requests(&result, "", &ctx.approved_commands, ctx.widget_manager, ctx.sender);
 
     // Only send diagnostics if at least one plugin actually linted this file.
     if result.had_lint_results {
@@ -122,10 +124,14 @@ pub fn dispatch_lint_result(result: HookResult, ctx: &mut HookContext<'_>) {
     }
 }
 
-/// Process widget requests (split view, tree view) from a hook result.
+/// Process widget requests (split view, tree view, terminal view) from a hook result.
+///
+/// `approved_commands` is the plugin's list of user-approved commands.
+/// Terminal view requests are only allowed if the command is in this list.
 pub fn process_widget_requests(
     result: &HookResult,
     plugin_name: &str,
+    approved_commands: &[String],
     widget_manager: &mut WidgetManager,
     sender: Sender<Message>,
 ) {
@@ -161,10 +167,51 @@ pub fn process_widget_requests(
         });
     }
 
-    // Check for terminal view request
+    // Check for terminal view request — with security checks
     if let Some(ref terminal_request) = result.terminal_view
         && terminal_request.is_valid()
     {
+        // Security: block command=None (raw shell access)
+        let Some(ref cmd) = terminal_request.command else {
+            eprintln!(
+                "[plugin:security] '{}' tried to open default shell terminal — blocked",
+                effective_name
+            );
+            return;
+        };
+
+        // Security: validate command name for shell metacharacters
+        if crate::app::plugins::security::validate_command_arg(cmd).is_err() {
+            eprintln!(
+                "[plugin:security] terminal command '{}' blocked: invalid characters",
+                cmd
+            );
+            return;
+        }
+
+        // Security: check command against plugin's approved_commands
+        let cmd_basename = std::path::Path::new(cmd.as_str())
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(cmd);
+        if !approved_commands
+            .iter()
+            .any(|c| c == cmd_basename || c == cmd.as_str())
+        {
+            eprintln!(
+                "[plugin:security] '{}' terminal command '{}' not approved",
+                effective_name, cmd_basename
+            );
+            sender.send(Message::ToastShow(
+                crate::ui::toast::ToastLevel::Error,
+                format!(
+                    "Plugin '{}': terminal command '{}' not approved",
+                    effective_name, cmd_basename
+                ),
+            ));
+            return;
+        }
+
         // Reuse existing terminal view session if one exists
         let session_id = if let Some(existing_id) = widget_manager.any_terminal_view_session() {
             existing_id

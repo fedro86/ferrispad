@@ -289,20 +289,11 @@ pub fn scan_lua_source(source: &str) -> LuaScanResult {
             blocked.push("LuaJIT access attempt".to_string());
         }
 
-        // Blocked: rawset + _G on the same line
-        if trimmed.contains("rawset")
-            && trimmed.contains("_G")
-            && !blocked.iter().any(|m| m.contains("rawset"))
+        // Blocked: any _G access (direct or via rawset/rawget)
+        if trimmed.contains("_G")
+            && !blocked.iter().any(|m| m.contains("Global table"))
         {
-            blocked.push("Global table manipulation (rawset _G)".to_string());
-        }
-
-        // Blocked: rawget + _G on the same line
-        if trimmed.contains("rawget")
-            && trimmed.contains("_G")
-            && !blocked.iter().any(|m| m.contains("rawget"))
-        {
-            blocked.push("Global table manipulation (rawget _G)".to_string());
+            blocked.push("Global table access (_G is forbidden)".to_string());
         }
 
         // Blocked: setmetatable + string on the same line
@@ -510,9 +501,33 @@ return M
     fn test_scan_lua_blocked_rawset_global() {
         let source = "rawset(_G, 'evil', true)";
         match scan_lua_source(source) {
-            LuaScanResult::Blocked(msgs) => assert!(msgs.iter().any(|m| m.contains("rawset"))),
+            LuaScanResult::Blocked(msgs) => assert!(msgs.iter().any(|m| m.contains("Global table"))),
             other => panic!("Expected Blocked, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_scan_lua_blocked_direct_g_access() {
+        let source = "_G.my_var = 42";
+        match scan_lua_source(source) {
+            LuaScanResult::Blocked(msgs) => assert!(msgs.iter().any(|m| m.contains("Global table"))),
+            other => panic!("Expected Blocked, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_scan_lua_blocked_g_read() {
+        let source = "local x = _G.some_value";
+        match scan_lua_source(source) {
+            LuaScanResult::Blocked(msgs) => assert!(msgs.iter().any(|m| m.contains("Global table"))),
+            other => panic!("Expected Blocked, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_scan_lua_g_in_comment_ok() {
+        let source = "-- _G.foo = bar\nlocal x = 1";
+        assert_eq!(scan_lua_source(source), LuaScanResult::Clean);
     }
 
     #[test]

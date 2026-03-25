@@ -171,6 +171,17 @@ impl PluginManager {
     ) -> Result<LoadedPlugin, String> {
         let init_lua = plugin_path.join("init.lua");
 
+        // Security scan before executing any Lua code
+        if let Ok(source) = std::fs::read_to_string(&init_lua)
+            && let crate::app::services::plugin_verify::LuaScanResult::Blocked(reasons) =
+                crate::app::services::plugin_verify::scan_lua_source(&source)
+        {
+            return Err(format!(
+                "Blocked by security scan: {}",
+                reasons.join("; ")
+            ));
+        }
+
         // Load the Lua script
         let table = runtime
             .load_script(&init_lua)

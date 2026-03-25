@@ -30,6 +30,7 @@ use super::infrastructure::buffer::buffer_text_no_leak;
 use super::infrastructure::defer::defer_send;
 use super::infrastructure::platform::detect_system_dark_mode;
 use super::mcp::McpResponses;
+use super::plugins::HookResult;
 use super::plugins::{PluginHook, PluginManager, get_plugin_dir};
 use super::services::session;
 use super::services::shortcut_registry::ShortcutRegistry;
@@ -72,6 +73,17 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Look up approved_commands for the source plugin of a hook result.
+    fn approved_commands_for_source(&self, result: &HookResult) -> Vec<String> {
+        let source = result.source_plugin.as_deref().unwrap_or("");
+        self.plugins
+            .list_plugins()
+            .iter()
+            .find(|p| p.name == source)
+            .map(|p| p.approved_commands.clone())
+            .unwrap_or_default()
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         editor_container: EditorContainer,
@@ -280,12 +292,15 @@ impl AppState {
             path,
             content: Some(content),
         });
-        self.widget.process_widget_requests(&open_result, "");
+        let approved = self.approved_commands_for_source(&open_result);
+        self.widget
+            .process_widget_requests(&open_result, "", &approved);
         let mut ctx = HookContext {
             tab_manager: &mut self.tab_manager,
             view: &mut self.view,
             widget_manager: &mut self.widget.widget_manager,
             sender: self.sender,
+            approved_commands: approved,
         };
         hook_dispatch::dispatch_hook_result(open_result, "", &mut ctx);
 
@@ -439,21 +454,26 @@ impl AppState {
                         path: Some(path),
                         content: None,
                     });
-                    self.widget.process_widget_requests(&result, "");
+                    let approved = self.approved_commands_for_source(&result);
+                    self.widget
+                        .process_widget_requests(&result, "", &approved);
                     let mut ctx = HookContext {
                         tab_manager: &mut self.tab_manager,
                         view: &mut self.view,
                         widget_manager: &mut self.widget.widget_manager,
                         sender: self.sender,
+                        approved_commands: approved,
                     };
                     hook_dispatch::dispatch_hook_result(result, "", &mut ctx);
                 }
                 FileAction::ProcessLintResult(result) => {
+                    let approved = self.approved_commands_for_source(&result);
                     let mut ctx = HookContext {
                         tab_manager: &mut self.tab_manager,
                         view: &mut self.view,
                         widget_manager: &mut self.widget.widget_manager,
                         sender: self.sender,
+                        approved_commands: approved,
                     };
                     hook_dispatch::dispatch_lint_result(*result, &mut ctx);
                 }
@@ -508,12 +528,15 @@ impl AppState {
                 path: Some(path),
                 content: None,
             });
-            self.widget.process_widget_requests(&open_result, "");
+            let approved = self.approved_commands_for_source(&open_result);
+            self.widget
+                .process_widget_requests(&open_result, "", &approved);
             let mut ctx = HookContext {
                 tab_manager: &mut self.tab_manager,
                 view: &mut self.view,
                 widget_manager: &mut self.widget.widget_manager,
                 sender: self.sender,
+                approved_commands: approved,
             };
             hook_dispatch::dispatch_hook_result(open_result, "", &mut ctx);
         }
@@ -984,11 +1007,13 @@ impl AppState {
         });
 
         // Process results (diagnostics, annotations, status, widgets)
+        let approved = self.approved_commands_for_source(&result);
         let mut ctx = HookContext {
             tab_manager: &mut self.tab_manager,
             view: &mut self.view,
             widget_manager: &mut self.widget.widget_manager,
             sender: self.sender,
+            approved_commands: approved,
         };
         let plugin_name = path.as_deref().unwrap_or("");
         hook_dispatch::dispatch_hook_result(result, plugin_name, &mut ctx);
@@ -1091,11 +1116,13 @@ impl AppState {
         };
 
         // Process results (diagnostics, annotations, and toast)
+        let approved = self.approved_commands_for_source(&result);
         let mut ctx = HookContext {
             tab_manager: &mut self.tab_manager,
             view: &mut self.view,
             widget_manager: &mut self.widget.widget_manager,
             sender: self.sender,
+            approved_commands: approved,
         };
         hook_dispatch::dispatch_lint_result(result, &mut ctx);
     }

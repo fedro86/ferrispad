@@ -15,6 +15,16 @@ use crate::app::plugins::{HookResult, PluginHook, PluginManager, WidgetActionDat
 use crate::ui::split_panel::SplitPanel;
 use crate::ui::tree_panel::TreePanel;
 
+/// Look up a plugin's approved commands by name.
+fn approved_commands_for(plugins: &PluginManager, name: &str) -> Vec<String> {
+    plugins
+        .list_plugins()
+        .iter()
+        .find(|p| p.name == name)
+        .map(|p| p.approved_commands.clone())
+        .unwrap_or_default()
+}
+
 pub struct WidgetController {
     pub widget_manager: WidgetManager,
     /// Whether the tree view is logically active (opened and not user-closed).
@@ -231,12 +241,14 @@ impl WidgetController {
         );
 
         if let Some(result) = result {
-            process_widget_requests(&result, &plugin_name, &mut self.widget_manager, self.sender);
+            let approved = approved_commands_for(plugins, &plugin_name);
+            process_widget_requests(&result, &plugin_name, &approved, &mut self.widget_manager, self.sender);
             let mut ctx = HookContext {
                 tab_manager,
                 view,
                 widget_manager: &mut self.widget_manager,
                 sender: self.sender,
+                approved_commands: approved,
             };
             hook_dispatch::dispatch_hook_result(result, &plugin_name, &mut ctx);
         }
@@ -281,12 +293,14 @@ impl WidgetController {
         );
 
         if let Some(result) = result {
-            process_widget_requests(&result, &plugin_name, &mut self.widget_manager, self.sender);
+            let approved = approved_commands_for(plugins, &plugin_name);
+            process_widget_requests(&result, &plugin_name, &approved, &mut self.widget_manager, self.sender);
             let mut ctx = HookContext {
                 tab_manager,
                 view,
                 widget_manager: &mut self.widget_manager,
                 sender: self.sender,
+                approved_commands: approved,
             };
             hook_dispatch::dispatch_hook_result(result, &plugin_name, &mut ctx);
         }
@@ -338,12 +352,14 @@ impl WidgetController {
                 result.modified_content.is_some(),
             );
 
-            process_widget_requests(&result, plugin_name, &mut self.widget_manager, self.sender);
+            let approved = approved_commands_for(plugins, plugin_name);
+            process_widget_requests(&result, plugin_name, &approved, &mut self.widget_manager, self.sender);
             let mut ctx = HookContext {
                 tab_manager,
                 view,
                 widget_manager: &mut self.widget_manager,
                 sender: self.sender,
+                approved_commands: approved,
             };
             hook_dispatch::dispatch_hook_result(result, plugin_name, &mut ctx);
         } else {
@@ -441,7 +457,18 @@ impl WidgetController {
     }
 
     /// Process widget requests from a hook result (convenience wrapper).
-    pub fn process_widget_requests(&mut self, result: &HookResult, plugin_name: &str) {
-        process_widget_requests(result, plugin_name, &mut self.widget_manager, self.sender);
+    pub fn process_widget_requests(
+        &mut self,
+        result: &HookResult,
+        plugin_name: &str,
+        approved_commands: &[String],
+    ) {
+        process_widget_requests(
+            result,
+            plugin_name,
+            approved_commands,
+            &mut self.widget_manager,
+            self.sender,
+        );
     }
 }
