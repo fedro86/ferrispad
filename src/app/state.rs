@@ -512,34 +512,69 @@ impl AppState {
             return;
         }
 
+        use super::controllers::file::ExternalChange;
+
         let mut all_actions = Vec::new();
-        for (doc_id, path, has_unsaved) in modified {
-            if !has_unsaved {
-                // Auto-reload silently
-                all_actions.extend(self.file.reload_file(doc_id, &mut self.tab_manager));
-            } else {
-                // Prompt user
-                let filename = std::path::Path::new(&path)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| path.clone());
-                let msg = format!(
-                    "'{}' has been modified externally.\n\n\
-                     Reload from disk? (Your unsaved changes will be lost.)",
-                    filename
-                );
-                if fltk::dialog::choice2_default(&msg, "Reload", "Keep Mine", "") == Some(0) {
-                    all_actions.extend(self.file.reload_file(doc_id, &mut self.tab_manager));
-                } else {
-                    // User chose to keep their version — update mtime to avoid re-prompting
+        for (doc_id, path, has_unsaved, change) in modified {
+            match change {
+                ExternalChange::Deleted => {
+                    // Keep tab open, mark dirty so user can save to recreate
                     if let Some(doc) = self.tab_manager.doc_by_id_mut(doc_id) {
-                        doc.disk_mtime =
-                            std::fs::metadata(&path).ok().and_then(|m| m.modified().ok());
+                        doc.has_unsaved_changes.set(true);
+                        doc.disk_mtime = None;
+                    }
+                    all_actions.push(FileAction::RebuildTabBar);
+                }
+                ExternalChange::Modified if !has_unsaved => {
+                    // Auto-reload silently
+                    all_actions.extend(self.file.reload_file(doc_id, &mut self.tab_manager));
+                }
+                ExternalChange::Modified => {
+                    // Prompt user
+                    let filename = std::path::Path::new(&path)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| path.clone());
+                    let msg = format!(
+                        "'{}' has been modified externally.\n\n\
+                         Reload from disk? (Your unsaved changes will be lost.)",
+                        filename
+                    );
+                    if fltk::dialog::choice2_default(&msg, "Reload", "Keep Mine", "") == Some(0) {
+                        all_actions
+                            .extend(self.file.reload_file(doc_id, &mut self.tab_manager));
+                    } else {
+                        // User chose to keep their version — update mtime to avoid re-prompting
+                        if let Some(doc) = self.tab_manager.doc_by_id_mut(doc_id) {
+                            doc.disk_mtime =
+                                std::fs::metadata(&path).ok().and_then(|m| m.modified().ok());
+                        }
                     }
                 }
             }
         }
         self.dispatch_file_actions(all_actions);
+    }
+
+    /// Refresh the active tree view panel (e.g. file explorer) if visible.
+    pub fn refresh_tree_if_visible(&mut self) {
+        if !self.widget.tree_view_active {
+            return;
+        }
+        let session_id = match self.widget.widget_manager.any_tree_view_session() {
+            Some(id) => id,
+            None => return,
+        };
+        if let Some(doc) = self.tab_manager.active_doc_mut() {
+            doc.cached_tree = None;
+        }
+        self.sender.send(Message::TreeViewContextAction {
+            session_id,
+            action: "refresh".to_string(),
+            node_path: vec![],
+            input_text: None,
+            target_path: None,
+        });
     }
 
     /// Restore session from disk. Call after bind_active_buffer and apply_settings.

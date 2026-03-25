@@ -58,6 +58,14 @@ pub enum FileAction {
     },
 }
 
+/// Kind of external change detected for an open document.
+pub enum ExternalChange {
+    /// File content changed on disk (mtime differs).
+    Modified,
+    /// File no longer exists on disk.
+    Deleted,
+}
+
 /// Manages file I/O operations (open, save, new).
 ///
 /// Holds file-dialog state (`last_open_directory`). All cross-cutting
@@ -445,11 +453,10 @@ impl FileController {
         all_actions
     }
 
-    /// Check which open documents have been modified externally.
-    /// Returns (doc_id, path, has_unsaved_changes) for each changed file.
+    /// Check which open documents have been modified or deleted externally.
     pub fn check_external_modifications(
         tab_manager: &TabManager,
-    ) -> Vec<(DocumentId, String, bool)> {
+    ) -> Vec<(DocumentId, String, bool, ExternalChange)> {
         let mut modified = Vec::new();
         for doc in tab_manager.documents() {
             let path = match doc.file_path.as_ref() {
@@ -462,11 +469,14 @@ impl FileController {
             };
             match fs::metadata(path).and_then(|m| m.modified()) {
                 Ok(current_mtime) if current_mtime != stored_mtime => {
-                    modified.push((doc.id, path.clone(), doc.is_dirty()));
+                    modified.push((doc.id, path.clone(), doc.is_dirty(), ExternalChange::Modified));
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    modified.push((doc.id, path.clone(), doc.is_dirty(), ExternalChange::Deleted));
                 }
                 Err(_) => {
-                    // File deleted or inaccessible
-                    modified.push((doc.id, path.clone(), doc.is_dirty()));
+                    // Other I/O error (permissions, etc.) — treat as modified
+                    modified.push((doc.id, path.clone(), doc.is_dirty(), ExternalChange::Modified));
                 }
                 _ => {} // unchanged
             }

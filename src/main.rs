@@ -475,6 +475,7 @@ fn main() {
 
                 Message::WindowFocusGained => {
                     state.check_and_reload_external_changes();
+                    state.refresh_tree_if_visible();
                     dispatch::DispatchResult::Continue
                 }
             };
