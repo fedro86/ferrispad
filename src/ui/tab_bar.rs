@@ -1148,7 +1148,7 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                 color,
             } => {
                 let cx = wx + *x;
-                let chip_h = wh - 4;
+                let chip_h = wh - 2;
                 let chip_y = wy + 2;
                 let is_hover = st.hover_collapsed_chip == Some(*group_id);
 
