@@ -206,6 +206,7 @@ pub fn show_plugin_config_dialog(
                 cb.set_value(current_value.eq_ignore_ascii_case("true"));
                 cb.set_label_color(text_color);
                 cb.set_color(bg_color);
+                cb.set_selection_color(button_bg);
                 param_widgets.borrow_mut().push(ParamWidgetInfo {
                     key: def.key.clone(),
                     label: def.label.clone(),
@@ -221,6 +222,7 @@ pub fn show_plugin_config_dialog(
                     .with_size(FIELD_WIDTH, 25);
                 choice.set_color(input_bg);
                 choice.set_text_color(text_color);
+                choice.set_selection_color(button_bg);
 
                 // Parse options and add to choice widget
                 let mut option_values: Vec<String> = Vec::new();
@@ -257,6 +259,7 @@ pub fn show_plugin_config_dialog(
                 inp.set_value(&current_value);
                 inp.set_color(input_bg);
                 inp.set_text_color(text_color);
+                inp.set_selection_color(button_bg);
 
                 // Show placeholder if available and value is empty
                 if current_value.is_empty()

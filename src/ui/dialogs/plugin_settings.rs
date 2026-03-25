@@ -103,6 +103,7 @@ pub fn show_plugin_settings_dialog(
                 ));
             cb.set_label_color(if *enabled { text_color } else { text_dim });
             cb.set_color(bg_color);
+            cb.set_selection_color(button_bg);
 
             // Check if this plugin is selected (all_selected means check all enabled ones)
             let should_check = if all_selected {
@@ -133,6 +134,7 @@ pub fn show_plugin_settings_dialog(
     shortcut_input.set_value(&settings.run_all_checks_shortcut);
     shortcut_input.set_color(input_bg);
     shortcut_input.set_text_color(text_color);
+    shortcut_input.set_selection_color(button_bg);
 
     let mut shortcut_hint = frame::Frame::default()
         .with_pos(275, 250)
