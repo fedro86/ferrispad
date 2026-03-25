@@ -19,8 +19,11 @@ pub enum Message {
     FileOpen,
     FileSave,
     FileSaveAs,
+    FileReload,
+    FileReloadAll,
     FileQuit,
     WindowClose,
+    WindowFocusGained,
 
     // Tabs
     TabSwitch(DocumentId),

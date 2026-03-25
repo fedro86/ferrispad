@@ -153,6 +153,8 @@ pub struct Document {
     pub cached_tree: Option<(String, TreeViewRequest)>,
     /// Cached line count — updated on every edit, avoids O(n) scan on tab switch
     pub cached_line_count: usize,
+    /// Last-known modification time of the on-disk file (None for untitled docs)
+    pub disk_mtime: Option<std::time::SystemTime>,
     /// Pointer to the heap-allocated closure passed to FLTK's modify callback.
     /// Must be freed in cleanup() after removing the callback.
     modify_cb_data: *mut c_void,
@@ -188,6 +190,7 @@ impl Document {
             has_been_linted: false,
             cached_tree: None,
             cached_line_count: 0,
+            disk_mtime: None,
             modify_cb_data,
         }
     }
@@ -228,6 +231,7 @@ impl Document {
             has_been_linted: false,
             cached_tree: None,
             cached_line_count: content.lines().count(),
+            disk_mtime: None,
             modify_cb_data,
         }
     }
@@ -280,6 +284,7 @@ impl Document {
             has_been_linted: false,
             cached_tree: None,
             cached_line_count,
+            disk_mtime: None,
             modify_cb_data,
         }
     }

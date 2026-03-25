@@ -179,6 +179,10 @@ fn main() {
                     s.send(Message::WindowResize);
                     false // Let FLTK handle the resize too
                 }
+                fltk::enums::Event::Focus => {
+                    s.send(Message::WindowFocusGained);
+                    false // Let FLTK handle focus too
+                }
                 _ => false,
             }
         }
@@ -296,6 +300,8 @@ fn main() {
                 // File
                 Message::FileNew
                 | Message::FileOpen
+                | Message::FileReload
+                | Message::FileReloadAll
                 | Message::FileSave
                 | Message::FileSaveAs
                 | Message::FileQuit
@@ -464,6 +470,11 @@ fn main() {
                 // Window events
                 Message::WindowResize | Message::MallocTrim => {
                     dispatch::handle_window(msg, &mut state, &mut lw);
+                    dispatch::DispatchResult::Continue
+                }
+
+                Message::WindowFocusGained => {
+                    state.check_and_reload_external_changes();
                     dispatch::DispatchResult::Continue
                 }
             };

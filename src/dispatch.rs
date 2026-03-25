@@ -43,6 +43,14 @@ pub fn handle_file(msg: Message, state: &mut AppState) -> DispatchResult {
             state.dispatch_file_actions(actions);
             state.session.mark_dirty();
         }
+        Message::FileReload => {
+            state.file_reload_active();
+            state.session.mark_dirty();
+        }
+        Message::FileReloadAll => {
+            state.file_reload_all();
+            state.session.mark_dirty();
+        }
         Message::FileOpen => {
             let theme_bg = state.highlight.highlighter().theme_background();
             let actions = state.file.file_open(

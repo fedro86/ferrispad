@@ -490,6 +490,58 @@ impl AppState {
         }
     }
 
+    /// Reload the active document from disk.
+    pub fn file_reload_active(&mut self) {
+        if let Some(doc) = self.tab_manager.active_doc() {
+            let id = doc.id;
+            let actions = self.file.reload_file(id, &mut self.tab_manager);
+            self.dispatch_file_actions(actions);
+        }
+    }
+
+    /// Reload all file-backed documents from disk.
+    pub fn file_reload_all(&mut self) {
+        let actions = self.file.reload_all_files(&mut self.tab_manager);
+        self.dispatch_file_actions(actions);
+    }
+
+    /// Check for externally modified files and reload or prompt as needed.
+    pub fn check_and_reload_external_changes(&mut self) {
+        let modified = FileController::check_external_modifications(&self.tab_manager);
+        if modified.is_empty() {
+            return;
+        }
+
+        let mut all_actions = Vec::new();
+        for (doc_id, path, has_unsaved) in modified {
+            if !has_unsaved {
+                // Auto-reload silently
+                all_actions.extend(self.file.reload_file(doc_id, &mut self.tab_manager));
+            } else {
+                // Prompt user
+                let filename = std::path::Path::new(&path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| path.clone());
+                let msg = format!(
+                    "'{}' has been modified externally.\n\n\
+                     Reload from disk? (Your unsaved changes will be lost.)",
+                    filename
+                );
+                if fltk::dialog::choice2_default(&msg, "Reload", "Keep Mine", "") == Some(0) {
+                    all_actions.extend(self.file.reload_file(doc_id, &mut self.tab_manager));
+                } else {
+                    // User chose to keep their version — update mtime to avoid re-prompting
+                    if let Some(doc) = self.tab_manager.doc_by_id_mut(doc_id) {
+                        doc.disk_mtime =
+                            std::fs::metadata(&path).ok().and_then(|m| m.modified().ok());
+                    }
+                }
+            }
+        }
+        self.dispatch_file_actions(all_actions);
+    }
+
     /// Restore session from disk. Call after bind_active_buffer and apply_settings.
     pub fn restore_session(&mut self) {
         let result = match SessionController::restore(

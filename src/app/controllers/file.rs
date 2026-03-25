@@ -272,6 +272,8 @@ impl FileController {
                 Ok(_) => {
                     if let Some(doc) = tab_manager.active_doc_mut() {
                         doc.mark_clean();
+                        doc.disk_mtime =
+                            fs::metadata(path).ok().and_then(|m| m.modified().ok());
                     }
 
                     // Call lint hook after successful save
@@ -326,6 +328,8 @@ impl FileController {
                             doc.file_path = Some(path.clone());
                             doc.update_display_name();
                             doc.mark_clean();
+                            doc.disk_mtime =
+                                fs::metadata(&path).ok().and_then(|m| m.modified().ok());
                             Some(doc.id)
                         } else {
                             None
@@ -363,6 +367,111 @@ impl FileController {
         } else {
             vec![]
         }
+    }
+
+    /// Reload a single document from disk.
+    pub fn reload_file(
+        &self,
+        doc_id: DocumentId,
+        tab_manager: &mut TabManager,
+    ) -> Vec<FileAction> {
+        let (path, is_partial) = {
+            if let Some(doc) = tab_manager.doc_by_id(doc_id) {
+                let path = match doc.file_path.as_ref() {
+                    Some(p) => p.clone(),
+                    None => return vec![], // untitled
+                };
+                let is_partial =
+                    doc.display_name.contains("(tail)") || doc.display_name.contains("(lines ");
+                (path, is_partial)
+            } else {
+                return vec![];
+            }
+        };
+
+        if is_partial {
+            return vec![];
+        }
+
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                dialog::alert_default(&format!("Error reloading file: {}", e));
+                return vec![];
+            }
+        };
+        let new_mtime = fs::metadata(&path).ok().and_then(|m| m.modified().ok());
+
+        if let Some(doc) = tab_manager.doc_by_id_mut(doc_id) {
+            doc.buffer.set_text(&content);
+            let default_style = "A".repeat(content.len());
+            doc.style_buffer.set_text(&default_style);
+            doc.has_unsaved_changes.set(false);
+            doc.checkpoints.clear();
+            doc.disk_mtime = new_mtime;
+            doc.diagnostics.clear();
+            doc.has_been_linted = false;
+            doc.cached_tree = None;
+            doc.cached_line_count = content.lines().count();
+        }
+
+        let mut actions = vec![
+            FileAction::DetectAndHighlight(doc_id, path.clone()),
+            FileAction::RebuildTabBar,
+            FileAction::UpdateWindowTitle,
+        ];
+
+        if content.len() > DEFERRED_THRESHOLD {
+            actions.push(FileAction::DeferOpenHooks { path, content });
+        } else {
+            actions.push(FileAction::RunOpenHooks { path, content });
+        }
+        actions
+    }
+
+    /// Reload all file-backed documents from disk.
+    pub fn reload_all_files(&self, tab_manager: &mut TabManager) -> Vec<FileAction> {
+        let ids: Vec<DocumentId> = tab_manager
+            .documents()
+            .iter()
+            .filter(|d| d.file_path.is_some())
+            .map(|d| d.id)
+            .collect();
+
+        let mut all_actions = Vec::new();
+        for id in ids {
+            all_actions.extend(self.reload_file(id, tab_manager));
+        }
+        all_actions
+    }
+
+    /// Check which open documents have been modified externally.
+    /// Returns (doc_id, path, has_unsaved_changes) for each changed file.
+    pub fn check_external_modifications(
+        tab_manager: &TabManager,
+    ) -> Vec<(DocumentId, String, bool)> {
+        let mut modified = Vec::new();
+        for doc in tab_manager.documents() {
+            let path = match doc.file_path.as_ref() {
+                Some(p) => p,
+                None => continue,
+            };
+            let stored_mtime = match doc.disk_mtime {
+                Some(m) => m,
+                None => continue,
+            };
+            match fs::metadata(path).and_then(|m| m.modified()) {
+                Ok(current_mtime) if current_mtime != stored_mtime => {
+                    modified.push((doc.id, path.clone(), doc.is_dirty()));
+                }
+                Err(_) => {
+                    // File deleted or inaccessible
+                    modified.push((doc.id, path.clone(), doc.is_dirty()));
+                }
+                _ => {} // unchanged
+            }
+        }
+        modified
     }
 
     /// Update the preview HTML file if the saved file is markdown.
@@ -414,6 +523,10 @@ impl FileController {
                 None
             };
             let id = tab_manager.add_from_file(path.clone(), &content);
+            if let Some(doc) = tab_manager.doc_by_id_mut(id) {
+                doc.disk_mtime =
+                    fs::metadata(&path).ok().and_then(|m| m.modified().ok());
+            }
             if let Some(untitled_id) = empty_untitled {
                 tab_manager.remove(untitled_id);
             }
@@ -436,6 +549,8 @@ impl FileController {
                 doc.has_unsaved_changes.set(false);
                 doc.file_path = Some(path.clone());
                 doc.update_display_name();
+                doc.disk_mtime =
+                    fs::metadata(&path).ok().and_then(|m| m.modified().ok());
             }
             let mut actions = Vec::new();
             if let Some(id) = tab_manager.active_id() {
@@ -481,7 +596,11 @@ impl FileController {
             } else {
                 None
             };
-            let id = tab_manager.add_from_buffer(path, buffer, true);
+            let id = tab_manager.add_from_buffer(path.clone(), buffer, true);
+            if let Some(doc) = tab_manager.doc_by_id_mut(id) {
+                doc.disk_mtime =
+                    fs::metadata(&path).ok().and_then(|m| m.modified().ok());
+            }
             if let Some(untitled_id) = empty_untitled {
                 tab_manager.remove(untitled_id);
             }
@@ -491,6 +610,8 @@ impl FileController {
                 let content = crate::app::infrastructure::buffer::buffer_text_no_leak(&buffer);
                 doc.buffer.set_text(&content);
                 doc.has_unsaved_changes.set(false);
+                doc.disk_mtime =
+                    fs::metadata(&path).ok().and_then(|m| m.modified().ok());
                 doc.file_path = Some(path);
                 doc.update_display_name();
             }

@@ -34,6 +34,8 @@ const RESERVED_SHORTCUTS: &[&str] = &[
     "ctrl+g",
     "ctrl+m",
     "ctrl+shift+l", // Run All Checks
+    "ctrl+r",
+    "ctrl+shift+r",
 ];
 
 /// Built-in shortcuts: (menu_path/command_id, default_shortcut_string).
@@ -44,6 +46,8 @@ pub const BUILTIN_SHORTCUTS: &[(&str, &str)] = &[
     ("File/Open...", "Ctrl+O"),
     ("File/Save", "Ctrl+S"),
     ("File/Save As...", "Ctrl+Shift+S"),
+    ("File/Reload", "Ctrl+R"),
+    ("File/Reload All", "Ctrl+Shift+R"),
     ("File/Close Tab", "Ctrl+W"),            // tabs only
     ("File/Next Tab", "Ctrl+Tab"),           // tabs only
     ("File/Previous Tab", "Ctrl+Shift+Tab"), // tabs only
@@ -294,6 +298,19 @@ pub fn build_menu(
         {
             let s = *s;
             move |_| s.send(Message::FileSaveAs)
+        },
+    );
+    menu.add("File/Reload", rs("File/Reload"), MenuFlag::Normal, {
+        let s = *s;
+        move |_| s.send(Message::FileReload)
+    });
+    menu.add(
+        "File/Reload All",
+        rs("File/Reload All"),
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::FileReloadAll)
         },
     );
     if tabs_enabled {

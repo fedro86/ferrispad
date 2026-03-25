@@ -142,6 +142,9 @@ impl SessionController {
                     if let Some(doc) = tab_manager.doc_by_id_mut(id) {
                         doc.cursor_position = doc_session.cursor_position;
                         doc.group_id = group_id;
+                        doc.disk_mtime = fs::metadata(path)
+                            .ok()
+                            .and_then(|m| m.modified().ok());
                     }
 
                     if i == target_index {
