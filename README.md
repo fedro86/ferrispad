@@ -68,8 +68,32 @@ Read the full [FerrisPad Philosophy](PHILOSOPHY.md) to understand how we decide 
   <video src="assets/videos/md_preview.mp4" width="800" controls muted autoplay loop></video>
 </div>
 
+**Plugin System**
+- Extend FerrisPad with Lua 5.4 plugins (statically linked, no external runtime)
+- 11 event hooks: document open/save/close, text changes, theme changes, linting, and more
+- Rich editor API: read/write files, run commands, access git status, manage configuration
+- Widget toolkit for plugins: tree views, split panels, and embedded terminal
+- Built-in Plugin Manager with search, one-click install, and per-plugin settings
+- Three-tier trust model: Official (cryptographically signed), Community (checksummed), Manual
+- Project-root sandbox and command approval for security
+- Customizable keyboard shortcuts for plugin actions
+
+**Official Plugins**
+- **Python Lint** — ruff + pyright integration with auto venv detection
+- **Rust Lint** — clippy + cargo build checks with configurable presets
+- **File Explorer** — tree view file browser with git status indicators and context menus
+- **YAML/JSON Viewer** — collapsible tree with search, copy value, and copy key path
+- **Git Diff** — side-by-side diff view with intraline highlighting and revert support
+
+**Community Plugins**
+- **JavaScript Lint** — ESLint for JavaScript/TypeScript ([repo](https://github.com/fedro86/ferrispad-js-linter))
+- Browse and install community plugins from the built-in Plugin Manager
+- Community plugins are listed in the [plugin registry](https://github.com/fedro86/ferrispad-plugins) with pinned git tags and SHA-256 checksums
+
 **Appearance**
 - Light & Dark modes with automatic system theme detection
+- 7 syntax themes: Base16 Ocean Dark/Light, Base16 Eighties, Base16 Mocha, Solarized Dark/Light, Inspired GitHub
+- Independent theme selection for light and dark modes
 - Multiple monospace fonts and configurable font sizes
 - GTK-native look on Linux
 
