@@ -14,6 +14,8 @@ use std::rc::Rc;
 use crate::app::buffer_text_no_leak;
 use crate::app::services::text_ops::{find_in_text, find_in_text_backward, replace_all_in_text};
 
+use super::DialogTheme;
+
 struct FindState {
     search_text: Rc<RefCell<String>>,
     search_pos: Rc<RefCell<usize>>,
@@ -103,49 +105,73 @@ impl FindState {
 }
 
 /// Show Find & Replace dialog
-pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
+pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: (u8, u8, u8)) {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
     let mut dialog_win = Window::default()
         .with_size(400, 220)
         .with_label("Find & Replace")
         .center_screen();
+    dialog_win.set_color(theme.bg);
 
-    Frame::default()
+    let mut find_label = Frame::default()
         .with_pos(20, 20)
         .with_size(80, 30)
         .with_label("Find what:");
-    let find_input = Input::default().with_pos(110, 20).with_size(270, 30);
+    find_label.set_label_color(theme.text);
+    let mut find_input = Input::default().with_pos(110, 20).with_size(270, 30);
+    find_input.set_color(theme.input_bg);
+    find_input.set_text_color(theme.text);
+    find_input.set_selection_color(theme.button_bg);
 
-    Frame::default()
+    let mut replace_label = Frame::default()
         .with_pos(20, 60)
         .with_size(80, 30)
         .with_label("Replace:");
-    let replace_input = Input::default().with_pos(110, 60).with_size(270, 30);
+    replace_label.set_label_color(theme.text);
+    let mut replace_input = Input::default().with_pos(110, 60).with_size(270, 30);
+    replace_input.set_color(theme.input_bg);
+    replace_input.set_text_color(theme.text);
+    replace_input.set_selection_color(theme.button_bg);
 
-    let case_check = CheckButton::default()
+    let mut case_check = CheckButton::default()
         .with_pos(110, 100)
         .with_size(200, 25)
         .with_label("Match case");
+    case_check.set_label_color(theme.text);
+    case_check.set_color(theme.bg);
+    case_check.set_selection_color(theme.button_bg);
 
     let mut find_prev_btn = Button::default()
         .with_pos(20, 140)
         .with_size(90, 30)
         .with_label("Find Prev");
+    find_prev_btn.set_color(theme.button_bg);
+    find_prev_btn.set_label_color(theme.text);
     let mut find_btn = Button::default()
         .with_pos(120, 140)
         .with_size(90, 30)
         .with_label("Find Next");
+    find_btn.set_color(theme.button_bg);
+    find_btn.set_label_color(theme.text);
     let mut replace_btn = Button::default()
         .with_pos(220, 140)
         .with_size(90, 30)
         .with_label("Replace");
+    replace_btn.set_color(theme.button_bg);
+    replace_btn.set_label_color(theme.text);
     let mut replace_all_btn = Button::default()
         .with_pos(20, 180)
         .with_size(100, 30)
         .with_label("Replace All");
+    replace_all_btn.set_color(theme.button_bg);
+    replace_all_btn.set_label_color(theme.text);
     let mut close_btn = Button::default()
         .with_pos(300, 180)
         .with_size(90, 30)
         .with_label("Close");
+    close_btn.set_color(theme.button_bg);
+    close_btn.set_label_color(theme.text);
 
     dialog_win.end();
     dialog_win.make_resizable(false);
@@ -295,35 +321,51 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
 }
 
 /// Show Find dialog
-pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
+pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: (u8, u8, u8)) {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
     let mut dialog_win = Window::default()
         .with_size(400, 150)
         .with_label("Find")
         .center_screen();
+    dialog_win.set_color(theme.bg);
 
-    Frame::default()
+    let mut find_label = Frame::default()
         .with_pos(20, 20)
         .with_size(80, 30)
         .with_label("Find what:");
-    let find_input = Input::default().with_pos(110, 20).with_size(270, 30);
+    find_label.set_label_color(theme.text);
+    let mut find_input = Input::default().with_pos(110, 20).with_size(270, 30);
+    find_input.set_color(theme.input_bg);
+    find_input.set_text_color(theme.text);
+    find_input.set_selection_color(theme.button_bg);
 
-    let case_check = CheckButton::default()
+    let mut case_check = CheckButton::default()
         .with_pos(110, 60)
         .with_size(200, 25)
         .with_label("Match case");
+    case_check.set_label_color(theme.text);
+    case_check.set_color(theme.bg);
+    case_check.set_selection_color(theme.button_bg);
 
     let mut find_prev_btn2 = Button::default()
         .with_pos(110, 100)
         .with_size(90, 30)
         .with_label("Find Prev");
+    find_prev_btn2.set_color(theme.button_bg);
+    find_prev_btn2.set_label_color(theme.text);
     let mut find_btn = Button::default()
         .with_pos(210, 100)
         .with_size(90, 30)
         .with_label("Find Next");
+    find_btn.set_color(theme.button_bg);
+    find_btn.set_label_color(theme.text);
     let mut close_btn = Button::default()
         .with_pos(310, 100)
         .with_size(80, 30)
         .with_label("Close");
+    close_btn.set_color(theme.button_bg);
+    close_btn.set_label_color(theme.text);
 
     dialog_win.end();
     dialog_win.make_resizable(false);

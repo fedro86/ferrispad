@@ -529,6 +529,7 @@ fn create_shortcut_row(
     input.set_value(effective);
     input.set_color(theme.input_bg);
     input.set_text_color(theme.text);
+    input.set_selection_color(theme.button_bg);
     input.set_text_size(12);
 
     // Capture key combinations directly

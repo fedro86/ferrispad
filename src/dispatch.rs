@@ -246,9 +246,18 @@ pub fn handle_edit(msg: Message, state: &mut AppState) {
             let mut buf = state.active_buffer();
             buf.select(0, buf.length());
         }
-        Message::ShowFind => show_find_dialog(&state.active_buffer(), &mut state.editor),
-        Message::ShowReplace => show_replace_dialog(&state.active_buffer(), &mut state.editor),
-        Message::ShowGoToLine => show_goto_line_dialog(&state.active_buffer(), &mut state.editor),
+        Message::ShowFind => {
+            let theme_bg = state.highlight.highlighter().theme_background();
+            show_find_dialog(&state.active_buffer(), &mut state.editor, theme_bg);
+        }
+        Message::ShowReplace => {
+            let theme_bg = state.highlight.highlighter().theme_background();
+            show_replace_dialog(&state.active_buffer(), &mut state.editor, theme_bg);
+        }
+        Message::ShowGoToLine => {
+            let theme_bg = state.highlight.highlighter().theme_background();
+            show_goto_line_dialog(&state.active_buffer(), &mut state.editor, theme_bg);
+        }
         _ => {}
     }
 }

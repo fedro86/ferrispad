@@ -12,26 +12,39 @@ use fltk::{
 use crate::app::buffer_text_no_leak;
 use crate::app::services::text_ops::line_number_to_byte_position;
 
+use super::DialogTheme;
+
 /// Show Go To Line dialog
-pub fn show_goto_line_dialog(buffer: &TextBuffer, editor: &mut TextEditor) {
+pub fn show_goto_line_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: (u8, u8, u8)) {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
     let mut dialog_win = Window::default()
         .with_size(250, 120)
         .with_label("Go To Line")
         .center_screen();
-    Frame::default()
+    dialog_win.set_color(theme.bg);
+    let mut label = Frame::default()
         .with_pos(20, 20)
         .with_size(100, 30)
         .with_label("Line number:");
+    label.set_label_color(theme.text);
     let mut line_input = IntInput::default().with_pos(130, 20).with_size(100, 30);
+    line_input.set_color(theme.input_bg);
+    line_input.set_text_color(theme.text);
+    line_input.set_selection_color(theme.button_bg);
 
     let mut go_btn = Button::default()
         .with_pos(60, 70)
         .with_size(80, 30)
         .with_label("Go");
+    go_btn.set_color(theme.button_bg);
+    go_btn.set_label_color(theme.text);
     let mut cancel_btn = Button::default()
         .with_pos(150, 70)
         .with_size(80, 30)
         .with_label("Cancel");
+    cancel_btn.set_color(theme.button_bg);
+    cancel_btn.set_label_color(theme.text);
 
     dialog_win.end();
     dialog_win.make_resizable(false);
