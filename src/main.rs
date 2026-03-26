@@ -26,9 +26,106 @@ use crate::ui::menu::build_menu;
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
 
+/// Parsed CLI arguments.
+struct CliArgs {
+    mcp_server: bool,
+    files: Vec<String>,
+    goto_line: Option<usize>,
+    new_tab: bool,
+}
+
+fn parse_cli_args() -> CliArgs {
+    let mut args = CliArgs {
+        mcp_server: false,
+        files: Vec::new(),
+        goto_line: None,
+        new_tab: false,
+    };
+
+    let raw: Vec<String> = env::args().skip(1).collect();
+    let mut i = 0;
+    let mut flags_done = false;
+
+    while i < raw.len() {
+        let arg = &raw[i];
+
+        // macOS Process Serial Number — skip silently
+        if arg.starts_with("-psn") {
+            i += 1;
+            continue;
+        }
+
+        // Stop flag parsing after --
+        if !flags_done && arg == "--" {
+            flags_done = true;
+            i += 1;
+            continue;
+        }
+
+        if !flags_done && arg.starts_with('-') {
+            match arg.as_str() {
+                "--mcp-server" => args.mcp_server = true,
+                "--help" | "-h" => {
+                    print_help();
+                    std::process::exit(0);
+                }
+                "--version" | "-v" => {
+                    println!("FerrisPad {}", env!("CARGO_PKG_VERSION"));
+                    std::process::exit(0);
+                }
+                "--line" | "-l" => {
+                    i += 1;
+                    if let Some(n) = raw.get(i).and_then(|s| s.parse::<usize>().ok()) {
+                        args.goto_line = Some(n);
+                    } else {
+                        eprintln!("Error: --line requires a number");
+                        std::process::exit(1);
+                    }
+                }
+                "--new" | "-n" => args.new_tab = true,
+                other => {
+                    eprintln!("Unknown option: {other}");
+                    eprintln!("Try 'FerrisPad --help' for usage information.");
+                    std::process::exit(1);
+                }
+            }
+        } else {
+            args.files.push(arg.clone());
+        }
+
+        i += 1;
+    }
+
+    args
+}
+
+fn print_help() {
+    println!(
+        "FerrisPad {} — A blazingly fast, minimalist text editor\n\n\
+         USAGE:\n    \
+             FerrisPad [OPTIONS] [FILE...]\n    \
+             fpad [OPTIONS] [FILE...]\n\n\
+         OPTIONS:\n    \
+             -l, --line <N>       Go to line N after opening (applies to last file)\n    \
+             -n, --new            Open a new empty tab\n    \
+             -v, --version        Print version and exit\n    \
+             -h, --help           Print this help and exit\n    \
+             --mcp-server         Run as MCP bridge (internal)\n\n\
+         EXAMPLES:\n    \
+             fpad                         Open FerrisPad\n    \
+             fpad file.txt                Open a file\n    \
+             fpad file1.txt file2.txt     Open multiple files as tabs\n    \
+             fpad --line 42 main.rs       Open file and jump to line 42\n    \
+             fpad .                       Open with current directory as project",
+        env!("CARGO_PKG_VERSION")
+    );
+}
+
 fn main() {
-    // Check for --mcp-server bridge mode (no GUI, just stdin↔TCP bridge)
-    if std::env::args().any(|a| a == "--mcp-server") {
+    // Parse CLI arguments before anything else (--help/--version exit immediately)
+    let cli_args = parse_cli_args();
+
+    if cli_args.mcp_server {
         app::mcp::run_bridge();
     }
 
@@ -156,10 +253,38 @@ fn main() {
     // Defer session restore and CLI file open until after the window is shown,
     // so the UI appears immediately instead of blocking on large file reads.
     defer_send(sender, 0.0, Message::DeferredSessionRestore);
-    // CLI args open after session restore (slight delay to ensure ordering)
-    let args: Vec<String> = env::args().collect();
-    if let Some(path) = args.iter().skip(1).find(|arg| !arg.starts_with("-psn")) {
-        defer_send(sender, 0.01, Message::DeferredOpenFile(path.clone()));
+
+    // CLI: open files after session restore (staggered delays for ordering)
+    let mut file_count = 0;
+    for path in &cli_args.files {
+        let abs_path = std::path::Path::new(path);
+        if abs_path.is_dir() {
+            // Directory arg: not yet supported (needs Start Page feature)
+            continue;
+        }
+        // Resolve to absolute path (user may pass relative paths)
+        let resolved = if abs_path.is_absolute() {
+            path.clone()
+        } else {
+            env::current_dir()
+                .map(|cwd| cwd.join(path).to_string_lossy().to_string())
+                .unwrap_or_else(|_| path.clone())
+        };
+        let delay = 0.01 + (file_count as f64 * 0.01);
+        defer_send(sender, delay, Message::DeferredOpenFile(resolved));
+        file_count += 1;
+    }
+
+    // CLI: --line N — jump to line after files are loaded
+    if let Some(line) = cli_args.goto_line {
+        let delay = 0.01 + (file_count as f64 * 0.01) + 0.02;
+        defer_send(sender, delay, Message::DeferredGotoLine(line));
+    }
+
+    // CLI: --new — open a new empty tab
+    if cli_args.new_tab {
+        let delay = 0.01 + (file_count as f64 * 0.01) + 0.01;
+        defer_send(sender, delay, Message::FileNew);
     }
 
     // Window event handler for close and resize.
@@ -417,7 +542,8 @@ fn main() {
                 Message::DeferredPluginHooks { .. }
                 | Message::DeferredTreeRefresh { .. }
                 | Message::DeferredSessionRestore
-                | Message::DeferredOpenFile(_) => {
+                | Message::DeferredOpenFile(_)
+                | Message::DeferredGotoLine(_) => {
                     dispatch::handle_deferred(msg, &mut state, &mut lw, tabs_enabled);
                     dispatch::DispatchResult::Continue
                 }

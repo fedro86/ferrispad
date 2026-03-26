@@ -191,6 +191,8 @@ pub enum Message {
     DeferredSessionRestore,
     /// Open a file from CLI args (deferred so session restore runs first)
     DeferredOpenFile(String),
+    /// Jump to a line number from CLI --line flag (deferred after file opens)
+    DeferredGotoLine(usize),
     /// User dragged the tree panel divider to resize
     TreeViewResize(i32),
 

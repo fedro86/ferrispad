@@ -623,6 +623,18 @@ pub fn handle_deferred(
             );
             state.dispatch_file_actions(actions);
         }
+        Message::DeferredGotoLine(line) => {
+            if let Some(doc) = state.tab_manager.active_doc() {
+                let text =
+                    crate::app::infrastructure::buffer::buffer_text_no_leak(&doc.buffer);
+                if let Some(pos) =
+                    crate::app::services::text_ops::line_number_to_byte_position(&text, line)
+                {
+                    state.editor.set_insert_position(pos as i32);
+                    state.editor.show_insert_position();
+                }
+            }
+        }
         _ => {}
     }
 }
