@@ -222,6 +222,10 @@ pub struct AppSettings {
     #[serde(default = "default_tab_size")]
     pub tab_size: u32,
 
+    /// Insert spaces instead of tab characters (default false)
+    #[serde(default)]
+    pub use_spaces: bool,
+
     /// Whether the plugin system is enabled
     #[serde(default = "default_plugins_enabled")]
     pub plugins_enabled: bool,
@@ -351,6 +355,7 @@ impl Default for AppSettings {
             syntax_theme_light: default_syntax_theme_light(),
             syntax_theme_dark: default_syntax_theme_dark(),
             tab_size: default_tab_size(),
+            use_spaces: false,
             plugins_enabled: default_plugins_enabled(),
             disabled_plugins: Vec::new(),
             plugin_approvals: HashMap::new(),

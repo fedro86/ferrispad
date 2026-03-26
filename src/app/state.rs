@@ -1195,6 +1195,7 @@ impl AppState {
                     combined
                         .line_annotations
                         .extend(plugin_result.line_annotations);
+                    combined.had_lint_results |= plugin_result.had_lint_results;
                     if plugin_result.status_message.is_some() {
                         combined.status_message = plugin_result.status_message;
                     }

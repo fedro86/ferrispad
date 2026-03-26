@@ -272,6 +272,15 @@ pub fn show_settings_dialog(
         _ => tab_4.set_value(true),
     }
 
+    y += ITEM_HEIGHT * 3 + 5;
+    let mut use_spaces = CheckButton::default()
+        .with_pos(LEFT_COL + 10, y)
+        .with_size(COL_WIDTH - 10, ITEM_HEIGHT)
+        .with_label("Use spaces instead of tabs");
+    use_spaces.set_label_color(theme.text);
+    use_spaces.set_color(theme.bg);
+    use_spaces.set_value(current_settings.use_spaces);
+
     // ============ RIGHT COLUMN - Behavior ============
     let mut y = 15;
 
@@ -554,6 +563,7 @@ pub fn show_settings_dialog(
             } else {
                 4
             },
+            use_spaces: use_spaces.value(),
             // Preserve plugin settings (not editable in this dialog, except auto-check)
             plugins_enabled: current.plugins_enabled,
             disabled_plugins: current.disabled_plugins.clone(),

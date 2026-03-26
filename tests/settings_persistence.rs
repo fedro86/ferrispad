@@ -30,6 +30,7 @@ fn test_settings_roundtrip_all_fields() {
         syntax_theme_light: SyntaxTheme::InspiredGitHub,
         syntax_theme_dark: SyntaxTheme::SolarizedDark,
         tab_size: 2,
+        use_spaces: true,
         plugins_enabled: false,
         disabled_plugins: vec!["python-lint".to_string()],
         plugin_approvals: HashMap::new(),

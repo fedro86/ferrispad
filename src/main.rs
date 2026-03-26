@@ -234,6 +234,37 @@ fn main() {
     // Bind the initial document's buffer to the editor
     state.bind_active_buffer();
 
+    // Set up Tab key handler for "use spaces" feature.
+    // Replace FLTK's built-in Tab binding with a no-op so our handle() is the sole handler.
+    state.editor.add_key_binding(
+        fltk::enums::Key::Tab,
+        fltk::enums::Shortcut::None,
+        |_key, _editor| 1, // 1 = handled (do nothing, our handle() already inserted text)
+    );
+    {
+        let settings_ref = app_settings.clone();
+        state.editor.handle(move |editor, event| {
+            if event == fltk::enums::Event::KeyDown
+                && fltk::app::event_key() == fltk::enums::Key::Tab
+            {
+                let s = settings_ref.borrow();
+                if let Some(mut buf) = editor.buffer() {
+                    let pos = editor.insert_position();
+                    if s.use_spaces {
+                        let spaces = " ".repeat(s.tab_size as usize);
+                        buf.insert(pos, &spaces);
+                        editor.set_insert_position(pos + s.tab_size as i32);
+                    } else {
+                        buf.insert(pos, "\t");
+                        editor.set_insert_position(pos + 1);
+                    }
+                }
+                return true;
+            }
+            false
+        });
+    }
+
     // Apply initial settings (theme, font, line numbers, word wrap)
     state.apply_settings(settings.clone());
 

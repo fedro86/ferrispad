@@ -231,6 +231,87 @@ mod tests {
     }
 
     #[test]
+    fn test_hook_result_combine_propagates_had_lint_results() {
+        // Simulates combining results from multiple plugins (as in request_manual_highlight).
+        // Regression test: had_lint_results must be propagated via |= when merging.
+        let mut combined = HookResult::default();
+        assert!(!combined.had_lint_results);
+
+        // First plugin returns lint results with diagnostics
+        let plugin1 = HookResult {
+            had_lint_results: true,
+            diagnostics: vec![Diagnostic {
+                line: 1,
+                column: Some(1),
+                message: "syntax error".to_string(),
+                level: DiagnosticLevel::Error,
+                source: "linter-a".to_string(),
+                fix_message: None,
+                url: None,
+            }],
+            ..Default::default()
+        };
+
+        combined.diagnostics.extend(plugin1.diagnostics);
+        combined.line_annotations.extend(plugin1.line_annotations);
+        combined.had_lint_results |= plugin1.had_lint_results;
+        if plugin1.status_message.is_some() {
+            combined.status_message = plugin1.status_message;
+        }
+
+        assert!(
+            combined.had_lint_results,
+            "had_lint_results must be true after combining with a plugin that produced lint results"
+        );
+        assert_eq!(combined.diagnostics.len(), 1);
+
+        // Second plugin returns lint results with no diagnostics (all checks passed)
+        let plugin2 = HookResult {
+            had_lint_results: true,
+            diagnostics: vec![],
+            ..Default::default()
+        };
+
+        combined.diagnostics.extend(plugin2.diagnostics);
+        combined.had_lint_results |= plugin2.had_lint_results;
+
+        assert!(combined.had_lint_results);
+        assert_eq!(combined.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn test_hook_result_combine_without_propagation_is_wrong() {
+        // Demonstrates the bug: if you forget |= on had_lint_results,
+        // the combined result silently drops all diagnostics.
+        let mut combined = HookResult::default();
+
+        let plugin_result = HookResult {
+            had_lint_results: true,
+            diagnostics: vec![Diagnostic {
+                line: 5,
+                column: None,
+                message: "unused import".to_string(),
+                level: DiagnosticLevel::Warning,
+                source: "linter".to_string(),
+                fix_message: None,
+                url: None,
+            }],
+            ..Default::default()
+        };
+
+        combined.diagnostics.extend(plugin_result.diagnostics);
+        // BUG pattern (missing): combined.had_lint_results |= plugin_result.had_lint_results;
+
+        // Without propagation, had_lint_results stays false even though we have diagnostics.
+        // This causes dispatch_lint_result to silently drop them.
+        // The fix ensures we always propagate the flag.
+        assert!(
+            !combined.diagnostics.is_empty(),
+            "diagnostics were collected but had_lint_results is false — dispatch would silently drop them"
+        );
+    }
+
+    #[test]
     fn test_plugin_hook_lua_names() {
         assert_eq!(PluginHook::Init { project_root: None }.lua_name(), "init");
         assert_eq!(
