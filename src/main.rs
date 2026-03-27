@@ -645,11 +645,18 @@ fn main() {
 
         // Update status bar and editor context on every event loop iteration,
         // not just message dispatch — mouse selection doesn't generate messages.
-        lw.status_bar.update(&state.editor);
         let file_path = state
             .tab_manager
             .active_doc()
             .and_then(|d| d.file_path.as_deref());
+        let project_root = file_path.and_then(|fp| {
+            crate::app::plugins::security::find_project_root(std::path::Path::new(fp))
+        });
+        lw.status_bar.update(
+            &state.editor,
+            file_path,
+            project_root.as_ref().and_then(|p| p.to_str()),
+        );
         editor_context.update(&state.editor, file_path);
 
         state.session.auto_save_if_needed(
