@@ -601,6 +601,7 @@ fn main() {
                 | Message::TreeViewHide(_)
                 | Message::TreeViewLoading
                 | Message::TreeViewNodeClicked { .. }
+                | Message::TreeViewNodeExpanded { .. }
                 | Message::TreeViewContextAction { .. }
                 | Message::TreeViewSearch { .. }
                 | Message::TreeViewResize(_) => {

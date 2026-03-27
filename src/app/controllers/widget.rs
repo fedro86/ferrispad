@@ -254,6 +254,64 @@ impl WidgetController {
         }
     }
 
+    /// Handle lazy-load expansion: a node with a placeholder child was expanded.
+    pub fn handle_tree_view_node_expanded(
+        &mut self,
+        session_id: u32,
+        node_path: Vec<String>,
+        plugins: &mut PluginManager,
+        tab_manager: &mut TabManager,
+        view: &mut ViewController,
+    ) {
+        let session = match self.widget_manager.get_session(session_id) {
+            Some(s) => s.clone(),
+            None => return,
+        };
+
+        let plugin_name = session.plugin_name.clone();
+        let current_path = tab_manager.active_doc().and_then(|d| d.file_path.clone());
+        let buffer_content = tab_manager
+            .active_doc()
+            .map(|d| buffer_text_no_leak(&d.buffer))
+            .unwrap_or_default();
+
+        let result = plugins.call_hook_on_plugin(
+            &plugin_name,
+            PluginHook::OnWidgetAction {
+                widget_type: "tree_view".to_string(),
+                action: "node_expanded".to_string(),
+                session_id,
+                data: WidgetActionData {
+                    right_content: None,
+                    node_path: Some(node_path),
+                    input_text: None,
+                    content: Some(buffer_content),
+                    target_path: None,
+                },
+                path: current_path,
+            },
+        );
+
+        if let Some(result) = result {
+            let approved = approved_commands_for(plugins, &plugin_name);
+            process_widget_requests(
+                &result,
+                &plugin_name,
+                &approved,
+                &mut self.widget_manager,
+                self.sender,
+            );
+            let mut ctx = HookContext {
+                tab_manager,
+                view,
+                widget_manager: &mut self.widget_manager,
+                sender: self.sender,
+                approved_commands: approved,
+            };
+            hook_dispatch::dispatch_hook_result(result, &plugin_name, &mut ctx);
+        }
+    }
+
     /// Handle tree view context menu action (new file, rename, delete, etc.).
     pub fn handle_tree_view_context_action(
         &mut self,

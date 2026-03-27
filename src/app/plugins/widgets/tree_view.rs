@@ -114,6 +114,10 @@ pub struct TreeNode {
     pub icon: Option<String>,
     /// Optional semantic color name for the label (e.g., "modified", "added", "untracked", "conflict", "ignored")
     pub label_color: Option<String>,
+    /// Lazy-load marker: node has children that haven't been loaded yet.
+    /// The tree panel will show it as expandable and fire `node_expanded`
+    /// when the user opens it.
+    pub lazy: bool,
 }
 
 impl TreeViewRequest {
@@ -207,6 +211,7 @@ impl TreeNode {
         let expanded: bool = table.get("expanded").unwrap_or(false);
         let icon: Option<String> = table.get("icon").ok();
         let label_color: Option<String> = table.get("label_color").ok();
+        let lazy: bool = table.get("lazy").unwrap_or(false);
 
         // Parse children recursively
         let children =
@@ -227,6 +232,7 @@ impl TreeNode {
             expanded,
             icon,
             label_color,
+            lazy,
         }
     }
 

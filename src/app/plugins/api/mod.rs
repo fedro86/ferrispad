@@ -235,7 +235,7 @@ mod tests {
         // max_depth=2 should NOT reach c/ or d.txt
         let mut results = Vec::new();
         sandbox::scan_dir_recursive(root, root, 2, 1, &mut results);
-        let paths: Vec<&str> = results.iter().map(|(_, r, _)| r.as_str()).collect();
+        let paths: Vec<&str> = results.iter().map(|e| e.rel_path.as_str()).collect();
         assert!(paths.contains(&"a"), "Should find a/");
         assert!(paths.contains(&"a/b"), "Should find a/b/");
         assert!(!paths.contains(&"a/b/c"), "Depth 2 should not reach a/b/c/");
@@ -256,16 +256,16 @@ mod tests {
         let mut results = Vec::new();
         sandbox::scan_dir_recursive(root, root, 5, 1, &mut results);
 
-        let names: Vec<&str> = results.iter().map(|(n, _, _)| n.as_str()).collect();
+        let names: Vec<&str> = results.iter().map(|e| e.name.as_str()).collect();
         assert!(names.contains(&"sub"));
         assert!(names.contains(&"hello.txt"));
         assert!(names.contains(&"top.txt"));
 
         // Check is_dir flag
-        let sub_entry = results.iter().find(|(n, _, _)| n == "sub").unwrap();
-        assert!(sub_entry.2, "sub should be a directory");
-        let file_entry = results.iter().find(|(n, _, _)| n == "top.txt").unwrap();
-        assert!(!file_entry.2, "top.txt should not be a directory");
+        let sub_entry = results.iter().find(|e| e.name == "sub").unwrap();
+        assert!(sub_entry.is_dir, "sub should be a directory");
+        let file_entry = results.iter().find(|e| e.name == "top.txt").unwrap();
+        assert!(!file_entry.is_dir, "top.txt should not be a directory");
     }
 
     // The following tests exercise the methods via mlua to confirm they work end-to-end.

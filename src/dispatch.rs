@@ -884,6 +884,18 @@ pub fn handle_tree_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidge
                 &mut state.view,
             );
         }
+        Message::TreeViewNodeExpanded {
+            session_id,
+            node_path,
+        } => {
+            state.widget.handle_tree_view_node_expanded(
+                session_id,
+                node_path,
+                &mut state.plugins,
+                &mut state.tab_manager,
+                &mut state.view,
+            );
+        }
         Message::TreeViewContextAction {
             session_id,
             action,

@@ -124,15 +124,18 @@ pub fn scan_dir(
     }
 
     let depth = max_depth.unwrap_or(5).min(10);
-    let mut raw: Vec<(String, String, bool)> = Vec::new();
+    let mut raw = Vec::new();
     scan_dir_recursive(&resolved, &resolved, depth, 1, &mut raw);
 
     let result = lua.create_table()?;
-    for (i, (name, rel_path, is_dir)) in raw.iter().enumerate() {
+    for (i, entry) in raw.iter().enumerate() {
         let t = lua.create_table()?;
-        t.set("name", name.as_str())?;
-        t.set("rel_path", rel_path.as_str())?;
-        t.set("is_dir", *is_dir)?;
+        t.set("name", entry.name.as_str())?;
+        t.set("rel_path", entry.rel_path.as_str())?;
+        t.set("is_dir", entry.is_dir)?;
+        if let Some(has_children) = entry.has_children {
+            t.set("has_children", has_children)?;
+        }
         result.set(i + 1, t)?;
     }
     Ok(mlua::Value::Table(result))

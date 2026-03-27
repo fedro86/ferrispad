@@ -162,6 +162,11 @@ pub enum Message {
         session_id: u32,
         node_path: Vec<String>,
     },
+    /// User expanded a lazy-load node in the tree view
+    TreeViewNodeExpanded {
+        session_id: u32,
+        node_path: Vec<String>,
+    },
     /// User triggered a context menu action on a tree node
     TreeViewContextAction {
         session_id: u32,

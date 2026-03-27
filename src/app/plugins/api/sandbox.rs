@@ -66,14 +66,26 @@ pub(super) fn resolve_and_validate(
     }
 }
 
+/// Entry from a directory scan.
+pub(super) struct ScanEntry {
+    pub name: String,
+    pub rel_path: String,
+    pub is_dir: bool,
+    /// For directories at the depth boundary: true if the directory has children.
+    /// Used by plugins to mark lazy-loadable nodes.
+    pub has_children: Option<bool>,
+}
+
 /// Recursively scan a directory, collecting entries up to `max_depth`.
 /// Paths are returned with `/` separators on all platforms.
+/// Directories at the depth boundary get a `has_children` flag so plugins
+/// can show them as expandable even before their contents are loaded.
 pub(super) fn scan_dir_recursive(
     root: &Path,
     current: &Path,
     max_depth: u32,
     current_depth: u32,
-    results: &mut Vec<(String, String, bool)>, // (name, rel_path, is_dir)
+    results: &mut Vec<ScanEntry>,
 ) {
     if current_depth > max_depth {
         return;
@@ -99,10 +111,28 @@ pub(super) fn scan_dir_recursive(
             .to_string_lossy()
             .replace('\\', "/");
 
-        results.push((name, rel, is_dir));
+        if is_dir && current_depth == max_depth {
+            // At the depth boundary: peek to check if dir has children
+            let has_children = std::fs::read_dir(&path)
+                .map(|mut rd| rd.next().is_some())
+                .unwrap_or(false);
+            results.push(ScanEntry {
+                name,
+                rel_path: rel,
+                is_dir: true,
+                has_children: Some(has_children),
+            });
+        } else {
+            results.push(ScanEntry {
+                name,
+                rel_path: rel,
+                is_dir,
+                has_children: None,
+            });
 
-        if is_dir {
-            scan_dir_recursive(root, &path, max_depth, current_depth + 1, results);
+            if is_dir {
+                scan_dir_recursive(root, &path, max_depth, current_depth + 1, results);
+            }
         }
     }
 }

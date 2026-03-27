@@ -38,11 +38,8 @@ const DEFAULT_HEIGHT: i32 = 200;
 /// Placeholder text for the search input (magnifying glass + hint)
 const SEARCH_PLACEHOLDER: &str = "\u{1F50D} Find...";
 
-/// Maximum tree depth rendered in the FLTK widget.
-/// Deeper nodes are omitted from the UI to avoid multi-second freezes on
-/// deeply nested YAML/JSON files (172K nodes → ~9.5s).  The underlying
-/// `TreeNode` data model is unchanged.
-const MAX_TREE_DEPTH: i32 = 6;
+/// Sentinel label used on placeholder children of lazy-load nodes.
+const LAZY_PLACEHOLDER_LABEL: &str = "\u{231B}"; // hourglass
 
 /// Tree panel widget for showing hierarchical data
 pub struct TreePanel {
@@ -464,8 +461,11 @@ impl TreePanel {
                 item.close();
             }
 
-            // Add children recursively, passing our full path (depth-limited)
-            if current_depth + 1 < MAX_TREE_DEPTH {
+            // Add children recursively, or a placeholder for lazy nodes
+            if node.lazy && node.children.is_empty() {
+                // Lazy node: add a placeholder child so FLTK shows expand arrow
+                self.tree.add(&format!("{}/{}", item_path, LAZY_PLACEHOLDER_LABEL));
+            } else {
                 for child in &node.children {
                     self.add_tree_node(Some(&item_path), child, expand_depth, current_depth + 1);
                 }
@@ -547,7 +547,17 @@ impl TreePanel {
                 {
                     let key = Self::node_path_key(&node_path);
                     if reason == TreeReason::Opened {
-                        expanded_paths.borrow_mut().insert(key);
+                        expanded_paths.borrow_mut().insert(key.clone());
+                        // Check if this node has a lazy placeholder child
+                        if let Some(first_child) = item.next() {
+                            let child_label = first_child.label().unwrap_or_default();
+                            if child_label.contains(LAZY_PLACEHOLDER_LABEL) {
+                                sender.send(Message::TreeViewNodeExpanded {
+                                    session_id,
+                                    node_path,
+                                });
+                            }
+                        }
                     } else {
                         expanded_paths.borrow_mut().remove(&key);
                     }
@@ -918,6 +928,7 @@ impl TreePanel {
 
     /// Add a filtered tree node — only includes subtrees containing matches.
     /// All matching nodes and their ancestors are shown; matches are expanded.
+    #[allow(clippy::only_used_in_recursion)]
     fn add_filtered_tree_node(
         &mut self,
         parent_path: Option<&str>,
@@ -979,17 +990,15 @@ impl TreePanel {
             // Expand nodes that have matching descendants
             item.open();
 
-            // Recurse only into children that have matches (depth-limited)
-            if current_depth + 1 < MAX_TREE_DEPTH {
-                for (i, child) in node.children.iter().enumerate() {
-                    if self_matches || children_match[i] {
-                        self.add_filtered_tree_node(
-                            Some(&item_path),
-                            child,
-                            query,
-                            current_depth + 1,
-                        );
-                    }
+            // Recurse only into children that have matches
+            for (i, child) in node.children.iter().enumerate() {
+                if self_matches || children_match[i] {
+                    self.add_filtered_tree_node(
+                        Some(&item_path),
+                        child,
+                        query,
+                        current_depth + 1,
+                    );
                 }
             }
         }
