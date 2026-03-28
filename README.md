@@ -63,38 +63,62 @@ cargo fmt --check                       # Format check
 
 ## Architecture
 
-~26,000 lines across 85 Rust source files. Message-passing event-driven architecture with Clean Architecture layers.
+~34,000 lines across 92 Rust source files. Message-passing event-driven architecture with Clean Architecture layers.
 
 ```
 src/
-  main.rs            # Entry point, FLTK event loop
-  dispatch.rs        # Grouped handler functions (file, tab, edit, view, ...)
-  lib.rs             # Library crate (ferris_pad)
+  main.rs              # Entry point, FLTK event loop
+  dispatch.rs          # Grouped handler functions (file, tab, edit, view, ...)
+  lib.rs               # Library crate (ferris_pad)
   app/
-    state.rs           # Central coordinator (AppState, mediates controllers)
-    domain/            # Core data types (Document, Message enum, AppSettings)
-    controllers/       # Orchestration (11 controllers)
-      file.rs            # File I/O, returns Vec<FileAction>
-      highlight.rs       # 3-tier syntax highlighting engine
-      tabs.rs            # Tab/group lifecycle (TabManager)
-      widget.rs          # Plugin widget lifecycle (tree/split views)
-      plugin.rs          # Plugin dialogs, toggle/reload
-      session.rs         # Auto-save, restore
-      view.rs            # UI toggles (dark mode, line numbers, word wrap)
-      preview.rs         # Markdown preview
-      update.rs          # Update banner
-      hook_dispatch.rs   # Plugin hook dispatch (free functions)
-    services/          # Business logic (syntax, session, updater, shortcuts)
-    plugins/           # Lua plugin system (api, hooks, loader, runtime, security)
-    infrastructure/    # FFI helpers, errors, platform detection
+    state.rs             # Central coordinator (AppState, mediates controllers)
+    domain/              # Core data types (Document, Message enum, AppSettings)
+    controllers/         # Orchestration (11 controllers)
+      file.rs              # File I/O, returns Vec<FileAction>
+      highlight.rs         # 3-tier syntax highlighting engine
+      tabs.rs              # Tab/group lifecycle (TabManager)
+      widget.rs            # Plugin widget lifecycle (tree/split views)
+      plugin.rs            # Plugin dialogs, toggle/reload
+      session.rs           # Auto-save, restore
+      view.rs              # UI toggles (dark mode, line numbers, word wrap)
+      preview.rs           # Markdown preview
+      update.rs            # Update banner
+      hook_dispatch.rs     # Plugin hook dispatch (free functions)
+    services/            # Business logic
+      syntax/              # Chunked highlighter, sparse checkpoints, style map
+      terminal/            # PTY, VTE parser, grid model
+      session.rs           # Session persistence
+      shortcut_registry.rs # Keyboard shortcut management
+      editor_context.rs    # Structured editor state for MCP/plugins
+      plugin_registry.rs   # Plugin registry with caching
+      plugin_verify.rs     # Signature and checksum verification
+      updater.rs           # Update checker (stable/unstable channels)
+      text_ops.rs          # Text manipulation helpers
+      yaml_parser.rs       # YAML/JSON tree parser
+      file_size.rs         # Large file thresholds and streaming
+    plugins/             # Lua plugin system
+      api/                 # Plugin API (editor, filesystem, commands, sandbox)
+      hooks.rs             # Hook definitions and dispatch
+      runtime.rs           # Lua VM lifecycle
+      loader.rs            # Plugin discovery and loading
+      security.rs          # Static source analysis, sandbox enforcement
+      annotations.rs       # Diagnostic annotations (errors, warnings)
+      diff.rs              # Git diff computation
+      widgets/             # Plugin widget backends (tree, split, terminal)
+    mcp/                 # MCP server (JSON-RPC over TCP, stdio bridge)
+    infrastructure/      # FFI helpers (buffer leak fix), errors, platform detection
   ui/
-    tab_bar.rs         # Custom tab bar with drag-and-drop
-    main_window.rs     # Widget layout
-    split_panel.rs     # Plugin split view widget
-    tree_panel.rs      # Plugin tree view widget
-    menu.rs            # Menu bar with shortcut registry
-    dialogs/           # Find, Settings, GoTo, About, Update, Plugin Manager, Shortcuts
-    theme.rs           # Dark/light themes, platform titlebar
+    main_window.rs       # Widget layout
+    tab_bar.rs           # Custom tab bar with drag-and-drop
+    terminal_panel.rs    # Embedded terminal widget
+    split_panel.rs       # Plugin split view widget
+    tree_panel.rs        # Plugin tree view widget
+    status_bar.rs        # Cursor position, file path, language
+    menu.rs              # Menu bar with shortcut registry
+    theme.rs             # Dark/light themes, platform titlebar
+    toast.rs             # Toast notifications
+    dialogs/             # Find, Settings, GoTo, About, Update, Plugin Manager,
+                         #   Shortcuts, Large File, Read-Only Viewer, Community Install
 ```
 
 All UI interactions flow through a `Message` enum (~90 variants) dispatched in the main event loop. Controllers return action enums (e.g. `Vec<FileAction>`) for cross-cutting effects.
