@@ -22,10 +22,10 @@ print_test() {
 
     if [ "$result" = "PASS" ]; then
         echo -e "${GREEN}✅ PASS${NC} $test_name"
-        ((TEST_PASSED++))
+        ((TEST_PASSED++)) || true
     else
         echo -e "${RED}❌ FAIL${NC} $test_name: $message"
-        ((TEST_FAILED++))
+        ((TEST_FAILED++)) || true
     fi
 }
 
@@ -66,7 +66,7 @@ echo "📄 Testing Required Files..."
 check_file "$PROJECT_ROOT/scripts/generate-icons.sh" "Generate icons script exists"
 check_file "$PROJECT_ROOT/scripts/install-desktop.sh" "Install script exists"
 check_file "$PROJECT_ROOT/scripts/uninstall-desktop.sh" "Uninstall script exists"
-check_file "$PROJECT_ROOT/data/img/ferrispad-logo.png" "Source logo exists"
+check_file "$PROJECT_ROOT/docs/assets/logo-transparent.png" "Source logo exists"
 check_file "$PROJECT_ROOT/ferrispad.desktop" "Desktop file exists"
 check_file "$PROJECT_ROOT/target/release/FerrisPad" "Binary exists" || echo "  ⚠️  Note: Run 'cargo build --release' to create the binary"
 echo ""
@@ -130,14 +130,14 @@ echo ""
 echo "🎨 Testing Icon Generation (Dry Run)..."
 if command -v convert >/dev/null 2>&1; then
     # Test if we can read the source image
-    if convert "$PROJECT_ROOT/data/img/ferrispad-logo.png" -ping info: >/dev/null 2>&1; then
+    if convert "$PROJECT_ROOT/docs/assets/logo-transparent.png" -ping info: >/dev/null 2>&1; then
         print_test "Source image readable by ImageMagick" "PASS" ""
 
         # Test creating a small test icon
         TEST_DIR="/tmp/ferrispad_test_$$"
         mkdir -p "$TEST_DIR"
 
-        if convert "$PROJECT_ROOT/data/img/ferrispad-logo.png" \
+        if convert "$PROJECT_ROOT/docs/assets/logo-transparent.png" \
            -resize 32x32 \
            -gravity center \
            -extent 32x32 \
@@ -157,13 +157,14 @@ echo ""
 
 # Test 7: Path Consistency Check
 echo "🔍 Testing Path Consistency..."
-INSTALL_SCRIPT_PROJECT_ROOT=$(grep "PROJECT_ROOT=" "$PROJECT_ROOT/scripts/install-desktop.sh" | head -1)
-GENERATE_SCRIPT_PROJECT_ROOT=$(grep "PROJECT_ROOT=" "$PROJECT_ROOT/scripts/generate-icons.sh" | head -1)
+# Verify both scripts resolve to the same directory at runtime
+INSTALL_RESOLVED=$(bash -c "SCRIPT_PATH=\"$PROJECT_ROOT/scripts/install-desktop.sh\"; $(grep 'PROJECT_ROOT=' "$PROJECT_ROOT/scripts/install-desktop.sh" | tail -1) && echo \$PROJECT_ROOT")
+GENERATE_RESOLVED=$(bash -c "$(grep 'PROJECT_ROOT=' "$PROJECT_ROOT/scripts/generate-icons.sh" | head -1 | sed "s|\${BASH_SOURCE\[0\]}|$PROJECT_ROOT/scripts/generate-icons.sh|") && echo \$PROJECT_ROOT")
 
-if [ "$INSTALL_SCRIPT_PROJECT_ROOT" = "$GENERATE_SCRIPT_PROJECT_ROOT" ]; then
+if [ "$INSTALL_RESOLVED" = "$GENERATE_RESOLVED" ]; then
     print_test "PROJECT_ROOT consistent between scripts" "PASS" ""
 else
-    print_test "PROJECT_ROOT consistent between scripts" "FAIL" "Inconsistent PROJECT_ROOT definitions"
+    print_test "PROJECT_ROOT consistent between scripts" "FAIL" "install=$INSTALL_RESOLVED vs generate=$GENERATE_RESOLVED"
 fi
 
 # Check if scripts reference the correct paths

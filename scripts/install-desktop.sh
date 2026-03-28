@@ -11,6 +11,13 @@ PROJECT_ROOT="$(cd "$(dirname "$SCRIPT_PATH")" && cd .. && pwd)"
 
 echo "Installing FerrisPad desktop integration..."
 
+# Check binary exists
+if [ ! -f "${PROJECT_ROOT}/target/release/FerrisPad" ]; then
+    echo "Error: Binary not found at ${PROJECT_ROOT}/target/release/FerrisPad"
+    echo "Run 'cargo build --release' first."
+    exit 1
+fi
+
 # Generate icons if they don't exist or if generate-icons.sh is newer
 if [ ! -f "${PROJECT_ROOT}/icons/hicolor/48x48/apps/ferrispad.png" ] || \
    [ "${PROJECT_ROOT}/scripts/generate-icons.sh" -nt "${PROJECT_ROOT}/icons/hicolor/48x48/apps/ferrispad.png" ]; then
