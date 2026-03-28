@@ -5,6 +5,28 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.4-rc.1] - 2026-03-28
+
+### Added
+- **Lazy-Loading Tree View**: On-demand expansion replaces full recursive scan, improving startup for large directories.
+- **Relative File Path in Status Bar**: Status bar now shows the file path relative to the workspace root.
+- **Structured CLI Argument Parsing**: `--help`, `--version`, `--line`, and multi-file arguments with proper parsing.
+- **Disambiguated Tab Names**: Same-named files show parent directory to distinguish them; workspace root detection fixed.
+- **File Reload Shortcuts & Focus Detection**: Reload files on focus return and via keyboard shortcuts when external changes are detected.
+- **Deleted File Handling**: Gracefully handles deleted files and refreshes tree on focus.
+
+### Fixed
+- **Dialog Theming**: Applied `DialogTheme` to Find, Replace, Go To Line, and shortcut dialogs.
+- **Selection Colors**: Plugin config and settings dialogs now use theme-aware selection colors.
+- **Tab Group Collapse**: Auto-expand collapsed group when switching to a tab inside it; removed 2px gap below collapsed group chip.
+- **Plugin Lint Results**: Propagate `had_lint_results` in the selected-plugins code path.
+- **`use_spaces` Setting**: Added missing `use_spaces` editor setting.
+- **Registry Rate Limits**: Plugin registry now caches responses and handles HTTP 429 gracefully.
+
+### Security
+- **Hardened Plugin Sandbox**: Restricted `terminal_view` and `_G` access in Lua plugins.
+- **Preview URL Whitelist**: Added URL scheme whitelist and Content Security Policy to prevent protocol-handler RCE.
+
 ## [0.9.3] - 2026-03-23
 
 ### Added
