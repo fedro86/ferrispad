@@ -12,6 +12,14 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Parse flags
+AUTO_YES=false
+for arg in "$@"; do
+    case "$arg" in
+        -y|--yes) AUTO_YES=true ;;
+    esac
+done
+
 # Change to project root
 cd "$(dirname "$0")/.."
 
@@ -25,39 +33,27 @@ VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1
 echo -e "Current version: ${YELLOW}${VERSION}${NC}"
 echo ""
 
-# Check for uncommitted changes
+# Abort on uncommitted changes — bump-version.sh should have committed already
 if ! git diff-index --quiet HEAD --; then
-    echo -e "${YELLOW}⚠ You have uncommitted changes${NC}"
+    echo -e "${RED}✗ Uncommitted changes detected:${NC}"
     echo ""
     git status --short
     echo ""
-    read -p "Commit these changes and create release tag for v${VERSION}? (y/n): " -n 1 -r
+    echo "Run ./scripts/bump-version.sh first, or commit your changes manually."
+    exit 1
+fi
+
+echo -e "${GREEN}✓ Working tree clean${NC}"
+
+# Confirm tag creation (skip with -y)
+if [ "$AUTO_YES" = false ]; then
+    echo ""
+    read -p "Create and push tag ${VERSION}? (y/n): " -n 1 -r
     echo ""
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
         echo "Cancelled."
         exit 0
     fi
-
-    # Commit changes
-    echo ""
-    echo "Staging all changes..."
-    git add -A
-
-    echo "Committing..."
-    git commit -m "chore: bump version to ${VERSION}"
-
-    echo -e "${GREEN}✓ Changes committed${NC}"
-else
-    echo -e "${GREEN}✓ No uncommitted changes${NC}"
-fi
-
-# Confirm tag creation
-echo ""
-read -p "Create and push tag ${VERSION}? (y/n): " -n 1 -r
-echo ""
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "Cancelled."
-    exit 0
 fi
 
 # Push commits first

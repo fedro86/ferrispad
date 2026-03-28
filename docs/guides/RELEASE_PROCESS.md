@@ -34,13 +34,14 @@ This script automatically updates:
 - `README.md` - installation instructions and download URLs
 - `scripts/build-releases.sh` - VERSION variable
 
-After running the script, review and commit the changes:
+The script automatically commits the changes after updating all files. Use `-y` to skip the confirmation prompt.
 
 ```bash
-git diff                                # Review changes
-git add -A                              # Stage all changes
-git commit -m "chore: bump version to 0.1.4"
-git push                                # Push to GitHub
+# With confirmation prompt
+./scripts/bump-version.sh 0.1.4
+
+# Skip confirmation (CI/automation)
+./scripts/bump-version.sh -y 0.1.4
 ```
 
 ### 2. Create and Push the Release Tag
@@ -331,13 +332,8 @@ git push --delete origin v0.1.1
 Before creating a new release, update:
 
 - [ ] `CHANGELOG.md` - Add new version section with changes (do this FIRST!)
-- [ ] `Cargo.toml` - version = "X.Y.Z" (use `./scripts/bump-version.sh X.Y.Z`)
-- [ ] `docs/js/main.js` - update all three download URLs (automated by bump-version.sh)
-- [ ] `docs/index.html` - update version display (automated by bump-version.sh)
-- [ ] `README.md` - update download URLs (automated by bump-version.sh)
-- [ ] `scripts/build-releases.sh` - VERSION variable (automated by bump-version.sh)
-- [ ] Commit all changes
-- [ ] Create and push tag
+- [ ] Run `./scripts/bump-version.sh X.Y.Z` (updates Cargo.toml, docs, README, build script — auto-commits)
+- [ ] Run `./scripts/release.sh` (pushes, creates tag, syncs website)
 - [ ] Wait for GitHub Actions to build binaries
 - [ ] **Verify `.sig` files** are attached to the release (automated by CI)
 - [ ] Auto-populate release notes from CHANGELOG.md (use `gh` one-liner)
@@ -393,15 +389,14 @@ For cross-platform testing, use the GitHub Actions workflow instead of local cro
 # 1. Update CHANGELOG.md manually
 # Edit CHANGELOG.md to add new [X.Y.Z] section with all changes
 
-# 2. Bump version and update all files
+# 2. Bump version, update all files, and commit
 ./scripts/bump-version.sh X.Y.Z
 
-# 3. Commit, tag, push, and sync website (automated script)
+# 3. Tag, push, and sync website (automated script)
 ./scripts/release.sh
 ```
 
-That's it! `release.sh` handles:
-- Committing uncommitted changes with the version bump message
+That's it! `bump-version.sh` updates all files and commits. `release.sh` handles:
 - Creating and pushing the annotated tag
 - **Syncing website files to master** (if releasing from a feature branch — see below)
 
@@ -424,13 +419,10 @@ The sync process:
 
 You can skip this step if you plan to merge the branch into master soon.
 
-**Manual alternative (steps 2-3 only):**
+**Manual alternative (after bump-version.sh has committed):**
 ```bash
-# Review and commit changes
-git diff && git add -A && git commit -m "chore: bump version to X.Y.Z" && git push
-
-# Create and push tag
-VERSION="X.Y.Z" && git tag -a "${VERSION}" -m "Release ${VERSION}" && git push origin "${VERSION}"
+# Push and create tag
+git push && VERSION="X.Y.Z" && git tag -a "${VERSION}" -m "Release ${VERSION}" && git push origin "${VERSION}"
 ```
 
 ### One-Line Commands (After version bump)

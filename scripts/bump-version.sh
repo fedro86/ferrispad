@@ -12,6 +12,16 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Parse flags
+AUTO_YES=false
+POSITIONAL=()
+for arg in "$@"; do
+    case "$arg" in
+        -y|--yes) AUTO_YES=true ;;
+        *) POSITIONAL+=("$arg") ;;
+    esac
+done
+
 # Change to project root
 cd "$(dirname "$0")/.."
 
@@ -25,18 +35,19 @@ echo -e "Current version: ${YELLOW}${CURRENT_VERSION}${NC}"
 echo ""
 
 # Prompt for new version
-if [ -z "$1" ]; then
-    echo "Usage: $0 <new-version>"
+if [ ${#POSITIONAL[@]} -eq 0 ]; then
+    echo "Usage: $0 [-y|--yes] <new-version>"
     echo ""
     echo "Examples:"
     echo "  $0 0.1.4          # Stable release"
     echo "  $0 0.2.0-beta.1   # Beta release"
     echo "  $0 0.2.0-rc.1     # Release candidate"
+    echo "  $0 -y 0.1.4       # Skip confirmation"
     echo ""
     exit 1
 fi
 
-NEW_VERSION="$1"
+NEW_VERSION="${POSITIONAL[0]}"
 
 # Validate version format
 if ! [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+\.[0-9]+)?$ ]]; then
@@ -48,15 +59,16 @@ fi
 echo -e "New version: ${GREEN}${NEW_VERSION}${NC}"
 echo ""
 
-# Confirm
-read -p "Update version from $CURRENT_VERSION to $NEW_VERSION? (y/n): " -n 1 -r
-echo ""
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "Cancelled."
-    exit 0
+# Confirm (skip with -y)
+if [ "$AUTO_YES" = false ]; then
+    read -p "Update version from $CURRENT_VERSION to $NEW_VERSION? (y/n): " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Cancelled."
+        exit 0
+    fi
 fi
 
-echo ""
 echo "Updating files..."
 echo ""
 
@@ -108,20 +120,15 @@ echo -e "${YELLOW}→${NC} Updating scripts/build-releases.sh..."
 run_sed "s/^VERSION=\".*\"/VERSION=\"$NEW_VERSION\"/" scripts/build-releases.sh
 
 echo ""
-echo -e "${GREEN}✓ Version updated successfully!${NC}"
+echo -e "${GREEN}✓ Files updated${NC}"
+
+# Auto-commit the version bump
 echo ""
-echo "Files updated:"
-echo "  • Cargo.toml"
-echo "  • docs/js/main.js"
-echo "  • docs/index.html"
-echo "  • README.md"
-echo "  • scripts/build-releases.sh"
+echo "Committing version bump..."
+git add Cargo.toml docs/js/main.js docs/index.html README.md scripts/build-releases.sh CHANGELOG.md
+git commit -m "chore: bump version to ${NEW_VERSION}"
+
 echo ""
-echo -e "${BLUE}Next steps:${NC}"
-echo "  1. Review changes: git diff"
-echo "  2. Commit changes: git add -A && git commit -m \"chore: bump version to $NEW_VERSION\""
-echo "  3. Push changes: git push"
-echo "  4. Create tag: git tag -a \"$NEW_VERSION\" -m \"Release $NEW_VERSION\""
-echo "  5. Push tag: git push origin \"$NEW_VERSION\""
+echo -e "${GREEN}✓ Version bumped and committed: ${NEW_VERSION}${NC}"
 echo ""
-echo -e "${YELLOW}GitHub Actions will automatically build and create the release!${NC}"
+echo -e "${BLUE}Next step:${NC} ./scripts/release.sh"
