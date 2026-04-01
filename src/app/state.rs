@@ -37,6 +37,8 @@ use super::services::shortcut_registry::ShortcutRegistry;
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::editor_container::EditorContainer;
 use crate::ui::tab_bar::TabBar;
+#[cfg(target_os = "macos")]
+use crate::ui::theme::set_macos_titlebar_color;
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
 use crate::ui::theme::{apply_syntax_theme_colors, apply_theme};
@@ -766,6 +768,8 @@ impl AppState {
         );
         #[cfg(target_os = "windows")]
         set_windows_titlebar_theme(&self.window, self.view.dark_mode);
+        #[cfg(target_os = "macos")]
+        set_macos_titlebar_color(&self.window, bg, fg);
 
         // Apply syntax theme colors to editor
         apply_syntax_theme_colors(&mut self.editor, bg, fg);
@@ -956,6 +960,8 @@ impl AppState {
         );
         #[cfg(target_os = "windows")]
         set_windows_titlebar_theme(&self.window, is_dark);
+        #[cfg(target_os = "macos")]
+        set_macos_titlebar_color(&self.window, bg, fg);
         self.update_menu_checkbox("View/Toggle Dark Mode", is_dark);
 
         // Apply syntax theme colors to editor

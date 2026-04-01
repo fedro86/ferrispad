@@ -23,6 +23,8 @@ use crate::app::state::AppState;
 use crate::app::{AppSettings, Message, ThemeMode, detect_system_dark_mode};
 use crate::ui::main_window::{LayoutWidgets, build_main_window};
 use crate::ui::menu::build_menu;
+#[cfg(target_os = "macos")]
+use crate::ui::theme::set_macos_titlebar_color;
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
 
@@ -369,6 +371,12 @@ fn main() {
 
     #[cfg(target_os = "windows")]
     set_windows_titlebar_theme(&w.wind, initial_dark_mode);
+    #[cfg(target_os = "macos")]
+    set_macos_titlebar_color(
+        &w.wind,
+        state.highlight.highlighter().theme_background(),
+        state.highlight.highlighter().theme_foreground(),
+    );
 
     // Build initial tab bar after window is shown (so Flex layout is resolved)
     if tabs_enabled {

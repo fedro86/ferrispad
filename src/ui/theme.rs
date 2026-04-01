@@ -222,6 +222,153 @@ pub(crate) fn blend_colors(c1: Color, c2: Color, factor: f32) -> Color {
     Color::from_rgb(r, g, b)
 }
 
+/// NSRect — written-only (passed to setFrame:, never read back).
+/// Avoids the x86_64 `objc_msgSend_stret` requirement for NSRect returns.
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct NSRect {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
+/// Tag used to identify our custom title NSTextField across calls.
+/// Arbitrary value unlikely to clash with any FLTK or AppKit tag.
+#[cfg(target_os = "macos")]
+const CUSTOM_TITLE_TAG: isize = 0x4670; // "Fp"
+
+/// Set macOS title bar appearance to match the syntax theme:
+///   - Background color = tab bar background (via `setTitlebarAppearsTransparent`)
+///   - Title text: custom NSTextField, centered, regular weight, theme foreground color
+///
+/// The native NSTextField managed by AppKit uses Auto Layout constraints that prevent
+/// `setFrame:` and `setAlignment:` from taking effect. The reliable approach is to:
+///   1. Hide the native title with `setTitleVisibility: NSWindowTitleHidden`
+///   2. Add a custom `[NSTextField labelWithString:]` to the title bar view — this has
+///      no Auto Layout constraints, so frame and alignment are fully controllable.
+///
+/// The custom label is tagged with `CUSTOM_TITLE_TAG` and replaced on each call
+/// (e.g. on theme changes) to avoid duplicates.
+///
+/// Navigation to the title bar view uses the close button as a reliable anchor:
+///   `standardWindowButton(NSWindowCloseButton).superview.superview`
+/// gives the view that contains both the traffic lights group and the title area.
+///
+/// # Important: FLTK Widget Lifecycle
+///
+/// Must be called AFTER `window.show()`. `raw_handle()` panics on an unshown window.
+#[cfg(target_os = "macos")]
+pub fn set_macos_titlebar_color(
+    window: &Window,
+    theme_bg: (u8, u8, u8),
+    theme_fg: (u8, u8, u8),
+) {
+    use objc::runtime::Object;
+    use objc::{class, msg_send, sel, sel_impl};
+
+    if !window.shown() {
+        return;
+    }
+
+    // --- Background color: tab bar bar_bg blended 30% toward white (slightly lighter) ---
+    let rgb = super::tab_bar::ThemeRgb::from_tuple(theme_bg);
+    let tc = super::tab_bar::theme_colors_from_bg(&rgb);
+    let (br, bg, bb) = tc.bar_bg.to_rgb();
+    let bar_bg_rgb = super::tab_bar::ThemeRgb::from_tuple((br, bg, bb));
+    let white = super::tab_bar::ThemeRgb::from_tuple((255, 255, 255));
+    let title_bg = bar_bg_rgb.blend(&white, 0.1);
+    let r_f: f64 = title_bg.r as f64 / 255.0;
+    let g_f: f64 = title_bg.g as f64 / 255.0;
+    let b_f: f64 = title_bg.b as f64 / 255.0;
+
+    // --- Foreground color for the title text ---
+    let fg_r: f64 = theme_fg.0 as f64 / 255.0;
+    let fg_g: f64 = theme_fg.1 as f64 / 255.0;
+    let fg_b: f64 = theme_fg.2 as f64 / 255.0;
+
+    let window_w = window.width() as f64;
+
+    // SAFETY: raw_handle() returns a valid NSWindow* after window.show().
+    // NSColor, NSFont, NSTextField, and NSWindow are AppKit classes present on all
+    // supported macOS versions. Errors here are non-fatal (cosmetic feature only).
+    unsafe {
+        let ns_window: *mut Object = window.raw_handle().cast();
+
+        // Step 1: remove the title bar vibrancy layer so backgroundColor shows through.
+        let _: () = msg_send![ns_window, setTitlebarAppearsTransparent: true];
+
+        // Step 2: set the background color (now visible in the title bar area).
+        let bg_color: *mut Object = msg_send![
+            class!(NSColor),
+            colorWithRed: r_f green: g_f blue: b_f alpha: 1.0_f64
+        ];
+        let _: () = msg_send![ns_window, setBackgroundColor: bg_color];
+
+        // Step 3: hide the native title — its NSTextField uses Auto Layout constraints
+        // that prevent setFrame:/setAlignment: from taking effect.
+        // NSWindowTitleHidden = 1
+        let _: () = msg_send![ns_window, setTitleVisibility: 1_isize];
+
+        // Step 4: navigate to the title bar container via the close button.
+        // close → NSWindowButtonGroup → NSTitlebarView (macOS 12+)
+        let close: *mut Object = msg_send![ns_window, standardWindowButton: 0_usize];
+        if close.is_null() {
+            return;
+        }
+        let btn_group: *mut Object = msg_send![close, superview];
+        let titlebar_view: *mut Object = msg_send![btn_group, superview];
+
+        // Step 5: remove any previously added custom title label to avoid duplicates.
+        let existing: *mut Object = msg_send![titlebar_view, viewWithTag: CUSTOM_TITLE_TAG];
+        if !existing.is_null() {
+            let _: () = msg_send![existing, removeFromSuperview];
+        }
+
+        // Step 6: build the custom title label.
+        // [NSTextField labelWithString:] creates a non-editable, non-selectable,
+        // transparent label with no Auto Layout constraints — fully frame-controllable.
+        let win_title: *mut Object = msg_send![ns_window, title];
+        let label: *mut Object =
+            msg_send![class!(NSTextField), labelWithString: win_title];
+
+        let text_color: *mut Object = msg_send![
+            class!(NSColor),
+            colorWithRed: fg_r green: fg_g blue: fg_b alpha: 1.0_f64
+        ];
+        // NSFontWeightRegular = 0.0
+        let font: *mut Object =
+            msg_send![class!(NSFont), systemFontOfSize: 13.0_f64 weight: 0.0_f64];
+
+        let _: () = msg_send![label, setTextColor: text_color];
+        let _: () = msg_send![label, setFont: font];
+        // NSTextAlignmentCenter = 1 on macOS 15+ (unified with iOS: Left=0, Center=1, Right=2)
+        let _: () = msg_send![label, setAlignment: 1_isize];
+        let _: () = msg_send![label, setTag: CUSTOM_TITLE_TAG];
+
+        // Center the label vertically within the 28 pt title bar.
+        // y = 6, h = 16 leaves equal 6 pt margins top and bottom, regardless of
+        // whether the parent view uses a flipped or non-flipped coordinate system.
+        let frame = NSRect { x: 0.0, y: 6.0, w: window_w, h: 16.0 };
+        let _: () = msg_send![label, setFrame: frame];
+
+        // NSViewWidthSizable (2): stretch the label horizontally when the window resizes,
+        // so the centered title stays centered without a fixed pixel width.
+        let _: () = msg_send![label, setAutoresizingMask: 2_usize];
+
+        // Step 7: insert the label BELOW the traffic lights group in z-order.
+        // This ensures the close/minimize/maximize buttons remain on top and
+        // receive mouse events before the label intercepts them.
+        // NSWindowBelow = -1
+        let _: () = msg_send![
+            titlebar_view,
+            addSubview: label
+            positioned: -1_isize
+            relativeTo: btn_group
+        ];
+    }
+}
+
 /// Set Windows title bar theme (Windows 10 build 1809+).
 ///
 /// # Important: FLTK Widget Lifecycle
