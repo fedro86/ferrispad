@@ -35,7 +35,7 @@ toml = "0.8"
 serde_yaml = "0.9"
 memmap2 = "0.9"
 ed25519-dalek = { version = "2.1", features = ["std"] }
-sha2 = "0.10"
+sha2 = "0.11"
 base64 = "0.22"
 hex = "0.4"
 similar = "2"
