@@ -5,6 +5,19 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.4-rc.2] - 2026-04-01
+
+### Added
+- **macOS Theme-Aware Title Bar**: Title bar color and custom centered title that follow the active theme.
+
+### Fixed
+- **macOS Title Label**: Custom title label not updating on file open/switch.
+- **objc2 Migration**: Migrated from objc 0.2 to objc2 0.5 to eliminate `unexpected_cfgs` warnings.
+- **Status Bar Theme Update**: Status bar not updating on theme change via settings dialog.
+
+### Changed
+- **README**: Developer-focused README with updated architecture tree and fixed installation scripts.
+
 ## [0.9.4-rc.1] - 2026-03-28
 
 ### Added
