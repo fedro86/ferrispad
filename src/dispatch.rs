@@ -303,8 +303,9 @@ pub fn handle_settings(msg: Message, state: &mut AppState, lw: &mut LayoutWidget
     match msg {
         Message::OpenSettings => {
             state.open_settings();
+            let theme_bg = state.highlight.highlighter().theme_background();
+            lw.status_bar.apply_theme(theme_bg);
             if lw.tree_panel.is_visible() {
-                let theme_bg = state.highlight.highlighter().theme_background();
                 lw.tree_panel.apply_theme(state.view.dark_mode, theme_bg);
             }
         }
