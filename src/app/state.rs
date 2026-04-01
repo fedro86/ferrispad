@@ -38,7 +38,7 @@ use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::editor_container::EditorContainer;
 use crate::ui::tab_bar::TabBar;
 #[cfg(target_os = "macos")]
-use crate::ui::theme::set_macos_titlebar_color;
+use crate::ui::theme::{set_macos_titlebar_color, update_macos_title_label};
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
 use crate::ui::theme::{apply_syntax_theme_colors, apply_theme};
@@ -229,6 +229,8 @@ impl AppState {
             self.window
                 .set_label(&format!("Untitled - {}", suffix));
         }
+        #[cfg(target_os = "macos")]
+        update_macos_title_label(&self.window);
     }
 
     /// Switch the editor to display a different document

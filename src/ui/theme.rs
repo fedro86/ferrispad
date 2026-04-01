@@ -386,6 +386,36 @@ pub fn set_macos_titlebar_color(
     }
 }
 
+/// Update the text of the custom macOS title label without recreating it.
+///
+/// Called whenever the window title changes (file open, save, dirty state toggle)
+/// so the custom NSTextField stays in sync with the FLTK window label.
+#[cfg(target_os = "macos")]
+pub fn update_macos_title_label(window: &Window) {
+    use objc2::runtime::AnyObject;
+    use objc2::msg_send;
+
+    if !window.shown() {
+        return;
+    }
+
+    unsafe {
+        let ns_window: *mut AnyObject = window.raw_handle().cast();
+        let close: *mut AnyObject = msg_send![ns_window, standardWindowButton: 0_usize];
+        if close.is_null() {
+            return;
+        }
+        let btn_group: *mut AnyObject = msg_send![close, superview];
+        let titlebar_view: *mut AnyObject = msg_send![btn_group, superview];
+        let label: *mut AnyObject = msg_send![titlebar_view, viewWithTag: CUSTOM_TITLE_TAG];
+        if label.is_null() {
+            return;
+        }
+        let win_title: *mut AnyObject = msg_send![ns_window, title];
+        let _: () = msg_send![label, setStringValue: win_title];
+    }
+}
+
 /// Set Windows title bar theme (Windows 10 build 1809+).
 ///
 /// # Important: FLTK Widget Lifecycle
