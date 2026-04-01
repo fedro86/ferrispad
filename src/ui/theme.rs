@@ -233,6 +233,23 @@ struct NSRect {
     h: f64,
 }
 
+#[cfg(target_os = "macos")]
+unsafe impl objc2::encode::Encode for NSRect {
+    const ENCODING: objc2::encode::Encoding = objc2::encode::Encoding::Struct(
+        "CGRect",
+        &[
+            objc2::encode::Encoding::Struct(
+                "CGPoint",
+                &[objc2::encode::Encoding::Double, objc2::encode::Encoding::Double],
+            ),
+            objc2::encode::Encoding::Struct(
+                "CGSize",
+                &[objc2::encode::Encoding::Double, objc2::encode::Encoding::Double],
+            ),
+        ],
+    );
+}
+
 /// Tag used to identify our custom title NSTextField across calls.
 /// Arbitrary value unlikely to clash with any FLTK or AppKit tag.
 #[cfg(target_os = "macos")]
@@ -264,8 +281,8 @@ pub fn set_macos_titlebar_color(
     theme_bg: (u8, u8, u8),
     theme_fg: (u8, u8, u8),
 ) {
-    use objc::runtime::Object;
-    use objc::{class, msg_send, sel, sel_impl};
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
 
     if !window.shown() {
         return;
@@ -293,13 +310,13 @@ pub fn set_macos_titlebar_color(
     // NSColor, NSFont, NSTextField, and NSWindow are AppKit classes present on all
     // supported macOS versions. Errors here are non-fatal (cosmetic feature only).
     unsafe {
-        let ns_window: *mut Object = window.raw_handle().cast();
+        let ns_window: *mut AnyObject = window.raw_handle().cast();
 
         // Step 1: remove the title bar vibrancy layer so backgroundColor shows through.
         let _: () = msg_send![ns_window, setTitlebarAppearsTransparent: true];
 
         // Step 2: set the background color (now visible in the title bar area).
-        let bg_color: *mut Object = msg_send![
+        let bg_color: *mut AnyObject = msg_send![
             class!(NSColor),
             colorWithRed: r_f green: g_f blue: b_f alpha: 1.0_f64
         ];
@@ -312,15 +329,15 @@ pub fn set_macos_titlebar_color(
 
         // Step 4: navigate to the title bar container via the close button.
         // close → NSWindowButtonGroup → NSTitlebarView (macOS 12+)
-        let close: *mut Object = msg_send![ns_window, standardWindowButton: 0_usize];
+        let close: *mut AnyObject = msg_send![ns_window, standardWindowButton: 0_usize];
         if close.is_null() {
             return;
         }
-        let btn_group: *mut Object = msg_send![close, superview];
-        let titlebar_view: *mut Object = msg_send![btn_group, superview];
+        let btn_group: *mut AnyObject = msg_send![close, superview];
+        let titlebar_view: *mut AnyObject = msg_send![btn_group, superview];
 
         // Step 5: remove any previously added custom title label to avoid duplicates.
-        let existing: *mut Object = msg_send![titlebar_view, viewWithTag: CUSTOM_TITLE_TAG];
+        let existing: *mut AnyObject = msg_send![titlebar_view, viewWithTag: CUSTOM_TITLE_TAG];
         if !existing.is_null() {
             let _: () = msg_send![existing, removeFromSuperview];
         }
@@ -328,16 +345,16 @@ pub fn set_macos_titlebar_color(
         // Step 6: build the custom title label.
         // [NSTextField labelWithString:] creates a non-editable, non-selectable,
         // transparent label with no Auto Layout constraints — fully frame-controllable.
-        let win_title: *mut Object = msg_send![ns_window, title];
-        let label: *mut Object =
+        let win_title: *mut AnyObject = msg_send![ns_window, title];
+        let label: *mut AnyObject =
             msg_send![class!(NSTextField), labelWithString: win_title];
 
-        let text_color: *mut Object = msg_send![
+        let text_color: *mut AnyObject = msg_send![
             class!(NSColor),
             colorWithRed: fg_r green: fg_g blue: fg_b alpha: 1.0_f64
         ];
         // NSFontWeightRegular = 0.0
-        let font: *mut Object =
+        let font: *mut AnyObject =
             msg_send![class!(NSFont), systemFontOfSize: 13.0_f64 weight: 0.0_f64];
 
         let _: () = msg_send![label, setTextColor: text_color];
