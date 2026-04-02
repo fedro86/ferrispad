@@ -925,6 +925,7 @@ pub fn show_plugin_manager_dialog(
     });
 
     dialog.show();
+    theme.apply_titlebar(&dialog);
     super::run_dialog(&dialog);
 
     result.borrow().clone()

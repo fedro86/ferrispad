@@ -303,6 +303,7 @@ pub fn show_community_install_dialog(review: &CommunityInstallReview, theme: &Di
     });
 
     dialog.show();
+    theme.apply_titlebar(&dialog);
     super::run_dialog(&dialog);
 
     *result.borrow()

@@ -397,6 +397,7 @@ pub fn show_plugin_config_dialog(
     });
 
     dialog.show();
+    theme.apply_titlebar(&dialog);
     while dialog.shown() {
         fltk::app::wait();
     }

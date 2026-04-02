@@ -49,6 +49,7 @@ pub fn show_goto_line_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme
     dialog_win.end();
     dialog_win.make_resizable(false);
     dialog_win.show();
+    theme.apply_titlebar(&dialog_win);
 
     let mut tb = buffer.clone();
     let mut te = editor.clone();

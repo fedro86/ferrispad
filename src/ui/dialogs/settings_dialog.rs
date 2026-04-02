@@ -478,6 +478,7 @@ pub fn show_settings_dialog(
 
     dialog.end();
     dialog.show();
+    theme.apply_titlebar(&dialog);
 
     let result = Rc::new(RefCell::new(None));
     let result_save = result.clone();

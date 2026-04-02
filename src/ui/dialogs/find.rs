@@ -176,6 +176,7 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
     dialog_win.end();
     dialog_win.make_resizable(false);
     dialog_win.show();
+    theme.apply_titlebar(&dialog_win);
 
     let state = FindState::new();
     let text_buf = buffer.clone();
@@ -370,6 +371,7 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: 
     dialog_win.end();
     dialog_win.make_resizable(false);
     dialog_win.show();
+    theme.apply_titlebar(&dialog_win);
 
     let state = FindState::new();
 

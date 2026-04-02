@@ -380,6 +380,7 @@ pub fn show_shortcut_dialog(
     });
 
     dialog.show();
+    theme.apply_titlebar(&dialog);
     super::run_dialog(&dialog);
 
     result.borrow_mut().take()

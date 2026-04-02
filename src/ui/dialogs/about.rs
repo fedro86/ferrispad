@@ -113,5 +113,6 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
     });
 
     dialog.show();
+    theme.apply_titlebar(&dialog);
     super::run_dialog(&dialog);
 }

@@ -590,6 +590,7 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) -> Option<Viewe
     main_flex.end();
     window.end();
     window.show();
+    theme.apply_titlebar(&window);
 
     // Load initial page
     {

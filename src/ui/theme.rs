@@ -149,12 +149,25 @@ pub fn apply_theme(
     menu.set_text_color(mc.text_color);
     menu.set_selection_color(mc.selection_color);
 
+    // Derive editor selection color from syntax theme background (same as tree panel).
+    // Applied only to the editor — NOT globally, because FLTK's global Selection
+    // color is also used for checkbox/radio marks where the subtle theme-derived
+    // color would be invisible on light backgrounds.
+    let (bg_r, bg_g, bg_b) = theme_bg;
+    let sel_color = if is_dark {
+        let (sr, sg, sb) = lighten(bg_r, bg_g, bg_b, 0.10);
+        Color::from_rgb(sr, sg, sb)
+    } else {
+        let (sr, sg, sb) = darken(bg_r, bg_g, bg_b, 0.90);
+        Color::from_rgb(sr, sg, sb)
+    };
+
     if is_dark {
         // Dark mode colors
         editor.set_color(Color::from_rgb(30, 30, 30));
         editor.set_text_color(Color::from_rgb(220, 220, 220));
         editor.set_cursor_color(Color::from_rgb(255, 255, 255));
-        editor.set_selection_color(Color::from_rgb(70, 70, 100));
+        editor.set_selection_color(sel_color);
         editor.set_linenumber_bgcolor(Color::from_rgb(40, 40, 40));
         editor.set_linenumber_fgcolor(Color::from_rgb(150, 150, 150));
         window.set_color(Color::from_rgb(25, 25, 25));
@@ -168,7 +181,7 @@ pub fn apply_theme(
         editor.set_color(Color::White);
         editor.set_text_color(Color::Black);
         editor.set_cursor_color(Color::Black);
-        editor.set_selection_color(Color::from_rgb(173, 216, 230));
+        editor.set_selection_color(sel_color);
         editor.set_linenumber_bgcolor(Color::from_rgb(240, 240, 240));
         editor.set_linenumber_fgcolor(Color::from_rgb(100, 100, 100));
         window.set_color(Color::from_rgb(240, 240, 240));

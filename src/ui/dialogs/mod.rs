@@ -47,6 +47,8 @@ pub struct DialogTheme {
     pub scroll_thumb: Color,
     /// Whether the theme is dark mode
     is_dark: bool,
+    /// Original syntax theme background (needed for titlebar theming)
+    theme_bg: (u8, u8, u8),
 }
 
 /// Helper to darken a color (shift toward black)
@@ -158,12 +160,36 @@ impl DialogTheme {
             scroll_track,
             scroll_thumb,
             is_dark,
+            theme_bg,
         }
     }
 
     /// Check if the theme is dark mode
     pub fn is_dark(&self) -> bool {
         self.is_dark
+    }
+
+    /// Apply themed titlebar (icon + colors) to a dialog window.
+    /// Must be called AFTER `window.show()`.
+    pub fn apply_titlebar(&self, window: &fltk::window::Window) {
+        // Set the FerrisPad icon on Windows and Linux (macOS uses the .app bundle icon)
+        #[cfg(not(target_os = "macos"))]
+        {
+            let icon_data = include_bytes!("../../../icons/hicolor/32x32/apps/ferrispad.png");
+            if let Ok(icon) = fltk::image::PngImage::from_data(icon_data) {
+                window.clone().set_icon(Some(icon));
+            }
+        }
+        // Set themed titlebar colors on Windows
+        #[cfg(target_os = "windows")]
+        {
+            let fg = if self.is_dark {
+                (230u8, 230u8, 230u8)
+            } else {
+                (0u8, 0u8, 0u8)
+            };
+            crate::ui::theme::set_windows_titlebar_theme(window, self.theme_bg, fg);
+        }
     }
 
     /// Apply flat themed scrollbar styling to a Scroll widget.

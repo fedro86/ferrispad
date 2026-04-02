@@ -180,6 +180,7 @@ pub fn show_file_too_large_dialog(
     main_flex.end();
     dialog.end();
     dialog.show();
+    theme.apply_titlebar(&dialog);
 
     // Set up callbacks
     let result_view = Rc::clone(&result);
