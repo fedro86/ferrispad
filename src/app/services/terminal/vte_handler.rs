@@ -301,10 +301,8 @@ mod tests {
 
     fn process_bytes(grid: &mut TerminalGrid, bytes: &[u8]) {
         let mut parser = vte::Parser::new();
-        for &b in bytes {
-            let mut handler = VteHandler::new(grid);
-            parser.advance(&mut handler, b);
-        }
+        let mut handler = VteHandler::new(grid);
+        parser.advance(&mut handler, bytes);
     }
 
     #[test]
