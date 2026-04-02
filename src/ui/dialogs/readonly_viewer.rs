@@ -466,7 +466,8 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) -> Option<Viewe
     display.set_buffer(buffer.clone());
     display.set_text_font(Font::Courier);
     display.set_text_size(14);
-    display.wrap_mode(WrapMode::None, 0);
+    // Word wrap is enabled after scrollbar styling below to eliminate the
+    // horizontal scrollbar (FLTK re-shows it when content is loaded).
     // Line numbers are prepended as text, so disable the built-in gutter
     display.set_linenumber_width(0);
     display.set_frame(FrameType::FlatBox);
@@ -483,6 +484,9 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) -> Option<Viewe
             index: std::ffi::c_int,
         ) -> *mut std::ffi::c_void;
     }
+    // Style both scrollbars, then enable word wrap to eliminate the
+    // horizontal scrollbar entirely (FLTK re-shows hidden scrollbars
+    // when content is loaded, so hiding alone doesn't stick).
     unsafe {
         use fltk::valuator::Scrollbar;
         let group_ptr = display.as_widget_ptr() as *mut std::ffi::c_void;
@@ -491,19 +495,14 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) -> Option<Viewe
             let ptr = Fl_Group_child(group_ptr, i);
             if !ptr.is_null() {
                 let mut sb = Scrollbar::from_widget_ptr(ptr as fltk::app::WidgetPtr);
-                if i == 0 {
-                    // Hide horizontal scrollbar (not needed for line-oriented logs)
-                    sb.hide();
-                    sb.resize(0, 0, 0, 0);
-                } else {
-                    sb.set_frame(FrameType::FlatBox);
-                    sb.set_color(theme.scroll_track);
-                    sb.set_slider_frame(FrameType::FlatBox);
-                    sb.set_selection_color(theme.scroll_thumb);
-                }
+                sb.set_frame(FrameType::FlatBox);
+                sb.set_color(theme.scroll_track);
+                sb.set_slider_frame(FrameType::FlatBox);
+                sb.set_selection_color(theme.scroll_thumb);
             }
         }
     }
+    display.wrap_mode(WrapMode::AtBounds, 0);
 
     // Status bar
     let mut status_flex = Flex::default();
