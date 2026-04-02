@@ -57,7 +57,7 @@ windows = { version = "0.58", features = ["Win32_Foundation", "Win32_Graphics_Dw
 winres = "0.1"
 
 [dev-dependencies]
-tempfile = "3.25.0"
+tempfile = "3.27.0"
 
 [package.metadata.deb]
 maintainer = "FerrisPad Contributors <fc@ferrispad.com>"
