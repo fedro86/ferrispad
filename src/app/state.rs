@@ -769,7 +769,7 @@ impl AppState {
             bg,
         );
         #[cfg(target_os = "windows")]
-        set_windows_titlebar_theme(&self.window, self.view.dark_mode);
+        set_windows_titlebar_theme(&self.window, bg, fg);
         #[cfg(target_os = "macos")]
         set_macos_titlebar_color(&self.window, bg, fg);
 
@@ -961,7 +961,7 @@ impl AppState {
             bg,
         );
         #[cfg(target_os = "windows")]
-        set_windows_titlebar_theme(&self.window, is_dark);
+        set_windows_titlebar_theme(&self.window, bg, fg);
         #[cfg(target_os = "macos")]
         set_macos_titlebar_color(&self.window, bg, fg);
         self.update_menu_checkbox("View/Toggle Dark Mode", is_dark);

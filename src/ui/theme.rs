@@ -427,7 +427,11 @@ pub fn update_macos_title_label(window: &Window) {
 ///
 /// See `docs/temp/0.1.6/02_WINDOWS_TITLE_BAR_DEBUGGING_JOURNEY.md` for details.
 #[cfg(target_os = "windows")]
-pub fn set_windows_titlebar_theme(window: &Window, is_dark: bool) {
+pub fn set_windows_titlebar_theme(
+    window: &Window,
+    theme_bg: (u8, u8, u8),
+    theme_fg: (u8, u8, u8),
+) {
     use std::mem::size_of;
     use std::ptr::from_ref;
     use windows::Win32::Foundation::HWND;
@@ -439,7 +443,24 @@ pub fn set_windows_titlebar_theme(window: &Window, is_dark: bool) {
         return;
     }
 
-    // SAFETY: We call Windows DWM API to set the title bar dark mode attribute.
+    // Compute dark mode from theme background brightness (same logic as tab_bar)
+    let rgb = super::tab_bar::ThemeRgb::from_tuple(theme_bg);
+    let is_dark = rgb.brightness() < 128;
+
+    // Compute titlebar background: tab bar bar_bg blended 10% toward white (same as macOS)
+    let tc = super::tab_bar::theme_colors_from_bg(&rgb);
+    let (br, bg, bb) = tc.bar_bg.to_rgb();
+    let bar_bg_rgb = super::tab_bar::ThemeRgb::from_tuple((br, bg, bb));
+    let white = super::tab_bar::ThemeRgb::from_tuple((255, 255, 255));
+    let title_bg = bar_bg_rgb.blend(&white, 0.1);
+
+    // COLORREF format: 0x00BBGGRR
+    let caption_color: u32 =
+        (title_bg.r as u32) | ((title_bg.g as u32) << 8) | ((title_bg.b as u32) << 16);
+    let text_color: u32 =
+        (theme_fg.0 as u32) | ((theme_fg.1 as u32) << 8) | ((theme_fg.2 as u32) << 16);
+
+    // SAFETY: We call Windows DWM API to set title bar attributes.
     // Preconditions:
     //   - window.show() has been called (HWND is valid)
     //   - window has not been destroyed
@@ -468,5 +489,22 @@ pub fn set_windows_titlebar_theme(window: &Window, is_dark: bool) {
             from_ref(&on).cast(),
             size_of::<i32>() as u32,
         );
+
+        // DWMWA_CAPTION_COLOR (35) — custom titlebar background (Windows 11 build 22000+)
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWINDOWATTRIBUTE(35),
+            from_ref(&caption_color).cast(),
+            size_of::<u32>() as u32,
+        );
+
+        // DWMWA_TEXT_COLOR (36) — custom title text color (Windows 11 build 22000+)
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWINDOWATTRIBUTE(36),
+            from_ref(&text_color).cast(),
+            size_of::<u32>() as u32,
+        );
     }
+
 }

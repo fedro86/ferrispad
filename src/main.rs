@@ -370,7 +370,11 @@ fn main() {
     w.wind.show();
 
     #[cfg(target_os = "windows")]
-    set_windows_titlebar_theme(&w.wind, initial_dark_mode);
+    set_windows_titlebar_theme(
+        &w.wind,
+        state.highlight.highlighter().theme_background(),
+        state.highlight.highlighter().theme_foreground(),
+    );
     #[cfg(target_os = "macos")]
     set_macos_titlebar_color(
         &w.wind,
