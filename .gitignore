@@ -12,6 +12,7 @@
 
 # Test artifacts
 test_2gb.log
+test_1_8gb.log
 gen_log.exe
 gen_log.pdb
 scripts/generate_log.py

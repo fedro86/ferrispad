@@ -134,6 +134,18 @@ fn register_modify_callback(
     data
 }
 
+/// Describes how a document maps to its source file on disk.
+#[derive(Debug, Clone, Default)]
+pub enum PartialFileInfo {
+    /// Normal file — the buffer contains the entire file.
+    #[default]
+    Full,
+    /// Tail view — buffer contains content starting at `start_byte` to the end of the file.
+    Tail { start_byte: u64 },
+    /// Chunk view — buffer contains content from `start_byte` to `end_byte` (exclusive).
+    Chunk { start_byte: u64, end_byte: u64 },
+}
+
 pub struct Document {
     pub id: DocumentId,
     pub buffer: TextBuffer,
@@ -158,6 +170,9 @@ pub struct Document {
     /// Disambiguated tab label when multiple files share the same filename.
     /// Set by TabManager; None means display_name is already unique.
     pub disambiguated_name: Option<String>,
+    /// For tail/chunk documents: byte offsets into the original file so edits
+    /// can be saved back to the correct position.
+    pub partial_info: PartialFileInfo,
     /// Pointer to the heap-allocated closure passed to FLTK's modify callback.
     /// Must be freed in cleanup() after removing the callback.
     modify_cb_data: *mut c_void,
@@ -195,6 +210,7 @@ impl Document {
             cached_line_count: 0,
             disk_mtime: None,
             disambiguated_name: None,
+            partial_info: PartialFileInfo::Full,
             modify_cb_data,
         }
     }
@@ -237,6 +253,7 @@ impl Document {
             cached_line_count: content.lines().count(),
             disk_mtime: None,
             disambiguated_name: None,
+            partial_info: PartialFileInfo::Full,
             modify_cb_data,
         }
     }
@@ -291,6 +308,7 @@ impl Document {
             cached_line_count,
             disk_mtime: None,
             disambiguated_name: None,
+            partial_info: PartialFileInfo::Full,
             modify_cb_data,
         }
     }

@@ -139,6 +139,10 @@ Plugins are Lua scripts loaded from `~/.config/ferrispad/plugins/`. The plugin s
 - **Community plugins** are listed in `community-plugins.json` with pinned git tags and SHA-256 checksums
 - See the [Plugin Development Guide](https://github.com/fedro86/ferrispad-plugins/blob/master/CONTRIBUTING.md) for the API reference and examples
 
+## Known Limitations
+
+- **Maximum editable file size: ~1.9 GB.** FLTK's `Fl_Text_Buffer` uses 32-bit `int` for buffer positions. Files at or above 2 GiB (2^31 bytes) overflow and crash. FerrisPad enforces a hard cap at 1.9 GiB — larger files can still be viewed read-only (memory-mapped) or opened partially via tail/chunk mode.
+
 ## Contributing
 
 Contributions are welcome. Fork the repo, make your changes, and submit a pull request.

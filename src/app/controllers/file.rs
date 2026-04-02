@@ -10,8 +10,9 @@ use crate::app::domain::document::DocumentId;
 use crate::app::domain::settings::AppSettings;
 use crate::app::infrastructure::buffer::buffer_text_no_leak;
 use crate::app::plugins::{HookResult, PluginHook, PluginManager};
+use crate::app::domain::document::PartialFileInfo;
 use crate::app::services::file_size::{
-    FileSizeCheck, TAIL_LINE_COUNT, check_file_size, read_chunk, read_tail,
+    FileSizeCheck, TAIL_LINE_COUNT, check_file_size, read_chunk, read_tail, save_partial,
 };
 use crate::ui::dialogs::large_file::{
     StreamLoadResult, TooLargeAction, load_to_buffer_with_progress, show_file_too_large_dialog,
@@ -110,11 +111,12 @@ impl FileController {
                             .unwrap_or("file")
                             .to_string();
                         match read_tail(path_ref, TAIL_LINE_COUNT) {
-                            Ok(content) => {
+                            Ok((content, start_byte)) => {
                                 return self.open_tail_content(
                                     path,
                                     content,
                                     &filename,
+                                    start_byte,
                                     tab_manager,
                                     tabs_enabled,
                                 );
@@ -132,13 +134,15 @@ impl FileController {
                             .unwrap_or("file")
                             .to_string();
                         match read_chunk(path_ref, start_line, end_line) {
-                            Ok(content) => {
+                            Ok((content, start_byte, end_byte)) => {
                                 return self.open_chunk_content(
                                     path,
                                     content,
                                     &filename,
                                     start_line,
                                     end_line,
+                                    start_byte,
+                                    end_byte,
                                     tab_manager,
                                     tabs_enabled,
                                 );
@@ -238,31 +242,18 @@ impl FileController {
         plugins: &PluginManager,
         tabs_enabled: bool,
     ) -> Vec<FileAction> {
-        let (file_path, text, doc_id, is_partial) = {
+        let (file_path, text, doc_id, partial_info) = {
             if let Some(doc) = tab_manager.active_doc() {
-                let is_partial =
-                    doc.display_name.contains("(tail)") || doc.display_name.contains("(lines ");
                 (
                     doc.file_path.clone(),
                     buffer_text_no_leak(&doc.buffer),
                     doc.id.0,
-                    is_partial,
+                    doc.partial_info.clone(),
                 )
             } else {
                 return vec![];
             }
         };
-
-        // Warn if saving a partial document
-        if is_partial {
-            let msg = "Warning: This is a partial view of the file.\n\n\
-                       Saving will overwrite the file with ONLY these lines.\n\
-                       The rest of the original file will be lost.\n\n\
-                       Continue?";
-            if dialog::choice2_default(msg, "Save", "Cancel", "") != Some(0) {
-                return vec![];
-            }
-        }
 
         if let Some(ref path) = file_path {
             // Call plugin hook - plugins can modify content before save
@@ -272,7 +263,29 @@ impl FileController {
             });
             let text_to_save = hook_result.modified_content.unwrap_or(text);
 
-            match fs::write(path, &text_to_save) {
+            let save_result = match &partial_info {
+                PartialFileInfo::Full => fs::write(path, &text_to_save),
+                PartialFileInfo::Tail { start_byte } => {
+                    save_partial(
+                        std::path::Path::new(path),
+                        &text_to_save,
+                        *start_byte,
+                        // end_byte = file size (tail extends to EOF)
+                        fs::metadata(path).map(|m| m.len()).unwrap_or(*start_byte),
+                    )
+                }
+                PartialFileInfo::Chunk {
+                    start_byte,
+                    end_byte,
+                } => save_partial(
+                    std::path::Path::new(path),
+                    &text_to_save,
+                    *start_byte,
+                    *end_byte,
+                ),
+            };
+
+            match save_result {
                 Ok(_) => {
                     if let Some(doc) = tab_manager.active_doc_mut() {
                         doc.mark_clean();
@@ -631,11 +644,13 @@ impl FileController {
         path: String,
         content: String,
         filename: &str,
+        start_byte: u64,
         tab_manager: &mut TabManager,
         tabs_enabled: bool,
     ) -> Vec<FileAction> {
+        use crate::app::domain::document::PartialFileInfo;
+
         if tabs_enabled {
-            // Close empty Untitled tab if it's the only one
             let empty_untitled = if tab_manager.count() == 1 {
                 tab_manager.active_doc().and_then(|doc| {
                     if doc.file_path.is_none() && !doc.is_dirty() && doc.buffer.length() == 0 {
@@ -655,6 +670,7 @@ impl FileController {
 
             if let Some(doc) = tab_manager.doc_by_id_mut(id) {
                 doc.display_name = format!("{} (tail)", filename);
+                doc.partial_info = PartialFileInfo::Tail { start_byte };
                 doc.has_unsaved_changes.set(false);
             }
 
@@ -669,6 +685,7 @@ impl FileController {
                 doc.has_unsaved_changes.set(false);
                 doc.file_path = Some(path.clone());
                 doc.display_name = format!("{} (tail)", filename);
+                doc.partial_info = PartialFileInfo::Tail { start_byte };
             }
             vec![
                 FileAction::UpdateWindowTitle,
@@ -686,13 +703,16 @@ impl FileController {
         filename: &str,
         start_line: usize,
         end_line: usize,
+        start_byte: u64,
+        end_byte: u64,
         tab_manager: &mut TabManager,
         tabs_enabled: bool,
     ) -> Vec<FileAction> {
+        use crate::app::domain::document::PartialFileInfo;
+
         let chunk_label = format!("{} (lines {}-{})", filename, start_line, end_line);
 
         if tabs_enabled {
-            // Close empty Untitled tab if it's the only one
             let empty_untitled = if tab_manager.count() == 1 {
                 tab_manager.active_doc().and_then(|doc| {
                     if doc.file_path.is_none() && !doc.is_dirty() && doc.buffer.length() == 0 {
@@ -712,6 +732,10 @@ impl FileController {
 
             if let Some(doc) = tab_manager.doc_by_id_mut(id) {
                 doc.display_name = chunk_label;
+                doc.partial_info = PartialFileInfo::Chunk {
+                    start_byte,
+                    end_byte,
+                };
                 doc.has_unsaved_changes.set(false);
             }
 
@@ -726,6 +750,10 @@ impl FileController {
                 doc.has_unsaved_changes.set(false);
                 doc.file_path = Some(path.clone());
                 doc.display_name = chunk_label;
+                doc.partial_info = PartialFileInfo::Chunk {
+                    start_byte,
+                    end_byte,
+                };
             }
             vec![
                 FileAction::UpdateWindowTitle,
