@@ -593,7 +593,14 @@ impl TabManager {
     /// Set tab distance (in characters) for all document buffers.
     pub fn set_all_tab_distance(&mut self, distance: i32) {
         for doc in &mut self.documents {
+            // Save dirty state: FLTK's set_tab_distance() fires the modify
+            // callback (with deleted=len, inserted=len) to force a redisplay,
+            // which would incorrectly mark clean documents as dirty.
+            let was_dirty = doc.is_dirty();
             doc.buffer.set_tab_distance(distance);
+            if !was_dirty {
+                doc.mark_clean();
+            }
         }
     }
 }

@@ -136,7 +136,13 @@ impl SessionController {
                         && let Some(temp_content) = session::read_temp_file(temp_file)
                         && let Some(doc) = tab_manager.doc_by_id_mut(id)
                     {
-                        doc.buffer.set_text(&temp_content);
+                        // Only overwrite the buffer if the temp content actually
+                        // differs from the disk file (i.e., there are real unsaved
+                        // edits). set_text() fires the modify callback which marks
+                        // the document dirty, so skip it when content is identical.
+                        if temp_content != content {
+                            doc.buffer.set_text(&temp_content);
+                        }
                     }
 
                     if let Some(doc) = tab_manager.doc_by_id_mut(id) {
