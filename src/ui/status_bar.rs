@@ -143,7 +143,7 @@ impl StatusBar {
 
             let total_chars = (current_width / CHAR_WIDTH).max(0) as usize;
             let pos_len = self.pos_text.len();
-            let margin = 4; // 2 chars padding on each side
+            let margin = 6; // 2 chars left + 4 chars right padding
             let available_for_path = total_chars.saturating_sub(pos_len + margin);
 
             // Truncate path from left if needed
@@ -165,13 +165,14 @@ impl StatusBar {
             };
 
             let label = if display_path.is_empty() {
-                // Right-align only
-                format!("{:>width$}", self.pos_text, width = total_chars)
+                // Right-align with right padding
+                let inner = total_chars.saturating_sub(4);
+                format!("{:>width$}    ", self.pos_text, width = inner)
             } else {
                 // Path on left, Ln/Col on right, fill with spaces
                 let gap = total_chars.saturating_sub(display_path.len() + pos_len + margin);
                 format!(
-                    "  {}{:gap$}{}  ",
+                    "  {}{:gap$}{}    ",
                     display_path,
                     "",
                     self.pos_text,
