@@ -10,6 +10,13 @@
 /docs/internal/*
 /icons/*
 
+# Test artifacts
+test_2gb.log
+gen_log.exe
+gen_log.pdb
+scripts/generate_log.py
+scripts/generate_log.rs
+
 # Binaries
 docs/assets/binaries/*
 

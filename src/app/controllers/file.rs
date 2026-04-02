@@ -44,10 +44,6 @@ pub enum FileAction {
         path: String,
         content: String,
     },
-    /// Run plugin on_document_open hook without content (tail/chunk files).
-    RunPluginOpenHook {
-        path: String,
-    },
     /// Process lint result from save hooks.
     ProcessLintResult(Box<HookResult>),
     /// Update markdown preview file if applicable.
@@ -665,7 +661,7 @@ impl FileController {
             vec![
                 FileAction::SwitchToDocument(id),
                 FileAction::RebuildTabBar,
-                FileAction::RunPluginOpenHook { path },
+                FileAction::DeferOpenHooks { path, content },
             ]
         } else {
             if let Some(doc) = tab_manager.active_doc_mut() {
@@ -676,7 +672,7 @@ impl FileController {
             }
             vec![
                 FileAction::UpdateWindowTitle,
-                FileAction::RunPluginOpenHook { path },
+                FileAction::DeferOpenHooks { path, content },
             ]
         }
     }
@@ -722,7 +718,7 @@ impl FileController {
             vec![
                 FileAction::SwitchToDocument(id),
                 FileAction::RebuildTabBar,
-                FileAction::RunPluginOpenHook { path },
+                FileAction::DeferOpenHooks { path, content },
             ]
         } else {
             if let Some(doc) = tab_manager.active_doc_mut() {
@@ -733,7 +729,7 @@ impl FileController {
             }
             vec![
                 FileAction::UpdateWindowTitle,
-                FileAction::RunPluginOpenHook { path },
+                FileAction::DeferOpenHooks { path, content },
             ]
         }
     }

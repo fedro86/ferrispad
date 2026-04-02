@@ -454,23 +454,6 @@ impl AppState {
                         Message::DeferredPluginHooks { path, content },
                     );
                 }
-                FileAction::RunPluginOpenHook { path } => {
-                    let result = self.plugins.call_hook(PluginHook::OnDocumentOpen {
-                        path: Some(path),
-                        content: None,
-                    });
-                    let approved = self.approved_commands_for_source(&result);
-                    self.widget
-                        .process_widget_requests(&result, "", &approved);
-                    let mut ctx = HookContext {
-                        tab_manager: &mut self.tab_manager,
-                        view: &mut self.view,
-                        widget_manager: &mut self.widget.widget_manager,
-                        sender: self.sender,
-                        approved_commands: approved,
-                    };
-                    hook_dispatch::dispatch_hook_result(result, "", &mut ctx);
-                }
                 FileAction::ProcessLintResult(result) => {
                     let approved = self.approved_commands_for_source(&result);
                     let mut ctx = HookContext {
