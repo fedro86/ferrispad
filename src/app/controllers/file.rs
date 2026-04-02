@@ -99,9 +99,29 @@ impl FileController {
                 match show_file_too_large_dialog(path_ref, size, theme_bg, max_mb) {
                     TooLargeAction::Cancel => return vec![],
                     TooLargeAction::ViewReadOnly => {
-                        crate::ui::dialogs::readonly_viewer::show_readonly_viewer(
-                            path_ref, theme_bg,
-                        );
+                        let filename = path_ref
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("file")
+                            .to_string();
+                        if let Some(req) =
+                            crate::ui::dialogs::readonly_viewer::show_readonly_viewer(
+                                path_ref, theme_bg,
+                            )
+                        {
+                            // User clicked "Open" — content already extracted from mmap
+                            return self.open_chunk_content(
+                                path,
+                                req.content,
+                                &filename,
+                                req.start_line,
+                                req.end_line,
+                                req.start_byte,
+                                req.end_byte,
+                                tab_manager,
+                                tabs_enabled,
+                            );
+                        }
                         return vec![];
                     }
                     TooLargeAction::OpenTail => {

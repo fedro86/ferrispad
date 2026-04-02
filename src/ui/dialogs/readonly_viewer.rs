@@ -230,6 +230,56 @@ impl ViewerState {
         false
     }
 
+    fn search_backward(
+        &mut self,
+        query: &str,
+        buffer: &mut TextBuffer,
+        pos_label: &mut Frame,
+        display: &mut TextDisplay,
+    ) -> bool {
+        if query.is_empty() || self.search_pos == 0 {
+            return false;
+        }
+
+        let query_bytes = query.as_bytes();
+        // Search backward from just before the current match
+        let search_end = self.search_pos.saturating_sub(query_bytes.len());
+        if search_end == 0 {
+            return false;
+        }
+
+        let slice = &self.mmap[..search_end];
+        // Find the LAST occurrence by scanning backward
+        if let Some(rel_pos) = slice
+            .windows(query_bytes.len())
+            .rposition(|w| w == query_bytes)
+        {
+            self.search_pos = rel_pos;
+
+            let target_page = rel_pos / PAGE_SIZE;
+            self.go_to_page(target_page, buffer, pos_label);
+
+            let page_start = self.current_page * PAGE_SIZE;
+            let local_byte_pos = rel_pos - page_start;
+
+            let page_end = (page_start + PAGE_SIZE).min(self.file_size);
+            let page_slice = &self.mmap[page_start..page_end];
+            let newlines_before = page_slice[..local_byte_pos.min(page_slice.len())]
+                .iter()
+                .filter(|&&b| b == b'\n')
+                .count();
+
+            let prefix_bytes_added = (newlines_before + 1) * self.current_prefix_width;
+            let adjusted_pos = (local_byte_pos + prefix_bytes_added) as i32;
+
+            display.set_insert_position(adjusted_pos);
+            display.show_insert_position();
+
+            return true;
+        }
+        false
+    }
+
     /// Calculate the byte width of a line-number prefix for a given max line number.
     /// Format: "{number}│ " where number is right-aligned to the width of max_line.
     fn line_number_prefix_width(max_line: usize) -> usize {
@@ -268,6 +318,15 @@ impl ViewerState {
     }
 }
 
+/// Data returned when the user clicks "Open" in the read-only viewer.
+pub struct ViewerOpenRequest {
+    pub content: String,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub start_byte: u64,
+    pub end_byte: u64,
+}
+
 /// Open a read-only viewer for a large file.
 ///
 /// This creates a modal window with:
@@ -276,12 +335,15 @@ impl ViewerState {
 /// - Go to line number
 /// - Search functionality
 /// - Display of current position/total size
-pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) {
+///
+/// Returns a `ViewerOpenRequest` if the user clicked "Open" to edit the
+/// currently displayed lines, or `None` if the viewer was simply closed.
+pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) -> Option<ViewerOpenRequest> {
     let file = match File::open(path) {
         Ok(f) => f,
         Err(e) => {
             dialog::alert_default(&format!("Failed to open file: {}", e));
-            return;
+            return None;
         }
     };
 
@@ -289,14 +351,14 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) {
         Ok(m) => m,
         Err(e) => {
             dialog::alert_default(&format!("Failed to read file metadata: {}", e));
-            return;
+            return None;
         }
     };
 
     let file_size = metadata.len() as usize;
     if file_size == 0 {
         dialog::alert_default("File is empty.");
-        return;
+        return None;
     }
 
     // Memory-map the file
@@ -306,7 +368,7 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) {
         Ok(m) => m,
         Err(e) => {
             dialog::alert_default(&format!("Failed to memory-map file: {}", e));
-            return;
+            return None;
         }
     };
 
@@ -328,28 +390,10 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) {
     main_flex.set_type(fltk::group::FlexType::Column);
     main_flex.set_spacing(5);
 
-    // Top toolbar
+    // Top toolbar (navigation + search — page prev/next moved to bottom)
     let mut toolbar = Flex::default();
     toolbar.set_type(fltk::group::FlexType::Row);
     toolbar.set_spacing(5);
-
-    let mut prev_btn = Button::default().with_label("@<  Prev");
-    prev_btn.set_tooltip("Previous page (Page Up)");
-    prev_btn.set_frame(FrameType::RFlatBox);
-    prev_btn.set_color(theme.button_bg);
-    prev_btn.set_label_color(theme.text);
-    toolbar.fixed(&prev_btn, 80);
-
-    let mut next_btn = Button::default().with_label("Next  @>");
-    next_btn.set_tooltip("Next page (Page Down)");
-    next_btn.set_frame(FrameType::RFlatBox);
-    next_btn.set_color(theme.button_bg);
-    next_btn.set_label_color(theme.text);
-    toolbar.fixed(&next_btn, 80);
-
-    let mut spacer1 = Frame::default();
-    spacer1.set_frame(FrameType::FlatBox);
-    spacer1.set_color(theme.bg);
 
     let mut page_input = Input::default();
     page_input.set_tooltip("Page number (e.g., 5)");
@@ -386,24 +430,32 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) {
     spacer2.set_color(theme.bg);
 
     let mut search_input = Input::default();
-    search_input.set_tooltip("Search text (Enter to find next)");
+    search_input.set_tooltip("Search text");
     search_input.set_color(theme.input_bg);
     search_input.set_text_color(theme.text);
     search_input.set_frame(FrameType::FlatBox);
     toolbar.fixed(&search_input, 150);
 
     let mut search_btn = Button::default().with_label("Find");
+    search_btn.set_tooltip("Find from start");
     search_btn.set_frame(FrameType::RFlatBox);
     search_btn.set_color(theme.button_bg);
     search_btn.set_label_color(theme.text);
     toolbar.fixed(&search_btn, 60);
 
-    let mut search_next_btn = Button::default().with_label("Next");
+    let mut search_prev_btn = Button::default().with_label("@<");
+    search_prev_btn.set_tooltip("Find previous (Shift+F3)");
+    search_prev_btn.set_frame(FrameType::RFlatBox);
+    search_prev_btn.set_color(theme.button_bg);
+    search_prev_btn.set_label_color(theme.text);
+    toolbar.fixed(&search_prev_btn, 30);
+
+    let mut search_next_btn = Button::default().with_label("@>");
     search_next_btn.set_tooltip("Find next (F3)");
     search_next_btn.set_frame(FrameType::RFlatBox);
     search_next_btn.set_color(theme.button_bg);
     search_next_btn.set_label_color(theme.text);
-    toolbar.fixed(&search_next_btn, 60);
+    toolbar.fixed(&search_next_btn, 30);
 
     toolbar.end();
     main_flex.fixed(&toolbar, 30);
@@ -439,10 +491,16 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) {
             let ptr = Fl_Group_child(group_ptr, i);
             if !ptr.is_null() {
                 let mut sb = Scrollbar::from_widget_ptr(ptr as fltk::app::WidgetPtr);
-                sb.set_frame(FrameType::FlatBox);
-                sb.set_color(theme.scroll_track);
-                sb.set_slider_frame(FrameType::FlatBox);
-                sb.set_selection_color(theme.scroll_thumb);
+                if i == 0 {
+                    // Hide horizontal scrollbar (not needed for line-oriented logs)
+                    sb.hide();
+                    sb.resize(0, 0, 0, 0);
+                } else {
+                    sb.set_frame(FrameType::FlatBox);
+                    sb.set_color(theme.scroll_track);
+                    sb.set_slider_frame(FrameType::FlatBox);
+                    sb.set_selection_color(theme.scroll_thumb);
+                }
             }
         }
     }
@@ -468,12 +526,40 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) {
     status_flex.end();
     main_flex.fixed(&status_flex, 25);
 
-    // Close button row — secondary style (muted)
+    // Bottom row: [<< Prev] [Next >>] ... [Open (lines X-Y)] ... [Close]
     let mut btn_row = Flex::default();
     btn_row.set_type(fltk::group::FlexType::Row);
-    let mut left_spacer = Frame::default();
-    left_spacer.set_frame(FrameType::FlatBox);
-    left_spacer.set_color(theme.bg);
+    btn_row.set_spacing(5);
+
+    let mut prev_btn = Button::default().with_label("@<  Prev Page");
+    prev_btn.set_tooltip("Previous page (Page Up)");
+    prev_btn.set_frame(FrameType::RFlatBox);
+    prev_btn.set_color(theme.button_bg);
+    prev_btn.set_label_color(theme.text);
+    btn_row.fixed(&prev_btn, 110);
+
+    let mut next_btn = Button::default().with_label("Next Page  @>");
+    next_btn.set_tooltip("Next page (Page Down)");
+    next_btn.set_frame(FrameType::RFlatBox);
+    next_btn.set_color(theme.button_bg);
+    next_btn.set_label_color(theme.text);
+    btn_row.fixed(&next_btn, 110);
+
+    let mut spacer_left = Frame::default();
+    spacer_left.set_frame(FrameType::FlatBox);
+    spacer_left.set_color(theme.bg);
+
+    let mut open_btn = Button::default().with_label("Open (editable)");
+    open_btn.set_tooltip("Open current page as editable chunk");
+    open_btn.set_frame(FrameType::RFlatBox);
+    open_btn.set_color(theme.button_bg);
+    open_btn.set_label_color(theme.text);
+    btn_row.fixed(&open_btn, 140);
+
+    let mut spacer_right = Frame::default();
+    spacer_right.set_frame(FrameType::FlatBox);
+    spacer_right.set_color(theme.bg);
+
     let mut close_btn = Button::default().with_label("Close");
     let (r, g, b) = theme_bg;
     let brightness = (r as u32 + g as u32 + b as u32) / 3;
@@ -494,11 +580,12 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) {
     close_btn.set_color(close_bg);
     close_btn.set_label_color(theme.text_dim);
     btn_row.fixed(&close_btn, 100);
-    let mut right_spacer = Frame::default();
-    right_spacer.set_frame(FrameType::FlatBox);
-    right_spacer.set_color(theme.bg);
+
     btn_row.end();
     main_flex.fixed(&btn_row, 35);
+
+    // Track the open request (set by the Open button)
+    let open_request: Rc<RefCell<Option<ViewerOpenRequest>>> = Rc::new(RefCell::new(None));
 
     main_flex.end();
     window.end();
@@ -620,8 +707,53 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) {
         );
         if !found {
             dialog::message_default("No more matches found.");
-            state_search_next.borrow_mut().search_pos = 0; // Reset for next search
+            state_search_next.borrow_mut().search_pos = 0;
         }
+    });
+
+    // Search previous button
+    let state_search_prev = Rc::clone(&state);
+    let mut buf_search_prev = buffer.clone();
+    let mut pos_label_search_prev = position_label.clone();
+    let mut display_search_prev = display.clone();
+    let search_input_prev = search_input.clone();
+    search_prev_btn.set_callback(move |_| {
+        let query = search_input_prev.value();
+        let found = state_search_prev.borrow_mut().search_backward(
+            &query,
+            &mut buf_search_prev,
+            &mut pos_label_search_prev,
+            &mut display_search_prev,
+        );
+        if !found {
+            dialog::message_default("No previous matches found.");
+        }
+    });
+
+    // Open button — extract current page content from mmap and return it
+    let state_open = Rc::clone(&state);
+    let open_req = Rc::clone(&open_request);
+    let mut win_open = window.clone();
+    open_btn.set_callback(move |_| {
+        let s = state_open.borrow();
+        let start_line = s.current_start_line;
+        let page_start = s.current_page * PAGE_SIZE;
+        let page_end = (page_start + PAGE_SIZE).min(s.file_size);
+        let slice = &s.mmap[page_start..page_end];
+        let lines_in_page = slice.iter().filter(|&&b| b == b'\n').count();
+        let end_line = start_line + lines_in_page;
+
+        // Extract raw content directly from the mmap (no re-read needed)
+        let content = String::from_utf8_lossy(slice).into_owned();
+
+        *open_req.borrow_mut() = Some(ViewerOpenRequest {
+            content,
+            start_line,
+            end_line,
+            start_byte: page_start as u64,
+            end_byte: page_end as u64,
+        });
+        win_open.hide();
     });
 
     // Handle keyboard shortcuts
@@ -674,4 +806,6 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) {
             window.hide();
         }
     }
+
+    open_request.borrow_mut().take()
 }
