@@ -334,11 +334,9 @@ impl TerminalPanel {
         };
 
         if let Some(ref mut ts) = self.state {
-            for &byte in &data {
-                let mut handler =
-                    crate::app::services::terminal::vte_handler::VteHandler::new(&mut ts.grid);
-                ts.parser.advance(&mut handler, byte);
-            }
+            let mut handler =
+                crate::app::services::terminal::vte_handler::VteHandler::new(&mut ts.grid);
+            ts.parser.advance(&mut handler, &data);
             self.update_snapshot();
             self.canvas.redraw();
         }
