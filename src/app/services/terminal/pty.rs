@@ -37,12 +37,24 @@ impl PtySession {
             .map_err(|e| format!("Failed to open PTY: {}", e))?;
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-        let cmd_str = command.unwrap_or(&shell);
 
-        let mut cmd = CommandBuilder::new(cmd_str);
-        for arg in args {
-            cmd.arg(arg);
-        }
+        let mut cmd = if let Some(program) = command {
+            // Wrap in a login shell so the user's profile (PATH, etc.) is loaded.
+            // This is essential when FerrisPad is launched from a desktop icon
+            // where the session environment may be minimal.
+            let mut full_cmd = String::from(program);
+            for arg in args {
+                full_cmd.push(' ');
+                full_cmd.push_str(arg);
+            }
+            let mut c = CommandBuilder::new(&shell);
+            c.arg("-lc");
+            c.arg(&full_cmd);
+            c
+        } else {
+            // Interactive shell — no wrapping needed
+            CommandBuilder::new(&shell)
+        };
         if let Some(dir) = cwd {
             cmd.cwd(dir);
         }
@@ -53,7 +65,10 @@ impl PtySession {
         let child = pair
             .slave
             .spawn_command(cmd)
-            .map_err(|e| format!("Failed to spawn '{}': {}", cmd_str, e))?;
+            .map_err(|e| {
+                let label = command.unwrap_or(&shell);
+                format!("Failed to spawn '{}': {}", label, e)
+            })?;
 
         // Clone reader before taking writer — both come from the master fd
         let reader = pair
