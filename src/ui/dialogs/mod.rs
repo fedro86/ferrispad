@@ -47,7 +47,8 @@ pub struct DialogTheme {
     pub scroll_thumb: Color,
     /// Whether the theme is dark mode
     is_dark: bool,
-    /// Original syntax theme background (needed for titlebar theming)
+    /// Original syntax theme background (needed for titlebar theming on Windows)
+    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
     theme_bg: (u8, u8, u8),
 }
 
@@ -167,6 +168,16 @@ impl DialogTheme {
     /// Check if the theme is dark mode
     pub fn is_dark(&self) -> bool {
         self.is_dark
+    }
+
+    /// Error/warning text color adapted to the theme brightness.
+    /// Light red on dark backgrounds for readability, dark red on light backgrounds.
+    pub fn error_color(&self) -> Color {
+        if self.is_dark {
+            Color::from_rgb(255, 120, 120)
+        } else {
+            Color::from_rgb(180, 0, 0)
+        }
     }
 
     /// Apply themed titlebar (icon + colors) to a dialog window.

@@ -6,7 +6,7 @@
 
 use fltk::{
     button::{Button, CheckButton},
-    enums::Color,
+    enums::FrameType,
     frame::Frame,
     group::Group,
     prelude::*,
@@ -14,6 +14,8 @@ use fltk::{
 };
 use std::cell::RefCell;
 use std::rc::Rc;
+
+use super::DialogTheme;
 
 /// Request for permission approval
 pub struct PermissionRequest {
@@ -47,7 +49,12 @@ const SECTION_GAP: i32 = 15;
 
 /// Show a modal dialog asking the user to approve plugin permissions.
 /// Returns which commands were approved (if any).
-pub fn show_permission_dialog(request: &PermissionRequest) -> ApprovalResult {
+pub fn show_permission_dialog(
+    request: &PermissionRequest,
+    theme_bg: (u8, u8, u8),
+) -> ApprovalResult {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
     // Calculate dialog height based on content
     let has_description = !request.description.is_empty();
     let desc_height = if has_description { LABEL_HEIGHT + 5 } else { 0 };
@@ -69,23 +76,26 @@ pub fn show_permission_dialog(request: &PermissionRequest) -> ApprovalResult {
         .with_label("Plugin Permission Request")
         .center_screen();
     dialog.make_modal(true);
+    dialog.set_color(theme.bg);
 
     let result = Rc::new(RefCell::new(ApprovalResult::Cancelled));
 
     // Main content group - exactly like settings_dialog
-    let _vpack = Group::default()
+    let mut _vpack = Group::default()
         .with_size(DIALOG_WIDTH - 20, dialog_height - 50)
         .with_pos(10, 10);
+    _vpack.set_color(theme.bg);
 
     let mut y = MARGIN;
     let col_width = DIALOG_WIDTH - MARGIN * 2;
 
     // Title label
-    Frame::default()
+    let mut title = Frame::default()
         .with_pos(MARGIN, y)
         .with_size(col_width, LABEL_HEIGHT)
         .with_label(&format!("\"{}\" wants to execute:", request.plugin_name))
         .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    title.set_label_color(theme.text);
     y += LABEL_HEIGHT + 5;
 
     // Description (if available)
@@ -95,15 +105,16 @@ pub fn show_permission_dialog(request: &PermissionRequest) -> ApprovalResult {
             .with_size(col_width, LABEL_HEIGHT);
         desc.set_label(&request.description);
         desc.set_label_size(11);
-        desc.set_label_color(Color::from_rgb(100, 100, 100));
+        desc.set_label_color(theme.text_dim);
         desc.set_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
         y += LABEL_HEIGHT + 5;
     }
 
     // Checkboxes group - like theme_group in settings
-    let cb_group = Group::default()
+    let mut cb_group = Group::default()
         .with_pos(MARGIN + 10, y)
         .with_size(col_width - 10, request.commands.len() as i32 * ITEM_HEIGHT);
+    cb_group.set_color(theme.bg);
 
     let mut checkboxes: Vec<CheckButton> = Vec::new();
     for (i, cmd) in request.commands.iter().enumerate() {
@@ -112,6 +123,8 @@ pub fn show_permission_dialog(request: &PermissionRequest) -> ApprovalResult {
             .with_size(col_width - 20, ITEM_HEIGHT)
             .with_label(cmd);
         cb.set_value(true);
+        cb.set_label_color(theme.text);
+        cb.set_color(theme.bg);
         checkboxes.push(cb);
     }
     cb_group.end();
@@ -123,7 +136,7 @@ pub fn show_permission_dialog(request: &PermissionRequest) -> ApprovalResult {
         .with_size(col_width, LABEL_HEIGHT);
     warning.set_label("These commands will run in your project directory.");
     warning.set_label_size(11);
-    warning.set_label_color(Color::from_rgb(100, 100, 100));
+    warning.set_label_color(theme.text_dim);
     warning.set_align(fltk::enums::Align::Center | fltk::enums::Align::Inside);
 
     _vpack.end();
@@ -137,15 +150,21 @@ pub fn show_permission_dialog(request: &PermissionRequest) -> ApprovalResult {
         .with_pos(deny_x, btn_y)
         .with_size(BUTTON_WIDTH, BUTTON_HEIGHT)
         .with_label("Deny");
+    deny_btn.set_frame(FrameType::RFlatBox);
+    deny_btn.set_color(theme.button_bg);
+    deny_btn.set_label_color(theme.text);
 
     let mut allow_btn = Button::default()
         .with_pos(allow_x, btn_y)
         .with_size(BUTTON_WIDTH, BUTTON_HEIGHT)
         .with_label("Allow");
-    allow_btn.set_color(Color::from_rgb(76, 175, 80));
+    allow_btn.set_frame(FrameType::RFlatBox);
+    allow_btn.set_color(theme.button_bg);
+    allow_btn.set_label_color(theme.text);
 
     dialog.end();
     dialog.show();
+    theme.apply_titlebar(&dialog);
 
     // Callbacks - set after dialog.show() like settings_dialog
     let result_deny = result.clone();

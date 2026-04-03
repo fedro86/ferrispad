@@ -12,7 +12,7 @@
 use fltk::{
     app,
     button::Button,
-    enums::{Align, Color, Event, FrameType, Key},
+    enums::{Align, Event, FrameType, Key},
     frame::Frame,
     group::{Group, Pack, PackType, Scroll, Tabs},
     input::Input,
@@ -64,7 +64,7 @@ pub fn show_shortcut_dialog(
     tabs_enabled: bool,
 ) -> Option<ShortcutDialogResult> {
     let theme = DialogTheme::from_theme_bg(theme_bg);
-    let error_color = Color::from_rgb(220, 60, 60);
+    let error_color = theme.error_color();
 
     let mut dialog = Window::default()
         .with_size(DIALOG_WIDTH, DIALOG_HEIGHT)

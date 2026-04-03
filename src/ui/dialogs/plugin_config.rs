@@ -15,7 +15,7 @@
 //! - regex:PATTERN: Validates against a custom regex pattern
 
 use fltk::{
-    enums::{Color, FrameType},
+    enums::FrameType,
     prelude::*,
     *,
 };
@@ -149,7 +149,7 @@ pub fn show_plugin_config_dialog(
     let text_dim = theme.text_dim;
     let input_bg = theme.input_bg;
     let button_bg = theme.button_bg;
-    let error_color = Color::from_rgb(220, 60, 60);
+    let error_color = theme.error_color();
 
     // Calculate dialog height based on number of params
     // 1 row for title, N for params, 1 for error, 1 for buttons

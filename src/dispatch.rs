@@ -309,7 +309,10 @@ pub fn handle_settings(msg: Message, state: &mut AppState, lw: &mut LayoutWidget
                 lw.tree_panel.apply_theme(state.view.dark_mode, theme_bg);
             }
         }
-        Message::CheckForUpdates => check_for_updates_ui(&state.settings),
+        Message::CheckForUpdates => {
+            let theme_bg = state.highlight.highlighter().theme_background();
+            check_for_updates_ui(&state.settings, theme_bg);
+        }
         Message::ShowAbout => {
             let theme_bg = state.highlight.highlighter().theme_background();
             show_about_dialog(theme_bg);
@@ -377,6 +380,7 @@ pub fn handle_update(msg: Message, state: &mut AppState) {
             let _ = s.save();
         }
         Message::ShowBannerUpdate => {
+            let theme_bg = state.highlight.highlighter().theme_background();
             state.update.show_update_dialog(
                 &state.settings,
                 &mut BannerWidgets {
@@ -384,6 +388,7 @@ pub fn handle_update(msg: Message, state: &mut AppState) {
                     flex: &mut state.flex,
                     window: &mut state.window,
                 },
+                theme_bg,
             );
         }
         Message::DismissBanner => {
@@ -405,11 +410,13 @@ pub fn handle_update(msg: Message, state: &mut AppState) {
 pub fn handle_plugin(msg: Message, state: &mut AppState) {
     match msg {
         Message::PluginsToggleGlobal => {
+            let theme_bg = state.highlight.highlighter().theme_background();
             state.plugin_coord.handle_toggle_global(
                 &mut state.plugins,
                 &state.settings,
                 &state.shortcut_registry,
                 &mut state.widget.widget_manager,
+                theme_bg,
             );
         }
         Message::PluginToggle(name) => {
@@ -422,15 +429,22 @@ pub fn handle_plugin(msg: Message, state: &mut AppState) {
             );
         }
         Message::PluginsReloadAll => {
+            let theme_bg = state.highlight.highlighter().theme_background();
             state.plugin_coord.handle_reload(
                 &mut state.plugins,
                 &state.settings,
                 &state.shortcut_registry,
                 &mut state.widget.widget_manager,
+                theme_bg,
             );
         }
         Message::CheckPluginPermissions => {
-            PluginController::check_permissions_deferred(&mut state.plugins, &state.settings);
+            let theme_bg = state.highlight.highlighter().theme_background();
+            PluginController::check_permissions_deferred(
+                &mut state.plugins,
+                &state.settings,
+                theme_bg,
+            );
         }
         Message::PluginMenuAction {
             plugin_name,

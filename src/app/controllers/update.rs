@@ -45,9 +45,10 @@ impl UpdateController {
         &mut self,
         settings: &Rc<RefCell<AppSettings>>,
         widgets: &mut BannerWidgets,
+        theme_bg: (u8, u8, u8),
     ) {
         if let Some(release) = self.pending_update.take() {
-            show_update_available_dialog(release, settings);
+            show_update_available_dialog(release, settings, theme_bg);
             self.hide_banner(widgets);
         }
     }

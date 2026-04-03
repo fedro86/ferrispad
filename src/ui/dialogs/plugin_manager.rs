@@ -187,7 +187,6 @@ pub fn show_plugin_manager_dialog(
     theme_bg: (u8, u8, u8),
 ) -> PluginManagerResult {
     let theme = DialogTheme::from_theme_bg(theme_bg);
-    let is_dark = theme.is_dark();
 
     let mut dialog = Window::default()
         .with_size(DIALOG_WIDTH, DIALOG_HEIGHT)
@@ -456,15 +455,10 @@ pub fn show_plugin_manager_dialog(
             }
         }
         Err(e) => {
-            let error_color = if is_dark {
-                Color::from_rgb(255, 120, 120)
-            } else {
-                Color::from_rgb(180, 0, 0)
-            };
             let mut error_label = Frame::default()
                 .with_size(row_width, 60)
                 .with_label(&format!("Failed to fetch plugins:\n{}", e));
-            error_label.set_label_color(error_color);
+            error_label.set_label_color(theme.error_color());
             pack_available.add(&error_label);
         }
     }
@@ -664,15 +658,10 @@ pub fn show_plugin_manager_dialog(
                         }
                     }
                     Err(e) => {
-                        let error_color = if theme_cb.is_dark() {
-                            Color::from_rgb(255, 120, 120)
-                        } else {
-                            Color::from_rgb(180, 0, 0)
-                        };
                         let mut error_label = Frame::default()
                             .with_size(row_width_cb, 60)
                             .with_label(&format!("Failed to fetch community plugins:\n{}", e));
-                        error_label.set_label_color(error_color);
+                        error_label.set_label_color(theme_cb.error_color());
                         pack_community_cb.borrow_mut().add(&error_label);
                     }
                 }

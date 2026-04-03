@@ -2,7 +2,7 @@ use fltk::{
     app,
     button::Button,
     dialog,
-    enums::Font,
+    enums::{Color, Font, FrameType},
     frame::Frame,
     group::Flex,
     misc::Progress,
@@ -13,11 +13,12 @@ use fltk::{
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use super::DialogTheme;
 use crate::app::AppSettings;
 use crate::app::services::updater;
 
 /// Check for updates and show UI dialog (manual check)
-pub fn check_for_updates_ui(settings: &Rc<RefCell<AppSettings>>) {
+pub fn check_for_updates_ui(settings: &Rc<RefCell<AppSettings>>, theme_bg: (u8, u8, u8)) {
     use crate::app::services::updater::{UpdateCheckResult, check_for_updates, current_timestamp};
 
     let current_version = env!("CARGO_PKG_VERSION");
@@ -30,19 +31,27 @@ pub fn check_for_updates_ui(settings: &Rc<RefCell<AppSettings>>) {
 
     match result {
         UpdateCheckResult::UpdateAvailable(release) => {
-            show_update_available_dialog(release, settings);
+            show_update_available_dialog(release, settings, theme_bg);
         }
         UpdateCheckResult::NoUpdate => {
-            dialog::message_default(&format!(
-                "\u{2705} You're up to date!\n\nFerrisPad {} is the latest version.",
-                current_version
-            ));
+            show_info_dialog(
+                "Up to Date",
+                &format!(
+                    "\u{2705} You're up to date!\n\nFerrisPad {} is the latest version.",
+                    current_version
+                ),
+                theme_bg,
+            );
         }
         UpdateCheckResult::Error(err) => {
-            dialog::alert_default(&format!(
-                "Failed to check for updates:\n\n{}\n\nPlease try again later.",
-                err
-            ));
+            show_info_dialog(
+                "Update Check Failed",
+                &format!(
+                    "Failed to check for updates:\n\n{}\n\nPlease try again later.",
+                    err
+                ),
+                theme_bg,
+            );
         }
     }
 
@@ -55,22 +64,30 @@ pub fn check_for_updates_ui(settings: &Rc<RefCell<AppSettings>>) {
 pub fn show_update_available_dialog(
     release: updater::ReleaseInfo,
     settings: &Rc<RefCell<AppSettings>>,
+    theme_bg: (u8, u8, u8),
 ) {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+    let dialog_bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
     let current_version = env!("CARGO_PKG_VERSION");
     let asset_name = updater::get_platform_asset_name();
     let direct_asset = release.assets.iter().find(|a| a.name.contains(asset_name));
 
     let mut dialog = Window::new(100, 100, 500, 480, "Update Available");
     dialog.make_modal(true);
+    dialog.set_color(dialog_bg);
 
     let mut flex = Flex::new(10, 10, 480, 460, None);
     flex.set_type(fltk::group::FlexType::Column);
     flex.set_spacing(10);
+    flex.set_color(dialog_bg);
 
     // Title
     let mut title = Frame::default().with_label("\u{1f980} FerrisPad Update Available");
     title.set_label_size(18);
     title.set_label_font(Font::HelveticaBold);
+    title.set_label_color(theme.text);
+    title.set_frame(FrameType::FlatBox);
+    title.set_color(dialog_bg);
     flex.fixed(&title, 30);
 
     // Version info
@@ -81,28 +98,46 @@ pub fn show_update_available_dialog(
     );
     let mut version_frame = Frame::default().with_label(&version_text);
     version_frame.set_label_size(14);
+    version_frame.set_label_color(theme.text);
+    version_frame.set_frame(FrameType::FlatBox);
+    version_frame.set_color(dialog_bg);
     flex.fixed(&version_frame, 50);
 
     // Release notes
     let mut notes_label = Frame::default().with_label("What's new:");
     notes_label.set_label_size(14);
     notes_label.set_label_font(Font::HelveticaBold);
+    notes_label.set_label_color(theme.text);
+    notes_label.set_frame(FrameType::FlatBox);
+    notes_label.set_color(dialog_bg);
     flex.fixed(&notes_label, 25);
 
     let mut notes_editor = TextEditor::default();
     notes_editor.set_buffer(TextBuffer::default());
     notes_editor.buffer().unwrap().set_text(&release.body);
     notes_editor.wrap_mode(WrapMode::AtBounds, 0);
+    notes_editor.set_color(theme.input_bg);
+    notes_editor.set_text_color(theme.text);
+    notes_editor.set_cursor_color(theme.text);
+    notes_editor.set_selection_color(theme.button_bg);
+    notes_editor.set_frame(FrameType::FlatBox);
+    notes_editor.set_scrollbar_size(super::SCROLLBAR_SIZE);
 
     // Progress bar (initially hidden)
     let mut progress = Progress::default().with_size(0, 25);
     progress.set_minimum(0.0);
     progress.set_maximum(1.0);
+    progress.set_color(theme.input_bg);
+    progress.set_selection_color(theme.button_bg);
+    progress.set_label_color(theme.text);
     progress.hide();
     flex.fixed(&progress, 25);
 
     let mut status_frame = Frame::default().with_size(0, 20);
     status_frame.set_label_size(11);
+    status_frame.set_label_color(theme.text_dim);
+    status_frame.set_frame(FrameType::FlatBox);
+    status_frame.set_color(dialog_bg);
     status_frame.hide();
     flex.fixed(&status_frame, 20);
 
@@ -110,11 +145,27 @@ pub fn show_update_available_dialog(
     let mut button_row = Flex::default();
     button_row.set_type(fltk::group::FlexType::Row);
     button_row.set_spacing(10);
+    button_row.set_color(dialog_bg);
 
     let mut install_btn = Button::default().with_label("Install Now");
+    install_btn.set_frame(FrameType::RFlatBox);
+    install_btn.set_color(theme.button_bg);
+    install_btn.set_label_color(theme.text);
+
     let mut download_btn = Button::default().with_label("View on GitHub");
+    download_btn.set_frame(FrameType::RFlatBox);
+    download_btn.set_color(theme.button_bg);
+    download_btn.set_label_color(theme.text);
+
     let mut skip_btn = Button::default().with_label("Skip This Version");
+    skip_btn.set_frame(FrameType::RFlatBox);
+    skip_btn.set_color(theme.button_bg);
+    skip_btn.set_label_color(theme.text);
+
     let mut later_btn = Button::default().with_label("Remind Later");
+    later_btn.set_frame(FrameType::RFlatBox);
+    later_btn.set_color(theme.button_bg);
+    later_btn.set_label_color(theme.text);
 
     if direct_asset.is_none() {
         install_btn.deactivate();
@@ -236,5 +287,52 @@ pub fn show_update_available_dialog(
     });
 
     dialog.show();
+    theme.apply_titlebar(&dialog);
+    super::run_dialog(&dialog);
+}
+
+/// Themed info/error dialog replacing FLTK's unthemed `message_default`/`alert_default`.
+fn show_info_dialog(title: &str, message: &str, theme_bg: (u8, u8, u8)) {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+    let dialog_bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
+
+    let mut dialog = Window::default()
+        .with_size(380, 180)
+        .with_label(title)
+        .center_screen();
+    dialog.make_modal(true);
+    dialog.set_color(dialog_bg);
+
+    let mut flex = Flex::new(15, 15, 350, 150, None);
+    flex.set_type(fltk::group::FlexType::Column);
+    flex.set_spacing(10);
+    flex.set_color(dialog_bg);
+
+    let mut msg_frame = Frame::default();
+    msg_frame.set_label(message);
+    msg_frame.set_label_size(13);
+    msg_frame.set_label_color(theme.text);
+    msg_frame.set_frame(FrameType::FlatBox);
+    msg_frame.set_color(dialog_bg);
+    msg_frame.set_align(
+        fltk::enums::Align::Center | fltk::enums::Align::Inside | fltk::enums::Align::Wrap,
+    );
+
+    let mut close_btn = Button::default().with_label("Close");
+    close_btn.set_frame(FrameType::RFlatBox);
+    close_btn.set_color(theme.button_bg);
+    close_btn.set_label_color(theme.text);
+    flex.fixed(&close_btn, 35);
+
+    flex.end();
+    dialog.end();
+
+    let mut dialog_close = dialog.clone();
+    close_btn.set_callback(move |_| {
+        dialog_close.hide();
+    });
+
+    dialog.show();
+    theme.apply_titlebar(&dialog);
     super::run_dialog(&dialog);
 }

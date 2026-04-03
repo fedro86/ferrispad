@@ -87,7 +87,11 @@ impl PluginController {
     }
 
     /// Check plugin permissions and show approval dialog for unapproved commands.
-    pub fn check_permissions(plugins: &mut PluginManager, settings: &Rc<RefCell<AppSettings>>) {
+    pub fn check_permissions(
+        plugins: &mut PluginManager,
+        settings: &Rc<RefCell<AppSettings>>,
+        theme_bg: (u8, u8, u8),
+    ) {
         for plugin in plugins.plugins_mut() {
             let unapproved: Vec<String> = plugin
                 .permissions
@@ -107,7 +111,7 @@ impl PluginController {
                 commands: unapproved,
             };
 
-            match show_permission_dialog(&request) {
+            match show_permission_dialog(&request, theme_bg) {
                 ApprovalResult::Approved(cmds) => {
                     plugin.approved_commands.extend(cmds.clone());
                     {
@@ -144,8 +148,9 @@ impl PluginController {
     pub fn check_permissions_deferred(
         plugins: &mut PluginManager,
         settings: &Rc<RefCell<AppSettings>>,
+        theme_bg: (u8, u8, u8),
     ) {
-        Self::check_permissions(plugins, settings);
+        Self::check_permissions(plugins, settings, theme_bg);
     }
 
     /// Toggle the global plugin system on/off
@@ -155,6 +160,7 @@ impl PluginController {
         settings: &Rc<RefCell<AppSettings>>,
         shortcut_registry: &ShortcutRegistry,
         widget_manager: &mut WidgetManager,
+        theme_bg: (u8, u8, u8),
     ) {
         let currently_enabled = settings.borrow().plugins_enabled;
         let new_enabled = !currently_enabled;
@@ -190,7 +196,7 @@ impl PluginController {
             for name in &disabled {
                 plugins.toggle_plugin(name, false);
             }
-            Self::check_permissions(plugins, settings);
+            Self::check_permissions(plugins, settings, theme_bg);
             self.rebuild_plugins_menu(settings, plugins, shortcut_registry);
         } else {
             // Pass pre-disable names as orphans so menu rebuild can remove stale entries
@@ -245,6 +251,7 @@ impl PluginController {
         settings: &Rc<RefCell<AppSettings>>,
         shortcut_registry: &ShortcutRegistry,
         widget_manager: &mut WidgetManager,
+        theme_bg: (u8, u8, u8),
     ) {
         // Clean up all widget sessions before reload
         for plugin in plugins.list_plugins() {
@@ -258,7 +265,7 @@ impl PluginController {
             plugins.toggle_plugin(name, false);
         }
 
-        Self::check_permissions(plugins, settings);
+        Self::check_permissions(plugins, settings, theme_bg);
         self.rebuild_plugins_menu(settings, plugins, shortcut_registry);
     }
 
@@ -307,7 +314,7 @@ impl PluginController {
                         plugins.toggle_plugin(disabled_name, false);
                     }
                     // Check permissions for newly installed plugins
-                    Self::check_permissions(plugins, settings);
+                    Self::check_permissions(plugins, settings, theme_bg);
                 }
 
                 // 4. Apply toggles
