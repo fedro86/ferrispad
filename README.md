@@ -63,7 +63,7 @@ cargo fmt --check                       # Format check
 
 ## Architecture
 
-~34,000 lines across 92 Rust source files. Message-passing event-driven architecture with Clean Architecture layers.
+~35,000 lines across 92 Rust source files. Message-passing event-driven architecture with Clean Architecture layers.
 
 ```
 src/
@@ -91,6 +91,7 @@ src/
       shortcut_registry.rs # Keyboard shortcut management
       editor_context.rs    # Structured editor state for MCP/plugins
       plugin_registry.rs   # Plugin registry with caching
+      plugin_update_checker.rs # Plugin update check scheduling
       plugin_verify.rs     # Signature and checksum verification
       updater.rs           # Update checker (stable/unstable channels)
       text_ops.rs          # Text manipulation helpers
@@ -109,19 +110,22 @@ src/
     infrastructure/      # FFI helpers (buffer leak fix), errors, platform detection
   ui/
     main_window.rs       # Widget layout
+    editor_container.rs  # Editor widget wrapper
     tab_bar.rs           # Custom tab bar with drag-and-drop
     terminal_panel.rs    # Embedded terminal widget
+    diagnostic_panel.rs  # Lint/diagnostic display panel
     split_panel.rs       # Plugin split view widget
     tree_panel.rs        # Plugin tree view widget
     status_bar.rs        # Cursor position, file path, language
     menu.rs              # Menu bar with shortcut registry
+    file_dialogs.rs      # Native file picker helpers
     theme.rs             # Dark/light themes, platform titlebar
     toast.rs             # Toast notifications
     dialogs/             # Find, Settings, GoTo, About, Update, Plugin Manager,
                          #   Shortcuts, Large File, Read-Only Viewer, Community Install
 ```
 
-All UI interactions flow through a `Message` enum (~90 variants) dispatched in the main event loop. Controllers return action enums (e.g. `Vec<FileAction>`) for cross-cutting effects.
+All UI interactions flow through a `Message` enum (~100 variants) dispatched in the main event loop. Controllers return action enums (e.g. `Vec<FileAction>`) for cross-cutting effects.
 
 ## Technology Stack
 
