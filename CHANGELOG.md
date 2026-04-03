@@ -5,6 +5,47 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.4] - 2026-04-03
+
+### Added
+- **Windows Title Bar Theming**: Title bar color derived from syntax theme via DWMWA_CAPTION_COLOR (Windows 11+).
+- **macOS Theme-Aware Title Bar**: Title bar color and custom centered title that follow the active syntax theme.
+- **Themed Titlebar, Icon, and Selection Color for All Dialogs**: Consistent icon, titlebar, and selection styling across every dialog.
+- **Read-Only Viewer "Open (editable)" Button**: Large-file read-only viewer now offers a button to open the file in the editor.
+- **Save Tail/Chunk Edits**: Edits made to a tail or chunk of a large file are saved back to the correct position in the original file.
+- **Lazy-Loading Tree View**: On-demand expansion replaces full recursive scan, improving startup for large directories.
+- **Relative File Path in Status Bar**: Status bar now shows the file path relative to the workspace root.
+- **Structured CLI Argument Parsing**: `--help`, `--version`, `--line`, and multi-file arguments with proper parsing.
+- **Disambiguated Tab Names**: Same-named files show parent directory to distinguish them; workspace root detection fixed.
+- **File Reload Shortcuts & Focus Detection**: Reload files on focus return and via keyboard shortcuts when external changes are detected.
+- **Deleted File Handling**: Gracefully handles deleted files and refreshes tree on focus.
+- **Dependabot**: Weekly Cargo dependency updates via GitHub Dependabot.
+
+### Fixed
+- **Consistent Dialog Theming**: All dialogs (update, plugin permissions, info/error popups) now use DialogTheme instead of hardcoded or FLTK default colors.
+- **Error Color Standardization**: Replaced hardcoded error colors across plugin config, shortcut, and plugin manager dialogs with `DialogTheme::error_color()`.
+- **Read-Only Viewer Scrollbar**: Fixed horizontal scrollbar and inconsistent styling in the read-only viewer.
+- **Status Bar Clipping**: Fixed Ln/Col text clipped on the right edge of the status bar.
+- **Plugin Hook Large Files**: Plugin hooks no longer read the entire file when opening a tail/chunk of large files.
+- **False Dirty Flags**: Prevented FLTK modify callback side effects (e.g. `set_tab_distance`) from marking documents as dirty.
+- **macOS Title Label**: Custom title label not updating on file open/switch.
+- **objc2 Migration**: Migrated from objc 0.2 to objc2 0.5 to eliminate `unexpected_cfgs` warnings.
+- **Status Bar Theme Update**: Status bar not updating on theme change via settings dialog.
+- **Dialog Theming (rc.1)**: Applied `DialogTheme` to Find, Replace, Go To Line, and shortcut dialogs; theme-aware selection colors for plugin config and settings dialogs.
+- **Tab Group Collapse**: Auto-expand collapsed group when switching to a tab inside it; removed 2px gap below collapsed group chip.
+- **Plugin Lint Results**: Propagate `had_lint_results` in the selected-plugins code path.
+- **`use_spaces` Setting**: Added missing `use_spaces` editor setting.
+- **Registry Rate Limits**: Plugin registry now caches responses and handles HTTP 429 gracefully.
+- **VTE 0.15 API**: Adapted to vte 0.15 API (`advance` takes `&[u8]` instead of `u8`).
+
+### Changed
+- Developer-focused README with updated architecture tree and fixed installation scripts.
+- Bumped dependencies: similar 3.0.0, sha2 0.11.0, vte 0.15.0, tempfile 3.27.0, thiserror 2.0.18.
+
+### Security
+- **Hardened Plugin Sandbox**: Restricted `terminal_view` and `_G` access in Lua plugins.
+- **Preview URL Whitelist**: Added URL scheme whitelist and Content Security Policy to prevent protocol-handler RCE.
+
 ## [0.9.4-rc.2] - 2026-04-01
 
 ### Added
