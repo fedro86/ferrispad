@@ -726,8 +726,18 @@ impl SplitPanel {
 
         self.update_tab_mode_colors();
 
-        self.left_display.scroll(0, 0);
-        self.right_editor.scroll(0, 0);
+        // Scroll to the first changed line (or top if no highlights)
+        let first_change_line = request
+            .left
+            .highlights
+            .iter()
+            .chain(request.right.highlights.iter())
+            .map(|h| h.line)
+            .min()
+            .unwrap_or(1)
+            .saturating_sub(3) as i32; // 3 lines of context above
+        self.left_display.scroll(first_change_line, 0);
+        self.right_editor.scroll(first_change_line, 0);
 
         self.container.redraw();
     }
