@@ -28,7 +28,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 static NEXT_SESSION_ID: AtomicU32 = AtomicU32::new(1);
 
 /// Generate a unique session ID for a widget
-fn next_session_id() -> u32 {
+pub fn next_session_id() -> u32 {
     NEXT_SESSION_ID.fetch_add(1, Ordering::SeqCst)
 }
 

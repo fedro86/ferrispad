@@ -654,6 +654,13 @@ impl TerminalPanel {
             }
         }
     }
+
+    /// Send raw input bytes to the terminal PTY (as if typed by the user).
+    pub fn send_input(&self, data: &[u8]) {
+        if let Some(ref ts) = self.state {
+            ts.pty.write(data);
+        }
+    }
 }
 
 /// Encode an FLTK key event into terminal bytes

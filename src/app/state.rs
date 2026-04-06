@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use fltk::{
@@ -72,6 +73,9 @@ pub struct AppState {
     text_change_timer_active: bool,
     /// MCP response channels keyed by request_id
     pub mcp_responses: McpResponses,
+    /// Pending diff reviews from MCP tools (session_id → (file_path, decision_fifo))
+    /// If decision_fifo is Some, write "accept"/"reject" to it on user action.
+    pub pending_diff_reviews: HashMap<u32, (String, Option<String>)>,
 }
 
 impl AppState {
@@ -185,6 +189,7 @@ impl AppState {
             pending_text_change: None,
             text_change_timer_active: false,
             mcp_responses: Default::default(),
+            pending_diff_reviews: HashMap::new(),
         }
     }
 

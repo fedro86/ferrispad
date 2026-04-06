@@ -724,13 +724,32 @@ pub fn handle_split_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidg
             lw.wind.redraw();
         }
         Message::SplitViewAccept(session_id) => {
-            state.widget.handle_split_view_accept(
-                session_id,
-                &mut lw.split_panel,
-                &mut state.plugins,
-                &state.tab_manager,
-                &mut state.editor,
-            );
+            if let Some((path, fifo)) = state.pending_diff_reviews.remove(&session_id) {
+                if let Some(ref fifo_path) = fifo {
+                    // preview_edit: signal acceptance via FIFO and auto-approve in terminal
+                    let _ = std::fs::write(fifo_path, "accept\n");
+                    lw.terminal_panel.send_input(b"1\n");
+                } else {
+                    // show_diff: reload file from disk (edit already happened)
+                    if let Some(doc_id) = state.tab_manager.find_by_path(&path) {
+                        let actions =
+                            state.file.reload_file(doc_id, &mut state.tab_manager);
+                        state.dispatch_file_actions(actions);
+                    }
+                }
+                state
+                    .widget
+                    .handle_split_view_reject(session_id, &mut lw.split_panel);
+            } else {
+                // Plugin-based split view: existing flow
+                state.widget.handle_split_view_accept(
+                    session_id,
+                    &mut lw.split_panel,
+                    &mut state.plugins,
+                    &state.tab_manager,
+                    &mut state.editor,
+                );
+            }
             let parent = split_parent!(lw);
             parent.fixed(lw.split_panel.widget(), 0);
             if let Some(ref mut div) = lw.split_panel.divider {
@@ -744,6 +763,22 @@ pub fn handle_split_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidg
             lw.wind.redraw();
         }
         Message::SplitViewReject(session_id) => {
+            if let Some((path, fifo)) = state.pending_diff_reviews.remove(&session_id) {
+                if let Some(ref fifo_path) = fifo {
+                    // preview_edit: signal rejection via FIFO and decline in terminal
+                    let _ = std::fs::write(fifo_path, "reject\n");
+                    lw.terminal_panel.send_input(b"3\n");
+                } else {
+                    // show_diff: update disk_mtime to suppress re-prompt
+                    if let Some(doc_id) = state.tab_manager.find_by_path(&path)
+                        && let Some(doc) = state.tab_manager.doc_by_id_mut(doc_id)
+                    {
+                        doc.disk_mtime = std::fs::metadata(&path)
+                            .ok()
+                            .and_then(|m| m.modified().ok());
+                    }
+                }
+            }
             state
                 .widget
                 .handle_split_view_reject(session_id, &mut lw.split_panel);
