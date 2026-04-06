@@ -3,7 +3,7 @@
 //! Used for showing diffs, AI suggestions, and file comparisons.
 //! Plugin-driven via the Widget API.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -358,6 +358,18 @@ pub struct SplitPanel {
     /// DiffBg variant index for each cached style entry (parallel vec).
     /// Used to rebuild bgcolors on theme change.
     cached_diff_bg_indices: Vec<u8>,
+    /// Scrollbar marker data for left pane: (line, color) pairs
+    left_markers: Rc<RefCell<Vec<(u32, HighlightColor)>>>,
+    /// Scrollbar marker data for right pane: (line, color) pairs
+    right_markers: Rc<RefCell<Vec<(u32, HighlightColor)>>>,
+    /// Total line count in the aligned diff (same for both panes)
+    marker_total_lines: Rc<Cell<u32>>,
+    /// Whether markers are in dark mode
+    markers_dark: Rc<Cell<bool>>,
+    /// Left scrollbar marker overlay frame
+    left_marker_frame: Frame,
+    /// Right scrollbar marker overlay frame
+    right_marker_frame: Frame,
 }
 
 impl SplitPanel {
@@ -440,6 +452,15 @@ impl SplitPanel {
         container.end();
         container.hide();
 
+        // Marker overlay frames created OUTSIDE the container so they can be
+        // positioned absolutely over the scrollbar areas without Flex interference.
+        let mut left_marker_frame = Frame::new(0, 0, 0, 0, None);
+        left_marker_frame.set_frame(FrameType::NoBox);
+        left_marker_frame.hide();
+        let mut right_marker_frame = Frame::new(0, 0, 0, 0, None);
+        right_marker_frame.set_frame(FrameType::NoBox);
+        right_marker_frame.hide();
+
         // Read-only flag shared between SplitPanel and the right pane's handle closure
         let right_read_only = Rc::new(Cell::new(true));
 
@@ -451,6 +472,8 @@ impl SplitPanel {
         {
             let flag = syncing.clone();
             let mut other = right_editor.clone();
+            let mut lmf = left_marker_frame.clone();
+            let mut rmf = right_marker_frame.clone();
             left_display.handle(move |disp, event| {
                 match event {
                     Event::MouseWheel if !flag.get() => {
@@ -465,6 +488,8 @@ impl SplitPanel {
                         let new_line = (current + delta).max(1);
                         disp.scroll(new_line, 0);
                         other.scroll(new_line, 0);
+                        lmf.redraw();
+                        rmf.redraw();
                         flag.set(false);
                         true // consume
                     }
@@ -473,6 +498,8 @@ impl SplitPanel {
                         flag.set(true);
                         let val = get_vscrollbar_value(disp) as i32;
                         other.scroll(val, 0);
+                        lmf.redraw();
+                        rmf.redraw();
                         flag.set(false);
                         false // don't consume — let FLTK finish handling
                     }
@@ -486,6 +513,8 @@ impl SplitPanel {
             let flag = syncing;
             let read_only = right_read_only.clone();
             let mut other = left_display.clone();
+            let mut lmf = left_marker_frame.clone();
+            let mut rmf = right_marker_frame.clone();
             right_editor.handle(move |ed, event| {
                 // Block keyboard input and paste when read-only
                 if read_only.get() {
@@ -508,6 +537,8 @@ impl SplitPanel {
                         let new_line = (current + delta).max(1);
                         ed.scroll(new_line, 0);
                         other.scroll(new_line, 0);
+                        lmf.redraw();
+                        rmf.redraw();
                         flag.set(false);
                         true
                     }
@@ -515,6 +546,8 @@ impl SplitPanel {
                         flag.set(true);
                         let val = get_vscrollbar_value_editor(ed) as i32;
                         other.scroll(val, 0);
+                        lmf.redraw();
+                        rmf.redraw();
                         flag.set(false);
                         false
                     }
@@ -552,6 +585,12 @@ impl SplitPanel {
             editor_font_size: 13,
             cached_style_table: Vec::new(),
             cached_diff_bg_indices: Vec::new(),
+            left_markers: Rc::new(RefCell::new(Vec::new())),
+            right_markers: Rc::new(RefCell::new(Vec::new())),
+            marker_total_lines: Rc::new(Cell::new(0)),
+            markers_dark: Rc::new(Cell::new(false)),
+            left_marker_frame,
+            right_marker_frame,
         }
     }
 
@@ -739,7 +778,137 @@ impl SplitPanel {
         self.left_display.scroll(first_change_line, 0);
         self.right_editor.scroll(first_change_line, 0);
 
+        // Update scrollbar marker data
+        let total_lines = request.left.content.lines().count().max(1) as u32;
+        self.marker_total_lines.set(total_lines);
+        self.markers_dark.set(self.is_dark);
+        {
+            let mut lm = self.left_markers.borrow_mut();
+            *lm = request
+                .left
+                .highlights
+                .iter()
+                .map(|h| (h.line, h.color))
+                .collect();
+        }
+        {
+            let mut rm = self.right_markers.borrow_mut();
+            *rm = request
+                .right
+                .highlights
+                .iter()
+                .map(|h| (h.line, h.color))
+                .collect();
+        }
+        self.setup_scrollbar_markers();
+
         self.container.redraw();
+    }
+
+    /// Position marker overlay frames over each pane's scrollbar and set draw callbacks.
+    fn setup_scrollbar_markers(&mut self) {
+        // Position overlays after layout is finalized
+        let left_disp = self.left_display.clone();
+        let right_ed = self.right_editor.clone();
+        let mut lf = self.left_marker_frame.clone();
+        let mut rf = self.right_marker_frame.clone();
+        let lm = self.left_markers.clone();
+        let rm = self.right_markers.clone();
+        let total = self.marker_total_lines.clone();
+        let total2 = self.marker_total_lines.clone();
+        let dark = self.markers_dark.clone();
+        let dark2 = self.markers_dark.clone();
+
+        // Set draw callbacks (these persist across repaints)
+        lf.set_frame(FrameType::NoBox);
+        lf.draw(move |f| {
+            Self::draw_markers(f.x(), f.y(), f.w(), f.h(), &lm, &total, &dark);
+        });
+
+        rf.set_frame(FrameType::NoBox);
+        rf.draw(move |f| {
+            Self::draw_markers(f.x(), f.y(), f.w(), f.h(), &rm, &total2, &dark2);
+        });
+
+        // Delay positioning until layout is finalized
+        fltk::app::add_timeout3(0.05, move |_| {
+            let sb_w = SCROLLBAR_SIZE;
+            let btn_h = sb_w; // scrollbar arrow buttons
+
+            // Left pane marker strip
+            let lx = left_disp.x() + left_disp.w() - sb_w;
+            let ly = left_disp.y() + btn_h;
+            let lh = left_disp.h() - btn_h * 2;
+            lf.resize(lx, ly, sb_w, lh);
+            lf.show();
+            lf.redraw();
+
+            // Right pane marker strip
+            let rx = right_ed.x() + right_ed.w() - sb_w;
+            let ry = right_ed.y() + btn_h;
+            let rh = right_ed.h() - btn_h * 2;
+            rf.resize(rx, ry, sb_w, rh);
+            rf.show();
+            rf.redraw();
+        });
+    }
+
+    /// Draw colored markers on a frame that overlays the scrollbar track.
+    fn draw_markers(
+        frame_x: i32,
+        frame_y: i32,
+        frame_w: i32,
+        frame_h: i32,
+        markers: &Rc<RefCell<Vec<(u32, HighlightColor)>>>,
+        total_lines: &Rc<Cell<u32>>,
+        is_dark: &Rc<Cell<bool>>,
+    ) {
+        use fltk::draw;
+
+        let markers = markers.borrow();
+        if markers.is_empty() {
+            return;
+        }
+        let total = total_lines.get().max(1) as f64;
+        let dark = is_dark.get();
+
+        if frame_h <= 0 {
+            return;
+        }
+
+        // Marker dimensions: centered within the frame, min 2px tall
+        let marker_w = (frame_w - 4).max(2);
+        let marker_x = frame_x + (frame_w - marker_w) / 2;
+        let marker_h = (frame_h as f64 / total).ceil().max(2.0) as i32;
+
+        for &(line, ref color) in markers.iter() {
+            let y = frame_y + ((line.saturating_sub(1) as f64 / total) * frame_h as f64) as i32;
+            let c = match color {
+                HighlightColor::Added => {
+                    if dark {
+                        Color::from_rgb(60, 180, 60)
+                    } else {
+                        Color::from_rgb(40, 160, 40)
+                    }
+                }
+                HighlightColor::Removed => {
+                    if dark {
+                        Color::from_rgb(200, 60, 60)
+                    } else {
+                        Color::from_rgb(180, 40, 40)
+                    }
+                }
+                HighlightColor::Modified => {
+                    if dark {
+                        Color::from_rgb(200, 180, 40)
+                    } else {
+                        Color::from_rgb(180, 160, 20)
+                    }
+                }
+                HighlightColor::Rgb(r, g, b) => Color::from_rgb(*r, *g, *b),
+            };
+            draw::draw_rect_fill(marker_x, y, marker_w, marker_h, c);
+        }
     }
 
     /// Apply combined syntax+diff highlighting for one pane.
@@ -895,6 +1064,8 @@ impl SplitPanel {
     /// Hide the split panel
     pub fn hide(&mut self) {
         self.container.hide();
+        self.left_marker_frame.hide();
+        self.right_marker_frame.hide();
         self.visible = false;
         self.session_id = None;
         self.is_tab_mode = false;
