@@ -366,10 +366,6 @@ pub struct SplitPanel {
     marker_total_lines: Rc<Cell<u32>>,
     /// Whether markers are in dark mode
     markers_dark: Rc<Cell<bool>>,
-    /// Left scrollbar marker overlay frame
-    left_marker_frame: Frame,
-    /// Right scrollbar marker overlay frame
-    right_marker_frame: Frame,
 }
 
 impl SplitPanel {
@@ -452,15 +448,6 @@ impl SplitPanel {
         container.end();
         container.hide();
 
-        // Marker overlay frames created OUTSIDE the container so they can be
-        // positioned absolutely over the scrollbar areas without Flex interference.
-        let mut left_marker_frame = Frame::new(0, 0, 0, 0, None);
-        left_marker_frame.set_frame(FrameType::NoBox);
-        left_marker_frame.hide();
-        let mut right_marker_frame = Frame::new(0, 0, 0, 0, None);
-        right_marker_frame.set_frame(FrameType::NoBox);
-        right_marker_frame.hide();
-
         // Read-only flag shared between SplitPanel and the right pane's handle closure
         let right_read_only = Rc::new(Cell::new(true));
 
@@ -472,8 +459,6 @@ impl SplitPanel {
         {
             let flag = syncing.clone();
             let mut other = right_editor.clone();
-            let mut lmf = left_marker_frame.clone();
-            let mut rmf = right_marker_frame.clone();
             left_display.handle(move |disp, event| {
                 match event {
                     Event::MouseWheel if !flag.get() => {
@@ -488,8 +473,6 @@ impl SplitPanel {
                         let new_line = (current + delta).max(1);
                         disp.scroll(new_line, 0);
                         other.scroll(new_line, 0);
-                        lmf.redraw();
-                        rmf.redraw();
                         flag.set(false);
                         true // consume
                     }
@@ -498,8 +481,6 @@ impl SplitPanel {
                         flag.set(true);
                         let val = get_vscrollbar_value(disp) as i32;
                         other.scroll(val, 0);
-                        lmf.redraw();
-                        rmf.redraw();
                         flag.set(false);
                         false // don't consume — let FLTK finish handling
                     }
@@ -513,8 +494,6 @@ impl SplitPanel {
             let flag = syncing;
             let read_only = right_read_only.clone();
             let mut other = left_display.clone();
-            let mut lmf = left_marker_frame.clone();
-            let mut rmf = right_marker_frame.clone();
             right_editor.handle(move |ed, event| {
                 // Block keyboard input and paste when read-only
                 if read_only.get() {
@@ -537,8 +516,6 @@ impl SplitPanel {
                         let new_line = (current + delta).max(1);
                         ed.scroll(new_line, 0);
                         other.scroll(new_line, 0);
-                        lmf.redraw();
-                        rmf.redraw();
                         flag.set(false);
                         true
                     }
@@ -546,8 +523,6 @@ impl SplitPanel {
                         flag.set(true);
                         let val = get_vscrollbar_value_editor(ed) as i32;
                         other.scroll(val, 0);
-                        lmf.redraw();
-                        rmf.redraw();
                         flag.set(false);
                         false
                     }
@@ -589,8 +564,6 @@ impl SplitPanel {
             right_markers: Rc::new(RefCell::new(Vec::new())),
             marker_total_lines: Rc::new(Cell::new(0)),
             markers_dark: Rc::new(Cell::new(false)),
-            left_marker_frame,
-            right_marker_frame,
         }
     }
 
@@ -805,13 +778,12 @@ impl SplitPanel {
         self.container.redraw();
     }
 
-    /// Position marker overlay frames over each pane's scrollbar and set draw callbacks.
+    /// Set up scrollbar markers by attaching a draw callback to the content_row.
+    /// The callback draws colored markers directly on top of each pane's scrollbar
+    /// track area after all children have been rendered.
     fn setup_scrollbar_markers(&mut self) {
-        // Position overlays after layout is finalized
         let left_disp = self.left_display.clone();
         let right_ed = self.right_editor.clone();
-        let mut lf = self.left_marker_frame.clone();
-        let mut rf = self.right_marker_frame.clone();
         let lm = self.left_markers.clone();
         let rm = self.right_markers.clone();
         let total = self.marker_total_lines.clone();
@@ -819,37 +791,28 @@ impl SplitPanel {
         let dark = self.markers_dark.clone();
         let dark2 = self.markers_dark.clone();
 
-        // Set draw callbacks (these persist across repaints)
-        lf.set_frame(FrameType::NoBox);
-        lf.draw(move |f| {
-            Self::draw_markers(f.x(), f.y(), f.w(), f.h(), &lm, &total, &dark);
-        });
+        self.content_row.draw(move |cr| {
+            // Draw children first (the text displays)
+            cr.draw_children();
 
-        rf.set_frame(FrameType::NoBox);
-        rf.draw(move |f| {
-            Self::draw_markers(f.x(), f.y(), f.w(), f.h(), &rm, &total2, &dark2);
-        });
-
-        // Delay positioning until layout is finalized
-        fltk::app::add_timeout3(0.05, move |_| {
             let sb_w = SCROLLBAR_SIZE;
-            let btn_h = sb_w; // scrollbar arrow buttons
+            let btn_h = sb_w; // scrollbar arrow buttons are square
 
-            // Left pane marker strip
+            // Left pane markers
             let lx = left_disp.x() + left_disp.w() - sb_w;
             let ly = left_disp.y() + btn_h;
             let lh = left_disp.h() - btn_h * 2;
-            lf.resize(lx, ly, sb_w, lh);
-            lf.show();
-            lf.redraw();
+            if lh > 0 {
+                Self::draw_markers(lx, ly, sb_w, lh, &lm, &total, &dark);
+            }
 
-            // Right pane marker strip
+            // Right pane markers
             let rx = right_ed.x() + right_ed.w() - sb_w;
             let ry = right_ed.y() + btn_h;
             let rh = right_ed.h() - btn_h * 2;
-            rf.resize(rx, ry, sb_w, rh);
-            rf.show();
-            rf.redraw();
+            if rh > 0 {
+                Self::draw_markers(rx, ry, sb_w, rh, &rm, &total2, &dark2);
+            }
         });
     }
 
@@ -1064,8 +1027,6 @@ impl SplitPanel {
     /// Hide the split panel
     pub fn hide(&mut self) {
         self.container.hide();
-        self.left_marker_frame.hide();
-        self.right_marker_frame.hide();
         self.visible = false;
         self.session_id = None;
         self.is_tab_mode = false;
