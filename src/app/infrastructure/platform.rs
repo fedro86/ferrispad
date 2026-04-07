@@ -30,6 +30,9 @@ pub fn copy_to_clipboard(text: &str) {
     fltk::app::copy2(text);
 }
 
+// paste_from_clipboard removed: use fltk::app::paste_text() + Event::Paste instead.
+// Synchronous clipboard reads deadlock on Wayland.
+
 pub fn detect_system_dark_mode() -> bool {
     // Windows: Check registry for dark mode preference
     #[cfg(target_os = "windows")]

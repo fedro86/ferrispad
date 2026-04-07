@@ -508,6 +508,7 @@ impl TerminalPanel {
             let scroll_offset = Arc::clone(&self.scroll_offset);
             let snapshot = Arc::clone(&self.snapshot);
 
+            let canvas_for_paste = self.canvas.clone();
             self.canvas.handle({
                 let writer = writer.clone();
                 move |f, ev| match ev {
@@ -537,16 +538,36 @@ impl TerminalPanel {
                         f.redraw();
                         true
                     }
+                    Event::Paste => {
+                        // Clipboard paste: FLTK delivers clipboard content via event_text()
+                        let clip = fltk::app::event_text();
+                        if !clip.is_empty()
+                            && let Ok(w) = writer.lock()
+                        {
+                            unsafe { (*w.pty).write(clip.as_bytes()) };
+                        }
+                        true
+                    }
                     Event::KeyDown => {
                         let key = fltk::app::event_key();
                         let text = fltk::app::event_text();
+                        let state = fltk::app::event_state();
 
-                        let bytes = encode_key(key, &text);
-                        if !bytes.is_empty()
-                            && let Ok(w) = writer.lock()
+                        // Ctrl+Shift+V: paste from clipboard (terminal convention)
+                        if state.contains(fltk::enums::Shortcut::Ctrl)
+                            && state.contains(fltk::enums::Shortcut::Shift)
+                            && (key == fltk::enums::Key::from_char('v')
+                                || key == fltk::enums::Key::from_char('V'))
                         {
-                            // SAFETY: pty pointer is valid as long as state exists
-                            unsafe { (*w.pty).write(&bytes) };
+                            fltk::app::paste_text(&canvas_for_paste);
+                        } else {
+                            let bytes = encode_key(key, &text);
+                            if !bytes.is_empty()
+                                && let Ok(w) = writer.lock()
+                            {
+                                // SAFETY: pty pointer is valid as long as state exists
+                                unsafe { (*w.pty).write(&bytes) };
+                            }
                         }
                         // Snap to bottom on keypress
                         if let Ok(mut off) = scroll_offset.lock() {
@@ -663,27 +684,73 @@ impl TerminalPanel {
     }
 }
 
-/// Encode an FLTK key event into terminal bytes
+/// Encode an FLTK key event into terminal bytes.
+///
+/// Supports modifier-aware sequences:
+/// - Ctrl+Arrow: word jumping (ESC[1;5X)
+/// - Shift+Arrow: selection (ESC[1;2X)
+/// - Ctrl+Backspace: delete word backward (0x17)
+/// - Ctrl+Delete: delete word forward (ESC[3;5~)
 fn encode_key(key: Key, text: &str) -> Vec<u8> {
+    let state = fltk::app::event_state();
+    let ctrl = state.contains(fltk::enums::Shortcut::Ctrl);
+
     match key {
         Key::Enter => vec![b'\r'],
-        Key::BackSpace => vec![0x7f],
+        Key::BackSpace => {
+            if ctrl {
+                vec![0x17] // Ctrl+Backspace: delete word backward (ETB)
+            } else {
+                vec![0x7f]
+            }
+        }
         Key::Tab => {
-            if fltk::app::event_state().contains(fltk::enums::Shortcut::Shift) {
+            if state.contains(fltk::enums::Shortcut::Shift) {
                 b"\x1b[Z".to_vec() // Shift+Tab (reverse tab / back tab)
             } else {
                 vec![b'\t']
             }
         }
         Key::Escape => vec![0x1b],
-        Key::Up => b"\x1b[A".to_vec(),
-        Key::Down => b"\x1b[B".to_vec(),
-        Key::Right => b"\x1b[C".to_vec(),
-        Key::Left => b"\x1b[D".to_vec(),
-        Key::Home => b"\x1b[H".to_vec(),
-        Key::End => b"\x1b[F".to_vec(),
+        // Arrow keys: modifier-aware
+        Key::Up | Key::Down | Key::Right | Key::Left => {
+            let dir = match key {
+                Key::Up => b'A',
+                Key::Down => b'B',
+                Key::Right => b'C',
+                Key::Left => b'D',
+                _ => unreachable!(),
+            };
+            if ctrl {
+                // Ctrl+Arrow: word jumping
+                format!("\x1b[1;5{}", dir as char).into_bytes()
+            } else {
+                vec![0x1b, b'[', dir]
+            }
+        }
+        // Home/End: modifier-aware
+        Key::Home => {
+            if ctrl {
+                b"\x1b[1;5H".to_vec()
+            } else {
+                b"\x1b[H".to_vec()
+            }
+        }
+        Key::End => {
+            if ctrl {
+                b"\x1b[1;5F".to_vec()
+            } else {
+                b"\x1b[F".to_vec()
+            }
+        }
         Key::Insert => b"\x1b[2~".to_vec(),
-        Key::Delete => b"\x1b[3~".to_vec(),
+        Key::Delete => {
+            if ctrl {
+                b"\x1b[3;5~".to_vec() // Ctrl+Delete: delete word forward
+            } else {
+                b"\x1b[3~".to_vec()
+            }
+        }
         Key::PageUp => b"\x1b[5~".to_vec(),
         Key::PageDown => b"\x1b[6~".to_vec(),
         Key::F1 => b"\x1bOP".to_vec(),
@@ -699,9 +766,8 @@ fn encode_key(key: Key, text: &str) -> Vec<u8> {
         Key::F11 => b"\x1b[23~".to_vec(),
         Key::F12 => b"\x1b[24~".to_vec(),
         _ => {
-            // Check for Ctrl+key combinations
-            let state = fltk::app::event_state();
-            if state.contains(fltk::enums::Shortcut::Ctrl) && !text.is_empty() {
+            // Ctrl+letter combinations (Ctrl+C=0x03, Ctrl+D=0x04, etc.)
+            if ctrl && !text.is_empty() {
                 let ch = text.bytes().next().unwrap_or(0);
                 if ch.is_ascii_lowercase() {
                     return vec![ch - b'a' + 1];
