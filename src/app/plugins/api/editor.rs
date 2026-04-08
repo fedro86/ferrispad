@@ -136,11 +136,10 @@ pub fn setup_mcp_config(
     };
 
     // Validate root path is inside the sandbox
-    let resolved_root =
-        match super::sandbox::resolve_and_validate(&root, project_root)? {
-            Some(p) => p,
-            None => return Ok((false, "Path outside project root".to_string())),
-        };
+    let resolved_root = match super::sandbox::resolve_and_validate(&root, project_root)? {
+        Some(p) => p,
+        None => return Ok((false, "Path outside project root".to_string())),
+    };
 
     // Read MCP port
     let port = match crate::app::mcp::port_file_path()
@@ -195,4 +194,3 @@ pub fn setup_mcp_config(
 
     Ok((true, String::new()))
 }
-

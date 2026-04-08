@@ -291,7 +291,6 @@ impl TreePanel {
         self.divider = Some(divider);
     }
 
-
     /// Get a reference to the container widget for layout
     pub fn widget(&self) -> &Flex {
         &self.container
@@ -464,7 +463,8 @@ impl TreePanel {
             // Add children recursively, or a placeholder for lazy nodes
             if node.lazy && node.children.is_empty() {
                 // Lazy node: add a placeholder child so FLTK shows expand arrow
-                self.tree.add(&format!("{}/{}", item_path, LAZY_PLACEHOLDER_LABEL));
+                self.tree
+                    .add(&format!("{}/{}", item_path, LAZY_PLACEHOLDER_LABEL));
             } else {
                 for child in &node.children {
                     self.add_tree_node(Some(&item_path), child, expand_depth, current_depth + 1);
@@ -993,12 +993,7 @@ impl TreePanel {
             // Recurse only into children that have matches
             for (i, child) in node.children.iter().enumerate() {
                 if self_matches || children_match[i] {
-                    self.add_filtered_tree_node(
-                        Some(&item_path),
-                        child,
-                        query,
-                        current_depth + 1,
-                    );
+                    self.add_filtered_tree_node(Some(&item_path), child, query, current_depth + 1);
                 }
             }
         }

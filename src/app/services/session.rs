@@ -55,19 +55,127 @@ pub struct GroupSession {
     pub collapsed: bool,
 }
 
-/// Returns the session directory path: data_dir/ferrispad/session/
-pub fn session_dir() -> PathBuf {
+/// Default session name used when no --session flag is provided.
+pub const DEFAULT_SESSION_NAME: &str = "default";
+
+/// Returns the base session directory: data_dir/ferrispad/session/
+fn session_base_dir() -> PathBuf {
     let mut path = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
     path.push("ferrispad");
     path.push("session");
     path
 }
 
-/// Save the current session to disk.
+/// Returns the session directory for a named session: data_dir/ferrispad/session/{name}/
+pub fn session_dir(name: &str) -> PathBuf {
+    session_base_dir().join(name)
+}
+
+/// List all available session names (subdirectories of the session base dir).
+pub fn list_sessions() -> Vec<String> {
+    let base = session_base_dir();
+    let mut names: Vec<String> = fs::read_dir(&base)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect();
+    names.sort();
+    names
+}
+
+/// Delete a named session (removes its directory and all temp files).
+pub fn delete_session(name: &str) -> Result<(), AppError> {
+    let dir = session_dir(name);
+    if dir.exists() {
+        fs::remove_dir_all(&dir)?;
+    }
+    Ok(())
+}
+
+/// Migrate old flat session layout into the new named-session directory structure.
+/// If `session_base_dir()/session.json` exists (old format), moves it and all
+/// `.tmp` files into `session_base_dir()/default/`.
+pub fn migrate_flat_session() {
+    let base = session_base_dir();
+    let old_session_file = base.join("session.json");
+    if !old_session_file.exists() {
+        return;
+    }
+    // Already migrated if default/ exists
+    let default_dir = base.join(DEFAULT_SESSION_NAME);
+    if default_dir.join("session.json").exists() {
+        // Old file is stale leftover — remove it
+        let _ = fs::remove_file(&old_session_file);
+        return;
+    }
+    let _ = fs::create_dir_all(&default_dir);
+    let _ = fs::rename(&old_session_file, default_dir.join("session.json"));
+    // Move all .tmp files
+    if let Ok(entries) = fs::read_dir(&base) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file()
+                && path.extension().map(|e| e == "tmp").unwrap_or(false)
+                && let Some(name) = path.file_name()
+            {
+                let _ = fs::rename(&path, default_dir.join(name));
+            }
+        }
+    }
+}
+
+/// Sanitize a session name to safe filesystem characters [a-zA-Z0-9_-].
+/// Returns None if the result would be empty.
+pub fn sanitize_session_name(name: &str) -> Option<String> {
+    let sanitized: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let trimmed = sanitized.trim_matches('-');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+/// Check if a session name's instance_id refers to a still-running process.
+pub fn session_is_locked(name: &str) -> bool {
+    let session_file = session_dir(name).join("session.json");
+    let Ok(contents) = fs::read_to_string(&session_file) else {
+        return false;
+    };
+    let Ok(data) = serde_json::from_str::<SessionData>(&contents) else {
+        return false;
+    };
+    let Some(ref pid_str) = data.instance_id else {
+        return false;
+    };
+    let Ok(pid) = pid_str.parse::<u32>() else {
+        return false;
+    };
+    // Check if the PID is our own process (not locked by another)
+    if pid == std::process::id() {
+        return false;
+    }
+    // Check if process is still running
+    std::path::Path::new(&format!("/proc/{}", pid)).exists()
+}
+
+/// Save the current session to disk under the given session name.
 pub fn save_session(
     tab_manager: &TabManager,
     mode: SessionRestore,
     last_open_directory: Option<&str>,
+    session_name: &str,
 ) -> Result<(), AppError> {
     if mode == SessionRestore::Off {
         return Ok(());
@@ -84,7 +192,7 @@ pub fn save_session(
         return Ok(());
     }
 
-    let dir = session_dir();
+    let dir = session_dir(session_name);
     fs::create_dir_all(&dir)?;
     let active_id = tab_manager.active_id();
     let active_index = active_id
@@ -252,13 +360,13 @@ fn cleanup_orphaned_temp_files(session: &SessionData, dir: &std::path::Path) {
     }
 }
 
-/// Load session data from disk.
-pub fn load_session(mode: SessionRestore) -> Option<SessionData> {
+/// Load session data from disk for the given session name.
+pub fn load_session(mode: SessionRestore, session_name: &str) -> Option<SessionData> {
     if mode == SessionRestore::Off {
         return None;
     }
 
-    let session_file = session_dir().join("session.json");
+    let session_file = session_dir(session_name).join("session.json");
     let contents = fs::read_to_string(&session_file).ok()?;
     let session_data: SessionData = serde_json::from_str(&contents).ok()?;
 
@@ -277,8 +385,8 @@ pub fn load_session(mode: SessionRestore) -> Option<SessionData> {
 }
 
 /// Read temp file content from the session directory.
-pub fn read_temp_file(temp_file: &str) -> Option<String> {
-    let path = session_dir().join(temp_file);
+pub fn read_temp_file(temp_file: &str, session_name: &str) -> Option<String> {
+    let path = session_dir(session_name).join(temp_file);
     fs::read_to_string(&path).ok()
 }
 
@@ -384,13 +492,40 @@ mod tests {
 
     #[test]
     fn test_load_session_off_returns_none() {
-        let result = load_session(SessionRestore::Off);
+        let result = load_session(SessionRestore::Off, DEFAULT_SESSION_NAME);
         assert!(result.is_none());
     }
 
     #[test]
     fn test_session_dir_returns_path() {
-        let dir = session_dir();
-        assert!(dir.ends_with("ferrispad/session") || dir.ends_with("ferrispad\\session"));
+        let dir = session_dir("default");
+        assert!(
+            dir.ends_with("ferrispad/session/default")
+                || dir.ends_with("ferrispad\\session\\default")
+        );
+    }
+
+    #[test]
+    fn test_sanitize_session_name() {
+        assert_eq!(
+            sanitize_session_name("my-project"),
+            Some("my-project".to_string())
+        );
+        assert_eq!(
+            sanitize_session_name("My Project!"),
+            Some("My-Project".to_string())
+        );
+        assert_eq!(sanitize_session_name(""), None);
+        assert_eq!(sanitize_session_name("---"), None);
+        assert_eq!(
+            sanitize_session_name("hello world"),
+            Some("hello-world".to_string())
+        );
+    }
+
+    #[test]
+    fn test_list_sessions_returns_vec() {
+        // Just verify it doesn't panic; actual sessions depend on environment
+        let _ = list_sessions();
     }
 }

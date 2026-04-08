@@ -62,13 +62,10 @@ impl PtySession {
         // Set TERM for proper terminal emulation
         cmd.env("TERM", "xterm-256color");
 
-        let child = pair
-            .slave
-            .spawn_command(cmd)
-            .map_err(|e| {
-                let label = command.unwrap_or(&shell);
-                format!("Failed to spawn '{}': {}", label, e)
-            })?;
+        let child = pair.slave.spawn_command(cmd).map_err(|e| {
+            let label = command.unwrap_or(&shell);
+            format!("Failed to spawn '{}': {}", label, e)
+        })?;
 
         // Clone reader before taking writer — both come from the master fd
         let reader = pair
@@ -113,11 +110,7 @@ impl PtySession {
     /// Check if the child process has exited
     pub fn try_wait(&self) -> Option<u32> {
         if let Ok(mut child) = self.child.lock() {
-            child
-                .try_wait()
-                .ok()
-                .flatten()
-                .map(|s| s.exit_code())
+            child.try_wait().ok().flatten().map(|s| s.exit_code())
         } else {
             None
         }

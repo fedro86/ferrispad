@@ -117,10 +117,7 @@ pub fn read_tail(path: &Path, lines: usize) -> io::Result<(String, u64)> {
 
     // Compute absolute byte offset: position is where we started reading,
     // plus the bytes of the lines we're skipping within collected_bytes.
-    let skipped_bytes: usize = all_lines[..start]
-        .iter()
-        .map(|l| l.len() + 1)
-        .sum();
+    let skipped_bytes: usize = all_lines[..start].iter().map(|l| l.len() + 1).sum();
     let start_byte = position + skipped_bytes as u64;
 
     Ok((tail, start_byte))
@@ -201,12 +198,7 @@ pub fn read_chunk(
 /// - **Chunk, same byte length**: overwrites in place.  Instant.
 /// - **Chunk, different byte length**: writes prefix + content + suffix to a
 ///   temp file in the same directory, then atomically renames over the original.
-pub fn save_partial(
-    path: &Path,
-    content: &str,
-    start_byte: u64,
-    end_byte: u64,
-) -> io::Result<()> {
+pub fn save_partial(path: &Path, content: &str, start_byte: u64, end_byte: u64) -> io::Result<()> {
     use std::fs::{File, OpenOptions};
     use std::io::Write;
 
@@ -236,9 +228,7 @@ pub fn save_partial(
     let dir = path.parent().unwrap_or(Path::new("."));
     let temp_path = dir.join(format!(
         ".ferrispad_save_{}",
-        path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("tmp")
+        path.file_name().and_then(|n| n.to_str()).unwrap_or("tmp")
     ));
 
     {

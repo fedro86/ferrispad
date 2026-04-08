@@ -168,9 +168,7 @@ impl Drop for PreviewController {
 /// Allowed URL schemes for links and resources in preview HTML.
 /// Any URL with a scheme not in this list is neutralized to prevent
 /// protocol-handler attacks (e.g. SMB, ms-msdt, search-ms).
-const ALLOWED_SCHEMES: &[&str] = &[
-    "https://", "http://", "file://", "data:", "mailto:",
-];
+const ALLOWED_SCHEMES: &[&str] = &["https://", "http://", "file://", "data:", "mailto:"];
 
 /// Check whether a URL uses an allowed scheme or is a relative/anchor reference.
 fn is_safe_url(url: &str) -> bool {
@@ -193,7 +191,7 @@ fn is_safe_url(url: &str) -> bool {
     match url.find(':') {
         Some(colon_pos) => match url.find('/') {
             Some(slash_pos) => slash_pos < colon_pos, // relative path like "dir/file:name"
-            None => false,                             // "scheme:payload" with no slash
+            None => false,                            // "scheme:payload" with no slash
         },
         None => true, // No colon at all — relative path
     }
@@ -216,20 +214,14 @@ fn resolve_relative_paths<'a>(html: &'a str, base_dir: &Path) -> Cow<'a, str> {
         // Neutralize URLs with disallowed schemes
         if !is_safe_url(url) {
             // Replace with a safe fragment that explains why the link was blocked
-            return format!(
-                r##"{}="#" title="Blocked: unsafe protocol""##,
-                attr
-            );
+            return format!(r##"{}="#" title="Blocked: unsafe protocol""##, attr);
         }
 
         // Block data: URIs in href attributes (XSS via data:text/html navigation).
         // data: is safe in src attributes (inline images/media) but dangerous in
         // links because the browser navigates to a new document without CSP.
         if attr == "href" && url.starts_with("data:") {
-            return format!(
-                r##"{}="#" title="Blocked: data URI in link""##,
-                attr
-            );
+            return format!(r##"{}="#" title="Blocked: data URI in link""##, attr);
         }
 
         // Preserve allowed absolute URLs

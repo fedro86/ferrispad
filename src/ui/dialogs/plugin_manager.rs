@@ -1099,9 +1099,9 @@ fn create_installed_plugin_row(
             uninstalled.borrow_mut().push(plugin_name_uninstall.clone());
             // Remove from installed list (install-then-uninstall in same session)
             let norm = plugin_name_uninstall.to_lowercase().replace(' ', "-");
-            installed.borrow_mut().retain(|n| {
-                n.to_lowercase().replace(' ', "-") != norm
-            });
+            installed
+                .borrow_mut()
+                .retain(|n| n.to_lowercase().replace(' ', "-") != norm);
             // Hide the entire row immediately
             row_to_hide.hide();
             // Adjust pack width after hiding

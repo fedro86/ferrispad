@@ -235,4 +235,18 @@ pub enum Message {
     DiffTabActivate(u32),
     /// Toggle split view between panel and tab display mode
     SplitViewToggleMode(u32),
+
+    // Sessions
+    /// Show the session picker dialog
+    SessionShowPicker,
+    /// Switch to a named session (save current, load target)
+    SessionSwitchTo(String),
+    /// Open a named session in a new window (spawns new process)
+    SessionOpenInNewWindow(String),
+    /// Save current session under a new name and switch to it
+    SessionSaveAs(String),
+    /// Delete a named session
+    SessionDelete(String),
+    /// Prompt for a name and open a new empty session in a new window
+    SessionNewWindow,
 }

@@ -345,6 +345,17 @@ impl TabManager {
         self.active_id
     }
 
+    /// Remove all documents and groups, cleaning up buffers.
+    /// Leaves the tab manager empty (no active document).
+    pub fn clear(&mut self) {
+        for doc in &mut self.documents {
+            doc.cleanup();
+        }
+        self.documents.clear();
+        self.active_id = None;
+        self.groups.clear();
+    }
+
     /// Find a document by file path
     pub fn find_by_path(&self, path: &str) -> Option<DocumentId> {
         self.documents
@@ -359,10 +370,7 @@ impl TabManager {
         // Group document indices by display_name
         let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
         for (i, doc) in self.documents.iter().enumerate() {
-            groups
-                .entry(doc.display_name.clone())
-                .or_default()
-                .push(i);
+            groups.entry(doc.display_name.clone()).or_default().push(i);
         }
 
         for (filename, indices) in &groups {
@@ -407,7 +415,10 @@ impl TabManager {
                             .join("/")
                     })
                     .collect();
-                let unique = suffixes.iter().collect::<std::collections::HashSet<_>>().len()
+                let unique = suffixes
+                    .iter()
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
                     == suffixes.len();
                 if unique {
                     // Apply disambiguated names

@@ -53,9 +53,17 @@ impl TerminalTheme {
     fn from_theme(is_dark: bool, theme_bg: (u8, u8, u8)) -> Self {
         let (r, g, b) = theme_bg;
         let bg = if is_dark {
-            Color::from_rgb(r.saturating_sub(10), g.saturating_sub(10), b.saturating_sub(10))
+            Color::from_rgb(
+                r.saturating_sub(10),
+                g.saturating_sub(10),
+                b.saturating_sub(10),
+            )
         } else {
-            Color::from_rgb(r.saturating_sub(15), g.saturating_sub(15), b.saturating_sub(15))
+            Color::from_rgb(
+                r.saturating_sub(15),
+                g.saturating_sub(15),
+                b.saturating_sub(15),
+            )
         };
         Self { bg }
     }
@@ -219,7 +227,6 @@ impl TerminalPanel {
 
         div
     }
-
 
     /// Show a terminal from a plugin request. Lazy-initializes PTY on first call.
     pub fn show_request(&mut self, session_id: u32, request: &TerminalViewRequest) {

@@ -14,11 +14,7 @@
 //! - cli_args: Validates CLI arguments (blocks shell metacharacters)
 //! - regex:PATTERN: Validates against a custom regex pattern
 
-use fltk::{
-    enums::FrameType,
-    prelude::*,
-    *,
-};
+use fltk::{enums::FrameType, prelude::*, *};
 use regex_lite::Regex;
 use std::cell::RefCell;
 use std::collections::HashMap;

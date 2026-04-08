@@ -567,7 +567,6 @@ impl SplitPanel {
         }
     }
 
-
     /// Get a reference to the container widget for layout
     pub fn widget(&self) -> &Flex {
         &self.container

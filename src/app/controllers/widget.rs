@@ -242,7 +242,13 @@ impl WidgetController {
 
         if let Some(result) = result {
             let approved = approved_commands_for(plugins, &plugin_name);
-            process_widget_requests(&result, &plugin_name, &approved, &mut self.widget_manager, self.sender);
+            process_widget_requests(
+                &result,
+                &plugin_name,
+                &approved,
+                &mut self.widget_manager,
+                self.sender,
+            );
             let mut ctx = HookContext {
                 tab_manager,
                 view,
@@ -352,7 +358,13 @@ impl WidgetController {
 
         if let Some(result) = result {
             let approved = approved_commands_for(plugins, &plugin_name);
-            process_widget_requests(&result, &plugin_name, &approved, &mut self.widget_manager, self.sender);
+            process_widget_requests(
+                &result,
+                &plugin_name,
+                &approved,
+                &mut self.widget_manager,
+                self.sender,
+            );
             let mut ctx = HookContext {
                 tab_manager,
                 view,
@@ -411,7 +423,13 @@ impl WidgetController {
             );
 
             let approved = approved_commands_for(plugins, plugin_name);
-            process_widget_requests(&result, plugin_name, &approved, &mut self.widget_manager, self.sender);
+            process_widget_requests(
+                &result,
+                plugin_name,
+                &approved,
+                &mut self.widget_manager,
+                self.sender,
+            );
             let mut ctx = HookContext {
                 tab_manager,
                 view,

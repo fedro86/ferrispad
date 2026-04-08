@@ -38,11 +38,11 @@ use super::services::shortcut_registry::ShortcutRegistry;
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
 use crate::ui::editor_container::EditorContainer;
 use crate::ui::tab_bar::TabBar;
-#[cfg(target_os = "macos")]
-use crate::ui::theme::{set_macos_titlebar_color, update_macos_title_label};
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
 use crate::ui::theme::{apply_syntax_theme_colors, apply_theme};
+#[cfg(target_os = "macos")]
+use crate::ui::theme::{set_macos_titlebar_color, update_macos_title_label};
 
 pub struct AppState {
     pub tab_manager: TabManager,
@@ -104,6 +104,7 @@ impl AppState {
         word_wrap: bool,
         tabs_enabled: bool,
         tab_bar: Option<TabBar>,
+        session_name: String,
     ) -> Self {
         let mut tab_manager = TabManager::new(sender);
         tab_manager.add_untitled();
@@ -161,7 +162,7 @@ impl AppState {
         let editor = editor_container.editor().clone();
 
         let view = ViewController::new(editor.clone(), dark_mode, show_linenumbers, word_wrap);
-        let session = SessionController::default();
+        let session = SessionController::with_session_name(session_name);
         let plugin_coord = PluginController::new(menu.clone(), sender);
 
         Self {
@@ -221,18 +222,23 @@ impl AppState {
 
     /// Update the window title based on active document
     pub fn update_window_title(&mut self) {
-        let suffix = if cfg!(target_os = "windows") {
+        let base_suffix = if cfg!(target_os = "windows") {
             "FerrisPad"
         } else {
             "\u{1f980} FerrisPad"
+        };
+        let session_name = self.session.current_session_name();
+        let suffix = if session_name == session::DEFAULT_SESSION_NAME {
+            base_suffix.to_string()
+        } else {
+            format!("{} [{}]", base_suffix, session_name)
         };
         if let Some(doc) = self.tab_manager.active_doc() {
             let prefix = if doc.is_dirty() { "*" } else { "" };
             self.window
                 .set_label(&format!("{}{} - {}", prefix, doc.tab_label(), suffix));
         } else {
-            self.window
-                .set_label(&format!("Untitled - {}", suffix));
+            self.window.set_label(&format!("Untitled - {}", suffix));
         }
         #[cfg(target_os = "macos")]
         update_macos_title_label(&self.window);
@@ -534,13 +540,13 @@ impl AppState {
                         filename
                     );
                     if fltk::dialog::choice2_default(&msg, "Reload", "Keep Mine", "") == Some(0) {
-                        all_actions
-                            .extend(self.file.reload_file(doc_id, &mut self.tab_manager));
+                        all_actions.extend(self.file.reload_file(doc_id, &mut self.tab_manager));
                     } else {
                         // User chose to keep their version — update mtime to avoid re-prompting
                         if let Some(doc) = self.tab_manager.doc_by_id_mut(doc_id) {
-                            doc.disk_mtime =
-                                std::fs::metadata(&path).ok().and_then(|m| m.modified().ok());
+                            doc.disk_mtime = std::fs::metadata(&path)
+                                .ok()
+                                .and_then(|m| m.modified().ok());
                         }
                     }
                 }
@@ -572,10 +578,12 @@ impl AppState {
 
     /// Restore session from disk. Call after bind_active_buffer and apply_settings.
     pub fn restore_session(&mut self) {
+        let session_name = self.session.current_session_name().to_string();
         let result = match SessionController::restore(
             &mut self.tab_manager,
             &self.settings,
             self.tabs_enabled,
+            &session_name,
         ) {
             Some(r) => r,
             None => return,
@@ -627,7 +635,57 @@ impl AppState {
             &self.tab_manager,
             session_mode,
             self.file.last_open_directory.as_deref(),
+            self.session.current_session_name(),
         );
+    }
+
+    /// Switch to a different named session.
+    /// Saves current session, closes all tabs, loads the target session.
+    pub fn switch_session(&mut self, name: &str) {
+        // 1. Save current cursor position
+        if let Some(current) = self.tab_manager.active_doc_mut() {
+            current.cursor_position = self.editor.insert_position();
+        }
+
+        // 2. Force-save current session
+        self.session.force_save(
+            &self.tab_manager,
+            &self.settings,
+            self.file.last_open_directory.as_deref(),
+        );
+
+        // 3. Close all documents (content is saved in temp files, no prompts needed)
+        self.tab_manager.clear();
+
+        // 4. Unbind editor buffer (no active doc)
+        let empty_buf = fltk::text::TextBuffer::default();
+        let empty_style = fltk::text::TextBuffer::default();
+        self.editor.set_buffer(empty_buf.clone());
+        self.editor.set_highlight_data(
+            empty_style,
+            vec![fltk::text::StyleTableEntry {
+                color: fltk::enums::Color::Foreground,
+                font: fltk::enums::Font::Courier,
+                size: 14,
+            }],
+        );
+
+        // 5. Switch session name and add initial untitled doc
+        self.session.set_session_name(name.to_string());
+        self.tab_manager.add_untitled();
+
+        // 6. Restore new session (will remove the untitled doc if session has content)
+        self.restore_session();
+
+        // 7. Rebuild UI
+        self.bind_active_buffer();
+        if let Some(doc) = self.tab_manager.active_doc() {
+            let cursor = doc.cursor_position;
+            self.editor.set_insert_position(cursor);
+            self.editor.show_insert_position();
+        }
+        self.update_window_title();
+        self.rebuild_tab_bar();
     }
 
     /// Handle quit request. Returns `true` if the app should exit.
@@ -708,6 +766,7 @@ impl AppState {
                 &self.tab_manager,
                 session_mode,
                 self.file.last_open_directory.as_deref(),
+                self.session.current_session_name(),
             )
             .inspect_err(|e| eprintln!("Failed to save session: {}", e));
         }

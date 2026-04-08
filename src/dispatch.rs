@@ -14,11 +14,15 @@ use crate::app::domain::settings::TreePanelPosition;
 use crate::app::infrastructure::defer::defer_send;
 use crate::app::mcp;
 use crate::app::plugins::widgets::SplitDisplayMode;
+use crate::app::services::session;
 use crate::app::services::updater::current_timestamp;
 use crate::app::state::AppState;
 use crate::ui::dialogs::about::show_about_dialog;
 use crate::ui::dialogs::find::{show_find_dialog, show_replace_dialog};
 use crate::ui::dialogs::goto_line::show_goto_line_dialog;
+use crate::ui::dialogs::session_picker::{
+    SessionPickerResult, show_new_session_dialog, show_session_picker,
+};
 use crate::ui::dialogs::update::check_for_updates_ui;
 use crate::ui::main_window::LayoutWidgets;
 use crate::ui::tab_bar::TAB_BAR_HEIGHT;
@@ -640,8 +644,7 @@ pub fn handle_deferred(
         }
         Message::DeferredGotoLine(line) => {
             if let Some(doc) = state.tab_manager.active_doc() {
-                let text =
-                    crate::app::infrastructure::buffer::buffer_text_no_leak(&doc.buffer);
+                let text = crate::app::infrastructure::buffer::buffer_text_no_leak(&doc.buffer);
                 if let Some(pos) =
                     crate::app::services::text_ops::line_number_to_byte_position(&text, line)
                 {
@@ -732,8 +735,7 @@ pub fn handle_split_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidg
                 } else {
                     // show_diff: reload file from disk (edit already happened)
                     if let Some(doc_id) = state.tab_manager.find_by_path(&path) {
-                        let actions =
-                            state.file.reload_file(doc_id, &mut state.tab_manager);
+                        let actions = state.file.reload_file(doc_id, &mut state.tab_manager);
                         state.dispatch_file_actions(actions);
                     }
                 }
@@ -1065,8 +1067,7 @@ pub fn handle_terminal_view(msg: Message, state: &mut AppState, lw: &mut LayoutW
             lw.terminal_panel.show_request(session_id, &request);
 
             // Expand window to accommodate terminal panel
-            let term_width =
-                lw.terminal_panel.current_width() + DIVIDER_WIDTH;
+            let term_width = lw.terminal_panel.current_width() + DIVIDER_WIDTH;
             let (scr_x, _scr_y, scr_w, _scr_h) = fltk::app::screen_work_area(0);
             let max_right = scr_x + scr_w;
             let current_right = lw.wind.x() + lw.wind.w();
@@ -1091,8 +1092,7 @@ pub fn handle_terminal_view(msg: Message, state: &mut AppState, lw: &mut LayoutW
         }
         Message::TerminalViewHide(_session_id) => {
             // Shrink window back after closing terminal panel
-            let term_width =
-                lw.terminal_panel.current_width() + DIVIDER_WIDTH;
+            let term_width = lw.terminal_panel.current_width() + DIVIDER_WIDTH;
             let (scr_x, _scr_y, _scr_w, _scr_h) = fltk::app::screen_work_area(0);
             let min_w = 400;
             let new_w = (lw.wind.w() - term_width).max(min_w);
@@ -1157,5 +1157,80 @@ pub fn handle_mcp(msg: Message, state: &mut AppState) {
         if let Some(tx) = state.mcp_responses.lock().unwrap().remove(&request_id) {
             let _ = tx.send(response);
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sessions
+// ---------------------------------------------------------------------------
+
+pub fn handle_session(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) {
+    match msg {
+        Message::SessionShowPicker => {
+            let theme_bg = state.highlight.highlighter().theme_background();
+            let current = state.session.current_session_name().to_string();
+            let result = show_session_picker(&current, theme_bg);
+            match result {
+                SessionPickerResult::Switch(name) => {
+                    state.switch_session(&name);
+                    lw.wind.redraw();
+                }
+                SessionPickerResult::NewWindow(name) => {
+                    if let Ok(exe) = std::env::current_exe() {
+                        let _ = std::process::Command::new(exe)
+                            .arg("--session")
+                            .arg(&name)
+                            .spawn();
+                    }
+                }
+                SessionPickerResult::Delete(name) => {
+                    if let Err(e) = session::delete_session(&name) {
+                        eprintln!("Failed to delete session '{}': {}", name, e);
+                    }
+                }
+                SessionPickerResult::Cancelled => {}
+            }
+        }
+        Message::SessionSwitchTo(name) => {
+            state.switch_session(&name);
+            lw.wind.redraw();
+        }
+        Message::SessionOpenInNewWindow(name) => {
+            if let Ok(exe) = std::env::current_exe() {
+                let _ = std::process::Command::new(exe)
+                    .arg("--session")
+                    .arg(&name)
+                    .spawn();
+            }
+        }
+        Message::SessionSaveAs(name) => {
+            if let Some(sanitized) = session::sanitize_session_name(&name) {
+                // Force-save current state under the new name
+                state.session.set_session_name(sanitized);
+                state.session.force_save(
+                    &state.tab_manager,
+                    &state.settings,
+                    state.file.last_open_directory.as_deref(),
+                );
+                state.update_window_title();
+            }
+        }
+        Message::SessionDelete(name) => {
+            if let Err(e) = session::delete_session(&name) {
+                eprintln!("Failed to delete session '{}': {}", name, e);
+            }
+        }
+        Message::SessionNewWindow => {
+            let theme_bg = state.highlight.highlighter().theme_background();
+            if let Some(name) = show_new_session_dialog(theme_bg)
+                && let Ok(exe) = std::env::current_exe()
+            {
+                let _ = std::process::Command::new(exe)
+                    .arg("--session")
+                    .arg(&name)
+                    .spawn();
+            }
+        }
+        _ => {}
     }
 }

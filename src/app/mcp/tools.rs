@@ -7,8 +7,8 @@ use crate::app::domain::messages::Message;
 use crate::app::infrastructure::buffer::{buffer_text_no_leak, selection_text_no_leak};
 use crate::app::plugins::diff::compute_aligned_diff;
 use crate::app::plugins::widgets::split_view::{
-    HighlightColor, IntralineSpan as SplitIntralineSpan, LineHighlight, SplitDisplayMode, SplitPane,
-    SplitViewAction, SplitViewRequest,
+    HighlightColor, IntralineSpan as SplitIntralineSpan, LineHighlight, SplitDisplayMode,
+    SplitPane, SplitViewAction, SplitViewRequest,
 };
 use crate::app::state::AppState;
 
@@ -296,9 +296,7 @@ fn tool_refresh_tree(state: &mut AppState) -> Result<String, String> {
     let session_id = match state.widget.widget_manager.any_tree_view_session() {
         Some(id) => id,
         None => {
-            return Ok(
-                json!({"refreshed": false, "reason": "no tree view session"}).to_string(),
-            );
+            return Ok(json!({"refreshed": false, "reason": "no tree view session"}).to_string());
         }
     };
 
@@ -388,12 +386,10 @@ fn show_diff_view(
             read_only: true,
             highlights: right_highlights,
         },
-        actions: vec![
-            SplitViewAction {
-                label: "Close".to_string(),
-                action: "reject".to_string(),
-            },
-        ],
+        actions: vec![SplitViewAction {
+            label: "Close".to_string(),
+            action: "reject".to_string(),
+        }],
         display_mode: SplitDisplayMode::Tab,
     };
 
@@ -419,9 +415,7 @@ fn tool_show_diff(state: &mut AppState, args: &Value) -> Result<String, String> 
     let doc_id = match state.tab_manager.find_by_path(path) {
         Some(id) => id,
         None => {
-            return Ok(
-                json!({"shown": false, "reason": "file not open in editor"}).to_string(),
-            );
+            return Ok(json!({"shown": false, "reason": "file not open in editor"}).to_string());
         }
     };
 
@@ -481,9 +475,7 @@ fn tool_preview_edit(state: &mut AppState, args: &Value) -> Result<String, Strin
 
     // Apply the proposed edit to generate the new content
     if !current_content.contains(old_string) {
-        return Ok(
-            json!({"shown": false, "reason": "old_string not found in file"}).to_string(),
-        );
+        return Ok(json!({"shown": false, "reason": "old_string not found in file"}).to_string());
     }
     let proposed_content = current_content.replacen(old_string, new_string, 1);
 

@@ -253,11 +253,17 @@ unsafe impl objc2::encode::Encode for NSRect {
         &[
             objc2::encode::Encoding::Struct(
                 "CGPoint",
-                &[objc2::encode::Encoding::Double, objc2::encode::Encoding::Double],
+                &[
+                    objc2::encode::Encoding::Double,
+                    objc2::encode::Encoding::Double,
+                ],
             ),
             objc2::encode::Encoding::Struct(
                 "CGSize",
-                &[objc2::encode::Encoding::Double, objc2::encode::Encoding::Double],
+                &[
+                    objc2::encode::Encoding::Double,
+                    objc2::encode::Encoding::Double,
+                ],
             ),
         ],
     );
@@ -289,11 +295,7 @@ const CUSTOM_TITLE_TAG: isize = 0x4670; // "Fp"
 ///
 /// Must be called AFTER `window.show()`. `raw_handle()` panics on an unshown window.
 #[cfg(target_os = "macos")]
-pub fn set_macos_titlebar_color(
-    window: &Window,
-    theme_bg: (u8, u8, u8),
-    theme_fg: (u8, u8, u8),
-) {
+pub fn set_macos_titlebar_color(window: &Window, theme_bg: (u8, u8, u8), theme_fg: (u8, u8, u8)) {
     use objc2::runtime::AnyObject;
     use objc2::{class, msg_send};
 
@@ -359,8 +361,7 @@ pub fn set_macos_titlebar_color(
         // [NSTextField labelWithString:] creates a non-editable, non-selectable,
         // transparent label with no Auto Layout constraints — fully frame-controllable.
         let win_title: *mut AnyObject = msg_send![ns_window, title];
-        let label: *mut AnyObject =
-            msg_send![class!(NSTextField), labelWithString: win_title];
+        let label: *mut AnyObject = msg_send![class!(NSTextField), labelWithString: win_title];
 
         let text_color: *mut AnyObject = msg_send![
             class!(NSColor),
@@ -379,7 +380,12 @@ pub fn set_macos_titlebar_color(
         // Center the label vertically within the 28 pt title bar.
         // y = 6, h = 16 leaves equal 6 pt margins top and bottom, regardless of
         // whether the parent view uses a flipped or non-flipped coordinate system.
-        let frame = NSRect { x: 0.0, y: 6.0, w: window_w, h: 16.0 };
+        let frame = NSRect {
+            x: 0.0,
+            y: 6.0,
+            w: window_w,
+            h: 16.0,
+        };
         let _: () = msg_send![label, setFrame: frame];
 
         // NSViewWidthSizable (2): stretch the label horizontally when the window resizes,
@@ -405,8 +411,8 @@ pub fn set_macos_titlebar_color(
 /// so the custom NSTextField stays in sync with the FLTK window label.
 #[cfg(target_os = "macos")]
 pub fn update_macos_title_label(window: &Window) {
-    use objc2::runtime::AnyObject;
     use objc2::msg_send;
+    use objc2::runtime::AnyObject;
 
     if !window.shown() {
         return;
@@ -440,11 +446,7 @@ pub fn update_macos_title_label(window: &Window) {
 ///
 /// See `docs/temp/0.1.6/02_WINDOWS_TITLE_BAR_DEBUGGING_JOURNEY.md` for details.
 #[cfg(target_os = "windows")]
-pub fn set_windows_titlebar_theme(
-    window: &Window,
-    theme_bg: (u8, u8, u8),
-    theme_fg: (u8, u8, u8),
-) {
+pub fn set_windows_titlebar_theme(window: &Window, theme_bg: (u8, u8, u8), theme_fg: (u8, u8, u8)) {
     use std::mem::size_of;
     use std::ptr::from_ref;
     use windows::Win32::Foundation::HWND;
@@ -519,5 +521,4 @@ pub fn set_windows_titlebar_theme(
             size_of::<u32>() as u32,
         );
     }
-
 }

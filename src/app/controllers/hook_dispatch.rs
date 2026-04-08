@@ -101,7 +101,13 @@ pub fn dispatch_hook_result(result: HookResult, plugin_name: &str, ctx: &mut Hoo
 /// Process lint result from plugin hook: send diagnostics, annotations, and toast.
 pub fn dispatch_lint_result(result: HookResult, ctx: &mut HookContext<'_>) {
     // Process any widget requests (e.g., tree view updates from on_document_lint)
-    process_widget_requests(&result, "", &ctx.approved_commands, ctx.widget_manager, ctx.sender);
+    process_widget_requests(
+        &result,
+        "",
+        &ctx.approved_commands,
+        ctx.widget_manager,
+        ctx.sender,
+    );
 
     // Only send diagnostics if at least one plugin actually linted this file.
     if result.had_lint_results {

@@ -176,10 +176,7 @@ impl PluginManager {
             && let crate::app::services::plugin_verify::LuaScanResult::Blocked(reasons) =
                 crate::app::services::plugin_verify::scan_lua_source(&source)
         {
-            return Err(format!(
-                "Blocked by security scan: {}",
-                reasons.join("; ")
-            ));
+            return Err(format!("Blocked by security scan: {}", reasons.join("; ")));
         }
 
         // Load the Lua script

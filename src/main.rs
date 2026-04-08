@@ -34,6 +34,8 @@ struct CliArgs {
     files: Vec<String>,
     goto_line: Option<usize>,
     new_tab: bool,
+    session_name: Option<String>,
+    list_sessions: bool,
 }
 
 fn parse_cli_args() -> CliArgs {
@@ -42,6 +44,8 @@ fn parse_cli_args() -> CliArgs {
         files: Vec::new(),
         goto_line: None,
         new_tab: false,
+        session_name: None,
+        list_sessions: false,
     };
 
     let raw: Vec<String> = env::args().skip(1).collect();
@@ -85,6 +89,16 @@ fn parse_cli_args() -> CliArgs {
                     }
                 }
                 "--new" | "-n" => args.new_tab = true,
+                "--session" | "-s" => {
+                    i += 1;
+                    if let Some(name) = raw.get(i) {
+                        args.session_name = Some(name.clone());
+                    } else {
+                        eprintln!("Error: --session requires a name");
+                        std::process::exit(1);
+                    }
+                }
+                "--list-sessions" => args.list_sessions = true,
                 other => {
                     eprintln!("Unknown option: {other}");
                     eprintln!("Try 'FerrisPad --help' for usage information.");
@@ -110,6 +124,8 @@ fn print_help() {
          OPTIONS:\n    \
              -l, --line <N>       Go to line N after opening (applies to last file)\n    \
              -n, --new            Open a new empty tab\n    \
+             -s, --session <NAME> Open a named session (default: \"default\")\n    \
+             --list-sessions      List available sessions and exit\n    \
              -v, --version        Print version and exit\n    \
              -h, --help           Print this help and exit\n    \
              --mcp-server         Run as MCP bridge (internal)\n\n\
@@ -129,6 +145,21 @@ fn main() {
 
     if cli_args.mcp_server {
         app::mcp::run_bridge();
+    }
+
+    // Migrate old flat session layout to named-session directories
+    session::migrate_flat_session();
+
+    if cli_args.list_sessions {
+        let sessions = session::list_sessions();
+        if sessions.is_empty() {
+            println!("No sessions found.");
+        } else {
+            for name in &sessions {
+                println!("{}", name);
+            }
+        }
+        std::process::exit(0);
     }
 
     // Strip snap library paths from LD_LIBRARY_PATH before GTK loads.
@@ -215,6 +246,10 @@ fn main() {
     // Initialize state
     let app_settings = Rc::new(RefCell::new(settings.clone()));
 
+    let session_name = cli_args
+        .session_name
+        .unwrap_or_else(|| session::DEFAULT_SESSION_NAME.to_string());
+
     let mut state = AppState::new(
         w.editor_container,
         w.wind.clone(),
@@ -228,6 +263,7 @@ fn main() {
         settings.word_wrap_enabled,
         tabs_enabled,
         w.tab_bar,
+        session_name,
     );
     if let Some(responses) = mcp_responses {
         state.mcp_responses = responses;
@@ -643,6 +679,17 @@ fn main() {
                     dispatch::DispatchResult::Continue
                 }
 
+                // Sessions
+                Message::SessionShowPicker
+                | Message::SessionSwitchTo(_)
+                | Message::SessionOpenInNewWindow(_)
+                | Message::SessionSaveAs(_)
+                | Message::SessionDelete(_)
+                | Message::SessionNewWindow => {
+                    dispatch::handle_session(msg, &mut state, &mut lw);
+                    dispatch::DispatchResult::Continue
+                }
+
                 Message::WindowFocusGained => {
                     state.check_and_reload_external_changes();
                     state.refresh_tree_if_visible();
@@ -689,6 +736,7 @@ fn main() {
             &state.tab_manager,
             session_mode,
             state.file.last_open_directory.as_deref(),
+            state.session.current_session_name(),
         )
         .inspect_err(|e| eprintln!("Post-loop session save failed: {}", e));
     }

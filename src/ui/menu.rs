@@ -34,6 +34,7 @@ const RESERVED_SHORTCUTS: &[&str] = &[
     "ctrl+g",
     "ctrl+m",
     "ctrl+shift+l", // Run All Checks
+    "ctrl+shift+n", // New Session Window
     "ctrl+r",
     "ctrl+shift+r",
 ];
@@ -51,6 +52,7 @@ pub const BUILTIN_SHORTCUTS: &[(&str, &str)] = &[
     ("File/Close Tab", "Ctrl+W"),            // tabs only
     ("File/Next Tab", "Ctrl+Tab"),           // tabs only
     ("File/Previous Tab", "Ctrl+Shift+Tab"), // tabs only
+    ("File/New Session Window...", "Ctrl+Shift+N"),
     ("File/Quit", "Ctrl+Q"),
     ("Edit/Undo", "Ctrl+Z"),
     ("Edit/Redo", "Ctrl+Shift+Z"),
@@ -311,6 +313,19 @@ pub fn build_menu(
         {
             let s = *s;
             move |_| s.send(Message::FileReloadAll)
+        },
+    );
+    menu.add("File/Sessions...", Shortcut::None, MenuFlag::Normal, {
+        let s = *s;
+        move |_| s.send(Message::SessionShowPicker)
+    });
+    menu.add(
+        "File/New Session Window...",
+        rs("File/New Session Window..."),
+        MenuFlag::Normal,
+        {
+            let s = *s;
+            move |_| s.send(Message::SessionNewWindow)
         },
     );
     if tabs_enabled {

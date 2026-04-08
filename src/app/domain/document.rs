@@ -331,7 +331,9 @@ impl Document {
     /// Return the label for tabs and window title.
     /// Uses the disambiguated name if set, otherwise the plain display name.
     pub fn tab_label(&self) -> &str {
-        self.disambiguated_name.as_deref().unwrap_or(&self.display_name)
+        self.disambiguated_name
+            .as_deref()
+            .unwrap_or(&self.display_name)
     }
 
     /// Clean up FFI resources. Called automatically by Drop.
