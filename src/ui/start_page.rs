@@ -21,10 +21,19 @@ use crate::app::domain::messages::Message;
 use crate::app::services::session::{self, SessionRestore};
 use crate::ui::dialogs::DialogTheme;
 
-const BLOG_POSTS: &[(&str, &str)] = &[
-    // ("What's new in 0.9.5", "https://ferrispad.com/blog/0.9.5"),
+const WIKI_FERRISPAD: &str = "https://github.com/fedro86/ferrispad/wiki";
+const WIKI_PLUGINS: &str = "https://github.com/fedro86/ferrispad-plugins/wiki";
+const CHANGELOG_URL: &str = "https://github.com/fedro86/ferrispad/blob/master/CHANGELOG.md";
+
+/// Recent changelog entries: (description, version_tag).
+const CHANGELOG_ENTRIES: &[&str] = &[
+    "Windows/macOS title bar theming",
+    "Themed dialogs with icon & selection color",
+    "Lazy-loading tree view",
+    "Structured CLI argument parsing",
+    "Disambiguated tab names",
+    "File reload shortcuts & focus detection",
 ];
-const DONATE_URL: &str = "https://buymeacoffee.com/ferrispad";
 
 const BTN_W: i32 = 120;
 const BTN_GAP: i32 = 10;
@@ -225,34 +234,20 @@ impl StartPage {
         body.fixed(&right, RIGHT_W);
 
         // Donate button — height = 2 button rows + gap
-        let donate_h = BTN_H * 2 + BTN_GAP;
-        let mut dbtn = Button::default();
-        dbtn.set_label("Support FerrisPad");
-        dbtn.set_frame(FrameType::RFlatBox);
-        dbtn.set_color(theme.button_bg);
-        dbtn.set_label_color(theme.text);
-        dbtn.set_label_size(14);
-        right.fixed(&dbtn, donate_h);
-        let normal_bg = theme.button_bg;
-        let hover_bg = theme.tab_active_bg;
-        let normal_fg = theme.text;
-        dbtn.handle(move |btn, ev| match ev {
-            Event::Enter => {
-                btn.set_color(hover_bg);
-                btn.redraw();
-                true
-            }
-            Event::Leave => {
-                btn.set_color(normal_bg);
-                btn.set_label_color(normal_fg);
-                btn.redraw();
-                true
-            }
-            _ => false,
-        });
-        dbtn.set_callback(|_| {
-            let _ = open::that(DONATE_URL);
-        });
+        // Wiki buttons: accent-colored, 2 rows matching the left buttons
+        let mut wiki_row1 = Flex::default().row();
+        wiki_row1.set_color(bg);
+        let mut wb1 = accent_button("Wiki FerrisPad", &theme);
+        wb1.set_callback(|_| { let _ = open::that(WIKI_FERRISPAD); });
+        wiki_row1.end();
+        right.fixed(&wiki_row1, BTN_H);
+
+        let mut wiki_row2 = Flex::default().row();
+        wiki_row2.set_color(bg);
+        let mut wb2 = accent_button("Wiki Plugins", &theme);
+        wb2.set_callback(|_| { let _ = open::that(WIKI_PLUGINS); });
+        wiki_row2.end();
+        right.fixed(&wiki_row2, BTN_H);
 
         fspacer(&mut right, 4, bg);
 
@@ -263,27 +258,26 @@ impl StartPage {
         let sep = separator(border_color);
         sponsor_box.fixed(&sep, 1);
 
-        #[allow(clippy::const_is_empty)]
-        if !BLOG_POSTS.is_empty() {
-            for &(text, url) in BLOG_POSTS {
-                let mut btn = hoverable_item(text, url, &theme, card_bg, false);
-                sponsor_box.fixed(&btn, 22);
-                let u = url.to_string();
-                btn.set_callback(move |_| {
-                    let _ = open::that(&u);
-                });
-            }
-        } else {
-            let mut ph = Frame::default();
-            ph.set_label("Coming soon...");
-            ph.set_label_size(11);
-            ph.set_label_color(theme.text_dim);
-            ph.set_frame(FrameType::FlatBox);
-            ph.set_color(card_bg);
-            sponsor_box.fixed(&ph, 22);
+        for &entry in CHANGELOG_ENTRIES {
+            let mut item = Frame::default();
+            item.set_label(&format!("  \u{2022} {}", entry));
+            item.set_label_size(11);
+            item.set_label_color(theme.text);
+            item.set_align(Align::Left | Align::Inside | Align::Clip);
+            item.set_frame(FrameType::FlatBox);
+            item.set_color(card_bg);
+            item.set_tooltip(entry);
+            sponsor_box.fixed(&item, 18);
         }
 
         spacer(card_bg);
+
+        // "more..." link at the bottom
+        let mut more_btn = hoverable_item("more...", CHANGELOG_URL, &theme, card_bg, true);
+        more_btn.set_align(Align::Right | Align::Inside);
+        sponsor_box.fixed(&more_btn, 20);
+        more_btn.set_callback(|_| { let _ = open::that(CHANGELOG_URL); });
+
         sponsor_box.end();
         add_rounded_border(&mut sponsor_box, card_bg, border_color);
         // Match from top of sessions card to bottom of files card:
@@ -386,6 +380,33 @@ fn box_header(text: &str, theme: &DialogTheme, bg: Color) -> Frame {
     f.set_frame(FrameType::FlatBox);
     f.set_color(bg);
     f
+}
+
+/// Button with accent color background and white/dark text.
+fn accent_button(label: &str, theme: &DialogTheme) -> Button {
+    let mut btn = Button::default();
+    btn.set_label(label);
+    btn.set_frame(FrameType::RFlatBox);
+    btn.set_color(theme.accent);
+    // White text on accent for readability
+    btn.set_label_color(Color::from_rgb(255, 255, 255));
+    btn.set_label_size(12);
+    let normal = theme.accent;
+    let hover = theme.accent_hover;
+    btn.handle(move |btn, ev| match ev {
+        Event::Enter => {
+            btn.set_color(hover);
+            btn.redraw();
+            true
+        }
+        Event::Leave => {
+            btn.set_color(normal);
+            btn.redraw();
+            true
+        }
+        _ => false,
+    });
+    btn
 }
 
 fn action_button(label: &str, theme: &DialogTheme) -> Button {

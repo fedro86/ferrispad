@@ -38,6 +38,10 @@ pub fn show_settings_dialog(
     let theme = DialogTheme::from_theme_bg(theme_bg);
     let is_dark = theme.is_dark();
 
+    // Set FLTK foreground color so menu popups (Choice) use the right text color
+    let (tr, tg, tb) = theme.text_rgb();
+    fltk::app::foreground(tr, tg, tb);
+
     let mut dialog = Window::default()
         .with_size(DIALOG_WIDTH, DIALOG_HEIGHT)
         .with_label("Settings")
@@ -107,6 +111,7 @@ pub fn show_settings_dialog(
         .with_size(COL_WIDTH - 20, 25);
     theme_light_choice.set_color(theme.input_bg);
     theme_light_choice.set_text_color(theme.text);
+    theme_light_choice.set_label_color(theme.text);
     theme_light_choice.set_selection_color(theme.button_bg);
     for syntax_theme in SyntaxTheme::all() {
         theme_light_choice.add_choice(syntax_theme.display_name());
@@ -128,6 +133,7 @@ pub fn show_settings_dialog(
         .with_size(COL_WIDTH - 20, 25);
     theme_dark_choice.set_color(theme.input_bg);
     theme_dark_choice.set_text_color(theme.text);
+    theme_dark_choice.set_label_color(theme.text);
     theme_dark_choice.set_selection_color(theme.button_bg);
     for syntax_theme in SyntaxTheme::all() {
         theme_dark_choice.add_choice(syntax_theme.display_name());

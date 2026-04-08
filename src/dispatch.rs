@@ -282,6 +282,12 @@ pub fn handle_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) {
             lw.diagnostic_panel.apply_theme(state.view.dark_mode);
             lw.status_bar.apply_theme(theme_bg);
             lw.toast.apply_theme(state.view.dark_mode);
+            // Update FLTK foreground for menu text
+            if state.view.dark_mode {
+                fltk::app::foreground(230, 230, 230);
+            } else {
+                fltk::app::foreground(0, 0, 0);
+            }
         }
         Message::ToggleHighlighting => state.toggle_highlighting(),
         Message::TogglePreview => state.preview_in_browser(),
@@ -303,6 +309,12 @@ pub fn handle_settings(msg: Message, state: &mut AppState, lw: &mut LayoutWidget
             lw.status_bar.apply_theme(theme_bg);
             if lw.tree_panel.is_visible() {
                 lw.tree_panel.apply_theme(state.view.dark_mode, theme_bg);
+            }
+            // Update foreground after settings may have changed the theme
+            if state.view.dark_mode {
+                fltk::app::foreground(230, 230, 230);
+            } else {
+                fltk::app::foreground(0, 0, 0);
             }
         }
         Message::CheckForUpdates => {

@@ -54,14 +54,16 @@ pub fn show_session_picker(current_session: &str, theme_bg: (u8, u8, u8)) -> Ses
     browser.set_selection_color(theme.button_bg);
     browser.set_frame(FrameType::FlatBox);
 
-    // Populate session list
+    // Populate session list (use @C format code for text color on dark themes)
     let sessions = session::list_sessions();
+    let (tr, tg, tb) = theme.text_rgb();
+    let color_code = ((tr as u32) << 24) | ((tg as u32) << 16) | ((tb as u32) << 8);
     let mut selected_line = 0i32;
     for (i, name) in sessions.iter().enumerate() {
         let label = if name == current_session {
-            format!("{} (active)", name)
+            format!("@C{} {} (active)", color_code, name)
         } else {
-            name.clone()
+            format!("@C{} {}", color_code, name)
         };
         browser.add(&label);
         if name == current_session {

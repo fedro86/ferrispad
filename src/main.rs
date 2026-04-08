@@ -449,6 +449,17 @@ fn main() {
     lw.status_bar
         .apply_theme(state.highlight.highlighter().theme_background());
 
+    // Set FLTK foreground for menu popups — light on dark themes, black on light
+    {
+        let bg = state.highlight.highlighter().theme_background();
+        let is_dark = (bg.0 as u32 + bg.1 as u32 + bg.2 as u32) / 3 < 128;
+        if is_dark {
+            fltk::app::foreground(230, 230, 230);
+        } else {
+            fltk::app::foreground(0, 0, 0);
+        }
+    }
+
     // Check plugin permissions now that UI is ready (dialog needs event loop)
     sender.send(Message::CheckPluginPermissions);
 
@@ -532,7 +543,7 @@ fn main() {
                 | Message::TabGroupMove(..)
                 | Message::TabMoveToGroup(..) => dispatch::handle_tab(msg, &mut state, &mut lw),
 
-                // Edit
+                // Edit (skip if no tabs open — editor has no document)
                 Message::EditUndo
                 | Message::EditRedo
                 | Message::EditCut
@@ -542,7 +553,9 @@ fn main() {
                 | Message::ShowFind
                 | Message::ShowReplace
                 | Message::ShowGoToLine => {
-                    dispatch::handle_edit(msg, &mut state);
+                    if state.tab_manager.count() > 0 {
+                        dispatch::handle_edit(msg, &mut state);
+                    }
                     dispatch::DispatchResult::Continue
                 }
 
@@ -567,12 +580,14 @@ fn main() {
                     dispatch::DispatchResult::Continue
                 }
 
-                // Syntax highlighting
+                // Syntax highlighting (skip if no tabs — no buffer)
                 Message::BufferModified { .. }
                 | Message::DoRehighlight
                 | Message::ContinueHighlight
                 | Message::DoTextChangeHook => {
-                    dispatch::handle_highlight(msg, &mut state);
+                    if state.tab_manager.count() > 0 {
+                        dispatch::handle_highlight(msg, &mut state);
+                    }
                     dispatch::DispatchResult::Continue
                 }
 
