@@ -35,9 +35,9 @@ const CHANGELOG_ENTRIES: &[&str] = &[
     "File reload shortcuts & focus detection",
 ];
 
-const BTN_W: i32 = 120;
-const BTN_GAP: i32 = 10;
-const BTN_H: i32 = 30;
+const BTN_W: i32 = 150;
+const BTN_GAP: i32 = 12;
+const BTN_H: i32 = 38;
 const MAX_RECENT: usize = 4;
 /// Left column width: 2 buttons + gap.
 const LEFT_W: i32 = BTN_W * 2 + BTN_GAP;
@@ -110,18 +110,18 @@ impl StartPage {
         let mut title_col = Flex::default().column();
         title_col.set_pad(2);
         title_col.set_color(bg);
-        let t = clabel("FerrisPad", 28, Font::HelveticaBold, theme.text, bg);
-        title_col.fixed(&t, 36);
+        let t = clabel("FerrisPad", 35, Font::HelveticaBold, theme.text, bg);
+        title_col.fixed(&t, 45);
         let v = clabel(
             &format!("v{}", env!("CARGO_PKG_VERSION")),
-            13,
+            16,
             Font::Helvetica,
             theme.text_dim,
             bg,
         );
-        title_col.fixed(&v, 20);
+        title_col.fixed(&v, 25);
         title_col.end();
-        self.flex.fixed(&title_col, 60);
+        self.flex.fixed(&title_col, 75);
 
         fspacer(&mut self.flex, 10, bg);
 
@@ -131,7 +131,7 @@ impl StartPage {
         let sessions: Vec<&String> = all_sessions.iter().take(MAX_RECENT).collect();
         let recent = gather_recent_files();
         let max_card_items = sessions.len().max(recent.len()).max(1) as i32;
-        let card_items_h = 24 + 1 + max_card_items * 22 + (2 + max_card_items - 1) * 2 + 16;
+        let card_items_h = 30 + 1 + max_card_items * 28 + (2 + max_card_items - 1) * 2 + 20;
 
         let mut body = Flex::default().row();
         body.set_pad(20);
@@ -176,7 +176,7 @@ impl StartPage {
         // Sessions card
         let mut sess_box = card(&theme, card_bg, border_color);
         let h = box_header("Recent Sessions", &theme, card_bg);
-        sess_box.fixed(&h, 24);
+        sess_box.fixed(&h, 30);
         let sep = separator(border_color);
         sess_box.fixed(&sep, 1);
         for name in &sessions {
@@ -187,7 +187,7 @@ impl StartPage {
                 (*name).clone()
             };
             let mut btn = hoverable_item(&txt, name, &theme, card_bg, active);
-            sess_box.fixed(&btn, 22);
+            sess_box.fixed(&btn, 28);
             if !active {
                 let s = sender;
                 let n = (*name).clone();
@@ -204,14 +204,14 @@ impl StartPage {
         // Files card
         let mut files_box = card(&theme, card_bg, border_color);
         let h = box_header("Recent Files", &theme, card_bg);
-        files_box.fixed(&h, 24);
+        files_box.fixed(&h, 30);
         let sep = separator(border_color);
         files_box.fixed(&sep, 1);
         for (display, path) in &recent {
             let short = shorten(path);
             let label = format!("{} {}", display, short);
             let mut btn = hoverable_item(&label, path, &theme, card_bg, false);
-            files_box.fixed(&btn, 22);
+            files_box.fixed(&btn, 28);
             let s = sender;
             let p = path.clone();
             btn.set_callback(move |_| {
@@ -254,20 +254,20 @@ impl StartPage {
         // Changelog / sponsor card — flexible, fills remaining right column to align with left cards
         let mut sponsor_box = card(&theme, card_bg, border_color);
         let h = box_header("Changelog", &theme, card_bg);
-        sponsor_box.fixed(&h, 24);
+        sponsor_box.fixed(&h, 30);
         let sep = separator(border_color);
         sponsor_box.fixed(&sep, 1);
 
         for &entry in CHANGELOG_ENTRIES {
             let mut item = Frame::default();
             item.set_label(&format!("  \u{2022} {}", entry));
-            item.set_label_size(11);
+            item.set_label_size(14);
             item.set_label_color(theme.text);
             item.set_align(Align::Left | Align::Inside | Align::Clip);
             item.set_frame(FrameType::FlatBox);
             item.set_color(card_bg);
             item.set_tooltip(entry);
-            sponsor_box.fixed(&item, 18);
+            sponsor_box.fixed(&item, 22);
         }
 
         spacer(card_bg);
@@ -275,7 +275,7 @@ impl StartPage {
         // "more..." link at the bottom
         let mut more_btn = hoverable_item("more...", CHANGELOG_URL, &theme, card_bg, true);
         more_btn.set_align(Align::Right | Align::Inside);
-        sponsor_box.fixed(&more_btn, 20);
+        sponsor_box.fixed(&more_btn, 25);
         more_btn.set_callback(|_| { let _ = open::that(CHANGELOG_URL); });
 
         sponsor_box.end();
@@ -295,13 +295,19 @@ impl StartPage {
         let body_h = BTN_H * 2 + BTN_GAP + 4 + card_items_h * 2 + 4 + left.pad() * 5;
         self.flex.fixed(&body, body_h);
 
-        // Ensure window is tall enough for the content
-        // title(60) + gap(10) + body + margins for menu/status bar (~80)
-        let min_h = 60 + 10 + body_h + 80;
-        if let Some(mut win) = self.flex.top_window()
-            && win.h() < min_h
-        {
-            win.set_size(win.w(), min_h);
+        // Ensure window is large enough for the start page content.
+        // Force resize if current size is too small (e.g., after closing a small file tab).
+        let min_h = 75 + 10 + body_h + 80;
+        let min_w = LEFT_W + RIGHT_W + 20 + 80;
+        if let Some(mut win) = self.flex.top_window() {
+            let cur_w = win.w();
+            let cur_h = win.h();
+            if cur_w < min_w || cur_h < min_h {
+                let new_w = cur_w.max(min_w);
+                let new_h = cur_h.max(min_h);
+                // Use pixel_w/pixel_h to handle HiDPI correctly
+                win.resize(win.x(), win.y(), new_w, new_h);
+            }
         }
 
         spacer(bg); // bottom centering
@@ -374,7 +380,7 @@ fn clabel(text: &str, size: i32, font: Font, color: Color, bg: Color) -> Frame {
 fn box_header(text: &str, theme: &DialogTheme, bg: Color) -> Frame {
     let mut f = Frame::default();
     f.set_label(text);
-    f.set_label_size(13);
+    f.set_label_size(16);
     f.set_label_font(Font::HelveticaBold);
     f.set_label_color(theme.text);
     f.set_frame(FrameType::FlatBox);
@@ -390,7 +396,7 @@ fn accent_button(label: &str, theme: &DialogTheme) -> Button {
     btn.set_color(theme.accent);
     // White text on accent for readability
     btn.set_label_color(Color::from_rgb(255, 255, 255));
-    btn.set_label_size(12);
+    btn.set_label_size(15);
     let normal = theme.accent;
     let hover = theme.accent_hover;
     btn.handle(move |btn, ev| match ev {
@@ -415,7 +421,7 @@ fn action_button(label: &str, theme: &DialogTheme) -> Button {
     btn.set_frame(FrameType::RFlatBox);
     btn.set_color(theme.button_bg);
     btn.set_label_color(theme.text);
-    btn.set_label_size(12);
+    btn.set_label_size(15);
     let normal_bg = theme.button_bg;
     let normal_fg = theme.text;
     let hover_bg = theme.tab_active_bg;
@@ -449,7 +455,7 @@ fn hoverable_item(
     btn.set_color(bg);
     let normal_color = if dimmed { theme.text_dim } else { theme.text };
     btn.set_label_color(normal_color);
-    btn.set_label_size(12);
+    btn.set_label_size(14);
     btn.set_align(Align::Left | Align::Inside | Align::Clip);
     btn.set_tooltip(full_text);
     let hover_color = theme.text;
