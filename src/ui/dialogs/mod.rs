@@ -206,12 +206,12 @@ impl DialogTheme {
         let brightness = (r as u32 + g as u32 + b as u32) / 3;
         let is_dark = brightness < 128;
 
-        // Dialog background: match tab bar background (darker than editor)
-        // Same logic as tab_bar: darken(0.65) for dark, darken(0.85) for light
+        // Dialog background: slightly muted version of the editor background.
+        // Both modes stay close to the editor bg for a cohesive look.
         let (bg_r, bg_g, bg_b) = if is_dark {
-            darken(r, g, b, 0.65)
-        } else {
             darken(r, g, b, 0.85)
+        } else {
+            darken(r, g, b, 0.93)
         };
         let bg = Color::from_rgb(bg_r, bg_g, bg_b);
 
