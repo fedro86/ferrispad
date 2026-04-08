@@ -1,5 +1,6 @@
 //! Path validation helpers for plugin sandbox.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use super::super::security::{PathValidation, validate_path};
@@ -80,12 +81,14 @@ pub(super) struct ScanEntry {
 /// Paths are returned with `/` separators on all platforms.
 /// Directories at the depth boundary get a `has_children` flag so plugins
 /// can show them as expandable even before their contents are loaded.
+/// `skip_dirs` contains directory names to skip entirely during the walk.
 pub(super) fn scan_dir_recursive(
     root: &Path,
     current: &Path,
     max_depth: u32,
     current_depth: u32,
     results: &mut Vec<ScanEntry>,
+    skip_dirs: &HashSet<String>,
 ) {
     if current_depth > max_depth {
         return;
@@ -103,6 +106,11 @@ pub(super) fn scan_dir_recursive(
         let name = entry.file_name().to_string_lossy().into_owned();
         let path = entry.path();
         let is_dir = path.is_dir();
+
+        // Skip ignored directories before recursing into them
+        if is_dir && skip_dirs.contains(&name) {
+            continue;
+        }
 
         // Build relative path with forward slashes
         let rel = path
@@ -131,7 +139,14 @@ pub(super) fn scan_dir_recursive(
             });
 
             if is_dir {
-                scan_dir_recursive(root, &path, max_depth, current_depth + 1, results);
+                scan_dir_recursive(
+                    root,
+                    &path,
+                    max_depth,
+                    current_depth + 1,
+                    results,
+                    skip_dirs,
+                );
             }
         }
     }

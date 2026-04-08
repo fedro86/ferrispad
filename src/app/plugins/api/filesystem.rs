@@ -106,11 +106,12 @@ pub fn list_dir(lua: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Result
 }
 
 /// Recursively scan a directory up to max_depth (default 5, cap 10).
+/// Optional third argument: a table of directory names to skip (e.g. {"node_modules", "target"}).
 /// Returns array of { name, rel_path, is_dir } or nil on failure.
 pub fn scan_dir(
     lua: &mlua::Lua,
     this: &EditorApi,
-    (path, max_depth): (String, Option<u32>),
+    (path, max_depth, skip_dirs_table): (String, Option<u32>, Option<mlua::Table>),
 ) -> mlua::Result<mlua::Value> {
     let Some(ref project_root) = this.project_root else {
         return Ok(mlua::Value::Nil);
@@ -123,9 +124,18 @@ pub fn scan_dir(
         return Ok(mlua::Value::Nil);
     }
 
+    // Parse optional skip_dirs table: { "node_modules", ".git", ... }
+    let skip_dirs: std::collections::HashSet<String> = if let Some(tbl) = skip_dirs_table {
+        tbl.sequence_values::<String>()
+            .filter_map(|r| r.ok())
+            .collect()
+    } else {
+        std::collections::HashSet::new()
+    };
+
     let depth = max_depth.unwrap_or(5).min(10);
     let mut raw = Vec::new();
-    scan_dir_recursive(&resolved, &resolved, depth, 1, &mut raw);
+    scan_dir_recursive(&resolved, &resolved, depth, 1, &mut raw, &skip_dirs);
 
     let result = lua.create_table()?;
     for (i, entry) in raw.iter().enumerate() {
@@ -278,8 +288,7 @@ pub fn git_status(lua: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Resu
             &path_str,
             "status",
             "--porcelain=v1",
-            "-uall",
-            "--ignored",
+            "-unormal",
         ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
