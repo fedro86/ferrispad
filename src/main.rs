@@ -441,6 +441,8 @@ fn main() {
         content_row: w.content_row,
         right_col: w.right_col,
         tree_position: w.tree_position,
+        start_page: w.start_page,
+        editor_col: w.editor_col,
     };
 
     // Apply initial theme to status bar
@@ -699,6 +701,11 @@ fn main() {
             if matches!(result, dispatch::DispatchResult::Quit) {
                 quit_clean = true;
                 fltk_app::quit();
+            }
+
+            // Show/hide start page based on tab count
+            if tabs_enabled {
+                dispatch::sync_start_page(&mut state, &mut lw);
             }
         }
 

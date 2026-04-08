@@ -5,6 +5,7 @@ pub mod file_dialogs;
 pub mod main_window;
 pub mod menu;
 pub mod split_panel;
+pub mod start_page;
 pub mod status_bar;
 pub mod tab_bar;
 pub mod terminal_panel;

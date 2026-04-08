@@ -234,7 +234,14 @@ mod tests {
 
         // max_depth=2 should NOT reach c/ or d.txt
         let mut results = Vec::new();
-        sandbox::scan_dir_recursive(root, root, 2, 1, &mut results, &std::collections::HashSet::new());
+        sandbox::scan_dir_recursive(
+            root,
+            root,
+            2,
+            1,
+            &mut results,
+            &std::collections::HashSet::new(),
+        );
         let paths: Vec<&str> = results.iter().map(|e| e.rel_path.as_str()).collect();
         assert!(paths.contains(&"a"), "Should find a/");
         assert!(paths.contains(&"a/b"), "Should find a/b/");
@@ -254,7 +261,14 @@ mod tests {
         std::fs::write(root.join("top.txt"), "top").unwrap();
 
         let mut results = Vec::new();
-        sandbox::scan_dir_recursive(root, root, 5, 1, &mut results, &std::collections::HashSet::new());
+        sandbox::scan_dir_recursive(
+            root,
+            root,
+            5,
+            1,
+            &mut results,
+            &std::collections::HashSet::new(),
+        );
 
         let names: Vec<&str> = results.iter().map(|e| e.name.as_str()).collect();
         assert!(names.contains(&"sub"));

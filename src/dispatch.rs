@@ -121,22 +121,14 @@ pub fn handle_tab(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) ->
             }
         }
         Message::TabClose(id) => {
-            if state.close_tab(id) {
-                if state.file_quit() {
-                    return DispatchResult::Quit;
-                }
-            } else {
-                state.session.mark_dirty();
-            }
+            // close_tab returns true when no tabs remain.
+            // Don't quit — sync_start_page will show the start page.
+            state.close_tab(id);
+            state.session.mark_dirty();
         }
         Message::TabCloseActive => {
-            if let Some(id) = state.tab_manager.active_id()
-                && state.close_tab(id)
-            {
-                if state.file_quit() {
-                    return DispatchResult::Quit;
-                }
-            } else {
+            if let Some(id) = state.tab_manager.active_id() {
+                state.close_tab(id);
                 state.session.mark_dirty();
             }
         }
@@ -625,6 +617,19 @@ pub fn handle_deferred(
             lw.toast.hide();
             lw.flex.fixed(lw.toast.widget(), 0);
             lw.flex.recalc();
+
+            // If session restore left only the default empty untitled doc,
+            // remove it so sync_start_page shows the start page instead.
+            if tabs_enabled
+                && state.tab_manager.count() == 1
+                && let Some(doc) = state.tab_manager.active_doc()
+                && doc.file_path.is_none()
+                && !doc.is_dirty()
+                && crate::app::infrastructure::buffer::buffer_text_no_leak(&doc.buffer).is_empty()
+            {
+                let id = doc.id;
+                state.tab_manager.remove(id);
+            }
 
             if tabs_enabled {
                 state.rebuild_tab_bar();
@@ -1232,5 +1237,56 @@ pub fn handle_session(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets
             }
         }
         _ => {}
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Start Page sync
+// ---------------------------------------------------------------------------
+
+/// Show or hide the start page based on whether any tabs are open.
+/// Called after every dispatched message in the main loop.
+///
+/// The start page is a child of `editor_col` (or `content_row` for Bottom tree position).
+/// FLTK Flex skips hidden children in layout, so show/hide + layout() is sufficient.
+pub fn sync_start_page(state: &mut AppState, lw: &mut LayoutWidgets) {
+    let has_tabs = state.tab_manager.count() > 0;
+    let start_visible = lw.start_page.visible();
+
+    if has_tabs && start_visible {
+        // Tabs opened — hide start page, show editor + tab bar
+        lw.start_page.hide();
+        state.editor.show();
+        if let Some(ref mut tab_bar) = state.tab_bar {
+            tab_bar.widget.show();
+        }
+        let parent = lw.editor_col.as_mut().unwrap_or(&mut lw.content_row);
+        parent.layout();
+    } else if !has_tabs && start_visible {
+        // Start page visible — check if theme changed and re-render
+        let theme_bg = state.highlight.highlighter().theme_background();
+        if lw.start_page.last_theme_bg() != Some(theme_bg) {
+            let session_name = state.session.current_session_name().to_string();
+            lw.start_page.show(state.sender, theme_bg, &session_name);
+            let parent = lw.editor_col.as_mut().unwrap_or(&mut lw.content_row);
+            parent.layout();
+            lw.wind.redraw();
+        }
+    } else if !has_tabs && !start_visible {
+        // No tabs — hide editor + tab bar, show start page
+        // Set empty buffer so the hidden editor doesn't paint stale text
+        state.editor.set_buffer(fltk::text::TextBuffer::default());
+        state.editor.hide();
+        if let Some(ref mut tab_bar) = state.tab_bar {
+            tab_bar.widget.hide();
+        }
+        let theme_bg = state.highlight.highlighter().theme_background();
+        let session_name = state.session.current_session_name().to_string();
+        lw.start_page.show(state.sender, theme_bg, &session_name);
+        let parent = lw.editor_col.as_mut().unwrap_or(&mut lw.content_row);
+        parent.layout();
+        state.update_window_title();
+        fltk::app::flush();
+        lw.wind.redraw();
     }
 }

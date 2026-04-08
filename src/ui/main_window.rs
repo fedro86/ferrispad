@@ -7,6 +7,7 @@ use fltk::{
 use super::diagnostic_panel::DiagnosticPanel;
 use super::editor_container::EditorContainer;
 use super::split_panel::SplitPanel;
+use super::start_page::StartPage;
 use super::status_bar::{STATUS_BAR_HEIGHT, StatusBar};
 use super::tab_bar::{TAB_BAR_HEIGHT, TabBar};
 use super::terminal_panel::TerminalPanel;
@@ -29,6 +30,10 @@ pub struct LayoutWidgets {
     pub content_row: Flex,
     pub right_col: Option<Flex>,
     pub tree_position: TreePanelPosition,
+    pub start_page: StartPage,
+    /// Column flex holding tab_bar + editor (Left/Right tree positions).
+    /// None for Bottom position (editor is in content_row directly).
+    pub editor_col: Option<Flex>,
 }
 
 /// Resolve the parent Flex that owns the split panel.
@@ -65,6 +70,9 @@ pub struct MainWidgets {
     pub right_col: Option<Flex>,
     /// Current tree panel position setting
     pub tree_position: TreePanelPosition,
+    pub start_page: StartPage,
+    /// Column flex holding tab_bar + editor (Left/Right tree positions)
+    pub editor_col: Option<Flex>,
 }
 
 pub fn build_main_window(
@@ -129,6 +137,8 @@ pub fn build_main_window(
     let editor_container;
     let split_panel;
     let right_col;
+    let start_page;
+    let editor_col_out: Option<Flex>;
 
     match tree_position {
         TreePanelPosition::Left => {
@@ -146,7 +156,7 @@ pub fn build_main_window(
             rc.set_margin(0);
             rc.set_pad(0);
 
-            // Editor column: tab bar + editor (takes remaining height)
+            // Editor column: tab bar + start page + editor (takes remaining height)
             let mut editor_col = Flex::default().column();
             editor_col.set_margin(0);
             editor_col.set_pad(0);
@@ -157,8 +167,10 @@ pub fn build_main_window(
             } else {
                 None
             };
+            start_page = StartPage::new(); // hidden — Flex skips hidden children
             editor_container = EditorContainer::new(&editor_col);
             editor_col.end();
+            editor_col_out = Some(editor_col);
 
             // Split divider BEFORE split panel so it appears above in column
             let split_div = SplitPanel::new_divider(*sender);
@@ -200,8 +212,10 @@ pub fn build_main_window(
             } else {
                 None
             };
+            start_page = StartPage::new(); // hidden — Flex skips hidden children
             editor_container = EditorContainer::new(&editor_col);
             editor_col.end();
+            editor_col_out = Some(editor_col);
 
             // Split divider BEFORE split panel so it appears above in column
             let split_div = SplitPanel::new_divider(*sender);
@@ -236,7 +250,7 @@ pub fn build_main_window(
             right_col = Some(rc);
         }
         TreePanelPosition::Bottom => {
-            // No tree panel in the row — just tab bar + editor
+            // No tree panel in the row — just tab bar + start page + editor
             tab_bar = if tabs_enabled {
                 let tb = TabBar::new(0, 0, 640, *sender);
                 content_row.fixed(&tb.widget, TAB_BAR_HEIGHT);
@@ -244,7 +258,9 @@ pub fn build_main_window(
             } else {
                 None
             };
+            start_page = StartPage::new(); // hidden — Flex skips hidden children
             editor_container = EditorContainer::new(&content_row);
+            editor_col_out = None;
 
             // Terminal panel divider + panel (right side, hidden until requested)
             let term_div = TerminalPanel::new_divider(*sender);
@@ -302,5 +318,7 @@ pub fn build_main_window(
         content_row,
         right_col,
         tree_position,
+        start_page,
+        editor_col: editor_col_out,
     }
 }
