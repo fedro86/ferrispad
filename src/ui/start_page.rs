@@ -1,7 +1,8 @@
 //! Start Page — landing page shown when no tabs are open.
 //!
-//! Layout: column Flex inside editor_col. Uses nested Flex for responsive sizing.
-//! See docs/temp/lesson_learned/fltk-flex-layout.md for patterns.
+//! Two-column layout below a centered title:
+//! - Left: 2x2 button grid + stacked session/files cards
+//! - Right: donate button + changelog/sponsor card (aligned with left cards)
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -25,16 +26,18 @@ const BLOG_POSTS: &[(&str, &str)] = &[
 ];
 const DONATE_URL: &str = "https://buymeacoffee.com/ferrispad";
 
-const BTN_W: i32 = 115;
+const BTN_W: i32 = 120;
 const BTN_GAP: i32 = 10;
-const BOX_W: i32 = BTN_W * 2 + BTN_GAP;
-/// Max recent sessions shown on start page.
-const MAX_RECENT_SESSIONS: usize = 3;
+const BTN_H: i32 = 30;
+const MAX_RECENT: usize = 4;
+/// Left column width: 2 buttons + gap.
+const LEFT_W: i32 = BTN_W * 2 + BTN_GAP;
+/// Right column width: same as left for balance.
+const RIGHT_W: i32 = LEFT_W;
 
 pub struct StartPage {
     flex: Flex,
     is_visible: bool,
-    /// Last theme_bg used for rendering — used to detect theme changes.
     last_theme_bg: Option<(u8, u8, u8)>,
 }
 
@@ -64,7 +67,6 @@ impl StartPage {
         self.is_visible
     }
 
-    /// Returns the theme_bg the start page was last rendered with.
     pub fn last_theme_bg(&self) -> Option<(u8, u8, u8)> {
         self.last_theme_bg
     }
@@ -83,6 +85,8 @@ impl StartPage {
     ) {
         let theme = DialogTheme::from_theme_bg(theme_bg);
         let bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
+        let card_bg = theme.row_bg;
+        let border_color = theme.text_dim;
 
         self.flex.clear();
         self.flex.set_color(bg);
@@ -91,18 +95,14 @@ impl StartPage {
         self.flex.set_margin(0);
         self.flex.begin();
 
-        // Vertical centering: [spacer] [content] [spacer]
-        spacer(bg);
+        spacer(bg); // top centering
 
-        let mut content = Flex::default().column();
-        content.set_pad(12);
-        content.set_color(bg);
-        content.set_frame(FrameType::FlatBox);
-        content.begin();
-
-        // ── Title ──
+        // ── Title (centered, full width) ──
+        let mut title_col = Flex::default().column();
+        title_col.set_pad(2);
+        title_col.set_color(bg);
         let t = clabel("FerrisPad", 28, Font::HelveticaBold, theme.text, bg);
-        content.fixed(&t, 36);
+        title_col.fixed(&t, 36);
         let v = clabel(
             &format!("v{}", env!("CARGO_PKG_VERSION")),
             13,
@@ -110,58 +110,66 @@ impl StartPage {
             theme.text_dim,
             bg,
         );
-        content.fixed(&v, 22);
+        title_col.fixed(&v, 20);
+        title_col.end();
+        self.flex.fixed(&title_col, 60);
 
-        fspacer(&mut content, 8, bg);
+        fspacer(&mut self.flex, 10, bg);
 
-        // ── Buttons row: [spacer] btn btn btn btn [spacer] ──
-        let mut btn_row = Flex::default().row();
-        btn_row.set_pad(BTN_GAP);
-        btn_row.set_color(bg);
-        spacer(bg);
-        for (label, msg) in [
-            ("New File", Message::FileNew),
-            ("Open File", Message::FileOpen),
-            ("New Session", Message::SessionNewWindow),
-            ("Sessions...", Message::SessionShowPicker),
-        ] {
-            let mut btn = action_button(label, &theme);
-            btn_row.fixed(&btn, BTN_W);
-            let s = sender;
-            btn.set_callback(move |_| s.send(msg.clone()));
-        }
-        spacer(bg);
-        btn_row.end();
-        content.fixed(&btn_row, 32);
-
-        fspacer(&mut content, 12, bg);
-
-        // ── Two boxes row: [spacer] [sessions box] [gap] [files box] [spacer] ──
+        // ── Two-column body ──
+        // Gather data
         let all_sessions = session::list_sessions();
-        // Show only 3 most recent sessions
-        let sessions: Vec<&String> = all_sessions.iter().take(MAX_RECENT_SESSIONS).collect();
+        let sessions: Vec<&String> = all_sessions.iter().take(MAX_RECENT).collect();
         let recent = gather_recent_files();
-        let max_items = sessions.len().max(recent.len()).max(1) as i32;
-        let box_inner_h = 28 + max_items * 24 + 8;
+        let max_card_items = sessions.len().max(recent.len()).max(1) as i32;
+        let card_items_h = 24 + 1 + max_card_items * 22 + (2 + max_card_items - 1) * 2 + 16;
 
-        let mut boxes_row = Flex::default().row();
-        boxes_row.set_pad(BTN_GAP);
-        boxes_row.set_color(bg);
+        let mut body = Flex::default().row();
+        body.set_pad(20);
+        body.set_color(bg);
 
-        spacer(bg);
+        spacer(bg); // left centering
 
-        let card_bg = theme.row_bg;
-        let border_color = theme.text_dim;
+        // ── LEFT COLUMN ──
+        let mut left = Flex::default().column();
+        left.set_pad(BTN_GAP);
+        left.set_color(bg);
+        body.fixed(&left, LEFT_W);
 
-        // Sessions box
-        let mut sess_box = Flex::default().column();
-        sess_box.set_pad(2);
-        sess_box.set_margin(8);
-        sess_box.set_frame(FrameType::FlatBox);
-        sess_box.set_color(card_bg);
+        // Button row 1: [New File] [Open File]
+        let mut row1 = Flex::default().row();
+        row1.set_pad(BTN_GAP);
+        row1.set_color(bg);
+        let mut b1 = action_button("New File", &theme);
+        let s = sender;
+        b1.set_callback(move |_| s.send(Message::FileNew));
+        let mut b2 = action_button("Open File", &theme);
+        let s = sender;
+        b2.set_callback(move |_| s.send(Message::FileOpen));
+        row1.end();
+        left.fixed(&row1, BTN_H);
 
+        // Button row 2: [New Session] [Sessions...]
+        let mut row2 = Flex::default().row();
+        row2.set_pad(BTN_GAP);
+        row2.set_color(bg);
+        let mut b3 = action_button("New Session", &theme);
+        let s = sender;
+        b3.set_callback(move |_| s.send(Message::SessionNewWindow));
+        let mut b4 = action_button("Sessions...", &theme);
+        let s = sender;
+        b4.set_callback(move |_| s.send(Message::SessionShowPicker));
+        row2.end();
+        left.fixed(&row2, BTN_H);
+
+        fspacer(&mut left, 4, bg);
+
+        // Sessions card
+        let mut sess_box = card(&theme, card_bg, border_color);
         let h = box_header("Recent Sessions", &theme, card_bg);
         sess_box.fixed(&h, 24);
+        let sep = separator(border_color);
+        sess_box.fixed(&sep, 1);
         for name in &sessions {
             let active = *name == active_session;
             let txt = if active {
@@ -179,19 +187,17 @@ impl StartPage {
         }
         spacer(card_bg);
         sess_box.end();
-        // Draw rounded border
         add_rounded_border(&mut sess_box, card_bg, border_color);
-        boxes_row.fixed(&sess_box, BOX_W);
+        left.fixed(&sess_box, card_items_h);
 
-        // Recent Files box
-        let mut files_box = Flex::default().column();
-        files_box.set_pad(2);
-        files_box.set_margin(8);
-        files_box.set_frame(FrameType::FlatBox);
-        files_box.set_color(card_bg);
+        fspacer(&mut left, 4, bg);
 
+        // Files card
+        let mut files_box = card(&theme, card_bg, border_color);
         let h = box_header("Recent Files", &theme, card_bg);
         files_box.fixed(&h, 24);
+        let sep = separator(border_color);
+        files_box.fixed(&sep, 1);
         for (display, path) in &recent {
             let short = shorten(path);
             let label = format!("{} {}", display, short);
@@ -208,52 +214,103 @@ impl StartPage {
         spacer(card_bg);
         files_box.end();
         add_rounded_border(&mut files_box, card_bg, border_color);
-        boxes_row.fixed(&files_box, BOX_W);
+        left.fixed(&files_box, card_items_h);
 
-        spacer(bg);
+        left.end();
 
-        boxes_row.end();
-        content.fixed(&boxes_row, box_inner_h);
+        // ── RIGHT COLUMN ──
+        let mut right = Flex::default().column();
+        right.set_pad(BTN_GAP);
+        right.set_color(bg);
+        body.fixed(&right, RIGHT_W);
 
-        // ── Blog ──
+        // Donate button — height = 2 button rows + gap
+        let donate_h = BTN_H * 2 + BTN_GAP;
+        let mut dbtn = Button::default();
+        dbtn.set_label("Support FerrisPad");
+        dbtn.set_frame(FrameType::RFlatBox);
+        dbtn.set_color(theme.button_bg);
+        dbtn.set_label_color(theme.text);
+        dbtn.set_label_size(14);
+        right.fixed(&dbtn, donate_h);
+        let normal_bg = theme.button_bg;
+        let hover_bg = theme.tab_active_bg;
+        let normal_fg = theme.text;
+        dbtn.handle(move |btn, ev| match ev {
+            Event::Enter => {
+                btn.set_color(hover_bg);
+                btn.redraw();
+                true
+            }
+            Event::Leave => {
+                btn.set_color(normal_bg);
+                btn.set_label_color(normal_fg);
+                btn.redraw();
+                true
+            }
+            _ => false,
+        });
+        dbtn.set_callback(|_| {
+            let _ = open::that(DONATE_URL);
+        });
+
+        fspacer(&mut right, 4, bg);
+
+        // Changelog / sponsor card — flexible, fills remaining right column to align with left cards
+        let mut sponsor_box = card(&theme, card_bg, border_color);
+        let h = box_header("Changelog", &theme, card_bg);
+        sponsor_box.fixed(&h, 24);
+        let sep = separator(border_color);
+        sponsor_box.fixed(&sep, 1);
+
         #[allow(clippy::const_is_empty)]
         if !BLOG_POSTS.is_empty() {
-            fspacer(&mut content, 8, bg);
-            let h = box_header("From the Blog", &theme, bg);
-            content.fixed(&h, 24);
             for &(text, url) in BLOG_POSTS {
-                let mut btn = hoverable_item(&format!("  {}", text), text, &theme, bg, false);
-                content.fixed(&btn, 22);
+                let mut btn = hoverable_item(text, url, &theme, card_bg, false);
+                sponsor_box.fixed(&btn, 22);
                 let u = url.to_string();
                 btn.set_callback(move |_| {
                     let _ = open::that(&u);
                 });
             }
+        } else {
+            let mut ph = Frame::default();
+            ph.set_label("Coming soon...");
+            ph.set_label_size(11);
+            ph.set_label_color(theme.text_dim);
+            ph.set_frame(FrameType::FlatBox);
+            ph.set_color(card_bg);
+            sponsor_box.fixed(&ph, 22);
         }
 
-        fspacer(&mut content, 12, bg);
+        spacer(card_bg);
+        sponsor_box.end();
+        add_rounded_border(&mut sponsor_box, card_bg, border_color);
+        // Match from top of sessions card to bottom of files card:
+        // sess_card + pad + fspacer(4) + pad + files_card
+        let changelog_h = card_items_h * 2 + BTN_GAP + 4 + BTN_GAP;
+        right.fixed(&sponsor_box, changelog_h);
 
-        // ── Donate: [spacer] btn [spacer] ──
-        let mut donate_row = Flex::default().row();
-        donate_row.set_color(bg);
-        spacer(bg);
-        let mut dbtn = action_button("Support FerrisPad", &theme);
-        donate_row.fixed(&dbtn, 180);
-        dbtn.set_callback(|_| {
-            let _ = open::that(DONATE_URL);
-        });
-        spacer(bg);
-        donate_row.end();
-        content.fixed(&donate_row, 32);
+        right.end();
 
-        content.end();
+        spacer(bg); // right centering
 
-        let n = content.children();
-        let fixed_h = 36 + 22 + 8 + 32 + 12 + box_inner_h + 12 + 32;
-        let pads = content.pad() * (n - 1).max(0);
-        self.flex.fixed(&content, fixed_h + pads);
+        body.end();
 
-        spacer(bg);
+        // Body height: buttons(2 rows) + gap + 2 cards + gaps
+        let body_h = BTN_H * 2 + BTN_GAP + 4 + card_items_h * 2 + 4 + left.pad() * 5;
+        self.flex.fixed(&body, body_h);
+
+        // Ensure window is tall enough for the content
+        // title(60) + gap(10) + body + margins for menu/status bar (~80)
+        let min_h = 60 + 10 + body_h + 80;
+        if let Some(mut win) = self.flex.top_window()
+            && win.h() < min_h
+        {
+            win.set_size(win.w(), min_h);
+        }
+
+        spacer(bg); // bottom centering
 
         self.flex.end();
         self.flex.show();
@@ -264,24 +321,27 @@ impl StartPage {
 
 // ── Widget helpers ──
 
-/// Draw a rounded border on a Flex widget using theme colors.
-/// Draws fill + border BEFORE children, then lets FLTK draw children normally.
+fn card(_theme: &DialogTheme, card_bg: Color, _border: Color) -> Flex {
+    let mut f = Flex::default().column();
+    f.set_pad(2);
+    f.set_margin(8);
+    f.set_frame(FrameType::FlatBox);
+    f.set_color(card_bg);
+    f
+}
+
 fn add_rounded_border(widget: &mut Flex, fill: Color, border: Color) {
     let radius = fltk::app::frame_border_radius_max();
-    // Set frame to NoBox so FLTK doesn't draw its own background
     widget.set_frame(FrameType::NoBox);
     widget.draw(move |w| {
         let x = w.x();
         let y = w.y();
         let ww = w.w();
         let hh = w.h();
-        // Fill
         draw::set_draw_color(fill);
         draw::draw_rounded_rectf(x, y, ww, hh, radius);
-        // Border
         draw::set_draw_color(border);
         draw::draw_rounded_rect(x, y, ww, hh, radius);
-        // Draw children on top
         w.draw_children();
     });
 }
@@ -297,6 +357,13 @@ fn fspacer(parent: &mut Flex, h: i32, bg: Color) {
     f.set_frame(FrameType::FlatBox);
     f.set_color(bg);
     parent.fixed(&f, h);
+}
+
+fn separator(color: Color) -> Frame {
+    let mut f = Frame::default();
+    f.set_frame(FrameType::FlatBox);
+    f.set_color(color);
+    f
 }
 
 fn clabel(text: &str, size: i32, font: Font, color: Color, bg: Color) -> Frame {
@@ -316,13 +383,11 @@ fn box_header(text: &str, theme: &DialogTheme, bg: Color) -> Frame {
     f.set_label_size(13);
     f.set_label_font(Font::HelveticaBold);
     f.set_label_color(theme.text);
-    f.set_align(Align::Left | Align::Inside);
     f.set_frame(FrameType::FlatBox);
     f.set_color(bg);
     f
 }
 
-/// Action button with hover highlight (color swap on Enter/Leave).
 fn action_button(label: &str, theme: &DialogTheme) -> Button {
     let mut btn = Button::default();
     btn.set_label(label);
@@ -330,31 +395,26 @@ fn action_button(label: &str, theme: &DialogTheme) -> Button {
     btn.set_color(theme.button_bg);
     btn.set_label_color(theme.text);
     btn.set_label_size(12);
-    // Hover: swap bg and label color
     let normal_bg = theme.button_bg;
     let normal_fg = theme.text;
     let hover_bg = theme.tab_active_bg;
-    btn.handle(move |btn, ev| {
-        match ev {
-            Event::Enter => {
-                btn.set_color(hover_bg);
-                btn.redraw();
-                true
-            }
-            Event::Leave => {
-                btn.set_color(normal_bg);
-                btn.set_label_color(normal_fg);
-                btn.redraw();
-                true
-            }
-            _ => false,
+    btn.handle(move |btn, ev| match ev {
+        Event::Enter => {
+            btn.set_color(hover_bg);
+            btn.redraw();
+            true
         }
+        Event::Leave => {
+            btn.set_color(normal_bg);
+            btn.set_label_color(normal_fg);
+            btn.redraw();
+            true
+        }
+        _ => false,
     });
     btn
 }
 
-/// Hoverable list item — shows tooltip on truncated text, bold + color change on hover.
-/// `full_text` is shown as tooltip if different from the visible label.
 fn hoverable_item(
     label: &str,
     full_text: &str,
@@ -370,11 +430,7 @@ fn hoverable_item(
     btn.set_label_color(normal_color);
     btn.set_label_size(12);
     btn.set_align(Align::Left | Align::Inside | Align::Clip);
-
-    // Tooltip with full text (useful when label is clipped)
     btn.set_tooltip(full_text);
-
-    // Hover: bold font + brighter text (no bg change — avoids conflicts with parent custom draw)
     let hover_color = theme.text;
     btn.handle(move |btn, ev| match ev {
         Event::Enter => {
@@ -428,6 +484,6 @@ fn gather_recent_files() -> Vec<(String, String)> {
             }
         }
     }
-    files.truncate(MAX_RECENT_SESSIONS);
+    files.truncate(MAX_RECENT);
     files
 }
