@@ -22,7 +22,7 @@ path = "src/main.rs"
 fltk = { version = "1.4", features = ["use-wayland"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-dirs = "5.0"
+dirs = "6.0"
 minreq = { version = "2", features = ["json-using-serde", "https-rustls"] }
 semver = "1.0"
 open = "5.3"
