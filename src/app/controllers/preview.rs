@@ -112,6 +112,9 @@ impl PreviewController {
     ) -> Result<(), String> {
         let temp_path = Self::temp_path_for_doc(file_path, doc_id);
 
+        // Ensure preview directory exists (may have been cleaned since app start)
+        let _ = fs::create_dir_all(preview_dir());
+
         fs::write(&temp_path, html).map_err(|e| format!("Failed to write preview file: {}", e))?;
 
         self.temp_files.insert(temp_path.clone());
