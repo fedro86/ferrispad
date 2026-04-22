@@ -1186,7 +1186,7 @@ pub fn handle_session(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets
         Message::SessionShowPicker => {
             let theme_bg = state.highlight.highlighter().theme_background();
             let current = state.session.current_session_name().to_string();
-            let result = show_session_picker(&current, theme_bg);
+            let result = show_session_picker(&lw.wind, &current, theme_bg);
             match result {
                 SessionPickerResult::Switch(name) => {
                     state.switch_session(&name);
@@ -1239,7 +1239,7 @@ pub fn handle_session(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets
         }
         Message::SessionNewWindow => {
             let theme_bg = state.highlight.highlighter().theme_background();
-            if let Some(name) = show_new_session_dialog(theme_bg)
+            if let Some(name) = show_new_session_dialog(&lw.wind, theme_bg)
                 && let Ok(exe) = std::env::current_exe()
             {
                 let _ = std::process::Command::new(exe)

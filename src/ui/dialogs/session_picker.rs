@@ -29,14 +29,25 @@ pub enum SessionPickerResult {
 }
 
 /// Show the session picker dialog.
+/// `parent` is the main window used to center the dialog (reliable on Wayland).
 /// `current_session` is the name of the currently active session (highlighted in the list).
-pub fn show_session_picker(current_session: &str, theme_bg: (u8, u8, u8)) -> SessionPickerResult {
+pub fn show_session_picker(
+    parent: &Window,
+    current_session: &str,
+    theme_bg: (u8, u8, u8),
+) -> SessionPickerResult {
     let theme = DialogTheme::from_theme_bg(theme_bg);
     let result: Rc<RefCell<SessionPickerResult>> =
         Rc::new(RefCell::new(SessionPickerResult::Cancelled));
 
+    const DW: i32 = 360;
+    const DH: i32 = 340;
+    // Regular xdg_toplevel (not modal) — on Wayland/GNOME, make_modal(true) on the
+    // first invocation maps the surface before the decoration + modal-hint round-trip
+    // completes, yielding an undecorated, ungrabbed window with no input.
+    // Modality is enforced manually below by deactivating the parent while the dialog runs.
     let mut dialog_win = Window::default()
-        .with_size(360, 340)
+        .with_size(DW, DH)
         .with_label("Sessions")
         .center_screen();
     dialog_win.set_color(theme.bg);
@@ -129,6 +140,13 @@ pub fn show_session_picker(current_session: &str, theme_bg: (u8, u8, u8)) -> Ses
     dialog_win.make_resizable(false);
     dialog_win.show();
     theme.apply_titlebar(&dialog_win);
+    // Reposition to center on the parent AFTER show().
+    dialog_win.resize(
+        parent.x() + (parent.w() - DW) / 2,
+        parent.y() + (parent.h() - DH) / 2,
+        DW,
+        DH,
+    );
 
     // Helper: get the selected session name from either browser selection or new input
     let get_target_name = {
@@ -261,13 +279,17 @@ pub fn show_session_picker(current_session: &str, theme_bg: (u8, u8, u8)) -> Ses
 }
 
 /// Show a small dialog that asks for a session name.
+/// `parent` is the main window used to center the dialog (reliable on Wayland).
 /// Returns `Some(sanitized_name)` or `None` if cancelled.
-pub fn show_new_session_dialog(theme_bg: (u8, u8, u8)) -> Option<String> {
+pub fn show_new_session_dialog(parent: &Window, theme_bg: (u8, u8, u8)) -> Option<String> {
     let theme = DialogTheme::from_theme_bg(theme_bg);
     let result: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
 
+    const DW: i32 = 300;
+    const DH: i32 = 120;
+    // Regular xdg_toplevel (not modal) — see show_session_picker for rationale.
     let mut dialog_win = Window::default()
-        .with_size(300, 120)
+        .with_size(DW, DH)
         .with_label("New Session")
         .center_screen();
     dialog_win.set_color(theme.bg);
@@ -307,6 +329,13 @@ pub fn show_new_session_dialog(theme_bg: (u8, u8, u8)) -> Option<String> {
     dialog_win.make_resizable(false);
     dialog_win.show();
     theme.apply_titlebar(&dialog_win);
+    // Reposition to center on the parent AFTER show().
+    dialog_win.resize(
+        parent.x() + (parent.w() - DW) / 2,
+        parent.y() + (parent.h() - DH) / 2,
+        DW,
+        DH,
+    );
 
     // OK button
     {
