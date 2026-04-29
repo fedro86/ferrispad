@@ -552,7 +552,8 @@ fn main() {
                 | Message::SelectAll
                 | Message::ShowFind
                 | Message::ShowReplace
-                | Message::ShowGoToLine => {
+                | Message::ShowGoToLine
+                | Message::AutoIndentActiveDocument => {
                     if state.tab_manager.count() > 0 {
                         dispatch::handle_edit(msg, &mut state);
                     }

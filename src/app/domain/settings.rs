@@ -71,6 +71,20 @@ pub enum ThemeMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum IndentStyle {
+    #[serde(rename = "spaces")]
+    Spaces(u8),
+    #[serde(rename = "tabs")]
+    Tabs,
+}
+
+impl Default for IndentStyle {
+    fn default() -> Self {
+        IndentStyle::Spaces(4)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum FontChoice {
     ScreenBold,
     Courier,
@@ -270,6 +284,14 @@ pub struct AppSettings {
     /// File size (MB) above which editing is blocked — read-only/tail only (default 150)
     #[serde(default = "default_max_editable_size_mb")]
     pub max_editable_size_mb: u32,
+
+    /// Indentation style preference (Spaces with size or Tabs)
+    #[serde(default)]
+    pub indent_style: IndentStyle,
+
+    /// Whether to auto-detect indentation style from file content
+    #[serde(default = "default_detect_indent_from_file")]
+    pub detect_indent_from_file: bool,
 }
 
 fn default_line_numbers() -> bool {
@@ -336,6 +358,10 @@ fn default_max_editable_size_mb() -> u32 {
     150
 }
 
+fn default_detect_indent_from_file() -> bool {
+    true
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -367,6 +393,8 @@ impl Default for AppSettings {
             shortcut_overrides: HashMap::new(),
             large_file_warning_mb: default_large_file_warning_mb(),
             max_editable_size_mb: default_max_editable_size_mb(),
+            indent_style: IndentStyle::default(),
+            detect_indent_from_file: default_detect_indent_from_file(),
         }
     }
 }

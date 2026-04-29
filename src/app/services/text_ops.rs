@@ -125,6 +125,178 @@ pub fn replace_all_in_text(
     (result, count)
 }
 
+/// Detect indentation style from text content (first 20 lines)
+/// Returns (is_spaces, indent_size, has_indentation)
+pub fn detect_indent_style(text: &str) -> (bool, u8) {
+    let mut space_count = 0;
+    let mut tab_count = 0;
+    let mut leading_spaces: Vec<usize> = Vec::new();
+
+    let lines: Vec<&str> = text.lines().take(20).collect();
+
+    for line in lines {
+        if line.is_empty() || !line.starts_with(|c: char| c.is_whitespace()) {
+            continue;
+        }
+
+        if line.starts_with('\t') {
+            tab_count += 1;
+        } else if line.starts_with(' ') {
+            space_count += 1;
+            let spaces = line.chars().take_while(|c| *c == ' ').count();
+            if spaces > 0 {
+                leading_spaces.push(spaces);
+            }
+        }
+    }
+
+    let is_spaces = space_count >= tab_count;
+    let indent_size = if is_spaces {
+        find_most_common_indent(&leading_spaces).unwrap_or(4) as u8
+    } else {
+        4
+    };
+
+    (is_spaces, indent_size)
+}
+
+/// Find the most common indentation size from a list of indent lengths
+fn find_most_common_indent(indents: &[usize]) -> Option<usize> {
+    if indents.is_empty() {
+        return None;
+    }
+
+    let mut counts = std::collections::HashMap::new();
+    for &indent in indents {
+        if indent > 0 && indent <= 16 {
+            *counts.entry(indent).or_insert(0) += 1;
+        }
+    }
+
+    counts
+        .into_iter()
+        .max_by_key(|&(_, count)| count)
+        .map(|(indent, _)| indent)
+}
+
+/// Calculate nesting level for a line based on opening/closing keywords and braces
+pub fn calculate_nesting_level(line: &str, language: &str, previous_level: i32) -> i32 {
+    let mut level = previous_level;
+
+    let opening_keywords = match language {
+        "py" | "python" => vec!["if", "else", "elif", "for", "while", "def", "class", "with", "try", "except"],
+        "js" | "ts" | "jsx" | "tsx" => vec!["if", "else", "for", "while", "function", "class"],
+        "rs" | "rust" => vec!["if", "else", "for", "while", "fn", "impl", "mod", "match"],
+        _ => vec![],
+    };
+
+    let closing_keywords = match language {
+        "py" | "python" => vec!["else", "elif", "except", "finally"],
+        _ => vec![],
+    };
+
+    let trimmed = line.trim();
+
+    // Count closing keywords first
+    for kw in &closing_keywords {
+        if trimmed.starts_with(kw) {
+            level = (level - 1).max(0);
+        }
+    }
+
+    // Count opening keywords
+    for kw in &opening_keywords {
+        if trimmed.contains(kw) {
+            let trimmed_start = trimmed.split_whitespace().next().unwrap_or("");
+            if trimmed_start == *kw || trimmed.starts_with(&format!("{}(", kw)) {
+                level += 1;
+            }
+        }
+    }
+
+    // Count braces (general language-agnostic)
+    for ch in trimmed.chars() {
+        if ch == '{' || ch == '[' || ch == '(' {
+            level += 1;
+        } else if ch == '}' || ch == ']' || ch == ')' {
+            level = (level - 1).max(0);
+        }
+    }
+
+    level
+}
+
+/// Detect language from file extension
+pub fn detect_language(path: &Path) -> String {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("txt")
+        .to_string()
+}
+
+/// Generate indentation string for a given nesting level
+pub fn generate_indent_string(level: u32, use_spaces: bool, indent_size: u8) -> String {
+    let size = indent_size as usize;
+    if use_spaces {
+        " ".repeat(level as usize * size)
+    } else {
+        "\t".repeat(level as usize)
+    }
+}
+
+/// Apply auto-indentation to entire document
+/// Analyzes nesting level for each line and applies appropriate indentation
+/// Uses detected indentation style if found, otherwise uses user preferences
+pub fn auto_indent_document(text: &str, use_spaces: bool, indent_size: u8, language: &str) -> String {
+    let (detected_spaces, detected_size) = detect_indent_style(text);
+
+    let final_use_spaces = if !text.is_empty() {
+        detected_spaces
+    } else {
+        use_spaces
+    };
+    let final_indent_size = if !text.is_empty() {
+        detected_size
+    } else {
+        indent_size
+    };
+
+    let mut result = String::new();
+    let mut nesting_level: i32 = 0;
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.is_empty() {
+            result.push('\n');
+            continue;
+        }
+
+        // Adjust nesting level based on closing braces/keywords before this line
+        if trimmed.starts_with('}')
+            || trimmed.starts_with(']')
+            || trimmed.starts_with(')')
+            || language == "py" && (trimmed.starts_with("else") || trimmed.starts_with("elif") || trimmed.starts_with("except"))
+        {
+            nesting_level = (nesting_level - 1).max(0);
+        }
+
+        let indent = generate_indent_string(nesting_level as u32, final_use_spaces, final_indent_size);
+        result.push_str(&indent);
+        result.push_str(trimmed);
+        result.push('\n');
+
+        nesting_level = calculate_nesting_level(trimmed, language, nesting_level);
+    }
+
+    // Remove trailing newline if original didn't have one
+    if !text.ends_with('\n') && result.ends_with('\n') {
+        result.pop();
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
