@@ -1,3 +1,4 @@
+use regex_lite::RegexBuilder;
 use std::path::Path;
 
 /// Extract filename from a file path
@@ -123,6 +124,84 @@ pub fn replace_all_in_text(
     }
 
     (result, count)
+}
+
+/// Find next regex match in text, returns (match_start, match_end) byte positions
+pub fn find_in_text_regex(
+    text: &str,
+    pattern: &str,
+    start_pos: usize,
+    case_sensitive: bool,
+) -> Result<Option<(usize, usize)>, String> {
+    if pattern.is_empty() {
+        return Ok(None);
+    }
+    let re = RegexBuilder::new(pattern)
+        .case_insensitive(!case_sensitive)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let slice_start = start_pos.min(text.len());
+    Ok(re
+        .find(&text[slice_start..])
+        .map(|m| (slice_start + m.start(), slice_start + m.end())))
+}
+
+/// Find last regex match before end_pos (backward search), returns (match_start, match_end)
+pub fn find_in_text_regex_backward(
+    text: &str,
+    pattern: &str,
+    end_pos: usize,
+    case_sensitive: bool,
+) -> Result<Option<(usize, usize)>, String> {
+    if pattern.is_empty() {
+        return Ok(None);
+    }
+    let re = RegexBuilder::new(pattern)
+        .case_insensitive(!case_sensitive)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let slice = &text[..end_pos.min(text.len())];
+    Ok(re.find_iter(slice).last().map(|m| (m.start(), m.end())))
+}
+
+/// Replace all regex matches; replacement may reference capture groups as $1, $2, etc.
+pub fn replace_all_in_text_regex(
+    text: &str,
+    pattern: &str,
+    replacement: &str,
+    case_sensitive: bool,
+) -> Result<(String, usize), String> {
+    if pattern.is_empty() {
+        return Ok((text.to_string(), 0));
+    }
+    let re = RegexBuilder::new(pattern)
+        .case_insensitive(!case_sensitive)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let count = re.find_iter(text).count();
+    let result = re.replace_all(text, replacement).into_owned();
+    Ok((result, count))
+}
+
+/// Replace the first regex match in text; replacement may reference capture groups as $1, $2, etc.
+pub fn replace_first_regex(
+    text: &str,
+    pattern: &str,
+    replacement: &str,
+    case_sensitive: bool,
+) -> Result<Option<String>, String> {
+    if pattern.is_empty() {
+        return Ok(None);
+    }
+    let re = RegexBuilder::new(pattern)
+        .case_insensitive(!case_sensitive)
+        .build()
+        .map_err(|e| e.to_string())?;
+    if re.is_match(text) {
+        Ok(Some(re.replace(text, replacement).into_owned()))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Detect indentation style from text content (first 20 lines)
@@ -530,5 +609,128 @@ mod tests {
         let (result, count) = replace_all_in_text(text, "世界", "World", false);
         assert_eq!(result, "Hello World");
         assert_eq!(count, 1);
+    }
+
+    // Regex find tests
+
+    #[test]
+    fn test_find_regex_basic() {
+        let text = "foo bar foo";
+        let result = find_in_text_regex(text, "foo", 0, true).unwrap();
+        assert_eq!(result, Some((0, 3)));
+    }
+
+    #[test]
+    fn test_find_regex_from_pos() {
+        let text = "foo bar foo";
+        let result = find_in_text_regex(text, "foo", 1, true).unwrap();
+        assert_eq!(result, Some((8, 11)));
+    }
+
+    #[test]
+    fn test_find_regex_case_insensitive() {
+        let text = "Hello HELLO hello";
+        let result = find_in_text_regex(text, "hello", 0, false).unwrap();
+        assert_eq!(result, Some((0, 5)));
+    }
+
+    #[test]
+    fn test_find_regex_word_boundary() {
+        let text = "foobar foo";
+        let result = find_in_text_regex(text, r"\bfoo\b", 0, true).unwrap();
+        assert_eq!(result, Some((7, 10)));
+    }
+
+    #[test]
+    fn test_find_regex_no_match() {
+        let text = "hello world";
+        let result = find_in_text_regex(text, "xyz", 0, true).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_find_regex_invalid_pattern() {
+        let result = find_in_text_regex("hello", "[", 0, true);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_find_regex_empty_pattern() {
+        let result = find_in_text_regex("hello", "", 0, true).unwrap();
+        assert_eq!(result, None);
+    }
+
+    // Regex backward find tests
+
+    #[test]
+    fn test_find_regex_backward_basic() {
+        let text = "foo bar foo";
+        let result = find_in_text_regex_backward(text, "foo", text.len(), true).unwrap();
+        assert_eq!(result, Some((8, 11)));
+    }
+
+    #[test]
+    fn test_find_regex_backward_before_pos() {
+        let text = "foo bar foo";
+        let result = find_in_text_regex_backward(text, "foo", 8, true).unwrap();
+        assert_eq!(result, Some((0, 3)));
+    }
+
+    #[test]
+    fn test_find_regex_backward_no_match() {
+        let text = "foo bar foo";
+        let result = find_in_text_regex_backward(text, "xyz", text.len(), true).unwrap();
+        assert_eq!(result, None);
+    }
+
+    // Regex replace all tests
+
+    #[test]
+    fn test_replace_all_regex_basic() {
+        let (result, count) = replace_all_in_text_regex("cat cat cat", "cat", "dog", true).unwrap();
+        assert_eq!(result, "dog dog dog");
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_replace_all_regex_capture_groups() {
+        let (result, count) =
+            replace_all_in_text_regex("foo bar baz", r"(\w+)", "[$1]", true).unwrap();
+        assert_eq!(result, "[foo] [bar] [baz]");
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_replace_all_regex_case_insensitive() {
+        let (result, count) =
+            replace_all_in_text_regex("Cat cat CAT", "cat", "dog", false).unwrap();
+        assert_eq!(result, "dog dog dog");
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_replace_all_regex_invalid_pattern() {
+        let result = replace_all_in_text_regex("hello", "[", "x", true);
+        assert!(result.is_err());
+    }
+
+    // Regex replace first tests
+
+    #[test]
+    fn test_replace_first_regex_basic() {
+        let result = replace_first_regex("cat cat cat", "cat", "dog", true).unwrap();
+        assert_eq!(result, Some("dog cat cat".to_string()));
+    }
+
+    #[test]
+    fn test_replace_first_regex_no_match() {
+        let result = replace_first_regex("hello", "xyz", "dog", true).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_replace_first_regex_capture_groups() {
+        let result = replace_first_regex("hello world", r"(\w+)", "[$1]", true).unwrap();
+        assert_eq!(result, Some("[hello] world".to_string()));
     }
 }
