@@ -236,10 +236,6 @@ pub enum Message {
     /// Toggle split view between panel and tab display mode
     SplitViewToggleMode(u32),
 
-    /// User triggered auto-indentation via menu/keybinding
-    /// Applies auto-indentation to the entire active document
-    AutoIndentActiveDocument,
-
     // Sessions
     /// Show the session picker dialog
     SessionShowPicker,

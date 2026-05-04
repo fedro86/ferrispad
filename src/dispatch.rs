@@ -15,7 +15,6 @@ use crate::app::infrastructure::defer::defer_send;
 use crate::app::mcp;
 use crate::app::plugins::widgets::SplitDisplayMode;
 use crate::app::services::session;
-use crate::app::services::text_ops;
 use crate::app::services::updater::current_timestamp;
 use crate::app::state::AppState;
 use crate::ui::dialogs::about::show_about_dialog;
@@ -254,32 +253,6 @@ pub fn handle_edit(msg: Message, state: &mut AppState) {
         Message::ShowGoToLine => {
             let theme_bg = state.highlight.highlighter().theme_background();
             show_goto_line_dialog(&state.active_buffer(), &mut state.editor, theme_bg);
-        }
-        Message::AutoIndentActiveDocument => {
-            let mut buf = state.active_buffer();
-            let content = buf.text();
-
-            // Get language - default to txt if no active document
-            let language = "txt".to_string();
-
-            // Get settings by borrowing
-            let settings = state.settings.borrow();
-            let use_spaces = settings.use_spaces;
-            let tab_size = settings.tab_size as u8;
-            drop(settings);
-
-            // Auto-indent the document
-            let indented = text_ops::auto_indent_document(
-                &content,
-                use_spaces,
-                tab_size,
-                &language,
-            );
-
-            if &indented != &content {
-                buf.set_text(&indented);
-                state.session.mark_dirty();
-            }
         }
         _ => {}
     }

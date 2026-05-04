@@ -586,8 +586,6 @@ pub fn show_settings_dialog(
             shortcut_overrides: current.shortcut_overrides.clone(),
             large_file_warning_mb,
             max_editable_size_mb: max_editable_mb,
-            indent_style: current.indent_style,
-            detect_indent_from_file: current.detect_indent_from_file,
         };
 
         *result_save.borrow_mut() = Some(new_settings);

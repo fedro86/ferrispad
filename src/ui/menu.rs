@@ -32,7 +32,6 @@ const RESERVED_SHORTCUTS: &[&str] = &[
     "ctrl+f",
     "ctrl+h",
     "ctrl+g",
-    "ctrl+shift+i", // Auto-Indent
     "ctrl+m",
     "ctrl+shift+l", // Run All Checks
     "ctrl+shift+n", // New Session Window
@@ -64,7 +63,6 @@ pub const BUILTIN_SHORTCUTS: &[(&str, &str)] = &[
     ("Edit/Find...", "Ctrl+F"),
     ("Edit/Replace...", "Ctrl+H"),
     ("Edit/Go To Line...", "Ctrl+G"),
-    ("Edit/Auto-Indent", "Ctrl+Shift+I"),
     ("View/Preview in Browser", "Ctrl+M"),
     ("Plugins/General/Run All Checks", "Ctrl+Shift+L"),
 ];
@@ -408,15 +406,6 @@ pub fn build_menu(
         {
             let s = *s;
             move |_| s.send(Message::ShowGoToLine)
-        },
-    );
-    menu.add(
-        "Edit/Auto-Indent",
-        rs("Edit/Auto-Indent"),
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::AutoIndentActiveDocument)
         },
     );
     menu.add("Edit/Key Shortcuts...", Shortcut::None, MenuFlag::Normal, {
