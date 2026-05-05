@@ -338,7 +338,12 @@ pub struct ViewerOpenRequest {
 ///
 /// Returns a `ViewerOpenRequest` if the user clicked "Open" to edit the
 /// currently displayed lines, or `None` if the viewer was simply closed.
-pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) -> Option<ViewerOpenRequest> {
+pub fn show_readonly_viewer(
+    path: &Path,
+    theme_bg: (u8, u8, u8),
+    code_font: Font,
+    code_font_size: i32,
+) -> Option<ViewerOpenRequest> {
     let file = match File::open(path) {
         Ok(f) => f,
         Err(e) => {
@@ -464,8 +469,8 @@ pub fn show_readonly_viewer(path: &Path, theme_bg: (u8, u8, u8)) -> Option<Viewe
     let mut display = TextDisplay::default();
     let buffer = TextBuffer::default();
     display.set_buffer(buffer.clone());
-    display.set_text_font(Font::Courier);
-    display.set_text_size(14);
+    display.set_text_font(code_font);
+    display.set_text_size(code_font_size.clamp(6, 96));
     // Word wrap is enabled after scrollbar styling below to eliminate the
     // horizontal scrollbar (FLTK re-shows it when content is loaded).
     // Line numbers are prepended as text, so disable the built-in gutter

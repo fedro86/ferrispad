@@ -72,7 +72,7 @@ impl WidgetController {
 
         let style_table = highlight.style_table();
 
-        let font = settings.font.to_fltk_font();
+        let font = settings.current_font();
         let font_size = settings.font_size as i32;
 
         split_panel.show_request_with_syntax(

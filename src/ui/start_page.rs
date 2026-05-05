@@ -86,12 +86,7 @@ impl StartPage {
         self.flex.clear();
     }
 
-    pub fn show(
-        &mut self,
-        sender: Sender<Message>,
-        theme_bg: (u8, u8, u8),
-        active_session: &str,
-    ) {
+    pub fn show(&mut self, sender: Sender<Message>, theme_bg: (u8, u8, u8), active_session: &str) {
         let theme = DialogTheme::from_theme_bg(theme_bg);
         let bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
         let card_bg = theme.row_bg;
@@ -238,14 +233,18 @@ impl StartPage {
         let mut wiki_row1 = Flex::default().row();
         wiki_row1.set_color(bg);
         let mut wb1 = accent_button("Wiki FerrisPad", &theme);
-        wb1.set_callback(|_| { let _ = open::that(WIKI_FERRISPAD); });
+        wb1.set_callback(|_| {
+            let _ = open::that(WIKI_FERRISPAD);
+        });
         wiki_row1.end();
         right.fixed(&wiki_row1, BTN_H);
 
         let mut wiki_row2 = Flex::default().row();
         wiki_row2.set_color(bg);
         let mut wb2 = accent_button("Wiki Plugins", &theme);
-        wb2.set_callback(|_| { let _ = open::that(WIKI_PLUGINS); });
+        wb2.set_callback(|_| {
+            let _ = open::that(WIKI_PLUGINS);
+        });
         wiki_row2.end();
         right.fixed(&wiki_row2, BTN_H);
 
@@ -276,7 +275,9 @@ impl StartPage {
         let mut more_btn = hoverable_item("more...", CHANGELOG_URL, &theme, card_bg, true);
         more_btn.set_align(Align::Right | Align::Inside);
         sponsor_box.fixed(&more_btn, 25);
-        more_btn.set_callback(|_| { let _ = open::that(CHANGELOG_URL); });
+        more_btn.set_callback(|_| {
+            let _ = open::that(CHANGELOG_URL);
+        });
 
         sponsor_box.end();
         add_rounded_border(&mut sponsor_box, card_bg, border_color);

@@ -1,10 +1,10 @@
 use fltk::{
     app::Sender,
     button::{Button, CheckButton, RadioRoundButton},
-    enums::FrameType,
+    enums::{CallbackTrigger, FrameType},
     frame::Frame,
     group::Group,
-    input::Input,
+    input::{Input, IntInput},
     menu::Choice,
     prelude::*,
     window::Window,
@@ -12,9 +12,7 @@ use fltk::{
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::app::{
-    AppSettings, FontChoice, Message, SessionRestore, SyntaxTheme, ThemeMode, UpdateChannel,
-};
+use crate::app::{AppSettings, Message, SessionRestore, SyntaxTheme, ThemeMode, UpdateChannel};
 
 use super::DialogTheme;
 
@@ -167,36 +165,23 @@ pub fn show_settings_dialog(
     font_label.set_label_color(theme.text);
     y += LABEL_HEIGHT + 5;
 
-    let mut font_group = Group::default()
+    let mut font_value = Input::default()
         .with_pos(LEFT_COL + 10, y)
-        .with_size(COL_WIDTH - 10, ITEM_HEIGHT * 3);
-    font_group.set_color(theme.bg);
-    let mut font_screenbold = RadioRoundButton::default()
-        .with_pos(LEFT_COL + 10, y)
-        .with_size(COL_WIDTH - 10, ITEM_HEIGHT)
-        .with_label("Screen (Bold)");
-    font_screenbold.set_label_color(theme.text);
-    font_screenbold.set_color(theme.bg);
-    let mut font_courier = RadioRoundButton::default()
-        .with_pos(LEFT_COL + 10, y + ITEM_HEIGHT)
-        .with_size(COL_WIDTH - 10, ITEM_HEIGHT)
-        .with_label("Courier");
-    font_courier.set_label_color(theme.text);
-    font_courier.set_color(theme.bg);
-    let mut font_helvetica = RadioRoundButton::default()
-        .with_pos(LEFT_COL + 10, y + ITEM_HEIGHT * 2)
-        .with_size(COL_WIDTH - 10, ITEM_HEIGHT)
-        .with_label("Helvetica Mono");
-    font_helvetica.set_label_color(theme.text);
-    font_helvetica.set_color(theme.bg);
-    font_group.end();
-    y += ITEM_HEIGHT * 3 + SECTION_GAP;
+        .with_size(COL_WIDTH - 10 - 90, ITEM_HEIGHT);
+    font_value.set_frame(FrameType::FlatBox);
+    font_value.set_value(&current_settings.font);
+    font_value.set_readonly(true);
+    font_value.set_color(theme.input_bg);
+    font_value.set_text_color(theme.text);
+    font_value.set_selection_color(theme.button_bg);
 
-    match current_settings.font {
-        FontChoice::ScreenBold => font_screenbold.set_value(true),
-        FontChoice::Courier => font_courier.set_value(true),
-        FontChoice::HelveticaMono => font_helvetica.set_value(true),
-    }
+    let mut change_font_btn = Button::default()
+        .with_pos(LEFT_COL + COL_WIDTH - 80, y)
+        .with_size(80, ITEM_HEIGHT)
+        .with_label("Change...");
+    change_font_btn.set_color(theme.button_bg);
+    change_font_btn.set_label_color(theme.text);
+    y += ITEM_HEIGHT + SECTION_GAP;
 
     // Font size section
     let mut size_label = Frame::default()
@@ -207,36 +192,54 @@ pub fn show_settings_dialog(
     size_label.set_label_color(theme.text);
     y += LABEL_HEIGHT + 5;
 
-    let mut size_group = Group::default()
+    let mut size_input = IntInput::default()
         .with_pos(LEFT_COL + 10, y)
-        .with_size(COL_WIDTH - 10, ITEM_HEIGHT * 3);
-    size_group.set_color(theme.bg);
-    let mut size_12 = RadioRoundButton::default()
-        .with_pos(LEFT_COL + 10, y)
-        .with_size(COL_WIDTH - 10, ITEM_HEIGHT)
-        .with_label("Small (12)");
-    size_12.set_label_color(theme.text);
-    size_12.set_color(theme.bg);
-    let mut size_16 = RadioRoundButton::default()
-        .with_pos(LEFT_COL + 10, y + ITEM_HEIGHT)
-        .with_size(COL_WIDTH - 10, ITEM_HEIGHT)
-        .with_label("Medium (16)");
-    size_16.set_label_color(theme.text);
-    size_16.set_color(theme.bg);
-    let mut size_20 = RadioRoundButton::default()
-        .with_pos(LEFT_COL + 10, y + ITEM_HEIGHT * 2)
-        .with_size(COL_WIDTH - 10, ITEM_HEIGHT)
-        .with_label("Large (20)");
-    size_20.set_label_color(theme.text);
-    size_20.set_color(theme.bg);
-    size_group.end();
-    y += ITEM_HEIGHT * 3 + SECTION_GAP;
+        .with_size(70, ITEM_HEIGHT);
+    size_input.set_frame(FrameType::FlatBox);
+    size_input.set_value(&current_settings.font_size.to_string());
+    size_input.set_color(theme.input_bg);
+    size_input.set_text_color(theme.text);
+    size_input.set_selection_color(theme.button_bg);
+    size_input.set_trigger(CallbackTrigger::Changed);
+    {
+        let mut s = size_input.clone();
+        size_input.set_callback(move |_| {
+            if let Ok(v) = s.value().parse::<i32>() {
+                let clamped = v.clamp(6, 96);
+                if clamped != v {
+                    s.set_value(&clamped.to_string());
+                }
+            }
+        });
+    }
 
-    match current_settings.font_size {
-        12 => size_12.set_value(true),
-        16 => size_16.set_value(true),
-        20 => size_20.set_value(true),
-        _ => size_16.set_value(true),
+    let mut size_hint = Frame::default()
+        .with_pos(LEFT_COL + 90, y)
+        .with_size(150, ITEM_HEIGHT)
+        .with_label("(6\u{2013}96)")
+        .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
+    size_hint.set_label_color(theme.text_dim);
+    y += ITEM_HEIGHT + SECTION_GAP;
+
+    // [Change...] opens the font picker; on OK, mirror the result into both inputs.
+    {
+        let mut font_value = font_value.clone();
+        let mut size_input = size_input.clone();
+        let dialog_for_picker = dialog.clone();
+        let theme_bg_for_picker = theme_bg;
+        change_font_btn.set_callback(move |_| {
+            let current_name = font_value.value();
+            let current_size = size_input.value().parse::<u32>().unwrap_or(16);
+            if let Some((name, size)) = super::font_picker::show_font_picker(
+                &dialog_for_picker,
+                &current_name,
+                current_size,
+                theme_bg_for_picker,
+            ) {
+                font_value.set_value(&name);
+                size_input.set_value(&size.to_string());
+            }
+        });
     }
 
     // Tab size section
@@ -525,20 +528,15 @@ pub fn show_settings_dialog(
             } else {
                 ThemeMode::SystemDefault
             },
-            font: if font_screenbold.value() {
-                FontChoice::ScreenBold
-            } else if font_courier.value() {
-                FontChoice::Courier
-            } else {
-                FontChoice::HelveticaMono
+            font: {
+                let v = font_value.value();
+                if v.trim().is_empty() {
+                    "Courier".to_string()
+                } else {
+                    v
+                }
             },
-            font_size: if size_12.value() {
-                12
-            } else if size_20.value() {
-                20
-            } else {
-                16
-            },
+            font_size: size_input.value().parse::<u32>().unwrap_or(16).clamp(6, 96),
             line_numbers_enabled: check_line_numbers.value(),
             word_wrap_enabled: check_word_wrap.value(),
             highlighting_enabled: check_highlighting.value(),

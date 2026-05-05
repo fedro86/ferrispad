@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use fltk::{
     app::Sender,
-    enums::{Font, Key, Shortcut},
+    enums::{Key, Shortcut},
     menu::{MenuBar, MenuFlag},
     prelude::*,
 };
@@ -481,12 +481,12 @@ pub fn build_menu(
         MenuFlag::Normal,
         {
             let s = *s;
-            move |_| s.send(Message::SetFont(Font::ScreenBold))
+            move |_| s.send(Message::SetFont("ScreenBold".to_string()))
         },
     );
     menu.add("Format/Font/Courier", Shortcut::None, MenuFlag::Normal, {
         let s = *s;
-        move |_| s.send(Message::SetFont(Font::Courier))
+        move |_| s.send(Message::SetFont("Courier".to_string()))
     });
     menu.add(
         "Format/Font/Helvetica Mono",
@@ -494,36 +494,29 @@ pub fn build_menu(
         MenuFlag::Normal,
         {
             let s = *s;
-            move |_| s.send(Message::SetFont(Font::Screen))
+            move |_| s.send(Message::SetFont("HelveticaMono".to_string()))
         },
     );
     menu.add(
-        "Format/Font Size/Small (12)",
+        "Format/Font/More Fonts...",
         Shortcut::None,
         MenuFlag::Normal,
         {
             let s = *s;
-            move |_| s.send(Message::SetFontSize(12))
+            move |_| s.send(Message::OpenFontPicker)
         },
     );
-    menu.add(
-        "Format/Font Size/Medium (16)",
-        Shortcut::None,
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::SetFontSize(16))
-        },
-    );
-    menu.add(
-        "Format/Font Size/Large (20)",
-        Shortcut::None,
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::SetFontSize(20))
-        },
-    );
+    for &sz in &[8, 10, 12, 14, 16, 18, 20, 24, 28, 32] {
+        menu.add(
+            &format!("Format/Font Size/{}", sz),
+            Shortcut::None,
+            MenuFlag::Normal,
+            {
+                let s = *s;
+                move |_| s.send(Message::SetFontSize(sz))
+            },
+        );
+    }
 
     // Plugins - General submenu with core functionality
     let plugins_flag = if settings.plugins_enabled {

@@ -28,11 +28,11 @@ const HEADER_HEIGHT: i32 = 32;
 /// Default width of the terminal panel (right-side position)
 const DEFAULT_WIDTH: i32 = 550;
 
-/// Font size for terminal content
-const TERM_FONT_SIZE: i32 = 14;
-
-/// Font for terminal content (monospace)
-const TERM_FONT: Font = Font::Courier;
+/// Default font/size for terminal content. Overridden at runtime by
+/// `TerminalPanel::set_code_font` so the terminal follows the user's chosen
+/// editor font.
+const DEFAULT_TERM_FONT_SIZE: i32 = 14;
+const DEFAULT_TERM_FONT: Font = Font::Courier;
 
 /// Internal padding around the terminal content (px)
 const TERM_PAD: i32 = 4;
@@ -133,6 +133,10 @@ pub struct TerminalPanel {
     snapshot: Arc<Mutex<Option<GridSnapshot>>>,
     /// Scroll offset from bottom (0 = at bottom, shared with draw callback)
     scroll_offset: Arc<Mutex<usize>>,
+    /// Code font + size, shared with the draw callback so font changes
+    /// (via `set_code_font`) are picked up on the next redraw without
+    /// rebuilding the closure.
+    font: Arc<Mutex<(Font, i32)>>,
 }
 
 /// Internal terminal state, created lazily on first show
@@ -198,7 +202,17 @@ impl TerminalPanel {
             theme_bg: (40, 44, 52),
             snapshot: Arc::new(Mutex::new(None)),
             scroll_offset: Arc::new(Mutex::new(0)),
+            font: Arc::new(Mutex::new((DEFAULT_TERM_FONT, DEFAULT_TERM_FONT_SIZE))),
         }
+    }
+
+    /// Update the code font + size used to render terminal content.
+    /// Picked up on the next redraw.
+    pub fn set_code_font(&mut self, font: Font, size: i32) {
+        if let Ok(mut f) = self.font.lock() {
+            *f = (font, size.clamp(6, 96));
+        }
+        self.canvas.redraw();
     }
 
     /// Create a draggable divider frame (call before `new()` in layout).
@@ -256,7 +270,7 @@ impl TerminalPanel {
             400
         };
 
-        let (char_w, char_h) = Self::char_metrics();
+        let (char_w, char_h) = self.char_metrics();
         let cols = (canvas_w / char_w).max(20) as usize;
         let rows = (canvas_h / char_h).max(5) as usize;
 
@@ -380,6 +394,7 @@ impl TerminalPanel {
     fn setup_draw_callback(&mut self) {
         let snapshot = Arc::clone(&self.snapshot);
         let scroll_offset = Arc::clone(&self.scroll_offset);
+        let font = Arc::clone(&self.font);
         let term_theme = TerminalTheme::from_theme(self.is_dark, self.theme_bg);
         let bg_color = term_theme.bg;
 
@@ -404,7 +419,11 @@ impl TerminalPanel {
 
             let offset = scroll_offset.lock().map(|g| *g).unwrap_or(0);
 
-            fltk::draw::set_font(TERM_FONT, TERM_FONT_SIZE);
+            let (term_font, term_font_size) = font
+                .lock()
+                .map(|f| *f)
+                .unwrap_or((DEFAULT_TERM_FONT, DEFAULT_TERM_FONT_SIZE));
+            fltk::draw::set_font(term_font, term_font_size);
             let char_w = fltk::draw::width("M") as i32;
             let char_h = fltk::draw::height();
 
@@ -458,10 +477,10 @@ impl TerminalPanel {
                     if cell.ch != ' ' {
                         let fg = TerminalTheme::effective_fg(cell.fg, cell.bg, bg_color);
                         fltk::draw::set_draw_color(fg);
-                        if cell.bold {
-                            fltk::draw::set_font(Font::CourierBold, TERM_FONT_SIZE);
-                        }
-
+                        // Bold cells are rendered in regular weight: FLTK only has
+                        // bold variants for its 16 built-in fonts, and we now allow
+                        // arbitrary system fonts where no bold variant is reachable
+                        // by name lookup.
                         let mut buf = [0u8; 4];
                         let s = cell.ch.encode_utf8(&mut buf);
                         fltk::draw::draw_text2(
@@ -472,10 +491,6 @@ impl TerminalPanel {
                             char_h,
                             Align::Left | Align::Inside,
                         );
-
-                        if cell.bold {
-                            fltk::draw::set_font(TERM_FONT, TERM_FONT_SIZE);
-                        }
                     }
                 }
             }
@@ -588,9 +603,14 @@ impl TerminalPanel {
         }
     }
 
-    /// Get character metrics for the terminal font
-    fn char_metrics() -> (i32, i32) {
-        fltk::draw::set_font(TERM_FONT, TERM_FONT_SIZE);
+    /// Get character metrics for the current terminal font/size.
+    fn char_metrics(&self) -> (i32, i32) {
+        let (font, size) = self
+            .font
+            .lock()
+            .map(|f| *f)
+            .unwrap_or((DEFAULT_TERM_FONT, DEFAULT_TERM_FONT_SIZE));
+        fltk::draw::set_font(font, size);
         let char_w = fltk::draw::width("M") as i32;
         let char_h = fltk::draw::height();
         (char_w.max(1), char_h.max(1))
@@ -664,22 +684,28 @@ impl TerminalPanel {
 
     /// Handle resize — recalculate grid dimensions and notify PTY
     pub fn handle_resize(&mut self) {
+        let (char_w, char_h) = self.char_metrics();
+        let canvas_w = self.canvas.w();
+        let canvas_h = self.canvas.h();
+        let mut needs_redraw = false;
         if let Some(ref mut ts) = self.state {
-            let (char_w, char_h) = Self::char_metrics();
-            if char_w <= 0 || char_h <= 0 || self.canvas.w() <= 0 || self.canvas.h() <= 0 {
+            if char_w <= 0 || char_h <= 0 || canvas_w <= 0 || canvas_h <= 0 {
                 return;
             }
-            let usable_w = self.canvas.w() - TERM_PAD * 2;
-            let usable_h = self.canvas.h() - TERM_PAD * 2;
+            let usable_w = canvas_w - TERM_PAD * 2;
+            let usable_h = canvas_h - TERM_PAD * 2;
             let new_cols = (usable_w / char_w).max(10) as usize;
             let new_rows = (usable_h / char_h).max(3) as usize;
 
             if new_cols != ts.grid.cols || new_rows != ts.grid.rows {
                 ts.grid.resize(new_cols, new_rows);
                 ts.pty.resize(new_cols as u16, new_rows as u16);
-                self.update_snapshot();
-                self.canvas.redraw();
+                needs_redraw = true;
             }
+        }
+        if needs_redraw {
+            self.update_snapshot();
+            self.canvas.redraw();
         }
     }
 

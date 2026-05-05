@@ -5,7 +5,6 @@ use std::rc::Rc;
 use fltk::{
     app::Sender,
     dialog,
-    enums::Font,
     frame::Frame,
     group::Flex,
     menu::MenuBar,
@@ -26,7 +25,7 @@ use super::controllers::view::ViewController;
 use super::controllers::widget::WidgetController;
 use super::domain::document::DocumentId;
 use super::domain::messages::Message;
-use super::domain::settings::{AppSettings, FontChoice, SyntaxTheme, ThemeMode};
+use super::domain::settings::{self, AppSettings, SyntaxTheme, ThemeMode};
 use super::infrastructure::buffer::buffer_text_no_leak;
 use super::infrastructure::defer::defer_send;
 use super::infrastructure::platform::detect_system_dark_mode;
@@ -109,14 +108,7 @@ impl AppState {
         let mut tab_manager = TabManager::new(sender);
         tab_manager.add_untitled();
 
-        let font = {
-            let s = settings.borrow();
-            match s.font {
-                FontChoice::ScreenBold => Font::ScreenBold,
-                FontChoice::Courier => Font::Courier,
-                FontChoice::HelveticaMono => Font::Screen,
-            }
-        };
+        let font = settings.borrow().current_font();
         let font_size = settings.borrow().font_size as i32;
         let highlighting_enabled = settings.borrow().highlighting_enabled;
         let syntax_theme = settings.borrow().current_syntax_theme(dark_mode);
@@ -952,24 +944,23 @@ impl AppState {
         self.bind_active_buffer();
     }
 
-    pub fn set_font(&mut self, font: Font) {
+    pub fn set_font(&mut self, name: &str) {
+        let font = settings::resolve_font(name);
         self.editor.set_text_font(font);
         self.highlight.set_font(font, self.highlight.font_size());
         self.bind_active_buffer();
-        let font_choice = match font {
-            Font::ScreenBold => FontChoice::ScreenBold,
-            Font::Courier => FontChoice::Courier,
-            _ => FontChoice::HelveticaMono,
-        };
-        self.settings.borrow_mut().font = font_choice;
+        self.settings.borrow_mut().font = name.to_string();
+        let _ = self.settings.borrow().save();
         self.editor.redraw();
     }
 
     pub fn set_font_size(&mut self, size: i32) {
+        let size = size.clamp(6, 96);
         self.editor.set_text_size(size);
         self.highlight.set_font(self.highlight.font(), size);
         self.bind_active_buffer();
         self.settings.borrow_mut().font_size = size as u32;
+        let _ = self.settings.borrow().save();
         self.editor.redraw();
     }
 
@@ -981,11 +972,7 @@ impl AppState {
         };
         self.view.dark_mode = is_dark;
 
-        let font = match new_settings.font {
-            FontChoice::ScreenBold => Font::ScreenBold,
-            FontChoice::Courier => Font::Courier,
-            FontChoice::HelveticaMono => Font::Screen,
-        };
+        let font = new_settings.current_font();
         self.editor.set_text_font(font);
         self.editor.set_text_size(new_settings.font_size as i32);
 

@@ -1,6 +1,7 @@
 pub mod about;
 pub mod community_install;
 pub mod find;
+pub mod font_picker;
 pub mod goto_line;
 pub mod large_file;
 pub mod plugin_config;
@@ -100,15 +101,17 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     let r = hue_to_rgb(p, q, h_norm + 1.0 / 3.0);
     let g = hue_to_rgb(p, q, h_norm);
     let b = hue_to_rgb(p, q, h_norm - 1.0 / 3.0);
-    (
-        (r * 255.0) as u8,
-        (g * 255.0) as u8,
-        (b * 255.0) as u8,
-    )
+    ((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
 }
 
 fn hue_to_rgb(p: f32, q: f32, t: f32) -> f32 {
-    let t = if t < 0.0 { t + 1.0 } else if t > 1.0 { t - 1.0 } else { t };
+    let t = if t < 0.0 {
+        t + 1.0
+    } else if t > 1.0 {
+        t - 1.0
+    } else {
+        t
+    };
     if t < 1.0 / 6.0 {
         p + (q - p) * 6.0 * t
     } else if t < 0.5 {
@@ -153,8 +156,8 @@ pub(crate) fn darken(r: u8, g: u8, b: u8, factor: f32) -> (u8, u8, u8) {
 /// The dominant channel keeps ~0.81, mid channel ~0.48, suppressed ~0.15.
 /// `amount` controls the blend: 0.0 = original, 1.0 = full intensification.
 pub(crate) fn intensify_dominant(r: u8, g: u8, b: u8, amount: f32) -> (u8, u8, u8) {
-    const KEEP: f32 = 0.81;   // factor for dominant channel
-    const MID: f32 = 0.48;    // factor for middle channel
+    const KEEP: f32 = 0.81; // factor for dominant channel
+    const MID: f32 = 0.48; // factor for middle channel
     const SUPPRESS: f32 = 0.15; // factor for weakest channel
 
     let rf = r as f32;

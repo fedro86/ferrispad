@@ -70,21 +70,24 @@ pub enum ThemeMode {
     SystemDefault,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum FontChoice {
-    ScreenBold,
-    Courier,
-    HelveticaMono,
+/// Returns true for the three built-in font names that FerrisPad has shipped historically.
+/// Used to decide whether the system font catalog must be eagerly loaded on Windows
+/// before the saved font name can be resolved at startup.
+pub fn is_legacy_font_name(name: &str) -> bool {
+    matches!(name, "Courier" | "ScreenBold" | "HelveticaMono")
 }
 
-impl FontChoice {
-    /// Convert to the corresponding FLTK Font.
-    pub fn to_fltk_font(self) -> fltk::enums::Font {
-        match self {
-            FontChoice::ScreenBold => fltk::enums::Font::ScreenBold,
-            FontChoice::Courier => fltk::enums::Font::Courier,
-            FontChoice::HelveticaMono => fltk::enums::Font::Screen,
-        }
+/// Resolve a font name string to an FLTK `Font` handle. Legacy enum tags
+/// (`Courier`, `ScreenBold`, `HelveticaMono`) map to their original FLTK constants;
+/// any other string is looked up via `Font::by_name`, which falls back to Helvetica
+/// when the name is not present in the FLTK fonts table.
+pub fn resolve_font(name: &str) -> fltk::enums::Font {
+    use fltk::enums::Font;
+    match name {
+        "Courier" => Font::Courier,
+        "ScreenBold" => Font::ScreenBold,
+        "HelveticaMono" => Font::Screen,
+        other => Font::by_name(other),
     }
 }
 
@@ -184,7 +187,7 @@ pub struct AppSettings {
     pub theme_mode: ThemeMode,
 
     #[serde(default = "default_font")]
-    pub font: FontChoice,
+    pub font: String,
 
     #[serde(default = "default_font_size")]
     pub font_size: u32,
@@ -288,8 +291,8 @@ fn default_theme_mode() -> ThemeMode {
     ThemeMode::SystemDefault
 }
 
-fn default_font() -> FontChoice {
-    FontChoice::Courier
+fn default_font() -> String {
+    "Courier".to_string()
 }
 
 fn default_font_size() -> u32 {
@@ -372,6 +375,13 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
+    /// Resolve the saved font name to an FLTK `Font` handle.
+    /// Legacy tags resolve to built-in fonts; arbitrary system font names go through
+    /// `Font::by_name`, which falls back to Helvetica when missing.
+    pub fn current_font(&self) -> fltk::enums::Font {
+        resolve_font(&self.font)
+    }
+
     /// Get the syntax theme for the current mode
     pub fn current_syntax_theme(&self, is_dark: bool) -> SyntaxTheme {
         if is_dark {
@@ -438,7 +448,7 @@ mod tests {
         assert!(settings.line_numbers_enabled);
         assert!(settings.word_wrap_enabled);
         assert_eq!(settings.theme_mode, ThemeMode::SystemDefault);
-        assert_eq!(settings.font, FontChoice::Courier);
+        assert_eq!(settings.font, "Courier");
         assert!(settings.auto_check_updates);
         assert_eq!(settings.update_channel, UpdateChannel::Stable);
         assert_eq!(settings.last_update_check, 0);
@@ -474,13 +484,64 @@ mod tests {
     }
 
     #[test]
-    fn test_font_choice_serialization() {
+    fn test_font_serialization() {
         let settings = AppSettings {
-            font: FontChoice::Courier,
+            font: "Courier".to_string(),
             ..Default::default()
         };
         let json = serde_json::to_string(&settings).unwrap();
         assert!(json.contains("\"Courier\""));
+    }
+
+    #[test]
+    fn test_font_custom_name_round_trip() {
+        let settings = AppSettings {
+            font: "Consolas".to_string(),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&settings).unwrap();
+        let loaded: AppSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.font, "Consolas");
+    }
+
+    #[test]
+    fn test_resolve_font_legacy_courier() {
+        assert_eq!(resolve_font("Courier"), fltk::enums::Font::Courier);
+    }
+
+    #[test]
+    fn test_resolve_font_legacy_screenbold() {
+        assert_eq!(resolve_font("ScreenBold"), fltk::enums::Font::ScreenBold);
+    }
+
+    #[test]
+    fn test_resolve_font_legacy_helveticamono() {
+        assert_eq!(resolve_font("HelveticaMono"), fltk::enums::Font::Screen);
+    }
+
+    #[test]
+    fn test_resolve_font_unknown_does_not_panic() {
+        // by_name falls back to Helvetica for unknown names — must not panic.
+        let _ = resolve_font("NopeFontThatDoesNotExist");
+    }
+
+    #[test]
+    fn test_is_legacy_font_name() {
+        assert!(is_legacy_font_name("Courier"));
+        assert!(is_legacy_font_name("ScreenBold"));
+        assert!(is_legacy_font_name("HelveticaMono"));
+        assert!(!is_legacy_font_name("Consolas"));
+        assert!(!is_legacy_font_name(""));
+    }
+
+    #[test]
+    fn test_load_legacy_settings_with_font_screenbold() {
+        // Simulate a settings.json from a previous version that used the closed
+        // FontChoice enum. The string tag should round-trip and resolve correctly.
+        let json = r#"{"font": "ScreenBold"}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.font, "ScreenBold");
+        assert_eq!(settings.current_font(), fltk::enums::Font::ScreenBold);
     }
 
     #[test]

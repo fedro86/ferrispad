@@ -86,6 +86,16 @@ impl DiagnosticPanel {
         &self.container
     }
 
+    /// Update the font size used to render diagnostic entries.
+    /// `font` is currently ignored: fltk-rs `HoldBrowser` exposes `set_text_size`
+    /// but not `set_text_font`. The header label keeps its bold UI-chrome font.
+    #[allow(unused_variables)]
+    pub fn set_code_font(&mut self, font: Font, size: i32) {
+        let size = size.clamp(6, 96);
+        self.browser.set_text_size(size);
+        self.browser.redraw();
+    }
+
     /// Update the panel with new diagnostics
     pub fn update_diagnostics(&mut self, diagnostics: Vec<Diagnostic>) {
         self.diagnostics = diagnostics;

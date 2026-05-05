@@ -1,5 +1,3 @@
-use fltk::enums::Font;
-
 use super::document::DocumentId;
 use super::settings::SyntaxTheme;
 use crate::app::controllers::tabs::{GroupColor, GroupId};
@@ -67,8 +65,9 @@ pub enum Message {
     ToggleDiagnosticsPanel,
 
     // Format
-    SetFont(Font),
+    SetFont(String),
     SetFontSize(i32),
+    OpenFontPicker,
 
     // Settings & Help
     OpenSettings,
