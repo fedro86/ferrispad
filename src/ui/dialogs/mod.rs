@@ -397,3 +397,53 @@ pub fn run_dialog(dialog: &Window) {
         }
     }
 }
+
+/// Themed info/error dialog replacing FLTK's unthemed `dialog::message_default`
+/// and `dialog::alert_default`. Use this from any callback that needs to surface
+/// a quick notice; pass the current theme background so the popup matches.
+pub fn show_themed_message(theme_bg: (u8, u8, u8), title: &str, message: &str) {
+    use fltk::{button::Button, frame::Frame, group::Flex};
+
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+    let dialog_bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
+
+    let mut dialog = Window::default()
+        .with_size(380, 180)
+        .with_label(title)
+        .center_screen();
+    dialog.make_modal(true);
+    dialog.set_color(dialog_bg);
+
+    let mut flex = Flex::new(15, 15, 350, 150, None);
+    flex.set_type(fltk::group::FlexType::Column);
+    flex.set_spacing(10);
+    flex.set_color(dialog_bg);
+
+    let mut msg_frame = Frame::default();
+    msg_frame.set_label(message);
+    msg_frame.set_label_size(13);
+    msg_frame.set_label_color(theme.text);
+    msg_frame.set_frame(FrameType::FlatBox);
+    msg_frame.set_color(dialog_bg);
+    msg_frame.set_align(
+        fltk::enums::Align::Center | fltk::enums::Align::Inside | fltk::enums::Align::Wrap,
+    );
+
+    let mut close_btn = Button::default().with_label("Close");
+    close_btn.set_frame(FrameType::RFlatBox);
+    close_btn.set_color(theme.button_bg);
+    close_btn.set_label_color(theme.text);
+    flex.fixed(&close_btn, 35);
+
+    flex.end();
+    dialog.end();
+
+    let mut dialog_close = dialog.clone();
+    close_btn.set_callback(move |_| {
+        dialog_close.hide();
+    });
+
+    dialog.show();
+    theme.apply_titlebar(&dialog);
+    run_dialog(&dialog);
+}

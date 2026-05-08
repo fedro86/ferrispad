@@ -1,6 +1,5 @@
 use fltk::{
     button::{Button, CheckButton},
-    dialog,
     enums::CallbackTrigger,
     frame::Frame,
     input::Input,
@@ -14,10 +13,10 @@ use std::rc::Rc;
 use crate::app::buffer_text_no_leak;
 use crate::app::services::text_ops::{
     find_in_text, find_in_text_backward, find_in_text_regex, find_in_text_regex_backward,
-    replace_all_in_text, replace_all_in_text_regex, replace_first_regex,
+    replace_all_in_text, replace_all_in_text_regex, replace_at_position_regex,
 };
 
-use super::DialogTheme;
+use super::{DialogTheme, show_themed_message};
 
 struct FindState {
     search_text: Rc<RefCell<String>>,
@@ -32,6 +31,7 @@ impl FindState {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn find_next(
         st: Rc<RefCell<String>>,
         sp: Rc<RefCell<usize>>,
@@ -40,6 +40,7 @@ impl FindState {
         ed: &mut TextEditor,
         case_sensitive: bool,
         use_regex: bool,
+        theme_bg: (u8, u8, u8),
     ) {
         let text = buffer_text_no_leak(buf);
 
@@ -55,14 +56,14 @@ impl FindState {
         let found: Option<(usize, usize)> = if use_regex {
             match find_in_text_regex(&text, query, start_pos, case_sensitive) {
                 Err(e) => {
-                    dialog::message_default(&format!("Invalid regex: {}", e));
+                    show_themed_message(theme_bg, "Invalid regex", &e);
                     return;
                 }
                 Ok(None) if start_pos > 0 => {
                     match find_in_text_regex(&text, query, 0, case_sensitive) {
                         Ok(v) => v,
                         Err(e) => {
-                            dialog::message_default(&format!("Invalid regex: {}", e));
+                            show_themed_message(theme_bg, "Invalid regex", &e);
                             return;
                         }
                     }
@@ -88,10 +89,11 @@ impl FindState {
             ed.show_insert_position();
             *sp.borrow_mut() = match_end;
         } else {
-            dialog::message_default(&format!("Cannot find '{}'", query));
+            show_themed_message(theme_bg, "Find", &format!("Cannot find '{}'", query));
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn find_prev(
         st: Rc<RefCell<String>>,
         sp: Rc<RefCell<usize>>,
@@ -100,6 +102,7 @@ impl FindState {
         ed: &mut TextEditor,
         case_sensitive: bool,
         use_regex: bool,
+        theme_bg: (u8, u8, u8),
     ) {
         let text = buffer_text_no_leak(buf);
 
@@ -115,14 +118,14 @@ impl FindState {
         let found: Option<(usize, usize)> = if use_regex {
             match find_in_text_regex_backward(&text, query, start_pos, case_sensitive) {
                 Err(e) => {
-                    dialog::message_default(&format!("Invalid regex: {}", e));
+                    show_themed_message(theme_bg, "Invalid regex", &e);
                     return;
                 }
                 Ok(None) if start_pos < text.len() => {
                     match find_in_text_regex_backward(&text, query, text.len(), case_sensitive) {
                         Ok(v) => v,
                         Err(e) => {
-                            dialog::message_default(&format!("Invalid regex: {}", e));
+                            show_themed_message(theme_bg, "Invalid regex", &e);
                             return;
                         }
                     }
@@ -148,7 +151,7 @@ impl FindState {
             ed.show_insert_position();
             *sp.borrow_mut() = match_start;
         } else {
-            dialog::message_default(&format!("Cannot find '{}'", query));
+            show_themed_message(theme_bg, "Find", &format!("Cannot find '{}'", query));
         }
     }
 }
@@ -251,7 +254,7 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
     find_btn.set_callback(move |_| {
         let query = find_input1.value();
         if query.is_empty() {
-            dialog::message_default("Please enter text to find");
+            show_themed_message(theme_bg, "Find", "Please enter text to find");
             return;
         }
         FindState::find_next(
@@ -262,6 +265,7 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
             &mut te1,
             case_check1.is_checked(),
             regex_check1.is_checked(),
+            theme_bg,
         );
     });
 
@@ -277,7 +281,7 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
     find_prev_btn.set_callback(move |_| {
         let query = find_input_prev.value();
         if query.is_empty() {
-            dialog::message_default("Please enter text to find");
+            show_themed_message(theme_bg, "Find", "Please enter text to find");
             return;
         }
         FindState::find_prev(
@@ -288,6 +292,7 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
             &mut te_prev,
             case_check_prev.is_checked(),
             regex_check_prev.is_checked(),
+            theme_bg,
         );
     });
 
@@ -306,7 +311,7 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
         let replacement = replace_input2.value();
 
         if query.is_empty() {
-            dialog::message_default("Please enter text to find");
+            show_themed_message(theme_bg, "Find", "Please enter text to find");
             return;
         }
 
@@ -316,22 +321,31 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
         if let Some((start, end)) = tb2.selection_position()
             && start != end
         {
-            let selected = tb2.selection_text();
-
             if use_regex {
-                match replace_first_regex(&selected, &query, &replacement, case_sensitive) {
-                    Ok(Some(replaced)) => {
+                // Regex replace must run against the full document so anchors
+                // (^, $) resolve against surrounding context, then verify the
+                // match starts exactly at `start` and covers the selection.
+                let text = buffer_text_no_leak(&tb2);
+                match replace_at_position_regex(
+                    &text,
+                    &query,
+                    &replacement,
+                    start as usize,
+                    case_sensitive,
+                ) {
+                    Ok(Some((replaced, match_len))) if match_len == (end - start) as usize => {
                         tb2.replace_selection(&replaced);
                         te2.set_insert_position(start + replaced.len() as i32);
                         *sp2.borrow_mut() = start as usize + replaced.len();
                     }
-                    Ok(None) => {}
+                    Ok(_) => {}
                     Err(e) => {
-                        dialog::message_default(&format!("Invalid regex: {}", e));
+                        show_themed_message(theme_bg, "Invalid regex", &e);
                         return;
                     }
                 }
             } else {
+                let selected = tb2.selection_text();
                 let matches = if case_sensitive {
                     selected == query
                 } else {
@@ -362,7 +376,7 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
         let replacement = replace_input3.value();
 
         if query.is_empty() {
-            dialog::message_default("Please enter text to find");
+            show_themed_message(theme_bg, "Find", "Please enter text to find");
             return;
         }
 
@@ -373,7 +387,7 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
             match replace_all_in_text_regex(&text, &query, &replacement, case_sensitive) {
                 Ok(v) => v,
                 Err(e) => {
-                    dialog::message_default(&format!("Invalid regex: {}", e));
+                    show_themed_message(theme_bg, "Invalid regex", &e);
                     return;
                 }
             }
@@ -384,9 +398,13 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
         if count > 0 {
             tb3.set_text(&new_text);
             te3.set_insert_position(0);
-            dialog::message_default(&format!("Replaced {} occurrence(s)", count));
+            show_themed_message(
+                theme_bg,
+                "Replace All",
+                &format!("Replaced {} occurrence(s)", count),
+            );
         } else {
-            dialog::message_default(&format!("Cannot find '{}'", query));
+            show_themed_message(theme_bg, "Find", &format!("Cannot find '{}'", query));
         }
     });
 
@@ -485,7 +503,7 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: 
     find_btn.set_callback(move |_| {
         let query = find_input1.value();
         if query.is_empty() {
-            dialog::message_default("Please enter text to find");
+            show_themed_message(theme_bg, "Find", "Please enter text to find");
             return;
         }
         FindState::find_next(
@@ -496,6 +514,7 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: 
             &mut te1,
             case_check1.is_checked(),
             regex_check1.is_checked(),
+            theme_bg,
         );
     });
 
@@ -511,7 +530,7 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: 
     find_prev_btn2.set_callback(move |_| {
         let query = find_input2.value();
         if query.is_empty() {
-            dialog::message_default("Please enter text to find");
+            show_themed_message(theme_bg, "Find", "Please enter text to find");
             return;
         }
         FindState::find_prev(
@@ -522,6 +541,7 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: 
             &mut te2,
             case_check2.is_checked(),
             regex_check2.is_checked(),
+            theme_bg,
         );
     });
 

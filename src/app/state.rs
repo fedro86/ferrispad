@@ -109,7 +109,7 @@ impl AppState {
         tab_manager.add_untitled();
 
         let font = settings.borrow().current_font();
-        let font_size = settings.borrow().font_size as i32;
+        let font_size = settings.borrow().font_size_clamped();
         let highlighting_enabled = settings.borrow().highlighting_enabled;
         let syntax_theme = settings.borrow().current_syntax_theme(dark_mode);
         let highlight =
@@ -956,7 +956,7 @@ impl AppState {
 
     pub fn set_font_size(&mut self, size: i32) {
         let size = size.clamp(6, 96);
-        let prev = self.settings.borrow().font_size as i32;
+        let prev = self.settings.borrow().font_size_clamped();
         self.editor.set_text_size(size);
         self.highlight.set_font(self.highlight.font(), size);
         self.bind_active_buffer();
@@ -967,7 +967,8 @@ impl AppState {
     }
 
     pub fn apply_settings(&mut self, new_settings: AppSettings) {
-        let prev_font_size = self.settings.borrow().font_size as i32;
+        let prev_font_size = self.settings.borrow().font_size_clamped();
+        let new_font_size = new_settings.font_size_clamped();
         let is_dark = match new_settings.theme_mode {
             ThemeMode::Light => false,
             ThemeMode::Dark => true,
@@ -977,17 +978,13 @@ impl AppState {
 
         let font = new_settings.current_font();
         self.editor.set_text_font(font);
-        self.editor.set_text_size(new_settings.font_size as i32);
-        crate::ui::menu::apply_font_size_active(
-            &mut self.menu,
-            prev_font_size,
-            new_settings.font_size as i32,
-        );
+        self.editor.set_text_size(new_font_size);
+        crate::ui::menu::apply_font_size_active(&mut self.menu, prev_font_size, new_font_size);
 
         // Set syntax theme first to get background color
         let syntax_theme = new_settings.current_syntax_theme(is_dark);
         self.highlight.set_theme(syntax_theme);
-        self.highlight.set_font(font, new_settings.font_size as i32);
+        self.highlight.set_font(font, new_font_size);
 
         // Get syntax theme colors
         let bg = self.highlight.highlighter().theme_background();

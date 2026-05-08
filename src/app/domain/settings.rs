@@ -382,6 +382,14 @@ impl AppSettings {
         resolve_font(&self.font)
     }
 
+    /// Font size clamped to the renderable range `[6, 96]`. Defends against
+    /// hand-edited `settings.json` (or stale settings from older builds with
+    /// different limits) that would otherwise leave the editor unreadable
+    /// until the user explicitly picks a new size.
+    pub fn font_size_clamped(&self) -> i32 {
+        (self.font_size as i32).clamp(6, 96)
+    }
+
     /// Get the syntax theme for the current mode
     pub fn current_syntax_theme(&self, is_dark: bool) -> SyntaxTheme {
         if is_dark {

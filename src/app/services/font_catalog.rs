@@ -39,15 +39,22 @@ static CATALOG: OnceLock<Vec<FontEntry>> = OnceLock::new();
 
 /// Name-based monospace heuristic. Render-time width measurement was tried
 /// first but cost ~1–3 ms per font on Wayland/Cairo, totalling 2–5 s for a
-/// 1350-font catalog. The name match below covers virtually every real
-/// monospace family (their authors invariably tag the family name) at zero
-/// runtime cost.
+/// 1350-font catalog. The token match below covers virtually every real
+/// monospace family at zero runtime cost.
+///
+/// We tokenize on non-letters and check each token, which avoids the
+/// "Monotype" / "Monoton" false positives that a naive `contains("mono")`
+/// would hit. A trailing-token fallback handles names that smush the tag
+/// onto the family ("FreeMono", "IBMPlexMono").
 fn is_likely_monospace(name: &str) -> bool {
-    let lower = name.to_lowercase();
-    const KEYWORDS: &[&str] = &[
+    /// Tokens that, on their own, identify a monospace family.
+    const MONO_TOKENS: &[&str] = &[
         "mono",
+        "monospace",
+        "monospaced",
         "courier",
         "console", // also matches "Consolas"
+        "consolas",
         "terminal",
         "typewriter",
         "fixed",
@@ -58,17 +65,22 @@ fn is_likely_monospace(name: &str) -> bool {
         "cascadia",
         "jetbrains",
         "iosevka",
+        "code", // standalone token only, e.g. "Source Code Pro", "Fira Code"
     ];
-    if KEYWORDS.iter().any(|k| lower.contains(k)) {
-        return true;
+    let lower = name.to_lowercase();
+    for token in lower.split(|c: char| !c.is_ascii_alphabetic()) {
+        if token.is_empty() {
+            continue;
+        }
+        if MONO_TOKENS.contains(&token) {
+            return true;
+        }
+        // Single-token CamelCase names like "FreeMono", "IBMPlexMono".
+        if token.ends_with("mono") || token.ends_with("monospace") {
+            return true;
+        }
     }
-    // "Code" is too generic to match anywhere in the name (would catch
-    // "Code Saver" but also random unrelated strings); require it as a
-    // standalone token so families like "Source Code Pro", "Fira Code" hit.
-    lower.starts_with("code ")
-        || lower.ends_with(" code")
-        || lower.contains(" code ")
-        || lower == "code"
+    false
 }
 
 fn build_catalog() -> Vec<FontEntry> {
@@ -100,4 +112,76 @@ pub fn ensure_loaded() {
 /// Return the parsed catalog. Triggers `ensure_loaded()` on first call.
 pub fn list() -> Vec<FontEntry> {
     CATALOG.get_or_init(build_catalog).clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_likely_monospace;
+
+    #[test]
+    fn classifies_common_monospace_families() {
+        for name in [
+            "DejaVu Sans Mono",
+            "Liberation Mono",
+            "Ubuntu Mono",
+            "Nimbus Mono PS",
+            "Noto Sans Mono CJK JP",
+            "FreeMono",
+            "PT Mono",
+            "Roboto Mono",
+            "IBM Plex Mono",
+            "Fira Code",
+            "Source Code Pro",
+            "Cascadia Code",
+            "JetBrains Mono",
+            "Iosevka",
+            "Hack",
+            "Consolas",
+            "Menlo",
+            "Monaco",
+            "Inconsolata",
+            "Courier New",
+            "Monospace",
+            "Anonymous Pro Mono",
+            "BigBlueTermPlus Nerd Font Mono",
+        ] {
+            assert!(is_likely_monospace(name), "expected mono: {:?}", name);
+        }
+    }
+
+    #[test]
+    fn rejects_proportional_lookalikes() {
+        // "Monotype" / "Monoton" share the "mono" prefix but are display fonts.
+        for name in [
+            "Monotype Corsiva",
+            "Monoton",
+            "Sans",
+            "Sans Bold",
+            "Serif",
+            "Helvetica",
+            "Times New Roman",
+            "Arial",
+            "Comic Sans MS",
+            "Verdana",
+            "Georgia",
+            "DejaVu Sans",
+            "Liberation Sans",
+            "Noto Sans",
+            "Ubuntu",
+        ] {
+            assert!(
+                !is_likely_monospace(name),
+                "expected proportional: {:?}",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn handles_punctuation_and_case() {
+        assert!(is_likely_monospace("UBUNTU MONO"));
+        assert!(is_likely_monospace("dejavu_sans_mono"));
+        assert!(is_likely_monospace("Source-Code-Pro"));
+        assert!(!is_likely_monospace(""));
+    }
 }
