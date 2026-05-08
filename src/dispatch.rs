@@ -493,12 +493,18 @@ pub fn handle_plugin(msg: Message, state: &mut AppState) {
             plugin_name,
             action,
         } => {
-            state.widget.handle_plugin_menu_action(
-                &plugin_name,
-                &action,
-                &mut state.plugins,
-                &mut state.tab_manager,
-                &mut state.view,
+            // The plugin's hook runs synchronously and can take seconds on Windows
+            // (git status spawn + recursive dir walk). Show a "Loading..." state
+            // first if the tree panel is already visible, then defer the heavy
+            // work so FLTK can flush paint events before the GUI thread blocks.
+            state.sender.send(Message::TreeViewLoading);
+            defer_send(
+                state.sender,
+                0.0,
+                Message::DeferredPluginMenuAction {
+                    plugin_name,
+                    action,
+                },
             );
         }
         Message::ShowPluginManager => {
@@ -637,6 +643,19 @@ pub fn handle_deferred(
     match msg {
         Message::DeferredPluginHooks { path, content } => {
             state.run_open_hooks(path, content);
+        }
+        Message::DeferredPluginMenuAction {
+            plugin_name,
+            action,
+        } => {
+            fltk::app::flush();
+            state.widget.handle_plugin_menu_action(
+                &plugin_name,
+                &action,
+                &mut state.plugins,
+                &mut state.tab_manager,
+                &mut state.view,
+            );
         }
         Message::DeferredTreeRefresh { path, content } => {
             fltk::app::flush();

@@ -649,6 +649,7 @@ fn main() {
 
                 // Deferred actions
                 Message::DeferredPluginHooks { .. }
+                | Message::DeferredPluginMenuAction { .. }
                 | Message::DeferredTreeRefresh { .. }
                 | Message::DeferredSessionRestore
                 | Message::DeferredOpenFile(_)

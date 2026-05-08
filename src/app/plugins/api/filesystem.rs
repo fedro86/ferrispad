@@ -280,14 +280,49 @@ pub fn git_status(lua: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Resu
     } else {
         return Ok(mlua::Value::Nil);
     };
+
+    // Cheap precheck: only spawn `git` if `path` is inside a git working tree.
+    // Process creation costs ~50-200ms on Windows, so for non-git projects this
+    // saves the entire spawn. Walk up parents looking for a `.git` entry (file
+    // for worktrees, dir for normal repos).
+    let mut probe = Some(validated_path.as_path());
+    let in_repo = loop {
+        match probe {
+            Some(p) if p.join(".git").exists() => break true,
+            Some(p) => probe = p.parent(),
+            None => break false,
+        }
+    };
+    if !in_repo {
+        return Ok(mlua::Value::Table(lua.create_table()?));
+    }
+
     let path_str = validated_path.to_string_lossy();
 
-    let output = match Command::new("git")
-        .args(["-C", &path_str, "status", "--porcelain=v1", "-unormal"])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .output()
+    let mut cmd = Command::new("git");
+    // `--no-optional-locks` skips writing the index lock when only reading state,
+    // measurably faster on Windows where lock-file I/O hits Defender.
+    cmd.args([
+        "-C",
+        &path_str,
+        "--no-optional-locks",
+        "status",
+        "--porcelain=v1",
+        "-unormal",
+    ])
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::null());
+
+    // Suppress the brief console-window flash on Windows GUI processes and
+    // shave a few ms off process creation.
+    #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let output = match cmd.output() {
         Ok(o) if o.status.success() => o,
         _ => return Ok(mlua::Value::Nil),
     };

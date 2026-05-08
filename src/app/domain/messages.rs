@@ -105,6 +105,13 @@ pub enum Message {
         plugin_name: String,
         action: String,
     },
+    /// Deferred plugin menu action: lets FLTK paint a "Loading..." state
+    /// before the synchronous Lua hook runs (which can take seconds on Windows
+    /// when it spawns git status / walks the tree).
+    DeferredPluginMenuAction {
+        plugin_name: String,
+        action: String,
+    },
     /// Open the plugin manager dialog
     ShowPluginManager,
     /// Open the plugin settings dialog (Run All Checks config)
