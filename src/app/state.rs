@@ -956,15 +956,18 @@ impl AppState {
 
     pub fn set_font_size(&mut self, size: i32) {
         let size = size.clamp(6, 96);
+        let prev = self.settings.borrow().font_size as i32;
         self.editor.set_text_size(size);
         self.highlight.set_font(self.highlight.font(), size);
         self.bind_active_buffer();
         self.settings.borrow_mut().font_size = size as u32;
         let _ = self.settings.borrow().save();
         self.editor.redraw();
+        crate::ui::menu::apply_font_size_active(&mut self.menu, prev, size);
     }
 
     pub fn apply_settings(&mut self, new_settings: AppSettings) {
+        let prev_font_size = self.settings.borrow().font_size as i32;
         let is_dark = match new_settings.theme_mode {
             ThemeMode::Light => false,
             ThemeMode::Dark => true,
@@ -975,6 +978,11 @@ impl AppState {
         let font = new_settings.current_font();
         self.editor.set_text_font(font);
         self.editor.set_text_size(new_settings.font_size as i32);
+        crate::ui::menu::apply_font_size_active(
+            &mut self.menu,
+            prev_font_size,
+            new_settings.font_size as i32,
+        );
 
         // Set syntax theme first to get background color
         let syntax_theme = new_settings.current_syntax_theme(is_dark);

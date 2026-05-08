@@ -77,6 +77,47 @@ pub fn resolve_shortcut(registry: &ShortcutRegistry, id: &str, default: &str) ->
     parse_shortcut(effective).unwrap_or(Shortcut::None)
 }
 
+/// Preset sizes shown in the Format/Font Size submenu.
+pub const PRESET_FONT_SIZES: &[i32] = &[8, 10, 12, 14, 16, 18, 20, 24, 28, 32];
+
+/// Compose the label for a Font Size submenu entry.
+/// All entries are right-padded to the same column; the active size gets a
+/// trailing `← current` marker so the menu doesn't look bare.
+pub fn font_size_label(sz: i32, is_active: bool) -> String {
+    if is_active {
+        format!(" {:>3}  \u{2190} current ", sz)
+    } else {
+        format!(" {:>3}  ", sz)
+    }
+}
+
+fn font_size_path(sz: i32, is_active: bool) -> String {
+    format!("Format/Font Size/{}", font_size_label(sz, is_active))
+}
+
+/// Move the `← current` marker from `prev` to `new` in the Font Size submenu.
+/// Each side is best-effort (skipped if no preset matches), so non-preset
+/// sizes (e.g. picked via the font picker) just leave the menu unmarked.
+pub fn apply_font_size_active(menu: &mut MenuBar, prev: i32, new: i32) {
+    if prev == new {
+        return;
+    }
+    let old_path = font_size_path(prev, true);
+    let idx = menu.find_index(&old_path);
+    if idx >= 0
+        && let Some(mut item) = menu.at(idx)
+    {
+        item.set_label(&font_size_label(prev, false));
+    }
+    let new_path = font_size_path(new, false);
+    let idx = menu.find_index(&new_path);
+    if idx >= 0
+        && let Some(mut item) = menu.at(idx)
+    {
+        item.set_label(&font_size_label(new, true));
+    }
+}
+
 /// Apply shortcut overrides to an existing menu bar (in-place mutation).
 /// This avoids a full menu rebuild when only shortcuts change.
 pub fn apply_shortcut_overrides(
@@ -506,9 +547,11 @@ pub fn build_menu(
             move |_| s.send(Message::OpenFontPicker)
         },
     );
-    for &sz in &[8, 10, 12, 14, 16, 18, 20, 24, 28, 32] {
+    let current_size = settings.font_size as i32;
+    for &sz in PRESET_FONT_SIZES {
+        let label = font_size_label(sz, sz == current_size);
         menu.add(
-            &format!("Format/Font Size/{}", sz),
+            &format!("Format/Font Size/{}", label),
             Shortcut::None,
             MenuFlag::Normal,
             {
