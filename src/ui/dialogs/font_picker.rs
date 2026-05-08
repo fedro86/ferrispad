@@ -9,7 +9,7 @@ use std::rc::Rc;
 use fltk::{
     browser::HoldBrowser,
     button::{Button, CheckButton},
-    enums::{CallbackTrigger, FrameType},
+    enums::{CallbackTrigger, Event, FrameType, Key},
     frame::Frame,
     input::{Input, IntInput},
     prelude::*,
@@ -131,6 +131,7 @@ pub fn show_font_picker(
     preview.set_buffer(preview_buffer);
     preview.set_color(theme.input_bg);
     preview.set_text_color(theme.text);
+    preview.set_selection_color(theme.button_bg);
     preview.set_frame(FrameType::FlatBox);
     preview.set_text_font(settings::resolve_font(current_name));
     preview.set_text_size(current_size as i32);
@@ -174,6 +175,7 @@ pub fn show_font_picker(
     // original entries[] index. Updated by repopulate().
     let visible_indices: Rc<RefCell<Vec<usize>>> = Rc::new(RefCell::new(Vec::new()));
     let current_name_owned = current_name.to_string();
+    let text_rgb = theme.text_rgb();
 
     // Initial population
     repopulate(
@@ -183,7 +185,34 @@ pub fn show_font_picker(
         &search_input,
         &monospace_toggle,
         &current_name_owned,
+        text_rgb,
     );
+
+    // Forward Down/Up arrows from the search input to the font list so the
+    // user can keep typing then drop into the list without reaching for the
+    // mouse. Without this the arrow keys move the input cursor left/right
+    // (no-op on an empty input).
+    {
+        let mut browser_for_handler = browser.clone();
+        search_input.clone().handle(move |_, ev| {
+            if ev == Event::KeyDown {
+                let key = fltk::app::event_key();
+                if key == Key::Down || key == Key::Up {
+                    let row = browser_for_handler.value().max(1);
+                    let next = if key == Key::Down {
+                        (row + 1).min(browser_for_handler.size())
+                    } else {
+                        (row - 1).max(1)
+                    };
+                    browser_for_handler.select(next);
+                    browser_for_handler.do_callback();
+                    let _ = browser_for_handler.take_focus();
+                    return true;
+                }
+            }
+            false
+        });
+    }
 
     // Hook up search + checkbox to refilter
     {
@@ -203,6 +232,7 @@ pub fn show_font_picker(
                 &search_input_inner,
                 &monospace_toggle_inner,
                 &current_name_owned,
+                text_rgb,
             );
             update_preview(
                 &mut preview.clone(),
@@ -230,6 +260,7 @@ pub fn show_font_picker(
                 &search_input_inner,
                 &monospace_toggle_inner,
                 &current_name_owned,
+                text_rgb,
             );
             update_preview(
                 &mut preview.clone(),
@@ -332,6 +363,9 @@ pub fn show_font_picker(
 }
 
 /// Refilter the browser based on the search query and monospace toggle.
+/// Each row is prefixed with `@C{color_code}` so the foreground stays on-theme
+/// (FLTK's Browser otherwise paints text in its default color, which clashes
+/// with the themed selection background — same trick used in session_picker).
 fn repopulate(
     browser: &mut HoldBrowser,
     visible_indices: &Rc<RefCell<Vec<usize>>>,
@@ -339,9 +373,12 @@ fn repopulate(
     search_input: &Input,
     monospace_toggle: &CheckButton,
     current_name: &str,
+    text_rgb: (u8, u8, u8),
 ) {
     let query = search_input.value().to_lowercase();
     let monospace_only = monospace_toggle.value();
+    let (tr, tg, tb) = text_rgb;
+    let color_code = ((tr as u32) << 24) | ((tg as u32) << 16) | ((tb as u32) << 8);
     browser.clear();
     let mut indices = visible_indices.borrow_mut();
     indices.clear();
@@ -357,7 +394,7 @@ fn repopulate(
             continue;
         }
         indices.push(i);
-        browser.add(&entry.display_name);
+        browser.add(&format!("@C{} {}", color_code, entry.display_name));
         if entry.fltk_name == current_name || entry.display_name == current_name {
             select_row = Some(indices.len() as i32);
         }
