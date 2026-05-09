@@ -1,6 +1,7 @@
 pub mod about;
 pub mod community_install;
 pub mod find;
+pub mod font_picker;
 pub mod goto_line;
 pub mod large_file;
 pub mod plugin_config;
@@ -100,15 +101,17 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     let r = hue_to_rgb(p, q, h_norm + 1.0 / 3.0);
     let g = hue_to_rgb(p, q, h_norm);
     let b = hue_to_rgb(p, q, h_norm - 1.0 / 3.0);
-    (
-        (r * 255.0) as u8,
-        (g * 255.0) as u8,
-        (b * 255.0) as u8,
-    )
+    ((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
 }
 
 fn hue_to_rgb(p: f32, q: f32, t: f32) -> f32 {
-    let t = if t < 0.0 { t + 1.0 } else if t > 1.0 { t - 1.0 } else { t };
+    let t = if t < 0.0 {
+        t + 1.0
+    } else if t > 1.0 {
+        t - 1.0
+    } else {
+        t
+    };
     if t < 1.0 / 6.0 {
         p + (q - p) * 6.0 * t
     } else if t < 0.5 {
@@ -153,8 +156,8 @@ pub(crate) fn darken(r: u8, g: u8, b: u8, factor: f32) -> (u8, u8, u8) {
 /// The dominant channel keeps ~0.81, mid channel ~0.48, suppressed ~0.15.
 /// `amount` controls the blend: 0.0 = original, 1.0 = full intensification.
 pub(crate) fn intensify_dominant(r: u8, g: u8, b: u8, amount: f32) -> (u8, u8, u8) {
-    const KEEP: f32 = 0.81;   // factor for dominant channel
-    const MID: f32 = 0.48;    // factor for middle channel
+    const KEEP: f32 = 0.81; // factor for dominant channel
+    const MID: f32 = 0.48; // factor for middle channel
     const SUPPRESS: f32 = 0.15; // factor for weakest channel
 
     let rf = r as f32;
@@ -393,4 +396,54 @@ pub fn run_dialog(dialog: &Window) {
             d.hide();
         }
     }
+}
+
+/// Themed info/error dialog replacing FLTK's unthemed `dialog::message_default`
+/// and `dialog::alert_default`. Use this from any callback that needs to surface
+/// a quick notice; pass the current theme background so the popup matches.
+pub fn show_themed_message(theme_bg: (u8, u8, u8), title: &str, message: &str) {
+    use fltk::{button::Button, frame::Frame, group::Flex};
+
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+    let dialog_bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
+
+    let mut dialog = Window::default()
+        .with_size(380, 180)
+        .with_label(title)
+        .center_screen();
+    dialog.make_modal(true);
+    dialog.set_color(dialog_bg);
+
+    let mut flex = Flex::new(15, 15, 350, 150, None);
+    flex.set_type(fltk::group::FlexType::Column);
+    flex.set_spacing(10);
+    flex.set_color(dialog_bg);
+
+    let mut msg_frame = Frame::default();
+    msg_frame.set_label(message);
+    msg_frame.set_label_size(13);
+    msg_frame.set_label_color(theme.text);
+    msg_frame.set_frame(FrameType::FlatBox);
+    msg_frame.set_color(dialog_bg);
+    msg_frame.set_align(
+        fltk::enums::Align::Center | fltk::enums::Align::Inside | fltk::enums::Align::Wrap,
+    );
+
+    let mut close_btn = Button::default().with_label("Close");
+    close_btn.set_frame(FrameType::RFlatBox);
+    close_btn.set_color(theme.button_bg);
+    close_btn.set_label_color(theme.text);
+    flex.fixed(&close_btn, 35);
+
+    flex.end();
+    dialog.end();
+
+    let mut dialog_close = dialog.clone();
+    close_btn.set_callback(move |_| {
+        dialog_close.hide();
+    });
+
+    dialog.show();
+    theme.apply_titlebar(&dialog);
+    run_dialog(&dialog);
 }

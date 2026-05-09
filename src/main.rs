@@ -209,6 +209,18 @@ fn main() {
 
     // Load settings
     let settings = AppSettings::load();
+
+    // On Windows, FLTK's font lookup is strict: an arbitrary font name (e.g. "Consolas")
+    // resolves to Helvetica until `set_fonts("*")` populates the fonts table.
+    // To avoid that startup cost for users on the default fonts, only eagerly load
+    // the catalog when a non-legacy name is in use.
+    #[cfg(target_os = "windows")]
+    {
+        if !ferris_pad::app::domain::settings::is_legacy_font_name(&settings.font) {
+            ferris_pad::app::services::font_catalog::ensure_loaded();
+        }
+    }
+
     let tabs_enabled = settings.tabs_enabled;
     let initial_dark_mode = match settings.theme_mode {
         ThemeMode::Light => false,
@@ -566,7 +578,8 @@ fn main() {
                 | Message::ToggleHighlighting
                 | Message::TogglePreview
                 | Message::SetFont(_)
-                | Message::SetFontSize(_) => {
+                | Message::SetFontSize(_)
+                | Message::OpenFontPicker => {
                     dispatch::handle_view(msg, &mut state, &mut lw);
                     dispatch::DispatchResult::Continue
                 }
@@ -636,6 +649,7 @@ fn main() {
 
                 // Deferred actions
                 Message::DeferredPluginHooks { .. }
+                | Message::DeferredPluginMenuAction { .. }
                 | Message::DeferredTreeRefresh { .. }
                 | Message::DeferredSessionRestore
                 | Message::DeferredOpenFile(_)

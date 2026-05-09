@@ -34,23 +34,23 @@ pub fn check_for_updates_ui(settings: &Rc<RefCell<AppSettings>>, theme_bg: (u8, 
             show_update_available_dialog(release, settings, theme_bg);
         }
         UpdateCheckResult::NoUpdate => {
-            show_info_dialog(
+            super::show_themed_message(
+                theme_bg,
                 "Up to Date",
                 &format!(
                     "\u{2705} You're up to date!\n\nFerrisPad {} is the latest version.",
                     current_version
                 ),
-                theme_bg,
             );
         }
         UpdateCheckResult::Error(err) => {
-            show_info_dialog(
+            super::show_themed_message(
+                theme_bg,
                 "Update Check Failed",
                 &format!(
                     "Failed to check for updates:\n\n{}\n\nPlease try again later.",
                     err
                 ),
-                theme_bg,
             );
         }
     }
@@ -284,52 +284,6 @@ pub fn show_update_available_dialog(
     let mut dialog_later = dialog.clone();
     later_btn.set_callback(move |_| {
         dialog_later.hide();
-    });
-
-    dialog.show();
-    theme.apply_titlebar(&dialog);
-    super::run_dialog(&dialog);
-}
-
-/// Themed info/error dialog replacing FLTK's unthemed `message_default`/`alert_default`.
-fn show_info_dialog(title: &str, message: &str, theme_bg: (u8, u8, u8)) {
-    let theme = DialogTheme::from_theme_bg(theme_bg);
-    let dialog_bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
-
-    let mut dialog = Window::default()
-        .with_size(380, 180)
-        .with_label(title)
-        .center_screen();
-    dialog.make_modal(true);
-    dialog.set_color(dialog_bg);
-
-    let mut flex = Flex::new(15, 15, 350, 150, None);
-    flex.set_type(fltk::group::FlexType::Column);
-    flex.set_spacing(10);
-    flex.set_color(dialog_bg);
-
-    let mut msg_frame = Frame::default();
-    msg_frame.set_label(message);
-    msg_frame.set_label_size(13);
-    msg_frame.set_label_color(theme.text);
-    msg_frame.set_frame(FrameType::FlatBox);
-    msg_frame.set_color(dialog_bg);
-    msg_frame.set_align(
-        fltk::enums::Align::Center | fltk::enums::Align::Inside | fltk::enums::Align::Wrap,
-    );
-
-    let mut close_btn = Button::default().with_label("Close");
-    close_btn.set_frame(FrameType::RFlatBox);
-    close_btn.set_color(theme.button_bg);
-    close_btn.set_label_color(theme.text);
-    flex.fixed(&close_btn, 35);
-
-    flex.end();
-    dialog.end();
-
-    let mut dialog_close = dialog.clone();
-    close_btn.set_callback(move |_| {
-        dialog_close.hide();
     });
 
     dialog.show();

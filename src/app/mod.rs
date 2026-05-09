@@ -18,7 +18,7 @@ pub mod state;
 
 // Re-exports for convenient external access
 pub use controllers::tabs::{GroupColor, GroupId, TabGroup};
-pub use domain::{AppSettings, Document, DocumentId, FontChoice, Message, SyntaxTheme, ThemeMode};
+pub use domain::{AppSettings, Document, DocumentId, Message, SyntaxTheme, ThemeMode};
 pub use infrastructure::buffer::buffer_text_no_leak;
 pub use infrastructure::platform::detect_system_dark_mode;
 pub use services::session::SessionRestore;

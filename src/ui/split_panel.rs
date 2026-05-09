@@ -369,6 +369,15 @@ pub struct SplitPanel {
 }
 
 impl SplitPanel {
+    /// Update the editor font + size used by both panes.
+    /// Picked up by `update_display_fonts()` on the next mode toggle and applied
+    /// directly to the panes here for the current view.
+    pub fn set_code_font(&mut self, font: Font, size: i32) {
+        self.editor_font = font;
+        self.editor_font_size = size.clamp(6, 96);
+        self.update_display_fonts();
+    }
+
     /// Create a new split panel
     pub fn new(sender: Sender<Message>) -> Self {
         let mut container = Flex::default().column();
@@ -682,12 +691,10 @@ impl SplitPanel {
             self.right_editor.set_linenumber_width(0);
         }
 
-        // Apply font in tab mode
-        let (pane_font, pane_size) = if self.is_tab_mode {
-            (font, font_size)
-        } else {
-            (Font::Courier, 13)
-        };
+        // Both modes follow the user's editor font; panel mode no longer hardcodes
+        // (Font::Courier, 13) so custom fonts (Consolas, Fira Code, ...) propagate
+        // through the diff viewer too.
+        let (pane_font, pane_size) = (font, font_size);
         self.left_display.set_text_font(pane_font);
         self.left_display.set_text_size(pane_size);
         self.right_editor.set_text_font(pane_font);
@@ -1249,14 +1256,10 @@ impl SplitPanel {
         self.container.redraw();
     }
 
-    /// Update TextDisplay fonts and style table entry fonts to match the current mode.
-    /// Tab mode uses the editor font/size; panel mode uses Courier 13.
+    /// Update TextDisplay fonts and style table entry fonts to the editor font.
+    /// Both panel and tab modes follow the user's editor font now.
     fn update_display_fonts(&mut self) {
-        let (font, size) = if self.is_tab_mode {
-            (self.editor_font, self.editor_font_size)
-        } else {
-            (Font::Courier, 13)
-        };
+        let (font, size) = (self.editor_font, self.editor_font_size);
 
         self.left_display.set_text_font(font);
         self.left_display.set_text_size(size);

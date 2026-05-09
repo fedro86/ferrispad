@@ -1,3 +1,4 @@
+use regex_lite::RegexBuilder;
 use std::path::Path;
 
 /// Extract filename from a file path
@@ -123,6 +124,136 @@ pub fn replace_all_in_text(
     }
 
     (result, count)
+}
+
+/// Snap a byte index to the nearest preceding UTF-8 codepoint boundary.
+/// Defensive helper: positions handed in from FLTK should already land on a
+/// boundary, but a single-byte miss would panic on `&text[idx..]` slicing.
+fn floor_char_boundary(text: &str, mut idx: usize) -> usize {
+    if idx >= text.len() {
+        return text.len();
+    }
+    while !text.is_char_boundary(idx) {
+        idx = idx.saturating_sub(1);
+    }
+    idx
+}
+
+/// Find next regex match in text, returns (match_start, match_end) byte positions
+pub fn find_in_text_regex(
+    text: &str,
+    pattern: &str,
+    start_pos: usize,
+    case_sensitive: bool,
+) -> Result<Option<(usize, usize)>, String> {
+    if pattern.is_empty() {
+        return Ok(None);
+    }
+    let re = RegexBuilder::new(pattern)
+        .case_insensitive(!case_sensitive)
+        .multi_line(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let slice_start = floor_char_boundary(text, start_pos);
+    Ok(re
+        .find(&text[slice_start..])
+        .map(|m| (slice_start + m.start(), slice_start + m.end())))
+}
+
+/// Find last regex match before end_pos (backward search), returns (match_start, match_end)
+pub fn find_in_text_regex_backward(
+    text: &str,
+    pattern: &str,
+    end_pos: usize,
+    case_sensitive: bool,
+) -> Result<Option<(usize, usize)>, String> {
+    if pattern.is_empty() {
+        return Ok(None);
+    }
+    let re = RegexBuilder::new(pattern)
+        .case_insensitive(!case_sensitive)
+        .multi_line(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let slice = &text[..floor_char_boundary(text, end_pos)];
+    Ok(re.find_iter(slice).last().map(|m| (m.start(), m.end())))
+}
+
+/// Replace all regex matches; replacement may reference capture groups as $1, $2, etc.
+pub fn replace_all_in_text_regex(
+    text: &str,
+    pattern: &str,
+    replacement: &str,
+    case_sensitive: bool,
+) -> Result<(String, usize), String> {
+    if pattern.is_empty() {
+        return Ok((text.to_string(), 0));
+    }
+    let re = RegexBuilder::new(pattern)
+        .case_insensitive(!case_sensitive)
+        .multi_line(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let count = re.find_iter(text).count();
+    let result = re.replace_all(text, replacement).into_owned();
+    Ok((result, count))
+}
+
+/// Replace the regex match starting exactly at `start_pos`, expanding capture
+/// groups (`$1`, `${name}`) from the live document — anchors like `^`/`$`
+/// resolve against the surrounding text, not the stripped selection.
+///
+/// Returns `Ok(Some((replacement_text, match_byte_len)))` when there is a
+/// match starting at `start_pos`, `Ok(None)` otherwise. The caller should
+/// verify (or ignore) that `match_byte_len` matches the current selection.
+pub fn replace_at_position_regex(
+    text: &str,
+    pattern: &str,
+    replacement: &str,
+    start_pos: usize,
+    case_sensitive: bool,
+) -> Result<Option<(String, usize)>, String> {
+    if pattern.is_empty() {
+        return Ok(None);
+    }
+    let re = RegexBuilder::new(pattern)
+        .case_insensitive(!case_sensitive)
+        .multi_line(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let start = floor_char_boundary(text, start_pos);
+    let Some(caps) = re.captures_at(text, start) else {
+        return Ok(None);
+    };
+    let m = match caps.get(0) {
+        Some(m) if m.start() == start => m,
+        _ => return Ok(None),
+    };
+    let mut expanded = String::new();
+    caps.expand(replacement, &mut expanded);
+    Ok(Some((expanded, m.end() - m.start())))
+}
+
+/// Replace the first regex match in text; replacement may reference capture groups as $1, $2, etc.
+pub fn replace_first_regex(
+    text: &str,
+    pattern: &str,
+    replacement: &str,
+    case_sensitive: bool,
+) -> Result<Option<String>, String> {
+    if pattern.is_empty() {
+        return Ok(None);
+    }
+    let re = RegexBuilder::new(pattern)
+        .case_insensitive(!case_sensitive)
+        .multi_line(true)
+        .build()
+        .map_err(|e| e.to_string())?;
+    if re.is_match(text) {
+        Ok(Some(re.replace(text, replacement).into_owned()))
+    } else {
+        Ok(None)
+    }
 }
 
 #[cfg(test)]
@@ -358,5 +489,199 @@ mod tests {
         let (result, count) = replace_all_in_text(text, "世界", "World", false);
         assert_eq!(result, "Hello World");
         assert_eq!(count, 1);
+    }
+
+    // Regex find tests
+
+    #[test]
+    fn test_find_regex_basic() {
+        let text = "foo bar foo";
+        let result = find_in_text_regex(text, "foo", 0, true).unwrap();
+        assert_eq!(result, Some((0, 3)));
+    }
+
+    #[test]
+    fn test_find_regex_from_pos() {
+        let text = "foo bar foo";
+        let result = find_in_text_regex(text, "foo", 1, true).unwrap();
+        assert_eq!(result, Some((8, 11)));
+    }
+
+    #[test]
+    fn test_find_regex_case_insensitive() {
+        let text = "Hello HELLO hello";
+        let result = find_in_text_regex(text, "hello", 0, false).unwrap();
+        assert_eq!(result, Some((0, 5)));
+    }
+
+    #[test]
+    fn test_find_regex_word_boundary() {
+        let text = "foobar foo";
+        let result = find_in_text_regex(text, r"\bfoo\b", 0, true).unwrap();
+        assert_eq!(result, Some((7, 10)));
+    }
+
+    #[test]
+    fn test_find_regex_no_match() {
+        let text = "hello world";
+        let result = find_in_text_regex(text, "xyz", 0, true).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_find_regex_invalid_pattern() {
+        let result = find_in_text_regex("hello", "[", 0, true);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_find_regex_empty_pattern() {
+        let result = find_in_text_regex("hello", "", 0, true).unwrap();
+        assert_eq!(result, None);
+    }
+
+    // Regex backward find tests
+
+    #[test]
+    fn test_find_regex_backward_basic() {
+        let text = "foo bar foo";
+        let result = find_in_text_regex_backward(text, "foo", text.len(), true).unwrap();
+        assert_eq!(result, Some((8, 11)));
+    }
+
+    #[test]
+    fn test_find_regex_backward_before_pos() {
+        let text = "foo bar foo";
+        let result = find_in_text_regex_backward(text, "foo", 8, true).unwrap();
+        assert_eq!(result, Some((0, 3)));
+    }
+
+    #[test]
+    fn test_find_regex_backward_no_match() {
+        let text = "foo bar foo";
+        let result = find_in_text_regex_backward(text, "xyz", text.len(), true).unwrap();
+        assert_eq!(result, None);
+    }
+
+    // Regex replace all tests
+
+    #[test]
+    fn test_replace_all_regex_basic() {
+        let (result, count) = replace_all_in_text_regex("cat cat cat", "cat", "dog", true).unwrap();
+        assert_eq!(result, "dog dog dog");
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_replace_all_regex_capture_groups() {
+        let (result, count) =
+            replace_all_in_text_regex("foo bar baz", r"(\w+)", "[$1]", true).unwrap();
+        assert_eq!(result, "[foo] [bar] [baz]");
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_replace_all_regex_case_insensitive() {
+        let (result, count) =
+            replace_all_in_text_regex("Cat cat CAT", "cat", "dog", false).unwrap();
+        assert_eq!(result, "dog dog dog");
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn test_replace_all_regex_invalid_pattern() {
+        let result = replace_all_in_text_regex("hello", "[", "x", true);
+        assert!(result.is_err());
+    }
+
+    // Regex replace first tests
+
+    #[test]
+    fn test_replace_first_regex_basic() {
+        let result = replace_first_regex("cat cat cat", "cat", "dog", true).unwrap();
+        assert_eq!(result, Some("dog cat cat".to_string()));
+    }
+
+    #[test]
+    fn test_replace_first_regex_no_match() {
+        let result = replace_first_regex("hello", "xyz", "dog", true).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_replace_first_regex_capture_groups() {
+        let result = replace_first_regex("hello world", r"(\w+)", "[$1]", true).unwrap();
+        assert_eq!(result, Some("[hello] world".to_string()));
+    }
+
+    // Multi-line anchor tests — `^`/`$` should match per-line, not per-buffer.
+
+    #[test]
+    fn test_find_regex_anchor_start_of_line() {
+        let text = "first\nsecond\nthird";
+        let result = find_in_text_regex(text, r"^second", 0, true).unwrap();
+        assert_eq!(result, Some((6, 12)));
+    }
+
+    #[test]
+    fn test_find_regex_anchor_end_of_line() {
+        let text = "first\nsecond\nthird";
+        let result = find_in_text_regex(text, r"second$", 0, true).unwrap();
+        assert_eq!(result, Some((6, 12)));
+    }
+
+    #[test]
+    fn test_replace_all_regex_per_line_anchor() {
+        let (result, count) = replace_all_in_text_regex("a\nb\nc", "^", "> ", true).unwrap();
+        // ^ matches before each line, so every line gets the prefix.
+        assert_eq!(result, "> a\n> b\n> c");
+        assert_eq!(count, 3);
+    }
+
+    // replace_at_position_regex — anchor-aware "replace current selection"
+
+    #[test]
+    fn test_replace_at_position_basic() {
+        let text = "foo bar foo";
+        let r = replace_at_position_regex(text, "foo", "baz", 8, true).unwrap();
+        assert_eq!(r, Some(("baz".to_string(), 3)));
+    }
+
+    #[test]
+    fn test_replace_at_position_only_matches_at_start() {
+        // No match starting exactly at byte 1 — there's a match at 0 but we
+        // require start to align.
+        let text = "foo";
+        let r = replace_at_position_regex(text, "foo", "x", 1, true).unwrap();
+        assert_eq!(r, None);
+    }
+
+    #[test]
+    fn test_replace_at_position_capture_groups() {
+        let text = "alice bob";
+        let r = replace_at_position_regex(text, r"(\w+)", "[$1]", 6, true).unwrap();
+        assert_eq!(r, Some(("[bob]".to_string(), 3)));
+    }
+
+    #[test]
+    fn test_replace_at_position_anchor_uses_full_context() {
+        // `^foo` only matches `foo` at the start of a line. Position 6 is the
+        // start of "foo" on the second line, so the anchor resolves correctly
+        // because the regex sees the surrounding newline.
+        let text = "bar\nfoo";
+        let r = replace_at_position_regex(text, "^foo", "baz", 4, true).unwrap();
+        assert_eq!(r, Some(("baz".to_string(), 3)));
+    }
+
+    #[test]
+    fn test_replace_at_position_invalid_pattern() {
+        let r = replace_at_position_regex("text", "[", "x", 0, true);
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn test_replace_at_position_no_match() {
+        let r = replace_at_position_regex("hello", "xyz", "x", 0, true).unwrap();
+        assert_eq!(r, None);
     }
 }

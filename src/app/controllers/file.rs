@@ -104,8 +104,12 @@ impl FileController {
                             .and_then(|n| n.to_str())
                             .unwrap_or("file")
                             .to_string();
+                        let (code_font, code_size) = {
+                            let s = settings.borrow();
+                            (s.current_font(), s.font_size as i32)
+                        };
                         if let Some(req) = crate::ui::dialogs::readonly_viewer::show_readonly_viewer(
-                            path_ref, theme_bg,
+                            path_ref, theme_bg, code_font, code_size,
                         ) {
                             // User clicked "Open" — content already extracted from mmap
                             return self.open_chunk_content(

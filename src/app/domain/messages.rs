@@ -1,5 +1,3 @@
-use fltk::enums::Font;
-
 use super::document::DocumentId;
 use super::settings::SyntaxTheme;
 use crate::app::controllers::tabs::{GroupColor, GroupId};
@@ -67,8 +65,9 @@ pub enum Message {
     ToggleDiagnosticsPanel,
 
     // Format
-    SetFont(Font),
+    SetFont(String),
     SetFontSize(i32),
+    OpenFontPicker,
 
     // Settings & Help
     OpenSettings,
@@ -103,6 +102,13 @@ pub enum Message {
     CheckPluginPermissions,
     /// A plugin's custom menu action was triggered
     PluginMenuAction {
+        plugin_name: String,
+        action: String,
+    },
+    /// Deferred plugin menu action: lets FLTK paint a "Loading..." state
+    /// before the synchronous Lua hook runs (which can take seconds on Windows
+    /// when it spawns git status / walks the tree).
+    DeferredPluginMenuAction {
         plugin_name: String,
         action: String,
     },

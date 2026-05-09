@@ -291,10 +291,43 @@ pub fn handle_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) {
         }
         Message::ToggleHighlighting => state.toggle_highlighting(),
         Message::TogglePreview => state.preview_in_browser(),
-        Message::SetFont(font) => state.set_font(font),
-        Message::SetFontSize(size) => state.set_font_size(size),
+        Message::SetFont(name) => {
+            state.set_font(&name);
+            propagate_font_to_panels(state, lw);
+        }
+        Message::SetFontSize(size) => {
+            state.set_font_size(size);
+            propagate_font_to_panels(state, lw);
+        }
+        Message::OpenFontPicker => {
+            let theme_bg = state.highlight.highlighter().theme_background();
+            let (current_name, current_size) = {
+                let s = state.settings.borrow();
+                (s.font.clone(), s.font_size)
+            };
+            if let Some((name, size)) = crate::ui::dialogs::font_picker::show_font_picker(
+                &state.window,
+                &current_name,
+                current_size,
+                theme_bg,
+            ) {
+                state.set_font(&name);
+                state.set_font_size(size as i32);
+                propagate_font_to_panels(state, lw);
+            }
+        }
         _ => {}
     }
+}
+
+/// Push the current editor font/size to non-editor code-display surfaces
+/// (terminal panel, diagnostic panel, split panel) so they stay in sync.
+fn propagate_font_to_panels(state: &AppState, lw: &mut LayoutWidgets) {
+    let font = state.highlight.font();
+    let size = state.highlight.font_size();
+    lw.terminal_panel.set_code_font(font, size);
+    lw.diagnostic_panel.set_code_font(font, size);
+    lw.split_panel.set_code_font(font, size);
 }
 
 // ---------------------------------------------------------------------------
@@ -316,6 +349,8 @@ pub fn handle_settings(msg: Message, state: &mut AppState, lw: &mut LayoutWidget
             } else {
                 fltk::app::foreground(0, 0, 0);
             }
+            // Settings dialog may have changed the editor font/size — propagate.
+            propagate_font_to_panels(state, lw);
         }
         Message::CheckForUpdates => {
             let theme_bg = state.highlight.highlighter().theme_background();
@@ -458,12 +493,18 @@ pub fn handle_plugin(msg: Message, state: &mut AppState) {
             plugin_name,
             action,
         } => {
-            state.widget.handle_plugin_menu_action(
-                &plugin_name,
-                &action,
-                &mut state.plugins,
-                &mut state.tab_manager,
-                &mut state.view,
+            // The plugin's hook runs synchronously and can take seconds on Windows
+            // (git status spawn + recursive dir walk). Show a "Loading..." state
+            // first if the tree panel is already visible, then defer the heavy
+            // work so FLTK can flush paint events before the GUI thread blocks.
+            state.sender.send(Message::TreeViewLoading);
+            defer_send(
+                state.sender,
+                0.0,
+                Message::DeferredPluginMenuAction {
+                    plugin_name,
+                    action,
+                },
             );
         }
         Message::ShowPluginManager => {
@@ -602,6 +643,19 @@ pub fn handle_deferred(
     match msg {
         Message::DeferredPluginHooks { path, content } => {
             state.run_open_hooks(path, content);
+        }
+        Message::DeferredPluginMenuAction {
+            plugin_name,
+            action,
+        } => {
+            fltk::app::flush();
+            state.widget.handle_plugin_menu_action(
+                &plugin_name,
+                &action,
+                &mut state.plugins,
+                &mut state.tab_manager,
+                &mut state.view,
+            );
         }
         Message::DeferredTreeRefresh { path, content } => {
             fltk::app::flush();

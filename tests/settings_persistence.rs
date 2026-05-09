@@ -3,7 +3,7 @@ use std::fs;
 use tempfile::tempdir;
 
 use ferris_pad::app::domain::settings::{
-    AppSettings, FontChoice, PluginApprovals, ShortcutOverride, SyntaxTheme, ThemeMode,
+    AppSettings, PluginApprovals, ShortcutOverride, SyntaxTheme, ThemeMode,
 };
 use ferris_pad::app::services::session::SessionRestore;
 use ferris_pad::app::services::updater::UpdateChannel;
@@ -18,7 +18,7 @@ fn test_settings_roundtrip_all_fields() {
         word_wrap_enabled: false,
         highlighting_enabled: false,
         theme_mode: ThemeMode::Dark,
-        font: FontChoice::HelveticaMono,
+        font: "HelveticaMono".to_string(),
         font_size: 20,
         auto_check_updates: false,
         update_channel: UpdateChannel::Beta,
@@ -136,7 +136,7 @@ fn test_settings_backward_compat() {
     assert!(loaded.word_wrap_enabled);
     assert!(loaded.highlighting_enabled);
     assert_eq!(loaded.theme_mode, ThemeMode::SystemDefault);
-    assert_eq!(loaded.font, FontChoice::Courier);
+    assert_eq!(loaded.font, "Courier");
     assert!(loaded.auto_check_updates);
     assert_eq!(loaded.update_channel, UpdateChannel::Stable);
     assert!(loaded.plugins_enabled);
