@@ -5,6 +5,33 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.5-rc.1] - 2026-05-09
+
+### Added
+- **Font Picker**: New `View > Font > Choose Font…` dialog enumerates installed system fonts via fontconfig, with themed selection colors and full keyboard navigation. Closes #27.
+- **Active Font Size Marker**: `View > Font Size` submenu marks the current size with `← current`.
+- **Regex Search and Replace**: `Use regex` toggle in Find and Find & Replace dialogs (Rust `regex` syntax). Replacements support capture references (`$1`, `${name}`); invalid patterns surface a themed error inline.
+- **Start Page**: New welcome view shown when no tabs are open, with quick actions and an embedded changelog card. Two-column layout, scaled for readability.
+- **Named Sessions**: Session Picker dialog (`File > Sessions…`) for managing per-project sessions — switch the current window to a session, open a session in a new window, create or delete sessions. Lock detection prevents opening the same session in two instances.
+- **MCP Diff Tools for Claude Code**: New `show_diff`, `preview_edit`, and `reload_file` MCP methods for interactive review of agent-proposed edits. Diff view auto-scrolls to the first changed line and renders colored markers in the scrollbar gutter.
+- **Improved Terminal Input**: Better keyboard handling and clipboard paste in the embedded terminal.
+
+### Fixed
+- **Font Picker on Wayland**: Full font catalog now appears, the dialog uses the active syntax theme, and keyboard navigation works reliably.
+- **Tree Panel Freeze on Windows**: Reduced UI hitch when first opening the file explorer.
+- **File Explorer OOM**: Prevent out-of-memory on very large project directories.
+- **Session Dialog Centering**: Session-related dialogs now center on the parent window reliably under Wayland.
+- **Dialog Backgrounds**: Lightened dialog backgrounds for better contrast in both dark and light themes.
+- **Diff Scrollbar Markers**: Markers now drawn via the `content_row` draw callback (correct positions on resize/scroll).
+- **PTY Login Shell**: Wrap PTY commands in a login shell so terminal works correctly when launched from the desktop entry.
+- **Preview Directory**: Ensure preview output directory exists before writing.
+
+### Changed
+- **Theme & Accent System**: Reworked theme colors and accent system, with dark-mode polish across dialogs and panels.
+- **README**: Architecture tree, line counts, and feature list refreshed for 0.9.5.
+- **Removed CNAME**: Dropped the GitHub Pages CNAME file from the repo.
+- **Dependencies**: Bumped `pulldown-cmark` 0.12.2 → 0.13.3, `dirs` 5.0.1 → 6.0.0, `serde_json` 1.0.145 → 1.0.149, `open` 5.3.2 → 5.3.3.
+
 ## [0.9.4] - 2026-04-03
 
 ### Added
