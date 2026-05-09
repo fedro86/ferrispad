@@ -7,7 +7,7 @@
 
 ## Overview
 
-FerrisPad is a single-binary text editor with syntax highlighting for 50+ languages, tab groups, session restore, a Lua plugin system, and a built-in terminal. It follows a strict [philosophy](PHILOSOPHY.md): 0% CPU when idle, no runtime dependencies, no telemetry.
+FerrisPad is a single-binary text editor with syntax highlighting for 50+ languages, tab groups, named multi-project sessions, a Lua plugin system, a built-in terminal, regex find/replace, and an arbitrary system-font picker. It follows a strict [philosophy](PHILOSOPHY.md): 0% CPU when idle, no runtime dependencies, no telemetry.
 
 **[Website](https://www.ferrispad.com)** | **[Wiki](https://github.com/fedro86/ferrispad/wiki)** | **[Downloads](https://github.com/fedro86/ferrispad/releases)** | **[Changelog](CHANGELOG.md)**
 
@@ -63,7 +63,7 @@ cargo fmt --check                       # Format check
 
 ## Architecture
 
-~35,000 lines across 92 Rust source files. Message-passing event-driven architecture with Clean Architecture layers.
+~38,000 lines across 96 Rust source files. Message-passing event-driven architecture with Clean Architecture layers.
 
 ```
 src/
@@ -73,7 +73,7 @@ src/
   app/
     state.rs             # Central coordinator (AppState, mediates controllers)
     domain/              # Core data types (Document, Message enum, AppSettings)
-    controllers/         # Orchestration (11 controllers)
+    controllers/         # Orchestration (10 controllers)
       file.rs              # File I/O, returns Vec<FileAction>
       highlight.rs         # 3-tier syntax highlighting engine
       tabs.rs              # Tab/group lifecycle (TabManager)
@@ -97,6 +97,7 @@ src/
       text_ops.rs          # Text manipulation helpers
       yaml_parser.rs       # YAML/JSON tree parser
       file_size.rs         # Large file thresholds and streaming
+      font_catalog.rs      # System font enumeration (font picker)
     plugins/             # Lua plugin system
       api/                 # Plugin API (editor, filesystem, commands, sandbox)
       hooks.rs             # Hook definitions and dispatch
@@ -116,13 +117,15 @@ src/
     diagnostic_panel.rs  # Lint/diagnostic display panel
     split_panel.rs       # Plugin split view widget
     tree_panel.rs        # Plugin tree view widget
+    start_page.rs        # Welcome view shown when no tabs are open
     status_bar.rs        # Cursor position, file path, language
     menu.rs              # Menu bar with shortcut registry
     file_dialogs.rs      # Native file picker helpers
     theme.rs             # Dark/light themes, platform titlebar
     toast.rs             # Toast notifications
-    dialogs/             # Find, Settings, GoTo, About, Update, Plugin Manager,
-                         #   Shortcuts, Large File, Read-Only Viewer, Community Install
+    dialogs/             # Find (regex), Settings, GoTo, About, Update, Plugin Manager,
+                         #   Shortcuts, Large File, Read-Only Viewer, Community Install,
+                         #   Font Picker, Session Picker
 ```
 
 All UI interactions flow through a `Message` enum (~100 variants) dispatched in the main event loop. Controllers return action enums (e.g. `Vec<FileAction>`) for cross-cutting effects.
