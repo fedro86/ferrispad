@@ -18,7 +18,11 @@ use crate::app::AppSettings;
 use crate::app::services::updater;
 
 /// Check for updates and show UI dialog (manual check)
-pub fn check_for_updates_ui(settings: &Rc<RefCell<AppSettings>>, theme_bg: (u8, u8, u8)) {
+pub fn check_for_updates_ui(
+    parent: &Window,
+    settings: &Rc<RefCell<AppSettings>>,
+    theme_bg: (u8, u8, u8),
+) {
     use crate::app::services::updater::{UpdateCheckResult, check_for_updates, current_timestamp};
 
     let current_version = env!("CARGO_PKG_VERSION");
@@ -31,7 +35,7 @@ pub fn check_for_updates_ui(settings: &Rc<RefCell<AppSettings>>, theme_bg: (u8, 
 
     match result {
         UpdateCheckResult::UpdateAvailable(release) => {
-            show_update_available_dialog(release, settings, theme_bg);
+            show_update_available_dialog(parent, release, settings, theme_bg);
         }
         UpdateCheckResult::NoUpdate => {
             super::show_themed_message(
@@ -60,8 +64,10 @@ pub fn check_for_updates_ui(settings: &Rc<RefCell<AppSettings>>, theme_bg: (u8, 
     let _ = settings_mut.save();
 }
 
-/// Show update available dialog with options
+/// Show update available dialog with options.
+/// `parent` is the main window used to center the dialog (reliable on Wayland).
 pub fn show_update_available_dialog(
+    parent: &Window,
     release: updater::ReleaseInfo,
     settings: &Rc<RefCell<AppSettings>>,
     theme_bg: (u8, u8, u8),
@@ -72,8 +78,16 @@ pub fn show_update_available_dialog(
     let asset_name = updater::get_platform_asset_name();
     let direct_asset = release.assets.iter().find(|a| a.name.contains(asset_name));
 
-    let mut dialog = Window::new(100, 100, 500, 480, "Update Available");
-    dialog.make_modal(true);
+    const DW: i32 = 500;
+    const DH: i32 = 480;
+    // Regular xdg_toplevel (not modal) — on Wayland/GNOME, make_modal(true) on the
+    // first invocation maps the surface before the decoration + modal-hint round-trip
+    // completes, yielding an undecorated, ungrabbed window with no input (and the
+    // parent window also stops receiving input). See session_picker.rs for the same fix.
+    let mut dialog = Window::default()
+        .with_size(DW, DH)
+        .with_label("Update Available")
+        .center_screen();
     dialog.set_color(dialog_bg);
 
     let mut flex = Flex::new(10, 10, 480, 460, None);
@@ -288,5 +302,12 @@ pub fn show_update_available_dialog(
 
     dialog.show();
     theme.apply_titlebar(&dialog);
+    // Reposition to center on the parent AFTER show().
+    dialog.resize(
+        parent.x() + (parent.w() - DW) / 2,
+        parent.y() + (parent.h() - DH) / 2,
+        DW,
+        DH,
+    );
     super::run_dialog(&dialog);
 }

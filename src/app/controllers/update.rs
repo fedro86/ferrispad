@@ -48,7 +48,7 @@ impl UpdateController {
         theme_bg: (u8, u8, u8),
     ) {
         if let Some(release) = self.pending_update.take() {
-            show_update_available_dialog(release, settings, theme_bg);
+            show_update_available_dialog(widgets.window, release, settings, theme_bg);
             self.hide_banner(widgets);
         }
     }

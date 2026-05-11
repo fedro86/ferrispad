@@ -354,7 +354,7 @@ pub fn handle_settings(msg: Message, state: &mut AppState, lw: &mut LayoutWidget
         }
         Message::CheckForUpdates => {
             let theme_bg = state.highlight.highlighter().theme_background();
-            check_for_updates_ui(&state.settings, theme_bg);
+            check_for_updates_ui(&state.window, &state.settings, theme_bg);
         }
         Message::ShowAbout => {
             let theme_bg = state.highlight.highlighter().theme_background();
