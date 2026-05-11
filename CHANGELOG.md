@@ -5,6 +5,11 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.5-rc.2] - 2026-05-11
+
+### Fixed
+- **Update Available Dialog on Wayland**: The "Update Available" dialog opened from the update banner no longer freezes the UI. `make_modal(true)` on a freshly created window left the dialog undecorated and ungrabbed on Wayland/GNOME (and stopped the parent window from receiving input — menu bar, tab bar, and the dialog's own buttons all stopped responding). Now uses the same parent-centering pattern as the session picker and font picker.
+
 ## [0.9.5-rc.1] - 2026-05-09
 
 ### Added
