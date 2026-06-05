@@ -396,7 +396,11 @@ Windows cross-compilation from Linux is tricky with GUI apps. Recommended approa
 
 FerrisPad uses ed25519 signatures to verify update integrity. The auto-updater will refuse to install unsigned binaries.
 
-### Sign each release binary
+**Signing is fully automated in CI.** For official releases you do **not** sign manually — pushing a version tag triggers the `sign-binaries` job in `.github/workflows/release.yml`, which builds the signer tool from the `ferrispad-plugins` repo, signs every platform binary using the `SIGNING_KEY` GitHub Actions secret, and uploads the `.sig` files alongside the binaries. See [RELEASE_PROCESS.md](RELEASE_PROCESS.md) for the full release flow.
+
+The instructions below are a **manual fallback** for when you build binaries locally or CI signing fails.
+
+### Manual signing fallback
 
 ```bash
 cd ~/code-folder/continuous_learning/ferrispad-plugins/tools/signer
@@ -404,7 +408,7 @@ cd ~/code-folder/continuous_learning/ferrispad-plugins/tools/signer
 # Build the signer if needed
 cargo build --release
 
-# Sign each platform binary
+# Sign each platform binary (replace 0.9.1 with the release version)
 ./target/release/plugin-signer sign-release FerrisPad-linux-amd64 0.9.1 linux-amd64
 ./target/release/plugin-signer sign-release FerrisPad-macos-universal 0.9.1 macos-universal
 ./target/release/plugin-signer sign-release FerrisPad-windows-x64.exe 0.9.1 windows-x64.exe
@@ -422,7 +426,7 @@ This creates `.sig` files alongside each binary. Upload both the binary and its 
 
 ### Signing key location
 
-The signing key is stored at `~/.config/ferrispad/signing/plugin_signing_key.bin`. This key is also used for signing plugins.
+Locally the signing key is stored at `~/.config/ferrispad/signing/plugin_signing_key.bin` (also used for signing plugins). For CI, the same key is stored base64-encoded as the `SIGNING_KEY` GitHub Actions secret. Keep this key secure and backed up.
 
 ---
 
@@ -435,8 +439,7 @@ Before releasing binaries:
 - [ ] Check that icons/assets are embedded
 - [ ] Test installation process
 - [ ] Verify uninstallation works (Linux)
-- [ ] **Sign all binaries** with `plugin-signer sign-release`
-- [ ] **Upload `.sig` files** alongside binaries
+- [ ] **Verify `.sig` files** are attached to the release (signing is automated by CI; sign manually only as a fallback)
 - [ ] Create checksums (SHA256) - optional, signatures are sufficient
 - [ ] Update website download links
 - [ ] Update documentation

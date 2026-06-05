@@ -63,7 +63,7 @@ cargo fmt --check                       # Format check
 
 ## Architecture
 
-~38,000 lines across 96 Rust source files. Message-passing event-driven architecture with Clean Architecture layers.
+~38,400 lines across 96 Rust source files. Message-passing event-driven architecture with Clean Architecture layers.
 
 ```
 src/
