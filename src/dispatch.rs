@@ -895,36 +895,36 @@ pub fn handle_split_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidg
                 lw.wind.redraw();
             }
         }
-        Message::SplitViewToggleMode(session_id) => {
-            if lw.split_panel.session_id() == Some(session_id) {
-                let parent = split_parent!(lw);
-                if lw.split_panel.is_tab_mode() {
-                    lw.split_panel.set_tab_mode(false);
-                    let height = lw.split_panel.current_height();
-                    parent.fixed(lw.split_panel.widget(), height);
-                    if let Some(ref mut div) = lw.split_panel.divider {
-                        div.show();
-                        parent.fixed(div, DIVIDER_WIDTH);
-                    }
-                    if let Some(ref mut tb) = state.tab_bar {
-                        tb.clear_diff_tab();
-                    }
-                } else {
-                    lw.split_panel.set_tab_mode(true);
-                    let full_height = parent.h() - TAB_BAR_HEIGHT;
-                    parent.fixed(lw.split_panel.widget(), full_height);
-                    if let Some(ref mut div) = lw.split_panel.divider {
-                        div.hide();
-                        parent.fixed(div, 0);
-                    }
-                    if let Some(ref mut tb) = state.tab_bar {
-                        tb.set_diff_tab(session_id, lw.split_panel.diff_title(), true);
-                    }
+        Message::SplitViewToggleMode(session_id)
+            if lw.split_panel.session_id() == Some(session_id) =>
+        {
+            let parent = split_parent!(lw);
+            if lw.split_panel.is_tab_mode() {
+                lw.split_panel.set_tab_mode(false);
+                let height = lw.split_panel.current_height();
+                parent.fixed(lw.split_panel.widget(), height);
+                if let Some(ref mut div) = lw.split_panel.divider {
+                    div.show();
+                    parent.fixed(div, DIVIDER_WIDTH);
                 }
-                lw.split_panel.refresh_action_buttons();
-                parent.recalc();
-                lw.wind.redraw();
+                if let Some(ref mut tb) = state.tab_bar {
+                    tb.clear_diff_tab();
+                }
+            } else {
+                lw.split_panel.set_tab_mode(true);
+                let full_height = parent.h() - TAB_BAR_HEIGHT;
+                parent.fixed(lw.split_panel.widget(), full_height);
+                if let Some(ref mut div) = lw.split_panel.divider {
+                    div.hide();
+                    parent.fixed(div, 0);
+                }
+                if let Some(ref mut tb) = state.tab_bar {
+                    tb.set_diff_tab(session_id, lw.split_panel.diff_title(), true);
+                }
             }
+            lw.split_panel.refresh_action_buttons();
+            parent.recalc();
+            lw.wind.redraw();
         }
         _ => {}
     }

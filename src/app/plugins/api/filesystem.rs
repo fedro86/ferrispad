@@ -88,19 +88,17 @@ pub fn list_dir(lua: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Result
     };
 
     let result = lua.create_table()?;
-    let mut idx = 1;
     let mut sorted: Vec<_> = entries.filter_map(|e| e.ok()).collect();
     sorted.sort_by_key(|e| e.file_name());
 
-    for entry in sorted {
+    for (idx, entry) in sorted.into_iter().enumerate() {
         let t = lua.create_table()?;
         t.set(
             "name",
             entry.file_name().to_string_lossy().as_ref().to_owned(),
         )?;
         t.set("is_dir", entry.path().is_dir())?;
-        result.set(idx, t)?;
-        idx += 1;
+        result.set(idx + 1, t)?;
     }
     Ok(mlua::Value::Table(result))
 }

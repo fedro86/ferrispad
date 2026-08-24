@@ -177,10 +177,8 @@ impl vte::Perform for VteHandler<'_> {
             's' => self.grid.save_cursor(),
             'u' => self.grid.restore_cursor(),
             // SM/RM — set/reset mode (handle cursor visibility)
-            'h' | 'l' => {
-                if intermediates == b"?" && p0 == 25 {
-                    self.grid.cursor_visible = action == 'h';
-                }
+            'h' | 'l' if intermediates == b"?" && p0 == 25 => {
+                self.grid.cursor_visible = action == 'h';
             }
             _ => {}
         }
@@ -244,15 +242,13 @@ impl VteHandler<'_> {
                                     i += 2;
                                 }
                             }
-                            2 => {
-                                if i + 4 < params.len() {
-                                    self.grid.current_fg = Color::from_rgb(
-                                        params[i + 2] as u8,
-                                        params[i + 3] as u8,
-                                        params[i + 4] as u8,
-                                    );
-                                    i += 4;
-                                }
+                            2 if i + 4 < params.len() => {
+                                self.grid.current_fg = Color::from_rgb(
+                                    params[i + 2] as u8,
+                                    params[i + 3] as u8,
+                                    params[i + 4] as u8,
+                                );
+                                i += 4;
                             }
                             _ => {}
                         }
@@ -273,15 +269,13 @@ impl VteHandler<'_> {
                                     i += 2;
                                 }
                             }
-                            2 => {
-                                if i + 4 < params.len() {
-                                    self.grid.current_bg = Color::from_rgb(
-                                        params[i + 2] as u8,
-                                        params[i + 3] as u8,
-                                        params[i + 4] as u8,
-                                    );
-                                    i += 4;
-                                }
+                            2 if i + 4 < params.len() => {
+                                self.grid.current_bg = Color::from_rgb(
+                                    params[i + 2] as u8,
+                                    params[i + 3] as u8,
+                                    params[i + 4] as u8,
+                                );
+                                i += 4;
                             }
                             _ => {}
                         }

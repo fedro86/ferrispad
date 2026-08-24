@@ -159,7 +159,7 @@ pub(super) fn call_hook(
     }
 
     // Sort diagnostics by severity (errors first)
-    result.diagnostics.sort_by(|a, b| a.level.cmp(&b.level));
+    result.diagnostics.sort_by_key(|a| a.level);
 
     // Sort line annotations by line number
     result.line_annotations.sort_by_key(|a| a.line);

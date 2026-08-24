@@ -329,18 +329,15 @@ impl DiagnosticPanel {
                     }
                     false // Don't consume - let FLTK handle selection
                 }
-                Event::Push => {
+                Event::Push
                     // Double click - open docs
-                    if fltk::app::event_clicks() {
+                    if fltk::app::event_clicks() => {
                         let idx = b.value();
                         if idx > 0 {
                             sender.send(Message::DiagnosticOpenDocs(idx as u32));
                         }
                         true
-                    } else {
-                        false
                     }
-                }
                 _ => false,
             }
         });

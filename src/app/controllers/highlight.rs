@@ -575,7 +575,7 @@ impl HighlightController {
             }
 
             let mut sorted_inlines = inlines;
-            sorted_inlines.sort_by(|a, b| b.color.priority().cmp(&a.color.priority()));
+            sorted_inlines.sort_by_key(|i| std::cmp::Reverse(i.color.priority()));
 
             for inline in sorted_inlines {
                 let marker_char = get_marker_char(self, &inline.color);
