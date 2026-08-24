@@ -39,17 +39,17 @@ impl PtySession {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
 
         let mut cmd = if let Some(program) = command {
-            // Wrap in a login shell so the user's profile (PATH, etc.) is loaded.
-            // This is essential when FerrisPad is launched from a desktop icon
-            // where the session environment may be minimal.
-            let mut full_cmd = String::from(program);
+            // Plugin-driven command: spawn the program directly with its
+            // arguments as a real argv vector. We deliberately do NOT route
+            // this through `$SHELL -lc "<concatenated string>"`: doing so would
+            // re-parse plugin-supplied args as shell syntax, turning an approved
+            // command like `git` into arbitrary code execution (T0001). This
+            // mirrors the shell-free execution model of the `run_command`
+            // plugin API in `plugins/api/commands.rs`.
+            let mut c = CommandBuilder::new(program);
             for arg in args {
-                full_cmd.push(' ');
-                full_cmd.push_str(arg);
+                c.arg(arg);
             }
-            let mut c = CommandBuilder::new(&shell);
-            c.arg("-lc");
-            c.arg(&full_cmd);
             c
         } else {
             // Interactive shell — no wrapping needed
@@ -127,5 +127,47 @@ impl PtySession {
 impl Drop for PtySession {
     fn drop(&mut self) {
         self.kill();
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// Regression (T0001, audit S3): a plugin-driven command must be spawned as
+    /// a real argv vector, NOT concatenated into `$SHELL -lc "<...>"`. If it
+    /// were, an argument containing shell syntax would execute. Here `echo` is
+    /// given an argument that would `touch` a marker file if it reached a shell;
+    /// with argv-direct spawning it is printed literally and no file appears.
+    #[test]
+    fn plugin_command_args_do_not_reenter_a_shell() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("ferrispad_pwned");
+        let injection = format!("hello; touch {}", marker.display());
+
+        let (session, mut reader) =
+            PtySession::spawn(Some("echo"), &[injection], None, 80, 24).unwrap();
+
+        // Drain the PTY in a background thread so the child never blocks writing.
+        let drain = std::thread::spawn(move || {
+            let mut sink = Vec::new();
+            let _ = reader.read_to_end(&mut sink);
+        });
+
+        // Wait for the short-lived `echo` to exit (bounded poll, no fixed sleep).
+        for _ in 0..200 {
+            if session.try_wait().is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let _ = drain.join();
+
+        assert!(
+            !marker.exists(),
+            "shell injection: the argument was interpreted by a shell and created {}",
+            marker.display()
+        );
     }
 }

