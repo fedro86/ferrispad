@@ -9,6 +9,15 @@
 /docs/temp/*
 /docs/internal/*
 /icons/*
+# ...but track the generated app icons: the Flatpak build installs them
+!/icons/hicolor
+
+# Nix / direnv
+.direnv/
+
+# Flatpak build cache
+.flatpak-builder/
+/build-dir/
 
 # Test artifacts
 test_2gb.log

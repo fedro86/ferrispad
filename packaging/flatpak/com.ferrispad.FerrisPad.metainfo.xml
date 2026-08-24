@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.ferrispad.FerrisPad</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>FerrisPad</name>
+  <summary>Fast, minimalist text editor</summary>
+  <developer id="com.ferrispad">
+    <name>FerrisPad Contributors</name>
+  </developer>
+  <description>
+    <p>
+      FerrisPad is a single-binary text editor written in Rust that follows a
+      strict philosophy: 0% CPU when idle, no runtime dependencies, and no
+      telemetry of any kind.
+    </p>
+    <ul>
+      <li>Syntax highlighting for 50+ languages</li>
+      <li>Tab groups and named multi-project sessions</li>
+      <li>Lua plugin system, sandboxed by default</li>
+      <li>Built-in terminal</li>
+      <li>Regex find and replace</li>
+      <li>Arbitrary system-font picker</li>
+      <li>Light and dark themes</li>
+      <li>Opens very large files (read-only above ~1.9 GiB)</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">com.ferrispad.FerrisPad.desktop</launchable>
+  <url type="homepage">https://www.ferrispad.com</url>
+  <url type="bugtracker">https://github.com/fedro86/ferrispad/issues</url>
+  <url type="vcs-browser">https://github.com/fedro86/ferrispad</url>
+  <branding>
+    <color type="primary" scheme_preference="light">#f5c39a</color>
+    <color type="primary" scheme_preference="dark">#4a2e1e</color>
+  </branding>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/fedro86/ferrispad/master/docs/assets/screenshots/screenshot-light.png</image>
+      <caption>Editing Rust code with syntax highlighting (light theme)</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/fedro86/ferrispad/master/docs/assets/screenshots/screenshot-dark.png</image>
+      <caption>Dark theme</caption>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.9.5" date="2026-06-05">
+      <url>https://github.com/fedro86/ferrispad/releases/tag/0.9.5</url>
+    </release>
+  </releases>
+</component>

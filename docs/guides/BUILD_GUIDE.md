@@ -78,6 +78,48 @@ cd target/release
 tar -czf FerrisPad-v0.1.0-linux-x64.tar.gz FerrisPad
 ```
 
+### Option 3: Build Flatpak
+
+The Flatpak packaging lives in `packaging/flatpak/`. It builds against the
+freedesktop 25.08 runtime with the rust-stable SDK extension and works on any
+distro (Fedora, Ubuntu, ...).
+
+```bash
+# One-time setup: flatpak-builder + runtimes
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install --user flathub org.freedesktop.Sdk//25.08 \
+  org.freedesktop.Platform//25.08 org.freedesktop.Sdk.Extension.rust-stable//25.08
+
+# Build and install locally (user scope)
+flatpak-builder --user --install --force-clean build-dir \
+  packaging/flatpak/com.ferrispad.FerrisPad.yml
+
+# Run it
+flatpak run com.ferrispad.FerrisPad
+```
+
+Flathub builders have no network access, so all crates are vendored via
+`packaging/flatpak/cargo-sources.json`. **Regenerate it whenever `Cargo.lock`
+changes:**
+
+```bash
+uv run packaging/flatpak/flatpak-cargo-generator.py Cargo.lock \
+  -o packaging/flatpak/cargo-sources.json
+```
+
+Notes:
+- Inside Flatpak the built-in updater is disabled (`is_flatpak()` in
+  `services/updater.rs`) — updates are delivered through Flathub.
+- The manifest uses a `type: dir` source for local builds. The Flathub
+  submission (planned for 0.9.6) will use a `type: git` source pinned to a
+  release tag: submit the manifest + `cargo-sources.json` to
+  https://github.com/flathub/flathub via PR.
+- The Flathub linter (`flatpak run --command=flatpak-builder-lint
+  org.flatpak.Builder manifest <manifest>`) flags `--filesystem=host`; text
+  editors routinely get this exception — request it in the submission PR
+  (without host access FLTK's file chooser cannot see the user's files, as
+  the freedesktop runtime has no GTK/portal-backed chooser to fall back on).
+
 ### Copy to Website
 
 ```bash

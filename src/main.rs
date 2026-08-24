@@ -18,7 +18,9 @@ use crate::app::infrastructure::defer::defer_send;
 use crate::app::services::editor_context::EditorContextWriter;
 use crate::app::services::session;
 use crate::app::services::shortcut_registry::ShortcutRegistry;
-use crate::app::services::updater::{UpdateCheckResult, check_for_updates, should_check_now};
+use crate::app::services::updater::{
+    UpdateCheckResult, check_for_updates, is_flatpak, should_check_now,
+};
 use crate::app::state::AppState;
 use crate::app::{AppSettings, Message, ThemeMode, detect_system_dark_mode};
 use crate::ui::main_window::{LayoutWidgets, build_main_window};
@@ -402,13 +404,9 @@ fn main() {
                 s.send(Message::ShowBannerUpdate);
                 true
             }
-            fltk::enums::Event::KeyDown => {
-                if fltk_app::event_key() == fltk::enums::Key::Escape {
-                    s.send(Message::DismissBanner);
-                    true
-                } else {
-                    false
-                }
+            fltk::enums::Event::KeyDown if fltk_app::event_key() == fltk::enums::Key::Escape => {
+                s.send(Message::DismissBanner);
+                true
             }
             _ => false,
         }
@@ -499,7 +497,7 @@ fn main() {
         let skipped = settings_lock.skipped_versions.clone();
         drop(settings_lock);
 
-        if auto_check && should_check {
+        if auto_check && should_check && !is_flatpak() {
             let s = sender;
             std::thread::spawn(move || {
                 let current_version = env!("CARGO_PKG_VERSION");

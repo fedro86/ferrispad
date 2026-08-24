@@ -1,0 +1,65 @@
+# Flatpak manifest for FerrisPad.
+#
+# Local test build (see docs/guides/BUILD_GUIDE.md for details):
+#   flatpak-builder --user --install --force-clean build-dir \
+#     packaging/flatpak/com.ferrispad.FerrisPad.yml
+#
+# cargo-sources.json is generated from Cargo.lock so the build works
+# offline (required by Flathub builders):
+#   uv run --with aiohttp --with toml python \
+#     packaging/flatpak/flatpak-cargo-generator.py Cargo.lock \
+#     -o packaging/flatpak/cargo-sources.json
+#
+# For the Flathub submission, replace the `type: dir` source with a
+# `type: git` source pinned to a release tag + commit.
+app-id: com.ferrispad.FerrisPad
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: FerrisPad
+finish-args:
+  # FLTK hybrid backend: Wayland with X11 fallback
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  # A general-purpose text editor needs to open arbitrary files
+  - --filesystem=host
+  # MCP server (JSON-RPC over TCP) and plugin downloads
+  - --share=network
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/ferrispad/cargo
+modules:
+  - name: ferrispad
+    buildsystem: simple
+    build-commands:
+      # fltk-sys links -lsupc++, which the freedesktop SDK does not ship;
+      # its symbols all live in libstdc++, so shim it with a linker script.
+      - mkdir -p shim && printf 'INPUT(-lstdc++)\n' > shim/libsupc++.so
+      - env RUSTFLAGS="-L $PWD/shim" cargo --offline build --release
+      - install -Dm755 target/release/FerrisPad /app/bin/FerrisPad
+      - sed 's/^Icon=ferrispad$/Icon=com.ferrispad.FerrisPad/' ferrispad.desktop
+        > com.ferrispad.FerrisPad.desktop
+      - install -Dm644 com.ferrispad.FerrisPad.desktop
+        /app/share/applications/com.ferrispad.FerrisPad.desktop
+      - install -Dm644 packaging/flatpak/com.ferrispad.FerrisPad.metainfo.xml
+        /app/share/metainfo/com.ferrispad.FerrisPad.metainfo.xml
+      - |
+        for size in 16x16 24x24 32x32 48x48 64x64 128x128 256x256 512x512; do
+          install -Dm644 "icons/hicolor/$size/apps/ferrispad.png" \
+            "/app/share/icons/hicolor/$size/apps/com.ferrispad.FerrisPad.png"
+        done
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - target
+          - .direnv
+          - .flatpak-builder
+          - build-dir
+      - cargo-sources.json

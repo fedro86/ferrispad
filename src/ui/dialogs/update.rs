@@ -23,9 +23,20 @@ pub fn check_for_updates_ui(
     settings: &Rc<RefCell<AppSettings>>,
     theme_bg: (u8, u8, u8),
 ) {
-    use crate::app::services::updater::{UpdateCheckResult, check_for_updates, current_timestamp};
+    use crate::app::services::updater::{
+        UpdateCheckResult, check_for_updates, current_timestamp, is_flatpak,
+    };
 
     let current_version = env!("CARGO_PKG_VERSION");
+
+    if is_flatpak() {
+        super::show_themed_message(
+            theme_bg,
+            "Updates",
+            "FerrisPad was installed as a Flatpak.\n\nUpdates are delivered through your software store (Flathub),\nnot by the built-in updater.",
+        );
+        return;
+    }
     let settings_borrowed = settings.borrow();
     let channel = settings_borrowed.update_channel;
     let skipped = settings_borrowed.skipped_versions.clone();

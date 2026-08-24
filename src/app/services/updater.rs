@@ -64,6 +64,12 @@ pub fn is_newer_version(current: &str, remote: &str) -> bool {
     }
 }
 
+/// True when running inside a Flatpak sandbox, where the installed binary
+/// is read-only and updates are delivered through Flathub instead.
+pub fn is_flatpak() -> bool {
+    std::path::Path::new("/.flatpak-info").exists()
+}
+
 /// Check if enough time has passed since last check (24 hours)
 pub fn should_check_now(last_check_timestamp: i64) -> bool {
     let now = SystemTime::now()
