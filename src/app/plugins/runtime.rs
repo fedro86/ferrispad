@@ -10,7 +10,7 @@
 use mlua::{Function, HookTriggers, Lua, Result as LuaResult, Table, Value, VmState};
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// Default maximum instructions per hook call (1 million).
 /// This prevents infinite loops while allowing complex operations.
@@ -25,6 +25,12 @@ pub const DEFAULT_MAX_MEMORY: usize = 16 * 1024 * 1024;
 /// 1000 is a reasonable balance.
 const HOOK_CHECK_INTERVAL: u32 = 1000;
 
+/// The error re-raised by the guarded `pcall`/`xpcall` once the instruction
+/// limit has been latched, so the abort propagates instead of being swallowed.
+fn instruction_limit_aborted() -> mlua::Error {
+    mlua::Error::RuntimeError("Instruction limit exceeded (aborting)".to_string())
+}
+
 /// Lua runtime wrapper with sandboxing, instruction limits, and memory limits.
 ///
 /// Each runtime tracks instruction count per hook call to prevent DoS.
@@ -35,6 +41,10 @@ pub struct LuaRuntime {
     max_instructions: u64,
     /// Current instruction counter (reset before each hook call)
     instruction_count: Arc<AtomicU64>,
+    /// Latched once the instruction limit is exceeded during an execution.
+    /// The guarded `pcall`/`xpcall` re-raise while this is set, so the abort
+    /// cannot be swallowed by a `pcall` loop. Reset before each hook call.
+    poisoned: Arc<AtomicBool>,
     /// Maximum memory allowed (0 = unlimited)
     max_memory: usize,
 }
@@ -65,14 +75,17 @@ impl LuaRuntime {
     pub fn with_limits(max_instructions: u64, max_memory: usize) -> LuaResult<Self> {
         let lua = Lua::new();
         let instruction_count = Arc::new(AtomicU64::new(0));
+        let poisoned = Arc::new(AtomicBool::new(false));
 
         let runtime = Self {
             lua,
             max_instructions,
             instruction_count,
+            poisoned,
             max_memory,
         };
         runtime.setup_sandbox()?;
+        runtime.setup_pcall_guard()?;
         runtime.setup_instruction_limit()?;
         runtime.setup_memory_limit()?;
         Ok(runtime)
@@ -91,6 +104,12 @@ impl LuaRuntime {
         globals.set("require", Value::Nil)?;
         globals.set("load", Value::Nil)?;
         globals.set("package", Value::Nil)?;
+        // Remove coroutines: the instruction-count hook is installed on the main
+        // Lua thread only, so code running inside a coroutine executes with no
+        // limit at all. `coroutine.wrap(function() while true do end end)()`
+        // would freeze the UI forever (T0005). Removing the library closes that
+        // hole; plugin hooks are synchronous and do not need coroutines.
+        globals.set("coroutine", Value::Nil)?;
 
         // Keep safe functions:
         // string, table, math, pairs, ipairs, type, tonumber, tostring,
@@ -112,12 +131,17 @@ impl LuaRuntime {
 
         let max = self.max_instructions;
         let counter = Arc::clone(&self.instruction_count);
+        let poison = Arc::clone(&self.poisoned);
 
         self.lua.set_hook(
             HookTriggers::new().every_nth_instruction(HOOK_CHECK_INTERVAL),
             move |_lua, _debug| {
                 let count = counter.fetch_add(HOOK_CHECK_INTERVAL as u64, Ordering::Relaxed);
                 if count >= max {
+                    // Latch so the guarded pcall/xpcall re-raise on the way up:
+                    // the error below is catchable, but a `pcall` loop can no
+                    // longer swallow it and keep spinning (T0005).
+                    poison.store(true, Ordering::Relaxed);
                     Err(mlua::Error::RuntimeError(format!(
                         "Instruction limit exceeded: {} instructions (max: {})",
                         count, max
@@ -131,10 +155,50 @@ impl LuaRuntime {
         Ok(())
     }
 
-    /// Reset instruction counter before a new operation.
-    /// Called before each hook invocation.
+    /// Wrap `pcall`/`xpcall` so the instruction-limit abort cannot be swallowed.
+    ///
+    /// Each guarded call delegates to the original, but re-raises (instead of
+    /// returning a caught error) if the limit was tripped — either before the
+    /// call, or during it. Because every guarded `pcall` on the stack re-raises
+    /// on the way up, `while true do pcall(function() while true do end end) end`
+    /// can no longer defeat the instruction limit. While not poisoned, error
+    /// handling behaves exactly like stock `pcall`/`xpcall`.
+    fn setup_pcall_guard(&self) -> LuaResult<()> {
+        if self.max_instructions == 0 {
+            // No instruction limit → nothing to protect.
+            return Ok(());
+        }
+
+        let globals = self.lua.globals();
+        for name in ["pcall", "xpcall"] {
+            let original: Function = globals.get(name)?;
+            let poison = Arc::clone(&self.poisoned);
+            let guarded = self
+                .lua
+                .create_function(move |_lua, args: mlua::MultiValue| {
+                    if poison.load(Ordering::Relaxed) {
+                        return Err(instruction_limit_aborted());
+                    }
+                    let result = original.call::<mlua::MultiValue>(args);
+                    if poison.load(Ordering::Relaxed) {
+                        // Limit tripped inside the protected call — don't let the
+                        // caught error be discarded.
+                        return Err(instruction_limit_aborted());
+                    }
+                    result
+                })?;
+            globals.set(name, guarded)?;
+        }
+
+        Ok(())
+    }
+
+    /// Reset instruction counter (and clear the poison latch) before a new
+    /// operation. Called before each hook invocation so a plugin that used its
+    /// full budget in one hook starts the next one fresh.
     fn reset_instruction_count(&self) {
         self.instruction_count.store(0, Ordering::Relaxed);
+        self.poisoned.store(false, Ordering::Relaxed);
     }
 
     /// Set up memory limit to prevent memory exhaustion.
@@ -445,6 +509,84 @@ mod tests {
             before,
             after
         );
+    }
+
+    // Regression (T0005, audit S4): `coroutine` must be gone from the sandbox.
+    // The instruction hook is main-thread only, so a busy-loop inside a
+    // coroutine would run unlimited; removing the library closes bypass #1.
+    #[test]
+    fn coroutine_is_removed_from_sandbox() {
+        let runtime = LuaRuntime::new().unwrap();
+        assert!(
+            runtime
+                .lua()
+                .globals()
+                .get::<Value>("coroutine")
+                .unwrap()
+                .is_nil(),
+            "coroutine must be nil in the plugin sandbox"
+        );
+    }
+
+    // With coroutine removed, a coroutine busy-loop errors immediately instead
+    // of freezing (safe to run post-fix — it never enters the loop).
+    #[test]
+    fn coroutine_busyloop_is_blocked() {
+        let runtime = LuaRuntime::with_instruction_limit(100_000).unwrap();
+        let result = runtime
+            .lua()
+            .load("coroutine.wrap(function() while true do end end)()")
+            .exec();
+        assert!(result.is_err(), "coroutine access must be blocked");
+    }
+
+    // Regression (T0005, audit S4): a `pcall`-wrapped busy-loop must not be able
+    // to swallow the instruction limit. Bounded outer loop so the test can never
+    // hang: before the fix this returns "completed" (limit defeated); after, the
+    // poisoned guard re-raises and `exec` returns an error.
+    #[test]
+    fn pcall_loop_cannot_defeat_instruction_limit() {
+        let runtime = LuaRuntime::with_instruction_limit(50_000).unwrap();
+        let result: mlua::Result<Value> = runtime
+            .lua()
+            .load(
+                "for i=1,100000 do pcall(function() while true do end end) end return 'completed'",
+            )
+            .eval();
+        assert!(
+            result.is_err(),
+            "pcall loop defeated the instruction limit: {:?}",
+            result.map(|v| format!("{:?}", v))
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Instruction limit"),
+            "expected an instruction-limit abort"
+        );
+    }
+
+    // The guard must not change ordinary pcall behaviour while under budget.
+    #[test]
+    fn pcall_still_catches_normal_errors() {
+        let runtime = LuaRuntime::new().unwrap();
+        let caught: bool = runtime
+            .lua()
+            .load("local ok = pcall(function() error('boom') end); return ok")
+            .eval()
+            .unwrap();
+        assert!(
+            !caught,
+            "pcall should still catch a normal error (return false)"
+        );
+
+        let ok: bool = runtime
+            .lua()
+            .load("local ok = pcall(function() return 42 end); return ok")
+            .eval()
+            .unwrap();
+        assert!(ok, "pcall should still report success as true");
     }
 
     #[test]
