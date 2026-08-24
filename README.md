@@ -23,6 +23,12 @@ sudo apt-get install libfltk1.3-dev libfontconfig1-dev libxext-dev libxft-dev \
   libdbus-1-dev libxkbcommon-dev
 ```
 
+**Linux (Nix):** the repo ships a dev flake with the complete build environment:
+```bash
+nix develop     # one-off shell
+direnv allow    # or once with direnv: auto-loads every time you cd in
+```
+
 **macOS:**
 ```bash
 xcode-select --install
