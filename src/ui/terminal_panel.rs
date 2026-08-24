@@ -4,6 +4,7 @@
 //! Lazy-loaded: zero PTY/grid/parser until first show().
 //! Plugin-driven via the Widget API.
 
+use std::rc::{Rc, Weak};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
@@ -142,7 +143,10 @@ pub struct TerminalPanel {
 /// Internal terminal state, created lazily on first show
 struct TerminalState {
     grid: TerminalGrid,
-    pty: PtySession,
+    /// Shared (UI-thread only) so the canvas input closure can hold a `Weak` to
+    /// it and never dereference freed memory after `close()` drops this state
+    /// (T0003). `Rc`, not `Arc`: the PTY never leaves the UI thread.
+    pty: Rc<PtySession>,
     parser: vte::Parser,
     _reader_thread: JoinHandle<()>,
 }
@@ -297,7 +301,7 @@ impl TerminalPanel {
 
                 self.state = Some(Box::new(TerminalState {
                     grid,
-                    pty,
+                    pty: Rc::new(pty),
                     parser,
                     _reader_thread: reader_thread,
                 }));
@@ -524,81 +528,77 @@ impl TerminalPanel {
     /// Set up input handler to forward key events to PTY
     fn setup_input_handler(&mut self) {
         if let Some(ref ts) = self.state {
-            let writer = Arc::new(Mutex::new(PtyWriteHandle {
-                pty: &ts.pty as *const PtySession,
-            }));
+            // Hold a Weak handle to the PTY, never a raw pointer. Once close()
+            // drops TerminalState (and with it the only Rc<PtySession>), this
+            // handle upgrades to None and the write path becomes a safe no-op
+            // instead of dereferencing freed memory (T0003).
+            let writer = PtyWriteHandle {
+                pty: Rc::downgrade(&ts.pty),
+            };
             let scroll_offset = Arc::clone(&self.scroll_offset);
             let snapshot = Arc::clone(&self.snapshot);
 
             let canvas_for_paste = self.canvas.clone();
-            self.canvas.handle({
-                let writer = writer.clone();
-                move |f, ev| match ev {
-                    Event::Push => {
-                        let _ = f.take_focus();
-                        true
-                    }
-                    Event::Focus | Event::Unfocus => true,
-                    Event::MouseWheel => {
-                        let dy = fltk::app::event_dy();
-                        if let Ok(mut off) = scroll_offset.lock() {
-                            let max_scroll = snapshot
-                                .lock()
-                                .ok()
-                                .and_then(|s| s.as_ref().map(|g| g.scrollback.len()))
-                                .unwrap_or(0);
-                            match dy {
-                                fltk::app::MouseWheel::Up => {
-                                    *off = (*off + 3).min(max_scroll);
-                                }
-                                fltk::app::MouseWheel::Down => {
-                                    *off = off.saturating_sub(3);
-                                }
-                                _ => {}
-                            }
-                        }
-                        f.redraw();
-                        true
-                    }
-                    Event::Paste => {
-                        // Clipboard paste: FLTK delivers clipboard content via event_text()
-                        let clip = fltk::app::event_text();
-                        if !clip.is_empty()
-                            && let Ok(w) = writer.lock()
-                        {
-                            unsafe { (*w.pty).write(clip.as_bytes()) };
-                        }
-                        true
-                    }
-                    Event::KeyDown => {
-                        let key = fltk::app::event_key();
-                        let text = fltk::app::event_text();
-                        let state = fltk::app::event_state();
-
-                        // Ctrl+Shift+V: paste from clipboard (terminal convention)
-                        if state.contains(fltk::enums::Shortcut::Ctrl)
-                            && state.contains(fltk::enums::Shortcut::Shift)
-                            && (key == fltk::enums::Key::from_char('v')
-                                || key == fltk::enums::Key::from_char('V'))
-                        {
-                            fltk::app::paste_text(&canvas_for_paste);
-                        } else {
-                            let bytes = encode_key(key, &text);
-                            if !bytes.is_empty()
-                                && let Ok(w) = writer.lock()
-                            {
-                                // SAFETY: pty pointer is valid as long as state exists
-                                unsafe { (*w.pty).write(&bytes) };
-                            }
-                        }
-                        // Snap to bottom on keypress
-                        if let Ok(mut off) = scroll_offset.lock() {
-                            *off = 0;
-                        }
-                        true
-                    }
-                    _ => false,
+            self.canvas.handle(move |f, ev| match ev {
+                Event::Push => {
+                    let _ = f.take_focus();
+                    true
                 }
+                Event::Focus | Event::Unfocus => true,
+                Event::MouseWheel => {
+                    let dy = fltk::app::event_dy();
+                    if let Ok(mut off) = scroll_offset.lock() {
+                        let max_scroll = snapshot
+                            .lock()
+                            .ok()
+                            .and_then(|s| s.as_ref().map(|g| g.scrollback.len()))
+                            .unwrap_or(0);
+                        match dy {
+                            fltk::app::MouseWheel::Up => {
+                                *off = (*off + 3).min(max_scroll);
+                            }
+                            fltk::app::MouseWheel::Down => {
+                                *off = off.saturating_sub(3);
+                            }
+                            _ => {}
+                        }
+                    }
+                    f.redraw();
+                    true
+                }
+                Event::Paste => {
+                    // Clipboard paste: FLTK delivers clipboard content via event_text()
+                    let clip = fltk::app::event_text();
+                    if !clip.is_empty() {
+                        writer.write(clip.as_bytes());
+                    }
+                    true
+                }
+                Event::KeyDown => {
+                    let key = fltk::app::event_key();
+                    let text = fltk::app::event_text();
+                    let state = fltk::app::event_state();
+
+                    // Ctrl+Shift+V: paste from clipboard (terminal convention)
+                    if state.contains(fltk::enums::Shortcut::Ctrl)
+                        && state.contains(fltk::enums::Shortcut::Shift)
+                        && (key == fltk::enums::Key::from_char('v')
+                            || key == fltk::enums::Key::from_char('V'))
+                    {
+                        fltk::app::paste_text(&canvas_for_paste);
+                    } else {
+                        let bytes = encode_key(key, &text);
+                        if !bytes.is_empty() {
+                            writer.write(&bytes);
+                        }
+                    }
+                    // Snap to bottom on keypress
+                    if let Ok(mut off) = scroll_offset.lock() {
+                        *off = 0;
+                    }
+                    true
+                }
+                _ => false,
             });
         }
     }
@@ -622,9 +622,15 @@ impl TerminalPanel {
         self.visible = false;
     }
 
-    /// Close the terminal — kill PTY, drop state
+    /// Close the terminal — kill the child, drop state, let the reader end.
     pub fn close(&mut self) {
         if let Some(ts) = self.state.take() {
+            // Kill the child so the PTY reaches EOF, then drop TerminalState.
+            // Dropping it releases the only strong Rc<PtySession>, so any Weak
+            // handle in the canvas input closure now upgrades to None (no UAF).
+            // The reader thread observes EOF and exits on its own; its
+            // JoinHandle is intentionally detached on drop rather than joined
+            // here, so close() never blocks the UI thread.
             ts.pty.kill();
         }
         self.session_id = None;
@@ -819,13 +825,59 @@ fn encode_key(key: Key, text: &str) -> Vec<u8> {
     }
 }
 
-/// Helper to pass PTY write handle into callbacks.
-/// SAFETY: The PtySession pointer is valid as long as TerminalState exists,
-/// which is owned by TerminalPanel. The panel outlives all callbacks.
+/// Write handle held by the canvas input closure.
+///
+/// Holds a `Weak<PtySession>` so that once `close()` drops `TerminalState` and
+/// its `Rc<PtySession>`, `write()` upgrades to `None` and silently drops the
+/// input — instead of dereferencing freed memory the way the old raw-pointer
+/// handle did (T0003). The PTY is only ever touched on the UI thread.
 struct PtyWriteHandle {
-    pty: *const PtySession,
+    pty: Weak<PtySession>,
 }
 
-// SAFETY: PtySession.write() is thread-safe (uses Arc<Mutex<Writer>>)
-unsafe impl Send for PtyWriteHandle {}
-unsafe impl Sync for PtyWriteHandle {}
+impl PtyWriteHandle {
+    /// Forward bytes to the live PTY, or no-op if the terminal has been closed.
+    fn write(&self, bytes: &[u8]) {
+        if let Some(pty) = self.pty.upgrade() {
+            pty.write(bytes);
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    /// Regression (T0003, UI audit): the canvas input closure must hold a
+    /// handle that becomes a safe no-op once `close()` drops `TerminalState`.
+    /// This models that lifetime contract directly: while the state holds the
+    /// `Arc<PtySession>` the handle reaches the PTY; after the `Arc` is dropped
+    /// (what `close()` does) the handle upgrades to `None` and `write()` no-ops,
+    /// instead of dereferencing freed memory like the old `*const PtySession`.
+    #[test]
+    fn write_handle_noops_after_pty_state_dropped() {
+        let (pty, _reader) =
+            PtySession::spawn(Some("cat"), &[], None, 80, 24).expect("spawn PTY for test");
+        let pty = Rc::new(pty);
+        let handle = PtyWriteHandle {
+            pty: Rc::downgrade(&pty),
+        };
+
+        // While TerminalState would hold the strong Arc, the handle is live.
+        assert!(
+            handle.pty.upgrade().is_some(),
+            "handle must reach the PTY while state holds it"
+        );
+        handle.write(b"echo\n");
+
+        // close() drops TerminalState → the only strong Arc<PtySession>.
+        drop(pty);
+
+        // The handle is now dangling-free: upgrade yields None, write no-ops.
+        assert!(
+            handle.pty.upgrade().is_none(),
+            "after the PTY state is dropped the handle must not reach freed memory"
+        );
+        handle.write(b"must not deref freed memory");
+    }
+}
