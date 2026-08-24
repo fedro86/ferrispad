@@ -5,6 +5,7 @@
 
 use crate::app::plugins::widgets::TreeNode;
 use crate::app::plugins::widgets::tree_view::MAX_TREE_DEPTH;
+use crate::app::services::text_ops::floor_char_boundary;
 use serde_yaml::Value;
 
 /// Parse YAML content into a TreeNode structure.
@@ -122,9 +123,10 @@ fn value_to_string(value: &Value) -> String {
         Value::Bool(b) => b.to_string(),
         Value::Number(n) => n.to_string(),
         Value::String(s) => {
-            // Truncate long strings for display
+            // Truncate long strings for display, snapping to a char boundary so
+            // a multi-byte codepoint is never sliced mid-character (T0012).
             if s.len() > 50 {
-                format!("{}...", &s[..47])
+                format!("{}...", &s[..floor_char_boundary(s, 47)])
             } else {
                 s.clone()
             }
@@ -196,6 +198,18 @@ items:
         let result = value_to_string(&Value::String(long_string));
         assert!(result.len() < 60);
         assert!(result.ends_with("..."));
+    }
+
+    // Regression (T0012, audit S5): truncating a long value must snap to a char
+    // boundary. 17 × 3-byte CJK chars = 51 bytes; the old `&s[..47]` sliced
+    // mid-codepoint and panicked ("byte index 47 is not a char boundary").
+    #[test]
+    fn value_to_string_truncates_multibyte_without_panic() {
+        let s = "字".repeat(17);
+        let result = value_to_string(&Value::String(s));
+        assert!(result.ends_with("..."));
+        // 47 bytes floors to the 45-byte (15-char) boundary, then "...".
+        assert_eq!(result, format!("{}...", "字".repeat(15)));
     }
 
     // Regression (T0004, audit S1): YAML nesting deeper than the cap must be

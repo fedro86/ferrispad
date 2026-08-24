@@ -129,7 +129,7 @@ pub fn replace_all_in_text(
 /// Snap a byte index to the nearest preceding UTF-8 codepoint boundary.
 /// Defensive helper: positions handed in from FLTK should already land on a
 /// boundary, but a single-byte miss would panic on `&text[idx..]` slicing.
-fn floor_char_boundary(text: &str, mut idx: usize) -> usize {
+pub(crate) fn floor_char_boundary(text: &str, mut idx: usize) -> usize {
     if idx >= text.len() {
         return text.len();
     }
