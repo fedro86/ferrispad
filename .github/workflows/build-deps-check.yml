@@ -30,6 +30,11 @@ jobs:
     # A clean Debian container: the Ubuntu runner image has many dev
     # packages preinstalled, which would mask missing dependencies.
     container: debian:trixie
+    defaults:
+      run:
+        # bash runs with `-eo pipefail`, so a failing command inside a
+        # pipe (e.g. the rustup download) fails the step.
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -68,8 +73,9 @@ jobs:
 
       - name: Install Rust
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --profile minimal --default-toolchain stable
+          curl --proto '=https' --tlsv1.2 -sSf --retry 5 --retry-all-errors \
+            -o /tmp/rustup-init.sh https://sh.rustup.rs
+          sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain stable
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Build
