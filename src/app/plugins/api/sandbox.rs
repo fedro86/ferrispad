@@ -1,9 +1,37 @@
 //! Path validation helpers for plugin sandbox.
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use super::super::security::{PathValidation, validate_path};
+
+/// Lexically fold `.` and `..` out of a path **without touching the filesystem**.
+///
+/// `..` pops the previous *normal* component and can never rise above the
+/// root/prefix (an unmatched `..` is kept, so an out-of-root path stays
+/// out-of-root). This makes a `..` that a later `create_dir_all`/`fs::write`
+/// would resolve against the kernel visible to the containment check *before*
+/// any write happens — the sandbox escape in T0002.
+fn normalize_lexical(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            Component::Prefix(_) | Component::RootDir => out.push(comp.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                let pops_normal =
+                    matches!(out.components().next_back(), Some(Component::Normal(_)));
+                if pops_normal {
+                    out.pop();
+                } else {
+                    out.push("..");
+                }
+            }
+            Component::Normal(c) => out.push(c),
+        }
+    }
+    out
+}
 
 /// Resolve a user-supplied path against project_root and validate it stays inside the sandbox.
 /// Returns `Ok(Some(canonical))` on success, `Ok(None)` if the path is blocked or invalid.
@@ -14,47 +42,30 @@ pub(super) fn resolve_and_validate(
     match validate_path(path, project_root) {
         PathValidation::Valid(canonical) => Ok(Some(canonical)),
         PathValidation::NotFound => {
-            // For write ops the target doesn't exist yet — still valid if it
-            // would land inside the sandbox. Walk up to the nearest existing
-            // ancestor and verify it's within the project root.
-            let full = if Path::new(path).is_absolute() {
-                PathBuf::from(path)
-            } else {
-                project_root.join(path)
-            };
+            // For write ops the target doesn't exist yet (e.g. `create_dir_all`
+            // of nested missing dirs). We can't canonicalize a path that isn't
+            // there, so instead fold `.`/`..` lexically and require the result
+            // to stay inside the *canonical* root. Basing the candidate on the
+            // canonical root keeps a symlinked project root from skewing the
+            // containment check. (Symlinks *inside* the path are out of scope —
+            // that is T0008.)
             let canonical_root = std::fs::canonicalize(project_root).map_err(|e| {
                 mlua::Error::RuntimeError(format!("Cannot canonicalize project root: {}", e))
             })?;
-            // Walk up ancestors until we find one that exists and can be canonicalized
-            let mut ancestor = full.as_path();
-            loop {
-                match std::fs::canonicalize(ancestor) {
-                    Ok(canonical_ancestor) if canonical_ancestor.starts_with(&canonical_root) => {
-                        return Ok(Some(full));
-                    }
-                    Ok(_) => {
-                        // Exists but outside project root
-                        eprintln!(
-                            "[plugin:security] path blocked: '{}' resolves outside project root",
-                            path
-                        );
-                        return Ok(None);
-                    }
-                    Err(_) => {
-                        // Doesn't exist — try parent
-                        match ancestor.parent() {
-                            Some(parent) if parent != ancestor => ancestor = parent,
-                            _ => {
-                                // Reached filesystem root without finding an existing ancestor
-                                eprintln!(
-                                    "[plugin:security] path blocked: '{}' no valid ancestor in project root",
-                                    path
-                                );
-                                return Ok(None);
-                            }
-                        }
-                    }
-                }
+            let candidate = if Path::new(path).is_absolute() {
+                PathBuf::from(path)
+            } else {
+                canonical_root.join(path)
+            };
+            let normalized = normalize_lexical(&candidate);
+            if normalized.starts_with(&canonical_root) {
+                Ok(Some(normalized))
+            } else {
+                eprintln!(
+                    "[plugin:security] path blocked: '{}' resolves outside project root",
+                    path
+                );
+                Ok(None)
             }
         }
         PathValidation::OutsideProjectRoot | PathValidation::InvalidPath(_) => {

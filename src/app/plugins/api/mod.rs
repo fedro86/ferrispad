@@ -527,6 +527,42 @@ mod tests {
         );
     }
 
+    // Regression (T0002, audit S2): traversal hidden BEHIND a missing directory.
+    // Because `missing/` doesn't exist, `canonicalize` fails on every ancestor
+    // that contains it, so the old ancestor-walk popped straight up to `root`
+    // (which is in-root) and returned the raw joined path with `..` intact.
+    // `create_dir_all`/`fs::write` then resolve the `..` against the kernel and
+    // materialise a target OUTSIDE the sandbox.
+    #[test]
+    fn test_resolve_and_validate_traversal_behind_missing_dir_blocked() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        let result = sandbox::resolve_and_validate("missing/../../escaped", root).unwrap();
+        assert!(
+            result.is_none(),
+            "traversal hidden behind a missing dir must be blocked, got {:?}",
+            result
+        );
+    }
+
+    // Positive counterpart: deep not-yet-existing dirs that stay inside the root
+    // (the create_dir_all use case) must still be allowed and returned in-root.
+    #[test]
+    fn test_resolve_and_validate_deep_new_dirs_inside_allowed() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        let result = sandbox::resolve_and_validate("a/b/c.txt", root).unwrap();
+        let resolved = result.expect("deep new dirs inside root should be allowed");
+        let canonical_root = std::fs::canonicalize(root).unwrap();
+        assert!(
+            resolved.starts_with(&canonical_root),
+            "returned path must stay inside root: {:?}",
+            resolved
+        );
+    }
+
     // ── S4: file_exists / is_file without project root ────────────────
 
     #[test]
