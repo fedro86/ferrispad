@@ -19,7 +19,8 @@ FerrisPad is a single-binary text editor with syntax highlighting for 50+ langua
 ```bash
 sudo apt-get install libfltk1.3-dev libfontconfig1-dev libxext-dev libxft-dev \
   libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev libpango1.0-dev \
-  libgl1-mesa-dev libglu1-mesa-dev
+  libgl1-mesa-dev libglu1-mesa-dev libwayland-dev wayland-protocols \
+  libdbus-1-dev libxkbcommon-dev
 ```
 
 **macOS:**

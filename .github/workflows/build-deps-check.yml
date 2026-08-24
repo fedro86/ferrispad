@@ -1,0 +1,76 @@
+name: Build Deps Check
+
+# Verifies that the apt package list documented in README.md is actually
+# sufficient to build FerrisPad on a clean Debian system (issue #29: the
+# docs listed only the X11 libraries, but the fltk `use-wayland` feature
+# also needs the Wayland/xkbcommon/dbus dev packages at link time).
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'README.md'
+      - 'docs/guides/BUILD_GUIDE.md'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/build-deps-check.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'README.md'
+      - 'docs/guides/BUILD_GUIDE.md'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/build-deps-check.yml'
+
+jobs:
+  readme-deps-are-sufficient:
+    name: Build with only the README's package list
+    runs-on: ubuntu-latest
+    # A clean Debian container: the Ubuntu runner image has many dev
+    # packages preinstalled, which would mask missing dependencies.
+    container: debian:trixie
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract documented package lists
+        run: |
+          extract_apt_list() {
+            awk '
+              /^sudo apt-get install/ { in_cmd=1 }
+              in_cmd {
+                line=$0
+                sub(/\\$/, "", line)
+                printf "%s ", line
+                if ($0 !~ /\\$/) exit
+              }
+            ' "$1" | sed 's/^sudo apt-get install//'
+          }
+          readme_list=$(extract_apt_list README.md)
+          guide_list=$(extract_apt_list docs/guides/BUILD_GUIDE.md)
+          echo "README:      $readme_list"
+          echo "BUILD_GUIDE: $guide_list"
+          case " $readme_list " in
+            *" libfltk1.3-dev "*) ;;
+            *) echo "::error::Could not extract the package list from README.md"; exit 1 ;;
+          esac
+          if [ "$(echo "$readme_list" | tr -s ' ' '\n' | sort)" != "$(echo "$guide_list" | tr -s ' ' '\n' | sort)" ]; then
+            echo "::error::README.md and docs/guides/BUILD_GUIDE.md package lists differ"
+            exit 1
+          fi
+          echo "APT_PACKAGES=$readme_list" >> "$GITHUB_ENV"
+
+      - name: Install only the documented packages (plus base toolchain)
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential cmake git curl ca-certificates $APT_PACKAGES
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Build
+        run: cargo build --locked

@@ -24,7 +24,8 @@ This interactive script will guide you through building for different platforms.
 # Ubuntu/Debian
 sudo apt-get install libfltk1.3-dev libfontconfig1-dev libxext-dev \
   libxft-dev libxinerama-dev libxcursor-dev libxrender-dev \
-  libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev
+  libxfixes-dev libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev \
+  libwayland-dev wayland-protocols libdbus-1-dev libxkbcommon-dev
 
 # For .deb packaging
 cargo install cargo-deb
