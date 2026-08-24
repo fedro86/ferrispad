@@ -5,6 +5,16 @@
 //! - YAML/JSON viewers
 //! - Outline views
 
+/// Hard cap on tree nesting depth when parsing plugin-supplied tables or YAML.
+///
+/// Plugin hook return values are untrusted: a cyclic table (`t.children = {t}`)
+/// or a pathologically deep one would otherwise recurse without bound and abort
+/// the process via stack overflow (T0004). Any legitimate tree is far
+/// shallower; branches beyond this depth are truncated rather than descended
+/// into. The cap is low enough that constructing and dropping a maxed-out tree
+/// stays well within the stack.
+pub(crate) const MAX_TREE_DEPTH: usize = 256;
+
 /// Click mode for tree view node activation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TreeClickMode {
@@ -204,8 +214,17 @@ impl TreeNode {
         }
     }
 
-    /// Parse a tree node from a Lua table
+    /// Parse a tree node from a Lua table.
+    ///
+    /// Depth-bounded (see [`MAX_TREE_DEPTH`]): the table comes from an untrusted
+    /// plugin and may be cyclic or extremely deep. At the cap the node's
+    /// children are not descended into (the subtree is truncated) instead of
+    /// recursing further and overflowing the stack.
     pub fn from_lua_table(table: &mlua::Table) -> Self {
+        Self::from_lua_table_depth(table, 0)
+    }
+
+    fn from_lua_table_depth(table: &mlua::Table, depth: usize) -> Self {
         let label: String = table.get("label").unwrap_or_default();
         let data: Option<String> = table.get("data").ok();
         let expanded: bool = table.get("expanded").unwrap_or(false);
@@ -213,17 +232,20 @@ impl TreeNode {
         let label_color: Option<String> = table.get("label_color").ok();
         let lazy: bool = table.get("lazy").unwrap_or(false);
 
-        // Parse children recursively
-        let children =
-            if let Ok(mlua::Value::Table(children_table)) = table.get::<mlua::Value>("children") {
-                children_table
-                    .pairs::<i32, mlua::Table>()
-                    .flatten()
-                    .map(|(_, child_table)| TreeNode::from_lua_table(&child_table))
-                    .collect()
-            } else {
-                Vec::new()
-            };
+        // Parse children recursively, but never past the depth cap: an untrusted
+        // cyclic or very deep table must not abort the process via stack overflow.
+        let children = if depth >= MAX_TREE_DEPTH {
+            Vec::new()
+        } else if let Ok(mlua::Value::Table(children_table)) = table.get::<mlua::Value>("children")
+        {
+            children_table
+                .pairs::<i32, mlua::Table>()
+                .flatten()
+                .map(|(_, child_table)| TreeNode::from_lua_table_depth(&child_table, depth + 1))
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         Self {
             label,
@@ -298,5 +320,64 @@ mod tests {
         request.root = None;
         request.yaml_content = Some("key: value".to_string());
         assert!(request.is_valid());
+    }
+
+    /// Iterative chain depth (number of `children[0]` hops), safe on deep trees.
+    fn chain_depth(root: &TreeNode) -> usize {
+        let mut cur = root;
+        let mut depth = 0;
+        while let Some(first) = cur.children.first() {
+            depth += 1;
+            cur = first;
+        }
+        depth
+    }
+
+    // Regression (T0004, audit S1): a plugin table deeper than the cap must be
+    // truncated, not descended into without bound. Before the depth guard the
+    // resulting tree was as deep as the input (assertion below fails); a truly
+    // deep input would overflow the stack and abort the process.
+    #[test]
+    fn deep_lua_table_is_truncated_at_cap() {
+        let lua = mlua::Lua::new();
+        let mut current = lua.create_table().unwrap();
+        current.set("label", "leaf").unwrap();
+        // Build a 350-deep single chain (well past MAX_TREE_DEPTH = 256).
+        for i in 0..350 {
+            let parent = lua.create_table().unwrap();
+            parent.set("label", format!("n{}", i)).unwrap();
+            let children = lua.create_table().unwrap();
+            children.set(1, current).unwrap();
+            parent.set("children", children).unwrap();
+            current = parent;
+        }
+
+        let node = TreeNode::from_lua_table(&current);
+        assert_eq!(
+            chain_depth(&node),
+            MAX_TREE_DEPTH,
+            "a table deeper than the cap must be truncated to exactly the cap"
+        );
+    }
+
+    // Regression (T0004, audit S1): a *cyclic* plugin table (`t.children = {t}`)
+    // must not recurse forever. Before the fix this aborts the process via stack
+    // overflow; after the fix the cycle is made finite at the depth cap.
+    #[test]
+    fn cyclic_lua_table_does_not_overflow() {
+        let lua = mlua::Lua::new();
+        let t = lua.create_table().unwrap();
+        t.set("label", "x").unwrap();
+        let children = lua.create_table().unwrap();
+        children.set(1, t.clone()).unwrap(); // t.children = { t }
+        t.set("children", children).unwrap();
+
+        let node = TreeNode::from_lua_table(&t);
+        assert_eq!(node.label, "x");
+        assert_eq!(
+            chain_depth(&node),
+            MAX_TREE_DEPTH,
+            "a self-cycle must be truncated to exactly the cap"
+        );
     }
 }
