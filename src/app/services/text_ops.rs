@@ -13,56 +13,164 @@ pub fn extract_filename(path: &str) -> String {
         .unwrap_or_else(|| "Unknown".to_string())
 }
 
-/// Find next occurrence of search string in text
+/// Lowercased view of `text[start_pos..]` that remembers where every lowered
+/// byte came from in the original string.
 ///
-/// Returns the byte position of the match, or None if not found.
-/// Searches from start_pos onwards.
+/// `str::to_lowercase()` is **not** length-preserving (e.g. `İ` U+0130 is 2
+/// bytes and lowercases to 3; `ẞ` → `ß`), so an offset found in the lowered
+/// string is not a valid index into the original. This map lets a
+/// case-insensitive match be translated back to correct original byte offsets.
+struct LowerMap {
+    lowered: String,
+    /// `orig_of[b]` = original byte offset of the character that produced
+    /// lowered byte `b`.
+    orig_of: Vec<usize>,
+    /// `char_start[b]` = true if lowered byte `b` is the first byte of some
+    /// original character's lowercasing. Used to reject matches that land on a
+    /// proper sub-part of a character's (possibly multi-char) expansion.
+    char_start: Vec<bool>,
+    /// Original length of `text`, for mapping a match that ends at the very end.
+    orig_end: usize,
+}
+
+impl LowerMap {
+    fn build(text: &str, start_pos: usize) -> Self {
+        let mut lowered = String::new();
+        let mut orig_of = Vec::new();
+        let mut char_start = Vec::new();
+        for (i, ch) in text[start_pos..].char_indices() {
+            let orig_off = start_pos + i;
+            let mut is_first_byte = true;
+            for lc in ch.to_lowercase() {
+                let mut buf = [0u8; 4];
+                let s = lc.encode_utf8(&mut buf);
+                for _ in 0..s.len() {
+                    orig_of.push(orig_off);
+                    char_start.push(is_first_byte);
+                    is_first_byte = false;
+                }
+                lowered.push_str(s);
+            }
+        }
+        Self {
+            lowered,
+            orig_of,
+            char_start,
+            orig_end: text.len(),
+        }
+    }
+
+    /// A lowered offset is "aligned" if it begins an original character (or is
+    /// the very end), so a match spans whole original characters.
+    fn aligned(&self, b: usize) -> bool {
+        b == self.lowered.len() || self.char_start.get(b).copied().unwrap_or(false)
+    }
+
+    /// Map a lowered byte offset back to an original byte offset.
+    fn orig_at(&self, b: usize) -> usize {
+        self.orig_of.get(b).copied().unwrap_or(self.orig_end)
+    }
+
+    /// Advance a lowered offset to the next char boundary (so re-slicing on a
+    /// rejected match never splits a codepoint).
+    fn next_boundary(&self, b: usize) -> usize {
+        let mut n = b + 1;
+        while n < self.lowered.len() && !self.lowered.is_char_boundary(n) {
+            n += 1;
+        }
+        n
+    }
+}
+
+/// Case-insensitive forward search returning `(start, end)` byte offsets into
+/// the ORIGINAL `text`. Only whole-character matches are reported, so offsets
+/// are always valid indices into `text`.
+fn find_ci(map: &LowerMap, needle_lower: &str) -> Option<(usize, usize)> {
+    let mut from = 0;
+    while let Some(rel) = map.lowered[from..].find(needle_lower) {
+        let pos = from + rel;
+        let end = pos + needle_lower.len();
+        if map.aligned(pos) && map.aligned(end) {
+            return Some((map.orig_at(pos), map.orig_at(end)));
+        }
+        from = map.next_boundary(pos);
+        if from >= map.lowered.len() {
+            break;
+        }
+    }
+    None
+}
+
+/// Case-insensitive backward search returning `(start, end)` original offsets.
+fn rfind_ci(map: &LowerMap, needle_lower: &str) -> Option<(usize, usize)> {
+    let mut end_limit = map.lowered.len();
+    while let Some(pos) = map.lowered[..end_limit].rfind(needle_lower) {
+        let end = pos + needle_lower.len();
+        if map.aligned(pos) && map.aligned(end) {
+            return Some((map.orig_at(pos), map.orig_at(end)));
+        }
+        if pos == 0 {
+            break;
+        }
+        // Search strictly before this rejected match; keep the slice on a
+        // codepoint boundary.
+        end_limit = end - 1;
+        while end_limit > 0 && !map.lowered.is_char_boundary(end_limit) {
+            end_limit -= 1;
+        }
+    }
+    None
+}
+
+/// Find next occurrence of search string in text.
+///
+/// Returns `(start, end)` byte offsets of the match in `text` (valid indices,
+/// even for case-insensitive matches where the matched region's byte length
+/// differs from `search`), or None if not found. Searches from `start_pos`.
 pub fn find_in_text(
     text: &str,
     search: &str,
     start_pos: usize,
     case_sensitive: bool,
-) -> Option<usize> {
+) -> Option<(usize, usize)> {
     if search.is_empty() || start_pos >= text.len() {
         return None;
     }
+    // Never slice on a non-boundary (start_pos comes from FLTK cursor state).
+    let start_pos = floor_char_boundary(text, start_pos);
 
-    let haystack = if case_sensitive {
-        text[start_pos..].to_string()
+    if case_sensitive {
+        text[start_pos..]
+            .find(search)
+            .map(|pos| (start_pos + pos, start_pos + pos + search.len()))
     } else {
-        text[start_pos..].to_lowercase()
-    };
-
-    let needle = if case_sensitive {
-        search.to_string()
-    } else {
-        search.to_lowercase()
-    };
-
-    haystack.find(&needle).map(|pos| start_pos + pos)
+        let map = LowerMap::build(text, start_pos);
+        find_ci(&map, &search.to_lowercase())
+    }
 }
 
-/// Find previous occurrence of search string in text (backward search)
+/// Find previous occurrence of search string in text (backward search).
 ///
-/// Returns the byte position of the match, or None if not found.
-/// Searches backwards from start_pos (exclusive).
+/// Returns `(start, end)` byte offsets of the match in `text`, or None.
+/// Searches backwards from `start_pos` (exclusive).
 pub fn find_in_text_backward(
     text: &str,
     search: &str,
     start_pos: usize,
     case_sensitive: bool,
-) -> Option<usize> {
+) -> Option<(usize, usize)> {
     if search.is_empty() || start_pos == 0 {
         return None;
     }
-
-    let end = start_pos.min(text.len());
+    // Guard the slice: start_pos may be off a codepoint boundary.
+    let end = floor_char_boundary(text, start_pos.min(text.len()));
     let haystack = &text[..end];
 
     if case_sensitive {
-        haystack.rfind(search)
+        haystack.rfind(search).map(|pos| (pos, pos + search.len()))
     } else {
-        haystack.to_lowercase().rfind(&search.to_lowercase())
+        let map = LowerMap::build(haystack, 0);
+        rfind_ci(&map, &search.to_lowercase())
     }
 }
 
@@ -106,21 +214,18 @@ pub fn replace_all_in_text(
     let mut count = 0;
     let mut pos = 0;
 
-    while let Some(found_pos) = find_in_text(&result, search, pos, case_sensitive) {
-        // Get the actual matched text (preserves original case)
-        let matched_text = &result[found_pos..found_pos + search.len()];
-
-        // Replace this occurrence
-        result.replace_range(found_pos..found_pos + matched_text.len(), replace);
-
-        // Move position forward by replacement length
-        pos = found_pos + replace.len();
+    // `find_in_text` returns the match's real (start, end) in the original — for
+    // a case-insensitive match the byte length can differ from `search.len()`,
+    // so we must use `end`, not `start + search.len()`, for the replace range.
+    while let Some((start, end)) = find_in_text(&result, search, pos, case_sensitive) {
+        result.replace_range(start..end, replace);
         count += 1;
 
-        // Prevent infinite loop if replace contains search
-        if replace.contains(search) && pos >= result.len() {
-            break;
-        }
+        // Continue past the inserted replacement. `end > start` always holds
+        // (matches span whole characters), so the string strictly shrinks when
+        // `replace` is empty and `pos` strictly advances otherwise — no infinite
+        // loop even when `replace` contains `search`.
+        pos = start + replace.len();
     }
 
     (result, count)
@@ -284,7 +389,7 @@ mod tests {
         let text = "Hello world, hello Rust, hello FerrisPad";
         let search = "hello";
         let result = find_in_text(text, search, 0, false);
-        assert_eq!(result, Some(0));
+        assert_eq!(result, Some((0, 5)));
     }
 
     #[test]
@@ -292,7 +397,7 @@ mod tests {
         let text = "Hello world, hello Rust, hello FerrisPad";
         let search = "Hello";
         let result = find_in_text(text, search, 0, true);
-        assert_eq!(result, Some(0));
+        assert_eq!(result, Some((0, 5)));
     }
 
     #[test]
@@ -308,7 +413,7 @@ mod tests {
         let text = "cat dog cat mouse cat";
         let search = "cat";
         let result = find_in_text(text, search, 10, false);
-        assert_eq!(result, Some(18));
+        assert_eq!(result, Some((18, 21)));
     }
 
     #[test]
@@ -343,6 +448,54 @@ mod tests {
         assert_eq!(result.1, 0);
     }
 
+    // Regression (T0013, audit S6): `İ` (U+0130) lowercases to 2 chars / 3 bytes,
+    // so an offset taken from the lowercased haystack is not a valid index into
+    // the original. Case-insensitive find must return offsets valid for `text`.
+    #[test]
+    fn test_find_ci_maps_offsets_back_to_original() {
+        let text = "aİb"; // bytes: a=0, İ=1..3, b=3..4
+        let found = find_in_text(text, "b", 0, false);
+        assert_eq!(found, Some((3, 4)));
+        let (s, e) = found.unwrap();
+        assert_eq!(&text[s..e], "b"); // valid slice, no panic
+    }
+
+    // Replacing next to such a character must not panic (old code sliced out of
+    // bounds) or corrupt: the offset from the lowercased haystack was wrong.
+    #[test]
+    fn test_replace_ci_near_multibyte_lowercasing() {
+        let (result, count) = replace_all_in_text("aİb", "b", "X", false);
+        assert_eq!(result, "aİX");
+        assert_eq!(count, 1);
+    }
+
+    // A whole-character case-insensitive match maps to the full original span.
+    #[test]
+    fn test_replace_ci_replaces_full_original_char() {
+        let needle = "İ".to_lowercase(); // "i̇" (i + combining dot)
+        let (result, count) = replace_all_in_text("aİb", &needle, "I", false);
+        assert_eq!(result, "aIb");
+        assert_eq!(count, 1);
+    }
+
+    // Replace-all over a string mixing multi-byte-lowercasing characters.
+    #[test]
+    fn test_replace_all_ci_mixed_multibyte() {
+        // x at original 0, 3, 6; İ at 1..3; ı (U+0131) at 4..6.
+        let (result, count) = replace_all_in_text("xİxıx", "x", "-", false);
+        assert_eq!(result, "-İ-ı-");
+        assert_eq!(count, 3);
+    }
+
+    // Backward search must also return valid original offsets and never slice
+    // off a codepoint boundary.
+    #[test]
+    fn test_find_backward_ci_multibyte() {
+        let text = "aİb";
+        let found = find_in_text_backward(text, "b", text.len(), false);
+        assert_eq!(found, Some((3, 4)));
+    }
+
     #[test]
     fn test_replace_all_empty_replacement() {
         let text = "hello world hello";
@@ -357,7 +510,7 @@ mod tests {
     fn test_find_backward_simple() {
         let text = "cat dog cat mouse cat";
         let result = find_in_text_backward(text, "cat", text.len(), false);
-        assert_eq!(result, Some(18));
+        assert_eq!(result, Some((18, 21)));
     }
 
     #[test]
@@ -365,7 +518,7 @@ mod tests {
         let text = "cat dog cat mouse cat";
         // Search backward from position 18 (last "cat"), should find middle "cat"
         let result = find_in_text_backward(text, "cat", 18, false);
-        assert_eq!(result, Some(8));
+        assert_eq!(result, Some((8, 11)));
     }
 
     #[test]
@@ -379,7 +532,7 @@ mod tests {
     fn test_find_backward_case_insensitive() {
         let text = "Hello world HELLO";
         let result = find_in_text_backward(text, "hello", text.len(), false);
-        assert_eq!(result, Some(12));
+        assert_eq!(result, Some((12, 17)));
     }
 
     #[test]
@@ -480,7 +633,8 @@ mod tests {
     #[test]
     fn test_find_unicode() {
         let text = "Hello 世界 world";
-        assert_eq!(find_in_text(text, "世界", 0, false), Some(6));
+        // 世界 = two 3-byte chars starting at byte 6.
+        assert_eq!(find_in_text(text, "世界", 0, false), Some((6, 12)));
     }
 
     #[test]

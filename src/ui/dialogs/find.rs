@@ -71,16 +71,13 @@ impl FindState {
                 Ok(v) => v,
             }
         } else {
-            find_in_text(&text, query, start_pos, case_sensitive)
-                .map(|pos| (pos, pos + query.len()))
-                .or_else(|| {
-                    if start_pos > 0 {
-                        find_in_text(&text, query, 0, case_sensitive)
-                            .map(|pos| (pos, pos + query.len()))
-                    } else {
-                        None
-                    }
-                })
+            find_in_text(&text, query, start_pos, case_sensitive).or_else(|| {
+                if start_pos > 0 {
+                    find_in_text(&text, query, 0, case_sensitive)
+                } else {
+                    None
+                }
+            })
         };
 
         if let Some((match_start, match_end)) = found {
@@ -133,16 +130,13 @@ impl FindState {
                 Ok(v) => v,
             }
         } else {
-            find_in_text_backward(&text, query, start_pos, case_sensitive)
-                .map(|pos| (pos, pos + query.len()))
-                .or_else(|| {
-                    if start_pos < text.len() {
-                        find_in_text_backward(&text, query, text.len(), case_sensitive)
-                            .map(|pos| (pos, pos + query.len()))
-                    } else {
-                        None
-                    }
-                })
+            find_in_text_backward(&text, query, start_pos, case_sensitive).or_else(|| {
+                if start_pos < text.len() {
+                    find_in_text_backward(&text, query, text.len(), case_sensitive)
+                } else {
+                    None
+                }
+            })
         };
 
         if let Some((match_start, match_end)) = found {
