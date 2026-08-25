@@ -543,6 +543,65 @@ pub fn fetch_community_plugin_toml(repo_url: &str, branch: &str) -> Result<Strin
 }
 
 // ---------------------------------------------------------------------------
+// Install-path sanitization
+// ---------------------------------------------------------------------------
+
+/// Validate a registry/user-controlled plugin directory name and return the
+/// safe absolute install path under [`get_plugin_dir`].
+///
+/// The registry controls this string, so it is untrusted (audit M5, T0007).
+/// `Path::join` replaces the base entirely on an absolute component, and `..`
+/// components walk out of the plugins directory — either lets a registry entry
+/// write anywhere on disk (`/etc/cron.d/…`, `../../.config/autostart/…`). This
+/// fails **closed**: the name must be a single plain path component drawn from a
+/// conservative allowlist, with no separators, no traversal, and no leading dot;
+/// the resulting path is then asserted to stay under the plugins dir.
+///
+/// Returns the `(safe_name, install_dir)` pair so callers reuse the exact
+/// validated name (e.g. for the `.source` record) rather than re-deriving it.
+fn sanitize_install_dir(raw_name: &str) -> Result<(String, PathBuf), AppError> {
+    let reject = |why: &str| {
+        AppError::Network(format!(
+            "Refusing unsafe plugin directory name {raw_name:?}: {why}"
+        ))
+    };
+
+    // Tolerate a trailing slash (registry paths look like "python-lint/").
+    let name = raw_name.trim_end_matches('/');
+
+    if name.is_empty() {
+        return Err(reject("empty"));
+    }
+    // A leading dot rules out ".", "..", and hidden directories in one check.
+    if name.starts_with('.') {
+        return Err(reject("must not start with '.'"));
+    }
+    // Single component only, from a conservative allowlist. This rejects path
+    // separators ('/' and '\\'), absolute paths, `..`, NUL, whitespace, and
+    // shell/Unicode trickery.
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+    {
+        return Err(reject(
+            "only ASCII letters, digits, '.', '-', '_' are allowed",
+        ));
+    }
+
+    let base = get_plugin_dir();
+    let dir = base.join(name);
+
+    // Belt-and-suspenders: the validated name is a single relative component, so
+    // this always holds — but assert it so the boundary is explicit and any
+    // future loosening of the rules above fails closed instead of escaping.
+    if !dir.starts_with(&base) {
+        return Err(reject("resolves outside the plugins directory"));
+    }
+
+    Ok((name.to_string(), dir))
+}
+
+// ---------------------------------------------------------------------------
 // Official plugin installation
 // ---------------------------------------------------------------------------
 
@@ -555,9 +614,10 @@ pub fn fetch_community_plugin_toml(repo_url: &str, branch: &str) -> Result<Strin
 /// * `Ok(VerificationStatus)` - Installation succeeded with verification status
 /// * `Err(AppError)` - Installation failed (network, checksum, or file error)
 pub fn install_plugin(plugin_info: &AvailablePluginInfo) -> Result<VerificationStatus, AppError> {
-    // Derive directory name from path (e.g., "python-lint/" -> "python-lint")
-    let dir_name = plugin_info.path.trim_end_matches('/');
-    let plugin_dir = get_plugin_dir().join(dir_name);
+    // Derive directory name from the registry-controlled path (e.g.
+    // "python-lint/" -> "python-lint"), sanitized so it cannot escape the
+    // plugins directory (T0007).
+    let (dir_name, plugin_dir) = sanitize_install_dir(&plugin_info.path)?;
     let base_url = format!("{}{}", REPO_RAW_BASE, plugin_info.path);
 
     // Download files to memory first (don't write until verified)
@@ -614,7 +674,7 @@ pub fn install_plugin(plugin_info: &AvailablePluginInfo) -> Result<VerificationS
         installed_version: plugin_info.version.clone(),
         installed_date: today_date_string(),
     };
-    let _ = write_plugin_source(dir_name, &source);
+    let _ = write_plugin_source(&dir_name, &source);
 
     eprintln!(
         "[plugins] Installed {} v{} to {:?} ({})",
@@ -670,8 +730,9 @@ pub fn install_community_plugin(
     // does not gate installation. The community-install review dialog already
     // surfaces its notes to the user before this download runs (T0006).
 
-    // Write files
-    let plugin_dir = get_plugin_dir().join(name);
+    // Write files. The install name is user/community-controlled, so sanitize
+    // it before joining so it cannot escape the plugins directory (T0007).
+    let (safe_name, plugin_dir) = sanitize_install_dir(name)?;
     std::fs::create_dir_all(&plugin_dir)?;
 
     std::fs::write(plugin_dir.join("init.lua"), &init_lua_content)?;
@@ -698,11 +759,11 @@ pub fn install_community_plugin(
         installed_version: version.clone(),
         installed_date: today_date_string(),
     };
-    write_plugin_source(name, &source)?;
+    write_plugin_source(&safe_name, &source)?;
 
     eprintln!(
         "[plugins] Installed community plugin {} v{} from {}",
-        name, version, repo_url
+        safe_name, version, repo_url
     );
 
     Ok(())
@@ -747,6 +808,56 @@ pub fn is_update_available(installed_version: &str, available_version: &str) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Regression (T0007, audit M5): registry/user-controlled install names must
+    // not escape the plugins dir. Before the fix these went straight into
+    // `get_plugin_dir().join(name)`, so an absolute path or `..` wrote outside.
+    #[test]
+    fn sanitize_install_dir_refuses_escaping_names() {
+        let bad = [
+            "../../evil",
+            "../evil",
+            "/tmp/evil",
+            "/etc/cron.d/x",
+            "..",
+            ".",
+            ".hidden",
+            "foo/bar",
+            "foo\\bar",
+            "..\\..\\evil",
+            "",
+            "/",
+            "a b",      // whitespace
+            "a;rm -rf", // shell metacharacters
+            "évil",     // non-ASCII
+            "a\0b",     // NUL
+        ];
+        for name in bad {
+            assert!(
+                sanitize_install_dir(name).is_err(),
+                "expected {name:?} to be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn sanitize_install_dir_accepts_plain_names_inside_plugins_dir() {
+        let base = get_plugin_dir();
+        for name in ["python-lint", "yaml-json-viewer", "a.b_c-d", "Plugin_1"] {
+            let (safe, dir) = sanitize_install_dir(name).expect("should accept");
+            assert_eq!(safe, name);
+            assert_eq!(dir, base.join(name));
+            assert!(dir.starts_with(&base), "{dir:?} escaped {base:?}");
+        }
+    }
+
+    #[test]
+    fn sanitize_install_dir_trims_trailing_slash() {
+        // Registry paths look like "python-lint/".
+        let (safe, dir) = sanitize_install_dir("python-lint/").expect("should accept");
+        assert_eq!(safe, "python-lint");
+        assert_eq!(dir, get_plugin_dir().join("python-lint"));
+    }
 
     #[test]
     fn test_is_update_available() {
