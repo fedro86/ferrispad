@@ -225,19 +225,43 @@ impl TerminalPanel {
         div.set_frame(FrameType::FlatBox);
         div.hide();
 
+        // Mirror the split/tree divider handlers: guard cursor/drag on an actual
+        // drag, and never `.unwrap()` `window()` — it is `None` during teardown
+        // or before `show()`, which would panic (T0018).
+        // Fully qualified: `Cell` in this module is the terminal grid cell.
+        let dragging = Rc::new(std::cell::Cell::new(false));
+        let drag_flag = dragging.clone();
         div.handle(move |f, ev| match ev {
             Event::Enter => {
-                f.window().unwrap().set_cursor(Cursor::WE);
+                if let Some(mut win) = f.window() {
+                    win.set_cursor(Cursor::WE);
+                }
                 true
             }
             Event::Leave => {
-                f.window().unwrap().set_cursor(Cursor::Default);
+                if !drag_flag.get()
+                    && let Some(mut win) = f.window()
+                {
+                    win.set_cursor(Cursor::Default);
+                }
                 true
             }
-            Event::Push => true,
+            Event::Push => {
+                drag_flag.set(true);
+                true
+            }
             Event::Drag => {
-                let mouse_x = fltk::app::event_x();
-                sender.send(Message::TerminalViewResize(mouse_x));
+                if drag_flag.get() {
+                    let mouse_x = fltk::app::event_x();
+                    sender.send(Message::TerminalViewResize(mouse_x));
+                }
+                true
+            }
+            Event::Released => {
+                drag_flag.set(false);
+                if let Some(mut win) = f.window() {
+                    win.set_cursor(Cursor::Default);
+                }
                 true
             }
             _ => false,
