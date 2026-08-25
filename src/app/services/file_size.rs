@@ -54,6 +54,31 @@ pub fn check_file_size(
     })
 }
 
+/// Byte offset just past the `skip`-th `\n` in `bytes` (`0` when `skip == 0`).
+/// If `bytes` holds fewer than `skip` newlines, returns `bytes.len()`.
+///
+/// This counts *raw* line terminators, so a CRLF `\r\n` contributes both of its
+/// bytes and a byte-split multibyte sequence is irrelevant to the count. It
+/// replaces the old `str::lines()`-based `len() + 1` arithmetic, which dropped
+/// the `\r` of every CRLF line (undercounting the offset by one byte per line)
+/// and could also miscount when `String::from_utf8_lossy` changed a line's byte
+/// length at a read-chunk boundary (T0014).
+fn byte_offset_after_lines(bytes: &[u8], skip: usize) -> usize {
+    if skip == 0 {
+        return 0;
+    }
+    let mut seen = 0usize;
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'\n' {
+            seen += 1;
+            if seen == skip {
+                return i + 1;
+            }
+        }
+    }
+    bytes.len()
+}
+
 /// Read the last N lines of a file efficiently.
 ///
 /// Reads from the end of the file backwards in chunks to find newlines,
@@ -79,11 +104,9 @@ pub fn read_tail(path: &Path, lines: usize) -> io::Result<(String, u64)> {
         let all_lines: Vec<&str> = content.lines().collect();
         let start = all_lines.len().saturating_sub(lines);
         let tail = all_lines[start..].join("\n");
-        // Compute byte offset of the first returned line
-        let skipped_bytes: usize = all_lines[..start]
-            .iter()
-            .map(|l| l.len() + 1) // +1 for newline
-            .sum();
+        // Byte offset of the first returned line, measured on the real file
+        // bytes so CRLF terminators are counted exactly (T0014).
+        let skipped_bytes = byte_offset_after_lines(content.as_bytes(), start);
         return Ok((tail, skipped_bytes as u64));
     }
 
@@ -115,9 +138,11 @@ pub fn read_tail(path: &Path, lines: usize) -> io::Result<(String, u64)> {
     let start = all_lines.len().saturating_sub(lines);
     let tail = all_lines[start..].join("\n");
 
-    // Compute absolute byte offset: position is where we started reading,
-    // plus the bytes of the lines we're skipping within collected_bytes.
-    let skipped_bytes: usize = all_lines[..start].iter().map(|l| l.len() + 1).sum();
+    // Absolute byte offset: `position` is where we started reading, plus the
+    // byte offset of the tail within `collected_bytes`, measured on the raw
+    // bytes (not the lossy string) so CRLF terminators and any boundary-split
+    // multibyte sequence are counted exactly (T0014).
+    let skipped_bytes = byte_offset_after_lines(&collected_bytes, start);
     let start_byte = position + skipped_bytes as u64;
 
     Ok((tail, start_byte))
@@ -495,5 +520,98 @@ mod tests {
 
         let (chunk, _, _) = read_chunk(file.path(), 0, 2).unwrap();
         assert!(chunk.is_empty());
+    }
+
+    // Regression (T0014, audit S7): on a CRLF file, `read_tail`'s byte offset
+    // must count the `\r` of every skipped line terminator. `str::lines()`
+    // strips `\r\n` entirely, so the old `len() + 1` arithmetic undercounted
+    // `start_byte` by one byte per skipped CRLF line. `save_partial` then seeked
+    // too early and `set_len`-truncated, silently overwriting the prefix and
+    // losing data. This test drives the exact save round-trip the app performs.
+    #[test]
+    fn read_tail_crlf_offset_is_byte_exact_and_save_preserves_prefix() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        // 20 CRLF lines, each "line NN\r\n" = 9 bytes → 180 bytes total.
+        let mut original = Vec::new();
+        for i in 1..=20u32 {
+            original.extend_from_slice(format!("line {:02}\r\n", i).as_bytes());
+        }
+        assert_eq!(original.len(), 180);
+
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(&original).unwrap();
+        file.flush().unwrap();
+
+        // Last 3 lines → 17 lines skipped × 9 bytes = 153.
+        let (tail, start_byte) = read_tail(file.path(), 3).unwrap();
+        assert_eq!(
+            start_byte, 153,
+            "CRLF offset must count each '\\r'; got the LF-undercounted value"
+        );
+        assert!(tail.contains("line 18") && tail.contains("line 20"));
+        assert!(!tail.contains("line 17"));
+
+        // Save the tail back exactly as the app does (end_byte = file size).
+        save_partial(file.path(), &tail, start_byte, original.len() as u64).unwrap();
+
+        // The prefix (lines 1-17, CRLF intact) must survive byte-for-byte; with
+        // the undercounted offset it was overwritten and truncated.
+        let saved = std::fs::read(file.path()).unwrap();
+        assert!(
+            saved.len() >= 153,
+            "file was truncated into the prefix (data loss)"
+        );
+        assert_eq!(
+            &saved[..153],
+            &original[..153],
+            "prefix must be preserved byte-for-byte"
+        );
+    }
+
+    // Regression (T0014, audit S7, criterion 2): the large-file backward-chunk
+    // path must derive the offset from raw bytes, not from the
+    // `String::from_utf8_lossy` view. A multibyte sequence split at the 1 MiB
+    // read boundary turns into U+FFFD (a different byte length), so the old
+    // `str::lines()` length arithmetic mismeasured the offset. Byte-oriented
+    // counting is immune. The constructed file forces the boundary to fall in
+    // the middle of a 3-byte char.
+    #[test]
+    fn read_tail_large_file_offset_lands_on_line_boundary() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        // Each line is exactly 10 bytes: "01" + "字"(3) + "5678" + "\n".
+        // 104_858 lines → 1_048_580 bytes = 1 MiB + 4. The backward read of the
+        // last 1 MiB starts at byte 4, i.e. the 3rd byte of the first "字",
+        // splitting it mid-codepoint.
+        let line = "01字5678\n";
+        assert_eq!(line.len(), 10);
+        let mut original = Vec::with_capacity(1_048_580);
+        for _ in 0..104_858 {
+            original.extend_from_slice(line.as_bytes());
+        }
+        assert_eq!(original.len(), 1_048_580);
+
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(&original).unwrap();
+        file.flush().unwrap();
+
+        let (tail, start_byte) = read_tail(file.path(), 3).unwrap();
+
+        // The offset must sit exactly after a real '\n', i.e. at a line start.
+        assert!(start_byte > 0);
+        assert_eq!(
+            original[start_byte as usize - 1],
+            b'\n',
+            "offset must land on a real line boundary, not a lossy-shifted one"
+        );
+        // And the tail must be the last three clean lines.
+        assert_eq!(tail, "01字5678\n01字5678\n01字5678");
+        assert_eq!(
+            &original[start_byte as usize..],
+            b"01\xe5\xad\x975678\n01\xe5\xad\x975678\n01\xe5\xad\x975678\n",
+        );
     }
 }
