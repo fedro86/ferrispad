@@ -171,12 +171,20 @@ impl PluginManager {
     ) -> Result<LoadedPlugin, String> {
         let init_lua = plugin_path.join("init.lua");
 
-        // Security scan before executing any Lua code
+        // Advisory source lint before executing any Lua code. This is NOT the
+        // sandbox (the Lua runtime removes the dangerous primitives, and plugin
+        // trust comes from signatures) — see `scan_lua_source`. It never blocks
+        // loading; its notes are logged for the user and surfaced by the
+        // install flow, not enforced here (T0006).
         if let Ok(source) = std::fs::read_to_string(&init_lua)
-            && let crate::app::services::plugin_verify::LuaScanResult::Blocked(reasons) =
+            && let crate::app::services::plugin_verify::LuaScanResult::Warnings(notes) =
                 crate::app::services::plugin_verify::scan_lua_source(&source)
         {
-            return Err(format!("Blocked by security scan: {}", reasons.join("; ")));
+            eprintln!(
+                "[plugins] Advisory for {}: {}",
+                plugin_path.display(),
+                notes.join("; ")
+            );
         }
 
         // Load the Lua script

@@ -9,9 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::infrastructure::error::AppError;
 use crate::app::plugins::get_plugin_dir;
-use crate::app::services::plugin_verify::{
-    LuaScanResult, VerificationStatus, scan_lua_source, verify_checksum, verify_plugin,
-};
+use crate::app::services::plugin_verify::{VerificationStatus, verify_checksum, verify_plugin};
 
 /// URL to the official plugin registry
 const REGISTRY_URL: &str =
@@ -667,13 +665,10 @@ pub fn install_community_plugin(
         )?;
     }
 
-    // Static Lua analysis — reject if blocked patterns are found
-    if let LuaScanResult::Blocked(reasons) = scan_lua_source(&init_lua_content) {
-        return Err(AppError::Network(format!(
-            "Plugin blocked by security scan:\n{}",
-            reasons.join("\n")
-        )));
-    }
+    // Static Lua analysis is advisory only (see `scan_lua_source`): the sandbox
+    // is enforced by the Lua runtime + signatures, not by this text scan, so it
+    // does not gate installation. The community-install review dialog already
+    // surfaces its notes to the user before this download runs (T0006).
 
     // Write files
     let plugin_dir = get_plugin_dir().join(name);

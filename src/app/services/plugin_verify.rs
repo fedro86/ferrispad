@@ -207,133 +207,283 @@ pub fn verify_plugin(
     ))
 }
 
-/// Result of static Lua source analysis
+/// Result of the advisory Lua source lint.
+///
+/// This lint is **not** a security boundary and never rejects a plugin on its
+/// own — see [`scan_lua_source`]. It only reports informational notes for the
+/// user to weigh before installing an unverified plugin.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LuaScanResult {
-    /// Source code is clean — no suspicious patterns found
+    /// No noteworthy patterns found.
     Clean,
-    /// Source has warning patterns but is allowed to install
+    /// Advisory notes worth surfacing to the user before install.
     Warnings(Vec<String>),
-    /// Source has blocked patterns — installation should be rejected
-    Blocked(Vec<String>),
 }
 
-/// Perform static analysis on Lua source code to detect suspicious patterns.
+/// Best-effort **advisory** lint over Lua source — *not* a security boundary.
 ///
-/// Checks for blocked patterns (dynamic code execution, FFI access, debug library,
-/// global table manipulation, string metatable poisoning) and warning patterns
-/// (URLs, very long lines that may indicate obfuscation).
+/// # This is not the sandbox
 ///
-/// Comment lines (starting with `--`) are skipped for blocked pattern detection
-/// to reduce false positives.
+/// Plugin isolation is enforced elsewhere and does not depend on this function:
 ///
-/// # Arguments
-/// * `source` - The Lua source code to scan
+/// - **Runtime primitive removal** (`plugins::runtime::setup_sandbox`) nils out
+///   `os`, `io`, `debug`, `load`, `loadfile`, `dofile`, `require`, `package`,
+///   and `coroutine`, and PUC Lua 5.4 has no `ffi`/`jit`. So the patterns this
+///   lint reports are already unreachable at runtime — flagging them is a hint
+///   about intent, never the thing that stops them.
+/// - **Signature/checksum verification** ([`verify_plugin`]) is what actually
+///   gates trust for registry plugins.
+/// - **Per-plugin environment isolation** (T0009) is what will contain
+///   cross-plugin `_ENV`/metatable tampering.
+///
+/// A text scanner cannot be made sound against a determined author (`_ENV`
+/// reached through computed keys, `string.char` concatenation, staged
+/// `getmetatable('')`, …). Treat every result as informational: the install
+/// flow surfaces the notes to the user, and loading is never blocked by them.
+///
+/// Comments (`-- …` and `--[[ … ]]`, including `--[==[ … ]==]`) are stripped
+/// before scanning, and string literals are preserved, so a payload hidden in a
+/// comment is not mistaken for live code and a `--` inside a string does not
+/// swallow the rest of the line.
 ///
 /// # Returns
-/// * `LuaScanResult::Clean` if no suspicious patterns found
-/// * `LuaScanResult::Warnings(msgs)` if only warning-level patterns found
-/// * `LuaScanResult::Blocked(msgs)` if any blocked patterns found
+/// * [`LuaScanResult::Clean`] if nothing noteworthy was found.
+/// * [`LuaScanResult::Warnings`] with one note per advisory pattern otherwise.
 pub fn scan_lua_source(source: &str) -> LuaScanResult {
-    let mut blocked: Vec<String> = Vec::new();
-    let mut warned: Vec<String> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
+
+    // Strip comments once; scan the live code only.
+    let code = strip_lua_comments(source);
+    // Whitespace-compacted copy so structural checks survive line breaks and
+    // spacing (e.g. `load\n(...)`, `setmetatable ( string`).
+    let compact: String = code.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+
+    // Dynamic code loading (removed from the sandbox at runtime).
+    if code.contains("loadstring") {
+        warnings
+            .push("Uses loadstring (dynamic code loading; unavailable in the sandbox)".to_string());
+    }
+    if contains_load_call(&compact) {
+        warnings.push("Uses load() (dynamic code loading; unavailable in the sandbox)".to_string());
+    }
+
+    // FFI / JIT / debug (absent or removed in the sandbox).
+    if compact.contains("ffi.cdef")
+        || compact.contains("ffi.new")
+        || compact.contains("ffi.load")
+        || compact.contains("require(\"ffi\")")
+        || compact.contains("require('ffi')")
+    {
+        warnings.push("References the FFI library (unavailable in the sandbox)".to_string());
+    }
+    if code.contains("jit.") {
+        warnings.push("References LuaJIT (unavailable in the sandbox)".to_string());
+    }
+    if code.contains("debug.") {
+        warnings.push("References the debug library (unavailable in the sandbox)".to_string());
+    }
+
+    // Global-environment access — whole-token `_G` / `_ENV` only, so identifiers
+    // like `MY_GROUP` or `LOG_GREEN` no longer false-positive.
+    if contains_identifier(&code, "_G") || contains_identifier(&code, "_ENV") {
+        warnings.push("Accesses the global environment (_G/_ENV)".to_string());
+    }
+
+    // String-library metatable tampering. Targets the `string` library or the
+    // metatable shared by all string values (`getmetatable("")`); a normal
+    // `setmetatable(t, {__tostring = f})` no longer false-positives.
+    if compact.contains("setmetatable(string,")
+        || compact.contains("setmetatable(string)")
+        || compact.contains("getmetatable(\"")
+        || compact.contains("getmetatable('")
+    {
+        warnings.push("Tampers with the string metatable".to_string());
+    }
+
+    // Per-line heuristics.
     let mut warned_urls = false;
     let mut warned_long_lines = false;
-
-    for line in source.lines() {
-        let trimmed = line.trim();
-
-        // Warning checks apply to all lines (including comments)
-        if !warned_urls && (trimmed.contains("http://") || trimmed.contains("https://")) {
-            warned.push("Source contains URLs (potential network intent)".to_string());
+    for line in code.lines() {
+        if !warned_urls && (line.contains("http://") || line.contains("https://")) {
+            warnings.push("Contains URLs (potential network intent)".to_string());
             warned_urls = true;
         }
-
         if !warned_long_lines && line.len() > 1000 {
-            warned.push("Contains very long lines (potential obfuscation)".to_string());
+            warnings.push("Contains very long lines (potential obfuscation)".to_string());
             warned_long_lines = true;
         }
+        if warned_urls && warned_long_lines {
+            break;
+        }
+    }
 
-        // Skip comment lines for blocked pattern detection
-        if trimmed.starts_with("--") {
+    if warnings.is_empty() {
+        LuaScanResult::Clean
+    } else {
+        LuaScanResult::Warnings(warnings)
+    }
+}
+
+/// True if `code` contains a `load` **call** — `load` as a whole identifier
+/// followed (any whitespace already removed in the compacted input) by `(`.
+/// Excludes `loaded`, `load_plugin`, `preload`, and `loadstring`.
+fn contains_load_call(code: &str) -> bool {
+    let bytes = code.as_bytes();
+    let mut from = 0;
+    while let Some(pos) = code[from..].find("load") {
+        let abs = from + pos;
+        let after = abs + 4;
+        let before_ok = abs == 0 || !is_ident_byte(bytes[abs - 1]);
+        // The char right after "load" must not extend the identifier (rules out
+        // `loaded`, `loadstring`, `load_x`) and must be an opening paren.
+        let after_ok = after < bytes.len() && bytes[after] == b'(';
+        if before_ok && after_ok {
+            return true;
+        }
+        from = abs + 1;
+    }
+    false
+}
+
+/// True if `haystack` contains `ident` as a whole identifier — not preceded or
+/// followed by another identifier byte (`[A-Za-z0-9_]`).
+fn contains_identifier(haystack: &str, ident: &str) -> bool {
+    let hb = haystack.as_bytes();
+    let n = ident.len();
+    if n == 0 {
+        return false;
+    }
+    let mut from = 0;
+    while let Some(pos) = haystack[from..].find(ident) {
+        let abs = from + pos;
+        let before_ok = abs == 0 || !is_ident_byte(hb[abs - 1]);
+        let after = abs + n;
+        let after_ok = after >= hb.len() || !is_ident_byte(hb[after]);
+        if before_ok && after_ok {
+            return true;
+        }
+        from = abs + 1;
+    }
+    false
+}
+
+#[inline]
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// Remove Lua comments from `source`, keeping string literals and newlines.
+///
+/// Line comments (`-- …`) and block comments (`--[[ … ]]`, including
+/// `--[==[ … ]==]` levels) are replaced by spaces (newlines inside a block
+/// comment are preserved so per-line heuristics stay aligned). Quoted and
+/// long-bracket string literals are copied verbatim, so a `--` inside a string
+/// is not treated as a comment.
+///
+/// Best-effort lexing for the advisory lint — not a full Lua parser.
+fn strip_lua_comments(source: &str) -> String {
+    let b = source.as_bytes();
+    let n = b.len();
+    let mut out: Vec<u8> = Vec::with_capacity(n);
+    let mut i = 0;
+    while i < n {
+        let c = b[i];
+
+        // Comment: `--` (line), or `--[[`/`--[=*[` (block).
+        if c == b'-' && i + 1 < n && b[i + 1] == b'-' {
+            let after = i + 2;
+            if let Some(level) = open_long_bracket(b, after) {
+                let end = close_long_bracket(b, after + level + 2, level);
+                for &x in &b[i..end] {
+                    out.push(if x == b'\n' { b'\n' } else { b' ' });
+                }
+                i = end;
+            } else {
+                let mut j = after;
+                while j < n && b[j] != b'\n' {
+                    j += 1;
+                }
+                out.resize(out.len() + (j - i), b' ');
+                i = j;
+            }
             continue;
         }
 
-        // Blocked: loadstring
-        if trimmed.contains("loadstring") && !blocked.iter().any(|m| m.contains("loadstring")) {
-            blocked.push("Dynamic code execution attempt (loadstring)".to_string());
+        // Quoted string literal.
+        if c == b'"' || c == b'\'' {
+            out.push(c);
+            i += 1;
+            while i < n {
+                let d = b[i];
+                out.push(d);
+                i += 1;
+                if d == b'\\' && i < n {
+                    out.push(b[i]);
+                    i += 1;
+                } else if d == c {
+                    break;
+                }
+            }
+            continue;
         }
 
-        // Blocked: load( but not load_plugin, loaded, etc.
-        // Look for "load(" preceded by a non-alphanumeric/non-underscore char or at start of line
-        if !blocked
-            .iter()
-            .any(|m| m == "Dynamic code execution attempt (load)")
-            && contains_load_call(trimmed)
+        // Long-bracket string literal `[[ … ]]` / `[=*[ … ]=*]`.
+        if c == b'['
+            && let Some(level) = open_long_bracket(b, i)
         {
-            blocked.push("Dynamic code execution attempt (load)".to_string());
+            let end = close_long_bracket(b, i + level + 2, level);
+            out.extend_from_slice(&b[i..end]);
+            i = end;
+            continue;
         }
 
-        // Blocked: FFI access — ffi.cdef, ffi.new, ffi.load, or require.*ffi
-        if !blocked.iter().any(|m| m.contains("FFI"))
-            && (trimmed.contains("ffi.cdef")
-                || trimmed.contains("ffi.new")
-                || trimmed.contains("ffi.load")
-                || (trimmed.contains("require") && trimmed.contains("ffi")))
-        {
-            blocked.push("FFI access attempt".to_string());
-        }
-
-        // Blocked: jit.
-        if trimmed.contains("jit.") && !blocked.iter().any(|m| m.contains("LuaJIT")) {
-            blocked.push("LuaJIT access attempt".to_string());
-        }
-
-        // Blocked: any _G access (direct or via rawset/rawget)
-        if trimmed.contains("_G") && !blocked.iter().any(|m| m.contains("Global table")) {
-            blocked.push("Global table access (_G is forbidden)".to_string());
-        }
-
-        // Blocked: setmetatable + string on the same line
-        if trimmed.contains("setmetatable")
-            && trimmed.contains("string")
-            && !blocked.iter().any(|m| m.contains("metatable"))
-        {
-            blocked.push("String metatable poisoning attempt".to_string());
-        }
-
-        // Blocked: debug.
-        if trimmed.contains("debug.") && !blocked.iter().any(|m| m.contains("debug")) {
-            blocked.push("debug library access attempt".to_string());
-        }
+        out.push(c);
+        i += 1;
     }
 
-    if !blocked.is_empty() {
-        LuaScanResult::Blocked(blocked)
-    } else if !warned.is_empty() {
-        LuaScanResult::Warnings(warned)
+    // Only ASCII delimiters are ever inspected/replaced and multibyte sequences
+    // are copied whole, so the result is valid UTF-8; fall back defensively.
+    String::from_utf8(out).unwrap_or_else(|_| source.to_string())
+}
+
+/// If `b[i..]` opens a long bracket (`[` `=`* `[`), return the number of `=`
+/// (its "level"); otherwise `None`. `i` must point at the first `[`.
+fn open_long_bracket(b: &[u8], i: usize) -> Option<usize> {
+    if i >= b.len() || b[i] != b'[' {
+        return None;
+    }
+    let mut j = i + 1;
+    let mut level = 0;
+    while j < b.len() && b[j] == b'=' {
+        level += 1;
+        j += 1;
+    }
+    if j < b.len() && b[j] == b'[' {
+        Some(level)
     } else {
-        LuaScanResult::Clean
+        None
     }
 }
 
-/// Check if a line contains a `load(` call that is not part of a longer identifier
-/// like `loaded`, `load_plugin`, `loadstring`, etc.
-fn contains_load_call(line: &str) -> bool {
-    let mut search_from = 0;
-    while let Some(pos) = line[search_from..].find("load(") {
-        let abs_pos = search_from + pos;
-        // Check character before "load(" — must not be alphanumeric or underscore
-        if abs_pos == 0 {
-            return true;
+/// Byte index just past the closing `]` `=`{level} `]`, searching from `from`.
+/// Returns `b.len()` if the bracket is never closed (unterminated).
+fn close_long_bracket(b: &[u8], from: usize, level: usize) -> usize {
+    let mut j = from;
+    while j < b.len() {
+        if b[j] == b']' {
+            let mut k = j + 1;
+            let mut eqs = 0;
+            while k < b.len() && b[k] == b'=' {
+                eqs += 1;
+                k += 1;
+            }
+            if eqs == level && k < b.len() && b[k] == b']' {
+                return k + 1;
+            }
         }
-        let prev_char = line.as_bytes()[abs_pos - 1];
-        if !prev_char.is_ascii_alphanumeric() && prev_char != b'_' {
-            return true;
-        }
-        search_from = abs_pos + 5; // skip past "load("
+        j += 1;
     }
-    false
+    b.len()
 }
 
 /// Check whether a plugin's init.lua registers an `on_text_changed` hook.
@@ -468,64 +618,45 @@ return M
         assert_eq!(scan_lua_source(source), LuaScanResult::Clean);
     }
 
-    #[test]
-    fn test_scan_lua_blocked_loadstring() {
-        let source = "local f = loadstring('print(1)')";
+    /// Helper: assert the advisory scan produced a note containing `needle`.
+    fn assert_warns(source: &str, needle: &str) {
         match scan_lua_source(source) {
-            LuaScanResult::Blocked(msgs) => assert!(msgs.iter().any(|m| m.contains("loadstring"))),
-            other => panic!("Expected Blocked, got {:?}", other),
+            LuaScanResult::Warnings(msgs) => assert!(
+                msgs.iter().any(|m| m.contains(needle)),
+                "expected a warning containing {needle:?}, got {msgs:?}"
+            ),
+            LuaScanResult::Clean => panic!("expected Warnings containing {needle:?}, got Clean"),
         }
     }
 
     #[test]
-    fn test_scan_lua_blocked_debug() {
-        let source = "debug.getinfo(1)";
-        match scan_lua_source(source) {
-            LuaScanResult::Blocked(msgs) => assert!(msgs.iter().any(|m| m.contains("debug"))),
-            other => panic!("Expected Blocked, got {:?}", other),
-        }
+    fn test_scan_lua_warns_loadstring() {
+        assert_warns("local f = loadstring('print(1)')", "loadstring");
     }
 
     #[test]
-    fn test_scan_lua_blocked_ffi() {
-        let source = "local ffi = require('ffi')";
-        match scan_lua_source(source) {
-            LuaScanResult::Blocked(msgs) => assert!(msgs.iter().any(|m| m.contains("FFI"))),
-            other => panic!("Expected Blocked, got {:?}", other),
-        }
+    fn test_scan_lua_warns_debug() {
+        assert_warns("debug.getinfo(1)", "debug");
     }
 
     #[test]
-    fn test_scan_lua_blocked_rawset_global() {
-        let source = "rawset(_G, 'evil', true)";
-        match scan_lua_source(source) {
-            LuaScanResult::Blocked(msgs) => {
-                assert!(msgs.iter().any(|m| m.contains("Global table")))
-            }
-            other => panic!("Expected Blocked, got {:?}", other),
-        }
+    fn test_scan_lua_warns_ffi() {
+        assert_warns("local ffi = require('ffi')", "FFI");
     }
 
     #[test]
-    fn test_scan_lua_blocked_direct_g_access() {
-        let source = "_G.my_var = 42";
-        match scan_lua_source(source) {
-            LuaScanResult::Blocked(msgs) => {
-                assert!(msgs.iter().any(|m| m.contains("Global table")))
-            }
-            other => panic!("Expected Blocked, got {:?}", other),
-        }
+    fn test_scan_lua_warns_rawset_global() {
+        assert_warns("rawset(_G, 'evil', true)", "_G");
     }
 
     #[test]
-    fn test_scan_lua_blocked_g_read() {
-        let source = "local x = _G.some_value";
-        match scan_lua_source(source) {
-            LuaScanResult::Blocked(msgs) => {
-                assert!(msgs.iter().any(|m| m.contains("Global table")))
-            }
-            other => panic!("Expected Blocked, got {:?}", other),
-        }
+    fn test_scan_lua_warns_direct_g_access() {
+        assert_warns("_G.my_var = 42", "_G");
+    }
+
+    #[test]
+    fn test_scan_lua_warns_g_read() {
+        assert_warns("local x = _G.some_value", "_G");
     }
 
     #[test]
@@ -535,31 +666,20 @@ return M
     }
 
     #[test]
-    fn test_scan_lua_blocked_string_metatable() {
-        let source = "setmetatable(string, {})";
-        match scan_lua_source(source) {
-            LuaScanResult::Blocked(msgs) => assert!(msgs.iter().any(|m| m.contains("metatable"))),
-            other => panic!("Expected Blocked, got {:?}", other),
-        }
+    fn test_scan_lua_warns_string_metatable() {
+        assert_warns("setmetatable(string, {})", "metatable");
     }
 
     #[test]
     fn test_scan_lua_warning_urls() {
-        let source = r#"local url = "https://example.com/api""#;
-        match scan_lua_source(source) {
-            LuaScanResult::Warnings(msgs) => assert!(msgs.iter().any(|m| m.contains("URL"))),
-            other => panic!("Expected Warnings, got {:?}", other),
-        }
+        assert_warns(r#"local url = "https://example.com/api""#, "URL");
     }
 
     #[test]
     fn test_scan_lua_warning_long_lines() {
         let long_line = "x".repeat(1001);
         let source = format!("local s = '{}'", long_line);
-        match scan_lua_source(&source) {
-            LuaScanResult::Warnings(msgs) => assert!(msgs.iter().any(|m| m.contains("long lines"))),
-            other => panic!("Expected Warnings, got {:?}", other),
-        }
+        assert_warns(&source, "long lines");
     }
 
     #[test]
@@ -569,19 +689,73 @@ return M
     }
 
     #[test]
-    fn test_scan_lua_blocked_load_call() {
-        let source = "local f = load('return 1')";
-        match scan_lua_source(source) {
-            LuaScanResult::Blocked(msgs) => assert!(msgs.iter().any(|m| m.contains("load"))),
-            other => panic!("Expected Blocked, got {:?}", other),
-        }
+    fn test_scan_lua_warns_load_call() {
+        assert_warns("local f = load('return 1')", "load");
     }
 
     #[test]
     fn test_scan_lua_load_in_identifier_ok() {
-        // "loaded" or "load_plugin" should NOT trigger the load( check
-        let source = "local loaded = true\nlocal load_plugin = require('plugin')";
+        // "loaded" / "load_plugin" / "preload" must NOT trigger the load( check.
+        let source =
+            "local loaded = true\nlocal load_plugin = require('plugin')\nreturn preload(x)";
         assert_eq!(scan_lua_source(source), LuaScanResult::Clean);
+    }
+
+    // --- T0006 regression: bypasses the old line-oriented gate missed ---
+
+    // `_ENV` is equivalent to `_G` in Lua 5.4 and was not detected at all.
+    #[test]
+    fn test_scan_lua_env_write_is_flagged() {
+        assert_warns("_ENV.os = require", "_ENV");
+    }
+
+    // String-metatable poisoning via `getmetatable('')` (not `setmetatable`).
+    #[test]
+    fn test_scan_lua_getmetatable_string_poison_is_flagged() {
+        assert_warns("getmetatable('').__index = function() end", "metatable");
+    }
+
+    // `load` split from its `(` by a newline defeated the per-line scan.
+    #[test]
+    fn test_scan_lua_load_split_across_newline_is_flagged() {
+        assert_warns("local f = load\n('return 1')", "load");
+    }
+
+    // A payload hidden in a block comment must NOT be scanned as live code.
+    #[test]
+    fn test_scan_lua_payload_in_block_comment_is_ignored() {
+        let source = "--[[ load('x'); _G.evil = 1; debug.traceback() ]]\nlocal x = 1";
+        assert_eq!(scan_lua_source(source), LuaScanResult::Clean);
+    }
+
+    // Leveled block comment `--[==[ ... ]==]` is stripped too.
+    #[test]
+    fn test_scan_lua_leveled_block_comment_is_ignored() {
+        let source = "--[==[ _G.x = 1 ]==]\nreturn 1";
+        assert_eq!(scan_lua_source(source), LuaScanResult::Clean);
+    }
+
+    // --- T0006 regression: false positives that blocked legit plugins ---
+
+    // `MY_GROUP` / `LOG_GREEN` contain "_G" as a substring but are not `_G`.
+    #[test]
+    fn test_scan_lua_identifier_with_g_is_clean() {
+        let source = "local MY_GROUP = 1\nlocal LOG_GREEN = 2\nlocal x = MY_GROUP + LOG_GREEN";
+        assert_eq!(scan_lua_source(source), LuaScanResult::Clean);
+    }
+
+    // A normal `__tostring` metamethod is not string-metatable tampering.
+    #[test]
+    fn test_scan_lua_tostring_metamethod_is_clean() {
+        let source = "setmetatable(t, {__tostring = function() return 'x' end})";
+        assert_eq!(scan_lua_source(source), LuaScanResult::Clean);
+    }
+
+    // A `--` inside a string literal must not be treated as a comment: the URL
+    // survives stripping and is still flagged.
+    #[test]
+    fn test_scan_lua_dashes_inside_string_are_not_a_comment() {
+        assert_warns(r#"local u = "https://ex--ample.com/x""#, "URL");
     }
 
     #[test]
