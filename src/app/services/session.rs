@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::app::controllers::tabs::TabManager;
 use crate::app::infrastructure::buffer::buffer_text_no_leak;
@@ -268,15 +268,54 @@ pub fn save_session(
         }
     }
 
+    let instance_id = std::process::id().to_string();
+    merge_and_persist(
+        doc_sessions,
+        active_index,
+        last_open_directory.map(|s| s.to_string()),
+        group_sessions,
+        mode,
+        &dir,
+        &instance_id,
+    )
+}
+
+/// Merge `doc_sessions` with any session already on disk in `dir`, write the
+/// result, and prune orphaned temp files. Split out of [`save_session`] so the
+/// persistence logic can be exercised with an explicit `dir` and `instance_id`
+/// (no global data-dir or `TabManager` dependency) in tests.
+fn merge_and_persist(
+    mut doc_sessions: Vec<DocumentSession>,
+    active_index: usize,
+    last_open_directory: Option<String>,
+    group_sessions: Vec<GroupSession>,
+    mode: SessionRestore,
+    dir: &Path,
+    instance_id: &str,
+) -> Result<(), AppError> {
+    let session_file = dir.join("session.json");
+
+    // An instance with nothing to contribute must not clobber another instance's
+    // saved session: writing our empty `documents` list would erase it and the
+    // cleanup below would delete its temp files (audit M6). If the persisted
+    // session belongs to a *different* instance, leave it untouched. A session we
+    // already own (or no session at all) is still cleared normally below — that
+    // is the legitimate "user closed all tabs" case.
+    if doc_sessions.is_empty()
+        && let Ok(existing_json) = fs::read_to_string(&session_file)
+        && let Ok(existing) = serde_json::from_str::<SessionData>(&existing_json)
+        && existing.instance_id.as_deref() != Some(instance_id)
+    {
+        return Ok(());
+    }
+
     // Merge with existing session: keep docs from other instances that
     // aren't open in this one, so closing one instance doesn't erase another's tabs.
     // Skip merge when we have 0 docs — the user closed all tabs intentionally.
-    let instance_id = std::process::id().to_string();
-    let session_file = dir.join("session.json");
     if !doc_sessions.is_empty()
         && let Ok(existing_json) = fs::read_to_string(&session_file)
         && let Ok(existing) = serde_json::from_str::<SessionData>(&existing_json)
-        && existing.instance_id.as_deref() != Some(&instance_id)
+        && existing.instance_id.as_deref() != Some(instance_id)
     {
         // Clone to owned HashSets to allow mutable push below (borrow checker requirement)
         let our_paths: HashSet<String> = doc_sessions
@@ -322,9 +361,9 @@ pub fn save_session(
         version: CURRENT_SESSION_VERSION,
         active_index,
         documents: doc_sessions,
-        last_open_directory: last_open_directory.map(|s| s.to_string()),
+        last_open_directory,
         groups: group_sessions,
-        instance_id: Some(instance_id),
+        instance_id: Some(instance_id.to_string()),
     };
 
     let json = serde_json::to_string_pretty(&session_data)?;
@@ -332,7 +371,7 @@ pub fn save_session(
     fs::write(&session_file, json)?;
 
     // Clean up orphaned temp files (not referenced in current session)
-    cleanup_orphaned_temp_files(&session_data, &dir);
+    cleanup_orphaned_temp_files(&session_data, dir);
 
     Ok(())
 }
@@ -527,5 +566,123 @@ mod tests {
     fn test_list_sessions_returns_vec() {
         // Just verify it doesn't panic; actual sessions depend on environment
         let _ = list_sessions();
+    }
+
+    // Regression (T0015, audit M6): an instance with nothing to contribute must
+    // not overwrite another instance's persisted session — neither its
+    // `documents` list nor its temp files.
+    #[test]
+    fn empty_instance_does_not_wipe_another_instances_session() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let dir_path = dir.path();
+
+        // Instance A ("111") persists a saved doc referencing a temp file, and
+        // the temp file itself on disk.
+        let a_temp = "aaaa.tmp";
+        fs::write(dir_path.join(a_temp), b"instance A buffer").unwrap();
+        let a_session = SessionData {
+            version: CURRENT_SESSION_VERSION,
+            active_index: 0,
+            documents: vec![DocumentSession {
+                file_path: Some("/home/user/a.rs".to_string()),
+                display_name: "a.rs".to_string(),
+                cursor_position: 10,
+                temp_file: Some(a_temp.to_string()),
+                was_dirty: true,
+                group_index: None,
+            }],
+            last_open_directory: None,
+            groups: vec![],
+            instance_id: Some("111".to_string()),
+        };
+        fs::write(
+            dir_path.join("session.json"),
+            serde_json::to_string_pretty(&a_session).unwrap(),
+        )
+        .unwrap();
+
+        // Instance B ("222") saves with nothing to contribute (only untitled
+        // tabs → empty doc list in SavedFiles mode).
+        merge_and_persist(
+            Vec::new(),
+            0,
+            None,
+            Vec::new(),
+            SessionRestore::SavedFiles,
+            dir_path,
+            "222",
+        )
+        .unwrap();
+
+        // A's session must survive untouched.
+        let after: SessionData =
+            serde_json::from_str(&fs::read_to_string(dir_path.join("session.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            after.documents.len(),
+            1,
+            "empty instance B erased instance A's documents"
+        );
+        assert_eq!(
+            after.documents[0].file_path.as_deref(),
+            Some("/home/user/a.rs")
+        );
+        assert!(
+            dir_path.join(a_temp).exists(),
+            "empty instance B deleted instance A's temp file"
+        );
+    }
+
+    // The guard must protect only FOREIGN sessions: an instance clearing its OWN
+    // session (the user closed all tabs) still writes an empty document list.
+    #[test]
+    fn empty_instance_clears_its_own_session() {
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let dir_path = dir.path();
+
+        let own = SessionData {
+            version: CURRENT_SESSION_VERSION,
+            active_index: 0,
+            documents: vec![DocumentSession {
+                file_path: Some("/home/user/old.rs".to_string()),
+                display_name: "old.rs".to_string(),
+                cursor_position: 0,
+                temp_file: None,
+                was_dirty: false,
+                group_index: None,
+            }],
+            last_open_directory: None,
+            groups: vec![],
+            instance_id: Some("222".to_string()),
+        };
+        fs::write(
+            dir_path.join("session.json"),
+            serde_json::to_string_pretty(&own).unwrap(),
+        )
+        .unwrap();
+
+        merge_and_persist(
+            Vec::new(),
+            0,
+            None,
+            Vec::new(),
+            SessionRestore::SavedFiles,
+            dir_path,
+            "222",
+        )
+        .unwrap();
+
+        let after: SessionData =
+            serde_json::from_str(&fs::read_to_string(dir_path.join("session.json")).unwrap())
+                .unwrap();
+        assert!(
+            after.documents.is_empty(),
+            "an instance must be able to clear its own session"
+        );
+        assert_eq!(after.instance_id.as_deref(), Some("222"));
     }
 }
