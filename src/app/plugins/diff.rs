@@ -6,6 +6,25 @@
 
 use similar::{ChangeTag, TextDiff};
 
+/// Maximum bytes accepted on either side of a plugin-requested diff.
+///
+/// The character/line Myers diff is O(n·m); on plugin-supplied strings with no
+/// cap, two multi-megabyte inputs hang the UI thread and allocate outside the
+/// Lua memory budget. `diff_text` rejects anything larger (T0008, audit M3).
+pub const MAX_DIFF_INPUT_BYTES: usize = 1024 * 1024; // 1 MiB per side
+
+/// Longest replacement line pair the O(n·m) character-level intraline diff runs
+/// on. Longer lines are still shown as changed, just without intraline
+/// emphasis, so a pathological single-line megabyte pair cannot hang the diff
+/// (T0008, audit M3).
+const MAX_INTRALINE_BYTES: usize = 4096;
+
+/// True if either side exceeds [`MAX_DIFF_INPUT_BYTES`] and the diff should be
+/// refused rather than computed.
+pub fn diff_input_too_large(old: &str, new: &str) -> bool {
+    old.len() > MAX_DIFF_INPUT_BYTES || new.len() > MAX_DIFF_INPUT_BYTES
+}
+
 /// A byte range within a line for intraline emphasis highlighting.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IntralineSpan {
@@ -45,6 +64,12 @@ fn compute_intraline_spans(
     old_line: &str,
     new_line: &str,
 ) -> (Vec<IntralineSpan>, Vec<IntralineSpan>) {
+    // Bound the O(n·m) character diff: a single very long replacement pair (e.g.
+    // a minified megabyte line) would otherwise hang the UI thread. Above the
+    // cap we skip intraline emphasis; the line still shows as changed (T0008).
+    if old_line.len() > MAX_INTRALINE_BYTES || new_line.len() > MAX_INTRALINE_BYTES {
+        return (Vec::new(), Vec::new());
+    }
     let diff = TextDiff::from_chars(old_line, new_line);
     let mut left_spans = Vec::new();
     let mut right_spans = Vec::new();
@@ -319,5 +344,64 @@ mod tests {
         let left_count = result.left_content.split('\n').count();
         let right_count = result.right_content.split('\n').count();
         assert_eq!(left_count, right_count);
+    }
+
+    // Regression (T0008, audit M3): a replacement pair of very long lines must
+    // NOT run the O(n·m) character diff — it would hang the UI thread. The lines
+    // still show as changed, but with no intraline spans. Before the guard,
+    // `from_chars` on these 5000-byte lines produced non-empty spans (kept small
+    // enough here to run quickly and prove the change cleanly).
+    #[test]
+    fn intraline_spans_are_skipped_for_long_lines() {
+        let old = "a".repeat(5000); // > MAX_INTRALINE_BYTES (4096)
+        let mut new = "a".repeat(4998);
+        new.push_str("bb"); // differs at the tail -> a replacement pair
+        assert_eq!(old.len(), 5000);
+        assert_eq!(new.len(), 5000);
+
+        let result = compute_aligned_diff(&old, &new);
+
+        assert_eq!(result.left_highlights.len(), 1);
+        assert_eq!(result.right_highlights.len(), 1);
+        assert!(
+            result.left_highlights[0].spans.is_empty(),
+            "long-line intraline diff must be skipped (left)"
+        );
+        assert!(
+            result.right_highlights[0].spans.is_empty(),
+            "long-line intraline diff must be skipped (right)"
+        );
+    }
+
+    // Short replacement lines still get intraline emphasis (guard is length-based
+    // only, it must not disable the normal case).
+    #[test]
+    fn intraline_spans_still_computed_for_short_lines() {
+        let result = compute_aligned_diff("hello world\n", "hello rust\n");
+        assert!(!result.left_highlights[0].spans.is_empty());
+        assert!(!result.right_highlights[0].spans.is_empty());
+    }
+
+    // A pathological single-line multi-megabyte pair must terminate promptly
+    // (the intraline guard skips the O(n·m) diff). Before the fix this hung.
+    #[test]
+    fn huge_single_line_diff_terminates() {
+        let old = "x".repeat(2 * 1024 * 1024);
+        let new = "y".repeat(2 * 1024 * 1024);
+        let result = compute_aligned_diff(&old, &new);
+        // It completed; the megabyte lines carry no intraline spans.
+        assert!(result.left_highlights.iter().all(|h| h.spans.is_empty()));
+        assert!(result.right_highlights.iter().all(|h| h.spans.is_empty()));
+    }
+
+    #[test]
+    fn diff_input_too_large_flags_oversized_inputs() {
+        let big = "a".repeat(MAX_DIFF_INPUT_BYTES + 1);
+        assert!(diff_input_too_large(&big, ""));
+        assert!(diff_input_too_large("", &big));
+        assert!(!diff_input_too_large("small", "also small"));
+        // Exactly at the cap is allowed.
+        let at_cap = "a".repeat(MAX_DIFF_INPUT_BYTES);
+        assert!(!diff_input_too_large(&at_cap, &at_cap));
     }
 }

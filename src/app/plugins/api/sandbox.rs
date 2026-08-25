@@ -78,6 +78,13 @@ pub(super) fn resolve_and_validate(
     }
 }
 
+/// Hard cap on the number of entries a single directory scan may return.
+///
+/// Bounds Rust-side work even on a pathologically large real tree, and (with the
+/// symlink guard below) guarantees termination regardless of the directory
+/// shape (T0008, audit M3).
+pub(super) const MAX_SCAN_ENTRIES: usize = 10_000;
+
 /// Entry from a directory scan.
 pub(super) struct ScanEntry {
     pub name: String,
@@ -101,7 +108,7 @@ pub(super) fn scan_dir_recursive(
     results: &mut Vec<ScanEntry>,
     skip_dirs: &HashSet<String>,
 ) {
-    if current_depth > max_depth {
+    if current_depth > max_depth || results.len() >= MAX_SCAN_ENTRIES {
         return;
     }
 
@@ -114,8 +121,15 @@ pub(super) fn scan_dir_recursive(
     sorted.sort_by_key(|e| e.file_name());
 
     for entry in sorted {
+        if results.len() >= MAX_SCAN_ENTRIES {
+            break;
+        }
         let name = entry.file_name().to_string_lossy().into_owned();
         let path = entry.path();
+        // Detect symlinks with the DirEntry's own file type (does NOT follow the
+        // link), so a symlinked directory is listed but never descended into —
+        // otherwise a cycle (e.g. a link to `.`) explodes the scan (T0008).
+        let is_symlink = entry.file_type().map(|t| t.is_symlink()).unwrap_or(false);
         let is_dir = path.is_dir();
 
         // Skip ignored directories before recursing into them
@@ -149,7 +163,9 @@ pub(super) fn scan_dir_recursive(
                 has_children: None,
             });
 
-            if is_dir {
+            // Recurse into real directories only, never through a symlink, so
+            // symlink cycles cannot make the scan diverge (T0008).
+            if is_dir && !is_symlink {
                 scan_dir_recursive(
                     root,
                     &path,
@@ -160,5 +176,74 @@ pub(super) fn scan_dir_recursive(
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
+    // Regression (T0008, audit M3): the scan must not follow symlinked
+    // directories, so a symlink cycle (a link back to the scanned dir) cannot
+    // make it diverge. Before the fix, `path.is_dir()` followed the link and the
+    // walk descended through it, producing entries nested under the symlink up
+    // to the depth cap.
+    #[cfg(unix)]
+    #[test]
+    fn scan_does_not_follow_symlinked_directories() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("real.txt"), b"x").unwrap();
+        fs::create_dir(root.join("sub")).unwrap();
+        fs::write(root.join("sub").join("inner.txt"), b"y").unwrap();
+        // Cycle: a symlink pointing back at the scanned root.
+        symlink(root, root.join("loop")).unwrap();
+
+        let mut results = Vec::new();
+        scan_dir_recursive(root, root, 10, 1, &mut results, &HashSet::new());
+
+        // The symlink itself is listed...
+        assert!(
+            results.iter().any(|e| e.name == "loop"),
+            "the symlink entry should still be reported"
+        );
+        // ...but nothing is reported *under* it: the walk never descended.
+        assert!(
+            results.iter().all(|e| !e.rel_path.contains("loop/")),
+            "scan followed a symlinked directory (cycle): {:?}",
+            results
+                .iter()
+                .map(|e| e.rel_path.clone())
+                .collect::<Vec<_>>()
+        );
+        // Real subdirectories are still traversed.
+        assert!(results.iter().any(|e| e.rel_path == "sub/inner.txt"));
+        // And the scan stays bounded.
+        assert!(results.len() < MAX_SCAN_ENTRIES);
+    }
+
+    // The total number of returned entries is capped even for a large real tree.
+    #[test]
+    fn scan_output_is_capped() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        // Create comfortably more than the cap of flat files.
+        for i in 0..(MAX_SCAN_ENTRIES + 500) {
+            fs::write(root.join(format!("f{i:05}.txt")), b"").unwrap();
+        }
+
+        let mut results = Vec::new();
+        scan_dir_recursive(root, root, 5, 1, &mut results, &HashSet::new());
+
+        assert!(
+            results.len() <= MAX_SCAN_ENTRIES,
+            "scan returned {} entries, over the {} cap",
+            results.len(),
+            MAX_SCAN_ENTRIES
+        );
     }
 }

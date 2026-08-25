@@ -357,7 +357,16 @@ pub fn diff_text(
     _this: &EditorApi,
     (old_text, new_text): (String, String),
 ) -> mlua::Result<mlua::Value> {
-    use super::super::diff::compute_aligned_diff;
+    use super::super::diff::{MAX_DIFF_INPUT_BYTES, compute_aligned_diff, diff_input_too_large};
+
+    // Bound Rust-side work: the plugin controls both strings, and the diff is
+    // O(n·m). Refuse oversized input instead of hanging the UI thread (T0008).
+    if diff_input_too_large(&old_text, &new_text) {
+        return Err(mlua::Error::RuntimeError(format!(
+            "diff_text: input too large (max {} bytes per side)",
+            MAX_DIFF_INPUT_BYTES
+        )));
+    }
 
     let result = compute_aligned_diff(&old_text, &new_text);
 
