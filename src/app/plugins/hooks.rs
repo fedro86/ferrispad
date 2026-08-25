@@ -1,7 +1,14 @@
 //! Plugin hook definitions.
 //!
-//! All hooks are synchronous and blocking - they fire, execute, and return.
-//! No async, no background threads. This ensures 0% CPU when idle.
+//! All hooks are synchronous — they fire, execute, and return on the calling
+//! thread. No async, no background threads, so idle CPU stays 0%.
+//!
+//! Synchronous does not mean unbounded: each hook runs under a wall-clock
+//! deadline (`runtime::DEFAULT_HOOK_DEADLINE`) that is armed only while the hook
+//! executes and checked between Lua instructions, so a slow or runaway hook
+//! cannot freeze the UI indefinitely (T0011). Because the deadline is a
+//! per-instruction check during execution — not a background timer — idle CPU is
+//! still 0% when nothing is running.
 
 use super::annotations::LineAnnotation;
 use super::widgets::{SplitViewRequest, TerminalViewRequest, TreeViewRequest};

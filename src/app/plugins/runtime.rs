@@ -11,6 +11,7 @@ use mlua::{Function, HookTriggers, Lua, Result as LuaResult, Table, Value, VmSta
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 /// Default maximum instructions per hook call (1 million).
 /// This prevents infinite loops while allowing complex operations.
@@ -19,6 +20,18 @@ pub const DEFAULT_MAX_INSTRUCTIONS: u64 = 1_000_000;
 /// Default maximum memory per plugin (16 MB).
 /// This prevents memory exhaustion while allowing reasonable data structures.
 pub const DEFAULT_MAX_MEMORY: usize = 16 * 1024 * 1024;
+
+/// Default wall-clock deadline for a single hook call (30 s).
+///
+/// A backstop so a synchronous hook cannot freeze the UI thread indefinitely —
+/// a runaway loop that outlives its instruction budget's wall-clock, or a
+/// sequence of slow blocking API calls. It is armed only while a hook runs and
+/// checked between Lua instructions (see [`LuaRuntime::setup_instruction_limit`]),
+/// so idle CPU stays 0% — no background timer. A *single* blocking call is
+/// bounded by that call's own timeout (e.g. `DEFAULT_COMMAND_TIMEOUT`); this
+/// deadline is chosen comfortably above one command timeout so a legitimate
+/// single-command linter is never cut off mid-run.
+pub const DEFAULT_HOOK_DEADLINE: Duration = Duration::from_secs(30);
 
 /// Hook interval - check instruction count every N instructions.
 /// Lower values = more responsive abort, higher overhead.
@@ -41,12 +54,22 @@ pub struct LuaRuntime {
     max_instructions: u64,
     /// Current instruction counter (reset before each hook call)
     instruction_count: Arc<AtomicU64>,
-    /// Latched once the instruction limit is exceeded during an execution.
-    /// The guarded `pcall`/`xpcall` re-raise while this is set, so the abort
-    /// cannot be swallowed by a `pcall` loop. Reset before each hook call.
+    /// Latched once the instruction limit **or** the wall-clock deadline is
+    /// exceeded during an execution. The guarded `pcall`/`xpcall` re-raise while
+    /// this is set, so the abort cannot be swallowed by a `pcall` loop. Reset
+    /// before each hook call.
     poisoned: Arc<AtomicBool>,
     /// Maximum memory allowed (0 = unlimited)
     max_memory: usize,
+    /// Monotonic origin captured at construction. The deadline is stored as
+    /// nanoseconds since this instant so it fits in an atomic — no lock in the
+    /// per-instruction hook.
+    origin: Instant,
+    /// Wall-clock deadline for the *current* hook call, as nanoseconds since
+    /// `origin`. `0` = disarmed (no hook running). Armed by [`Self::arm_deadline`].
+    deadline_ns: Arc<AtomicU64>,
+    /// Per-hook wall-clock budget (`Duration::ZERO` = deadline disabled).
+    hook_deadline: Duration,
 }
 
 impl LuaRuntime {
@@ -73,9 +96,25 @@ impl LuaRuntime {
     /// * `max_memory` - Maximum memory in bytes allowed for Lua heap.
     ///   Set to 0 to disable memory limiting (not recommended).
     pub fn with_limits(max_instructions: u64, max_memory: usize) -> LuaResult<Self> {
+        Self::with_limits_and_deadline(max_instructions, max_memory, DEFAULT_HOOK_DEADLINE)
+    }
+
+    /// As [`Self::with_limits`], with an explicit per-hook wall-clock deadline.
+    ///
+    /// Production uses [`DEFAULT_HOOK_DEADLINE`] via [`Self::with_limits`]; this
+    /// entry point exists mainly so tests can use a short deadline. A deadline
+    /// of `Duration::ZERO` disables the wall-clock bound. The deadline is only
+    /// enforced when the instruction hook is installed (`max_instructions != 0`),
+    /// which is always the case in production.
+    pub fn with_limits_and_deadline(
+        max_instructions: u64,
+        max_memory: usize,
+        hook_deadline: Duration,
+    ) -> LuaResult<Self> {
         let lua = Lua::new();
         let instruction_count = Arc::new(AtomicU64::new(0));
         let poisoned = Arc::new(AtomicBool::new(false));
+        let deadline_ns = Arc::new(AtomicU64::new(0));
 
         let runtime = Self {
             lua,
@@ -83,6 +122,9 @@ impl LuaRuntime {
             instruction_count,
             poisoned,
             max_memory,
+            origin: Instant::now(),
+            deadline_ns,
+            hook_deadline,
         };
         runtime.setup_sandbox()?;
         runtime.setup_pcall_guard()?;
@@ -132,10 +174,26 @@ impl LuaRuntime {
         let max = self.max_instructions;
         let counter = Arc::clone(&self.instruction_count);
         let poison = Arc::clone(&self.poisoned);
+        let deadline_ns = Arc::clone(&self.deadline_ns);
+        let origin = self.origin;
 
         self.lua.set_hook(
             HookTriggers::new().every_nth_instruction(HOOK_CHECK_INTERVAL),
             move |_lua, _debug| {
+                // Wall-clock deadline (armed per hook call). Checked between
+                // instructions, so it bounds a runaway loop or a sequence of
+                // slow blocking API calls without a background timer (T0011). A
+                // single blocking call is bounded by that call's own timeout.
+                let deadline = deadline_ns.load(Ordering::Relaxed);
+                if deadline != 0 && origin.elapsed().as_nanos() as u64 >= deadline {
+                    // Latch like the instruction limit so a `pcall` loop cannot
+                    // swallow the abort and keep the UI frozen (T0005).
+                    poison.store(true, Ordering::Relaxed);
+                    return Err(mlua::Error::RuntimeError(
+                        "Hook execution timed out (aborting)".to_string(),
+                    ));
+                }
+
                 let count = counter.fetch_add(HOOK_CHECK_INTERVAL as u64, Ordering::Relaxed);
                 if count >= max {
                     // Latch so the guarded pcall/xpcall re-raise on the way up:
@@ -199,6 +257,27 @@ impl LuaRuntime {
     fn reset_instruction_count(&self) {
         self.instruction_count.store(0, Ordering::Relaxed);
         self.poisoned.store(false, Ordering::Relaxed);
+    }
+
+    /// Arm the wall-clock deadline for one hook call. No-op when disabled
+    /// (`hook_deadline == 0`). The deadline is stored as an absolute nanosecond
+    /// offset from `origin` so the per-instruction hook can compare with a single
+    /// atomic load.
+    fn arm_deadline(&self) {
+        if self.hook_deadline.is_zero() {
+            return;
+        }
+        let now = self.origin.elapsed().as_nanos() as u64;
+        let budget = self.hook_deadline.as_nanos() as u64;
+        self.deadline_ns
+            .store(now.saturating_add(budget), Ordering::Relaxed);
+    }
+
+    /// Disarm the deadline once the hook returns, so nothing is counted against a
+    /// plugin while no hook is running (idle CPU stays 0%) and a stale deadline
+    /// can never abort the next, unrelated execution.
+    fn disarm_deadline(&self) {
+        self.deadline_ns.store(0, Ordering::Relaxed);
     }
 
     /// Set up memory limit to prevent memory exhaustion.
@@ -298,9 +377,13 @@ impl LuaRuntime {
 
         // Execute the script in its own environment and expect it to return a
         // table. The returned functions capture this `_ENV`, so their later hook
-        // calls stay isolated too.
+        // calls stay isolated too. Time-box the load so a plugin that hangs in
+        // its top-level chunk cannot freeze startup (T0011).
         let env = self.build_plugin_env()?;
-        let result: Value = self.lua.load(&content).set_environment(env).eval()?;
+        self.arm_deadline();
+        let load_result = self.lua.load(&content).set_environment(env).eval::<Value>();
+        self.disarm_deadline();
+        let result = load_result?;
 
         match result {
             Value::Table(table) => Ok(table),
@@ -327,7 +410,15 @@ impl LuaRuntime {
         let hook_value: Value = plugin_table.get(hook_name)?;
 
         match hook_value {
-            Value::Function(func) => func.call(args),
+            Value::Function(func) => {
+                // Arm the wall-clock deadline only around the actual hook body so
+                // a slow/hung hook can't freeze the UI thread indefinitely
+                // (T0011); disarm on every path, including the error path.
+                self.arm_deadline();
+                let result = func.call(args);
+                self.disarm_deadline();
+                result
+            }
             Value::Nil => Ok(Value::Nil), // Hook not implemented, that's OK
             _ => Err(mlua::Error::RuntimeError(format!(
                 "Plugin hook '{}' must be a function",
@@ -653,6 +744,61 @@ mod tests {
             .eval()
             .unwrap();
         assert!(ok, "pcall should still report success as true");
+    }
+
+    // Regression (T0011, audit M4): a hook that would block the UI thread far
+    // too long is aborted by the wall-clock deadline, even with instruction
+    // budget to spare. The instruction limit is set absurdly high so the
+    // *deadline* (not the instruction count) is provably what stops the loop.
+    #[test]
+    fn hook_execution_is_wall_clock_deadline_bounded() {
+        let runtime = LuaRuntime::with_limits_and_deadline(
+            1_000_000_000, // effectively unlimited instructions for this test
+            DEFAULT_MAX_MEMORY,
+            Duration::from_millis(150),
+        )
+        .unwrap();
+        let table = runtime.create_table().unwrap();
+        let busy: Function = runtime
+            .lua()
+            .load("return function() while true do end end")
+            .eval()
+            .unwrap();
+        table.set("on_save", busy).unwrap();
+
+        let start = Instant::now();
+        let result = runtime.call_hook(&table, "on_save", ());
+        let elapsed = start.elapsed();
+
+        assert!(result.is_err(), "a timed-out hook must return an error");
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .to_lowercase()
+                .contains("timed out"),
+            "expected a wall-clock timeout abort, not an instruction-limit error"
+        );
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "deadline did not fire promptly (took {elapsed:?})"
+        );
+    }
+
+    // The deadline must not disturb a normal, quick hook: it completes and
+    // returns its value as usual.
+    #[test]
+    fn deadline_allows_a_fast_hook_to_complete() {
+        let runtime = LuaRuntime::new().unwrap();
+        let table = runtime.create_table().unwrap();
+        let f: Function = runtime
+            .lua()
+            .load("return function() local s=0; for i=1,1000 do s=s+i end; return s end")
+            .eval()
+            .unwrap();
+        table.set("on_save", f).unwrap();
+        let out: Value = runtime.call_hook(&table, "on_save", ()).unwrap();
+        assert_eq!(out.as_i64(), Some(500500));
     }
 
     #[test]

@@ -6,8 +6,16 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// Default timeout for external commands (30 seconds)
-pub const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+/// Default timeout for a single external command (15 seconds).
+///
+/// `run_command` waits on the child **synchronously on the UI thread**, so this
+/// is a hard ceiling on how long one plugin command can freeze the editor
+/// (T0011). Kept generous enough for heavy linters (ruff/eslint finish in well
+/// under a second; mypy/tsc on a single file typically within a few seconds)
+/// while halving the previous 30 s worst-case freeze. The per-hook wall-clock
+/// deadline (`runtime::DEFAULT_HOOK_DEADLINE`) sits above this so a legitimate
+/// single-command hook is never cut off mid-run.
+pub const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Characters that indicate shell injection attempts
 const SHELL_INJECTION_CHARS: &[char] = &[
@@ -193,6 +201,17 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::tempdir;
+
+    // T0011 (audit M4): `run_command` waits on the child synchronously on the UI
+    // thread, so this timeout is a hard ceiling on how long one plugin command
+    // can freeze the editor. Keep it short enough to stay UI-appropriate.
+    #[test]
+    fn command_timeout_stays_ui_appropriate() {
+        assert!(
+            DEFAULT_COMMAND_TIMEOUT <= Duration::from_secs(15),
+            "command timeout {DEFAULT_COMMAND_TIMEOUT:?} is too long to block the UI thread"
+        );
+    }
 
     #[test]
     fn test_validate_path_within_project() {
