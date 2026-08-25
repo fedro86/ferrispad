@@ -233,10 +233,61 @@ impl LuaRuntime {
         let _ = self.lua.gc_collect();
     }
 
+    /// Standard-library tables each plugin gets its **own** shallow copy of, so
+    /// one plugin monkey-patching e.g. `string.rep` cannot affect another
+    /// (T0009). Their function values are shared (functions are immutable), only
+    /// the container table is per-plugin. Libraries removed by the sandbox
+    /// (`os`, `io`, `debug`, `coroutine`, `package`) are simply absent.
+    const PER_PLUGIN_LIBS: [&'static str; 4] = ["string", "table", "math", "utf8"];
+
+    /// Build a fresh per-plugin environment table used as the chunk's `_ENV`.
+    ///
+    /// Base functions (`print`, `pcall`, `type`, …) are shared references — they
+    /// are immutable, and sharing the *guarded* `pcall`/`xpcall` keeps the
+    /// instruction-limit protection (T0005) intact. The mutable standard-library
+    /// tables ([`Self::PER_PLUGIN_LIBS`]) are shallow-copied so patches stay
+    /// plugin-local. `_G` points at the env itself, so a plugin writing a global
+    /// mutates only its own environment and cannot see another plugin's globals
+    /// (T0009).
+    ///
+    /// Note: this isolates plugin globals and library-table edits, not the
+    /// process-wide string *value* metatable reachable via `getmetatable("")`;
+    /// full state separation would be needed for that (see the module docs and
+    /// the T0006 advisory lint). Memory is still a single shared Lua-state pool
+    /// (see [`Self::with_limits`]).
+    fn build_plugin_env(&self) -> LuaResult<Table> {
+        let globals = self.lua.globals();
+        let env = self.lua.create_table()?;
+
+        for pair in globals.pairs::<Value, Value>() {
+            let (key, value) = pair?;
+
+            // Give the plugin its own copy of each mutable stdlib table.
+            if let (Value::String(name), Value::Table(lib)) = (&key, &value)
+                && name
+                    .to_str()
+                    .map(|n| Self::PER_PLUGIN_LIBS.contains(&&*n))
+                    .unwrap_or(false)
+            {
+                env.set(key.clone(), shallow_copy_table(&self.lua, lib)?)?;
+                continue;
+            }
+
+            env.set(key, value)?;
+        }
+
+        // `_G` must resolve to the plugin's own environment, not the shared one.
+        env.set("_G", &env)?;
+
+        Ok(env)
+    }
+
     /// Load a plugin script from init.lua and return the plugin table.
     ///
     /// Instruction count is reset before loading to give each plugin
-    /// a fresh budget for initialization.
+    /// a fresh budget for initialization. The chunk runs with a per-plugin
+    /// `_ENV` (see [`Self::build_plugin_env`]) so plugins are isolated from each
+    /// other's globals and library patches (T0009).
     pub fn load_script(&self, path: &Path) -> LuaResult<Table> {
         let content = std::fs::read_to_string(path).map_err(|e| {
             mlua::Error::RuntimeError(format!("Failed to read {}: {}", path.display(), e))
@@ -245,9 +296,11 @@ impl LuaRuntime {
         // Reset instruction counter for this load operation
         self.reset_instruction_count();
 
-        // Execute the script and expect it to return a table
-        let chunk = self.lua.load(&content);
-        let result: Value = chunk.eval()?;
+        // Execute the script in its own environment and expect it to return a
+        // table. The returned functions capture this `_ENV`, so their later hook
+        // calls stay isolated too.
+        let env = self.build_plugin_env()?;
+        let result: Value = self.lua.load(&content).set_environment(env).eval()?;
 
         match result {
             Value::Table(table) => Ok(table),
@@ -304,6 +357,19 @@ impl LuaRuntime {
     {
         self.lua.create_function(func)
     }
+}
+
+/// Shallow-copy a Lua table: a new table with the same key/value pairs (values
+/// shared by reference). Used to give each plugin its own copy of a stdlib table
+/// so patches don't leak across plugins (T0009). The standard library tables
+/// have no metatable, so none is copied.
+fn shallow_copy_table(lua: &Lua, src: &Table) -> LuaResult<Table> {
+    let dst = lua.create_table()?;
+    for pair in src.pairs::<Value, Value>() {
+        let (k, v) = pair?;
+        dst.set(k, v)?;
+    }
+    Ok(dst)
 }
 
 #[cfg(test)]

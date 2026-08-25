@@ -46,6 +46,83 @@ fn test_load_script_and_call_hooks() {
     assert!(nil_result.is_nil());
 }
 
+// Regression (T0009, audit M2): plugins loaded into the same runtime must not
+// see each other's globals or monkey-patch each other's standard library. Two
+// plugins share one runtime; A leaks a global and patches `string.rep`, B must
+// see neither. Before per-plugin environment isolation, A wrote straight into
+// the shared globals, so B observed `LEAKED == "from A"` and `rep == "HACKED"`.
+#[test]
+fn plugins_are_isolated_from_each_other() {
+    let dir = tempdir().unwrap();
+
+    // Plugin A: leak globals (bare + via _G) and monkey-patch string.rep.
+    let a = dir.path().join("a.lua");
+    fs::write(
+        &a,
+        r#"
+        LEAKED = "from A"
+        _G.LEAKED_G = "from A via _G"
+        string.rep = function() return "HACKED" end
+        local M = {}
+        function M.probe()
+            return { leaked = tostring(LEAKED), rep = string.rep("x", 3) }
+        end
+        return M
+        "#,
+    )
+    .unwrap();
+
+    // Plugin B: report what A tried to leak / patch.
+    let b = dir.path().join("b.lua");
+    fs::write(
+        &b,
+        r#"
+        local M = {}
+        function M.probe()
+            return {
+                leaked = tostring(LEAKED),
+                leaked_g = tostring(LEAKED_G),
+                rep = string.rep("x", 3),
+            }
+        end
+        return M
+        "#,
+    )
+    .unwrap();
+
+    let runtime = LuaRuntime::new().unwrap();
+    let ta = runtime.load_script(&a).unwrap();
+    let tb = runtime.load_script(&b).unwrap();
+
+    let as_table = |v: mlua::Value| match v {
+        mlua::Value::Table(t) => t,
+        other => panic!("expected a table result, got {other:?}"),
+    };
+
+    // A sees its own edits within its own environment.
+    let a_res = as_table(runtime.call_hook(&ta, "probe", ()).unwrap());
+    assert_eq!(a_res.get::<String>("leaked").unwrap(), "from A");
+    assert_eq!(a_res.get::<String>("rep").unwrap(), "HACKED");
+
+    // B is isolated: none of A's edits are visible.
+    let b_res = as_table(runtime.call_hook(&tb, "probe", ()).unwrap());
+    assert_eq!(
+        b_res.get::<String>("leaked").unwrap(),
+        "nil",
+        "B must not see A's global LEAKED"
+    );
+    assert_eq!(
+        b_res.get::<String>("leaked_g").unwrap(),
+        "nil",
+        "B must not see A's _G.LEAKED_G"
+    );
+    assert_eq!(
+        b_res.get::<String>("rep").unwrap(),
+        "xxx",
+        "B's string.rep must be intact, not A's patched version"
+    );
+}
+
 #[test]
 fn test_sandbox_blocks_os_library() {
     let dir = tempdir().unwrap();
