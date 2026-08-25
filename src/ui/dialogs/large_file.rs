@@ -221,13 +221,8 @@ pub fn show_file_too_large_dialog(
         dialog_cancel.hide();
     });
 
-    // Run dialog event loop
-    while dialog.shown() {
-        app::wait();
-        if app::should_program_quit() {
-            dialog.hide();
-        }
-    }
+    // Run dialog event loop (shared modal loop with quit handling, T0017)
+    super::run_dialog(&dialog);
 
     // Return the result
     Rc::try_unwrap(result)

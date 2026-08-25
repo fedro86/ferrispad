@@ -804,13 +804,8 @@ pub fn show_readonly_viewer(
         _ => false,
     });
 
-    // Run the dialog event loop
-    while window.shown() {
-        app::wait();
-        if app::should_program_quit() {
-            window.hide();
-        }
-    }
+    // Run the dialog event loop (shared modal loop with quit handling, T0017)
+    super::run_dialog(&window);
 
     open_request.borrow_mut().take()
 }

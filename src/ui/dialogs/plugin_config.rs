@@ -394,9 +394,9 @@ pub fn show_plugin_config_dialog(
 
     dialog.show();
     theme.apply_titlebar(&dialog);
-    while dialog.shown() {
-        fltk::app::wait();
-    }
+    // Shared modal loop with quit handling (T0017): closing the main window
+    // while this dialog is open exits cleanly instead of hanging.
+    super::run_dialog(&dialog);
 
     result.borrow_mut().take()
 }
