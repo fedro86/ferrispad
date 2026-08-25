@@ -1006,7 +1006,11 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
             LayoutItem::Tab { index, x, width } => {
                 let tx = wx + *x;
                 let tab_width = *width;
-                let tab = &st.tabs[*index];
+                // Bounds-checked: skip drawing if the layout index is momentarily
+                // stale versus the tab vector (T0040, sibling of T0020).
+                let Some(tab) = st.tabs.get(*index) else {
+                    continue;
+                };
 
                 // Tab background (2px gap at top for menu bar separation)
                 if tab.is_active {
