@@ -1522,8 +1522,9 @@ fn build_context_menu(
     let sc = Shortcut::None;
     let fl = MenuFlag::Normal;
 
-    if let Some(idx) = tab_index {
-        let tab = &st.tabs[idx];
+    if let Some(tab) = tab_index.and_then(|idx| st.tabs.get(idx)) {
+        // Bounds-checked: a stale `tab_index` (tab closed since the hit-test)
+        // falls through to the group branch instead of panicking (T0020).
         let tab_id = tab.id;
 
         if let Some(gid) = tab.group_id {
@@ -1602,13 +1603,18 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                     true
                 }
                 HitResult::Tab { index, is_close } => {
-                    let tab_id = st.tabs[index].id;
+                    // The hit index comes from the layout; guard against it being
+                    // stale versus the tab vector (a tab closed since layout was
+                    // built) so we never index out of bounds (T0020).
+                    let Some((tab_id, group_id)) = st.tabs.get(index).map(|t| (t.id, t.group_id))
+                    else {
+                        return true;
+                    };
                     let sender = st.sender;
 
                     if button == 3 {
                         // Right-click context menu — build menu while borrowed,
                         // then drop borrow before popup() (nested event loop).
-                        let group_id = st.tabs[index].group_id;
                         drop(st);
                         let st2 = state.borrow();
                         let menu = build_context_menu(&st2, Some(index), group_id);
@@ -1817,15 +1823,23 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                     let sender = st.sender;
                     match (src, drag_target) {
                         (DragSource::Tab(from), DragTarget::OnTab(target_idx)) => {
-                            let source_id = st.tabs[from].id;
-                            let target_id = st.tabs[target_idx].id;
-                            drop(st);
-                            sender.send(Message::TabGroupByDrag(source_id, target_id));
+                            // Both indices were captured earlier; skip the drag if
+                            // the tab vector shrank in between (T0020).
+                            if let (Some(source), Some(target)) =
+                                (st.tabs.get(from), st.tabs.get(target_idx))
+                            {
+                                let (source_id, target_id) = (source.id, target.id);
+                                drop(st);
+                                sender.send(Message::TabGroupByDrag(source_id, target_id));
+                            }
                         }
                         (DragSource::Tab(from), DragTarget::InsertAt(to)) => {
                             // Check if we're inserting between tabs of the same group
                             // If so, the dragged tab should join that group
-                            let source_tab = &st.tabs[from];
+                            let Some(source_tab) = st.tabs.get(from) else {
+                                drop(st);
+                                return false; // stale source index — abandon drag (T0020)
+                            };
                             let source_id = source_tab.id;
 
                             // Get group of tab before and after insertion point (excluding source)
@@ -1888,7 +1902,10 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                         }
                         (DragSource::Tab(from), DragTarget::OnCollapsedGroup(gid)) => {
                             // Dropping a tab onto a collapsed group → add to that group
-                            let source_tab = &st.tabs[from];
+                            let Some(source_tab) = st.tabs.get(from) else {
+                                drop(st);
+                                return false; // stale source index — abandon drag (T0020)
+                            };
                             let source_id = source_tab.id;
                             // Find the last tab in the target group to insert after it
                             let last_in_group =
