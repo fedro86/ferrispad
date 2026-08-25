@@ -4,6 +4,8 @@
 //! each with a character and color attributes. Includes a scrollback
 //! ring buffer for history.
 
+use std::collections::VecDeque;
+
 use fltk::enums::Color;
 
 /// Maximum scrollback lines
@@ -47,8 +49,9 @@ pub struct TerminalGrid {
     pub current_bg: Color,
     /// Current bold state
     pub current_bold: bool,
-    /// Scrollback buffer (oldest first)
-    scrollback: Vec<Vec<Cell>>,
+    /// Scrollback ring buffer (oldest at the front). `VecDeque` so trimming the
+    /// oldest line is O(1) `pop_front`, not an O(n) `Vec::remove(0)` memmove.
+    scrollback: VecDeque<Vec<Cell>>,
     /// Scroll offset from bottom (0 = at bottom, >0 = scrolled up)
     pub scroll_offset: usize,
     /// Scroll region top (inclusive, 0-indexed)
@@ -76,7 +79,7 @@ impl TerminalGrid {
             current_fg: Color::XtermWhite,
             current_bg: Color::TransparentBg,
             current_bold: false,
-            scrollback: Vec::new(),
+            scrollback: VecDeque::new(),
             scroll_offset: 0,
             scroll_top: 0,
             scroll_bottom: rows.saturating_sub(1),
@@ -131,13 +134,18 @@ impl TerminalGrid {
 
     /// Scroll the screen up by n lines within the scroll region
     pub fn scroll_up(&mut self, n: usize) {
-        for _ in 0..n {
-            // Move top line to scrollback
+        // Clamp a hostile repeat count (`ESC[65535S`) before the loop: scrolling
+        // a region by more than its height only feeds blank lines, so no real
+        // program needs more than `region_height` iterations. Without this a
+        // single sequence loops up to 65 535 times (audit M8).
+        let region_height = self.scroll_bottom.saturating_sub(self.scroll_top) + 1;
+        for _ in 0..n.min(region_height) {
+            // Move top line to scrollback (ring buffer: O(1) trim, not remove(0))
             if self.scroll_top == 0 {
                 let line = self.cells[0].clone();
-                self.scrollback.push(line);
+                self.scrollback.push_back(line);
                 if self.scrollback.len() > MAX_SCROLLBACK {
-                    self.scrollback.remove(0);
+                    self.scrollback.pop_front();
                 }
             }
             // Shift lines up within scroll region
@@ -151,7 +159,9 @@ impl TerminalGrid {
 
     /// Scroll the screen down by n lines within the scroll region
     pub fn scroll_down(&mut self, n: usize) {
-        for _ in 0..n {
+        // Clamp as in `scroll_up`: past `region_height` the region is all blank.
+        let region_height = self.scroll_bottom.saturating_sub(self.scroll_top) + 1;
+        for _ in 0..n.min(region_height) {
             for r in (self.scroll_top + 1..=self.scroll_bottom).rev() {
                 self.cells[r] = self.cells[r - 1].clone();
             }
@@ -266,7 +276,8 @@ impl TerminalGrid {
     pub fn delete_chars(&mut self, n: usize) {
         if self.cursor_row < self.rows {
             let row = &mut self.cells[self.cursor_row];
-            for _ in 0..n {
+            // Clamp: deleting more than `cols` chars leaves the row all blank.
+            for _ in 0..n.min(self.cols) {
                 if self.cursor_col < row.len() {
                     row.remove(self.cursor_col);
                     row.push(Cell::default());
@@ -279,7 +290,8 @@ impl TerminalGrid {
     pub fn insert_chars(&mut self, n: usize) {
         if self.cursor_row < self.rows {
             let row = &mut self.cells[self.cursor_row];
-            for _ in 0..n {
+            // Clamp: inserting more than `cols` blanks leaves the row all blank.
+            for _ in 0..n.min(self.cols) {
                 if self.cursor_col < row.len() {
                     row.insert(self.cursor_col, Cell::default());
                     row.truncate(self.cols);
@@ -290,7 +302,8 @@ impl TerminalGrid {
 
     /// Insert n blank lines at cursor row, shifting existing lines down
     pub fn insert_lines(&mut self, n: usize) {
-        for _ in 0..n {
+        // Clamp: inserting more than `rows` lines blanks the whole scroll region.
+        for _ in 0..n.min(self.rows) {
             if self.cursor_row <= self.scroll_bottom {
                 // Remove bottom line of scroll region
                 if self.scroll_bottom < self.cells.len() {
@@ -305,7 +318,8 @@ impl TerminalGrid {
 
     /// Delete n lines at cursor row, shifting lines up
     pub fn delete_lines(&mut self, n: usize) {
-        for _ in 0..n {
+        // Clamp: deleting more than `rows` lines blanks the whole scroll region.
+        for _ in 0..n.min(self.rows) {
             if self.cursor_row <= self.scroll_bottom && self.cursor_row < self.cells.len() {
                 self.cells.remove(self.cursor_row);
                 // Insert blank line at bottom of scroll region
@@ -319,7 +333,8 @@ impl TerminalGrid {
     /// Erase n characters from cursor position (overwrite with blanks, don't shift)
     pub fn erase_chars(&mut self, n: usize) {
         if self.cursor_row < self.rows {
-            for i in 0..n {
+            // Clamp: erasing past `cols` does nothing but spin the loop.
+            for i in 0..n.min(self.cols) {
                 let c = self.cursor_col + i;
                 if c < self.cols {
                     self.cells[self.cursor_row][c] = Cell::default();
@@ -387,6 +402,7 @@ impl TerminalGrid {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn test_new_grid() {
@@ -482,5 +498,43 @@ mod tests {
         assert_eq!(grid.cells[0][2].ch, 'D');
         assert_eq!(grid.cells[0][3].ch, 'E');
         assert_eq!(grid.cells[0][4].ch, ' ');
+    }
+
+    // --- T0010 (audit M8): terminal escape-sequence DoS guards ---
+
+    // Deterministic. A hostile `ESC[65535S` (here a huge direct count) must be
+    // clamped to the region height, not looped verbatim: scrolling a region by
+    // more than its height only feeds blank lines, so at most `rows` real lines
+    // can enter scrollback per call. Before the clamp the loop ran the full
+    // count and filled the 10 000-line scrollback cap.
+    #[test]
+    fn scroll_up_clamps_repeat_count_to_grid() {
+        let mut grid = TerminalGrid::new(80, 24);
+        grid.scroll_up(30_000);
+        assert!(
+            grid.scrollback_len() <= grid.rows,
+            "scroll_up looped its raw count instead of clamping: {} lines in scrollback",
+            grid.scrollback_len()
+        );
+    }
+
+    // Timing. A flood of single-line scrolls (1M line-feeds) must trim the
+    // scrollback in O(1) per line. `rows == 1` isolates the trim from the
+    // region-shift cost. The old `Vec::remove(0)` made this O(n·cap) — 4.4s in a
+    // debug build for a crafted file; a real ring buffer keeps it well under the
+    // 2s bound (measured ~0.5s).
+    #[test]
+    fn line_feed_flood_trims_in_bounded_time() {
+        let mut grid = TerminalGrid::new(80, 1);
+        let start = Instant::now();
+        for _ in 0..1_000_000 {
+            grid.scroll_up(1);
+        }
+        let elapsed = start.elapsed();
+        assert_eq!(grid.scrollback_len(), MAX_SCROLLBACK);
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "scrollback trimming is not O(1): 1M line-feeds took {elapsed:?}"
+        );
     }
 }
