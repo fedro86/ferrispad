@@ -1,12 +1,14 @@
-# Claude
-.claude
+# Claude — the AI-assisted overlay (.claude/ rules, skills, hooks, CLAUDE.md and
+# docs/tickets/) is TRACKED in git; FerrisPad is an AI-assisted project. Only
+# personal, machine-local overrides stay out (see also /CLAUDE.md and .mcp.json
+# lower down).
+.claude/settings.local.json
 
 # macOS system files
 .DS_Store
 
 /target
 /data
-/docs/temp/*
 /docs/internal/*
 /icons/*
 # ...but track the generated app icons: the Flatpak build installs them
@@ -36,5 +38,7 @@ FerrisPad.iconset/
 
 # Sh excluded files
 scripts/trigger_build_gh_worflow.sh
-CLAUDE.md
+# Root-only CLAUDE.md (personal notes); the tracked instructions live in
+# .claude/CLAUDE.md, which the leading slash here deliberately does NOT match.
+/CLAUDE.md
 .mcp.json
