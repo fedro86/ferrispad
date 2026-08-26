@@ -1,7 +1,7 @@
 ---
 id: T0036
 title: Add cargo fmt/clippy/test gates to CI
-status: review
+status: done
 created: 2026-08-24
 severity: moderate
 area: process

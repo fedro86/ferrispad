@@ -1,0 +1,56 @@
+name: CI
+
+# Quality gate: run the same checks as the local pre-commit hook
+# (fmt -> clippy -> test) on every push to master and every pull request, so
+# format drift and clippy warnings can't accrete unseen.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch/PR cancels the in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gates:
+    name: fmt + clippy + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FLTK build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libfltk1.3-dev libfontconfig1-dev libxext-dev libxft-dev \
+            libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev \
+            libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libwayland-dev wayland-protocols libdbus-1-dev libxkbcommon-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      # Cheapest gate first, then the more expensive ones. Each step fails the
+      # job independently, so a fmt failure still surfaces clippy/test later runs.
+      - name: cargo fmt --check
+        run: cargo fmt --check
+
+      # --locked on the first dep-touching step also fails the job on Cargo.lock
+      # drift (a dependency change not committed to the lockfile).
+      - name: cargo clippy (-D warnings)
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      - name: cargo test
+        run: cargo test --locked
