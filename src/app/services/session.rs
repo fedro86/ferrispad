@@ -166,8 +166,65 @@ pub fn session_is_locked(name: &str) -> bool {
     if pid == std::process::id() {
         return false;
     }
-    // Check if process is still running
-    std::path::Path::new(&format!("/proc/{}", pid)).exists()
+    // Portable liveness check — the old `/proc/{pid}` probe silently never
+    // engaged off Linux, so the lock did nothing on macOS/Windows (audit M7).
+    process_is_alive(pid)
+}
+
+/// Whether a process with this PID is currently running, portably.
+///
+/// Replaces the Linux-only `/proc/{pid}` existence probe so session locking
+/// engages on macOS and Windows too (audit M7). This is best-effort liveness,
+/// not an advisory lock: a recycled PID can still read as alive, which only
+/// yields a spurious "session open in another window", never data loss.
+#[cfg(unix)]
+fn process_is_alive(pid: u32) -> bool {
+    // `kill(pid, 0)` delivers no signal — it only reports whether the process
+    // exists and is signalable.
+    unsafe extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    let Ok(pid) = i32::try_from(pid) else {
+        return false;
+    };
+    // SAFETY: signal 0 delivers nothing and touches no memory; `pid` is a plain
+    // integer. On a -1 return errno is set and read immediately below.
+    if unsafe { kill(pid, 0) } == 0 {
+        return true;
+    }
+    // EPERM (1): the process exists but is owned by another user — still alive.
+    // ESRCH (3), or anything else: treat as gone.
+    std::io::Error::last_os_error().raw_os_error() == Some(1)
+}
+
+#[cfg(windows)]
+fn process_is_alive(pid: u32) -> bool {
+    use windows::Win32::Foundation::{CloseHandle, FALSE};
+    use windows::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    const STILL_ACTIVE: u32 = 259; // STATUS_PENDING — the process has not exited
+
+    // SAFETY: each call takes a valid pid / the handle we just opened; every
+    // failure path is handled and the handle is always closed.
+    unsafe {
+        let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid) else {
+            return false; // cannot open → treat as not running
+        };
+        if handle.is_invalid() {
+            return false;
+        }
+        let mut code: u32 = 0;
+        let alive = GetExitCodeProcess(handle, &mut code).is_ok() && code == STILL_ACTIVE;
+        let _ = CloseHandle(handle);
+        alive
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn process_is_alive(_pid: u32) -> bool {
+    // Unknown platform: fail open (report "not locked") rather than block the user.
+    false
 }
 
 /// Save the current session to disk under the given session name.
@@ -684,5 +741,29 @@ mod tests {
             "an instance must be able to clear its own session"
         );
         assert_eq!(after.instance_id.as_deref(), Some("222"));
+    }
+
+    // T0016 (audit M7): the portable liveness check recognises a live process
+    // (here, ourselves) on every platform — the old `/proc` probe did so only on
+    // Linux.
+    #[test]
+    fn process_is_alive_reports_our_own_process() {
+        assert!(process_is_alive(std::process::id()));
+    }
+
+    // A reaped child's PID is no longer alive. Unix-only: a deterministic spawn +
+    // reap; the Windows branch is exercised by the release build.
+    #[cfg(unix)]
+    #[test]
+    fn process_is_alive_is_false_for_a_reaped_child() {
+        let mut child = std::process::Command::new("true")
+            .spawn()
+            .expect("spawn `true`");
+        let pid = child.id();
+        child.wait().expect("reap child");
+        assert!(
+            !process_is_alive(pid),
+            "a reaped child's pid should not read as alive"
+        );
     }
 }
