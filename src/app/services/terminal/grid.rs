@@ -122,7 +122,7 @@ impl TerminalGrid {
     pub fn newline(&mut self) {
         if self.cursor_row == self.scroll_bottom {
             self.scroll_up(1);
-        } else if self.cursor_row < self.rows - 1 {
+        } else if self.cursor_row < self.rows.saturating_sub(1) {
             self.cursor_row += 1;
         }
     }
@@ -181,7 +181,7 @@ impl TerminalGrid {
     /// Clear from start of line to cursor
     pub fn clear_line_to_cursor(&mut self) {
         if self.cursor_row < self.rows {
-            for c in 0..=self.cursor_col.min(self.cols - 1) {
+            for c in 0..self.cursor_col.saturating_add(1).min(self.cols) {
                 self.cells[self.cursor_row][c] = Cell::default();
             }
         }
@@ -536,5 +536,42 @@ mod tests {
             elapsed < Duration::from_secs(2),
             "scrollback trimming is not O(1): 1M line-feeds took {elapsed:?}"
         );
+    }
+
+    // --- T0032: grid row/col math must not underflow on a degenerate size ---
+
+    // `newline` compared the cursor against a raw `rows - 1`: on a 0-row grid
+    // that is `attempt to subtract with overflow` in debug. The cursor sits off
+    // `scroll_bottom` so the non-scrolling branch (where the subtraction lived)
+    // is the one taken.
+    #[test]
+    fn newline_on_zero_row_grid_does_not_underflow() {
+        let mut grid = TerminalGrid::new(0, 0);
+        grid.cursor_row = 1;
+        grid.newline();
+        assert_eq!(grid.cursor_row, 1);
+    }
+
+    // `clear_line_to_cursor` bounded its loop with a raw `cols - 1`: on a 0-col
+    // grid that underflow-panics in debug. It must be a no-op instead.
+    #[test]
+    fn clear_line_to_cursor_on_zero_col_grid_does_not_underflow() {
+        let mut grid = TerminalGrid::new(0, 1);
+        grid.clear_line_to_cursor();
+        assert!(grid.cells[0].is_empty());
+    }
+
+    // Pins the normal behaviour across the T0032 change: columns 0..=cursor are
+    // cleared (inclusive), the rest of the line is untouched.
+    #[test]
+    fn clear_line_to_cursor_clears_through_cursor_inclusive() {
+        let mut grid = TerminalGrid::new(5, 1);
+        for ch in "ABCDE".chars() {
+            grid.put_char(ch);
+        }
+        grid.cursor_col = 2;
+        grid.clear_line_to_cursor();
+        let line: String = grid.cells[0].iter().map(|c| c.ch).collect();
+        assert_eq!(line, "   DE");
     }
 }
