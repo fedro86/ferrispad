@@ -45,5 +45,7 @@ changes across state moves — only its directory does.
 
 - **No implementation before the ticket file exists** — plan approval does not
   bypass the work sequence.
-- **No commit while the ticket sits in `1-todo/` or `2-review/`** — user
-  verification moves it to `3-done/`, then ONE commit (then push).
+- **Nothing reaches `master` while the ticket sits in `1-todo/` or
+  `2-review/`** — commit and push on the `ticket/T<NNNN>` branch as usual (it is
+  how the work travels between machines and how CI runs); user verification
+  moves the ticket to `3-done/`, which is what clears the landing.

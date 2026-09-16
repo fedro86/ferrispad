@@ -9,12 +9,13 @@ FerrisPad is a single-binary, FLTK-based text editor written in Rust (2024 editi
 ## Work sequence — every change lands through a ticket
 
 Implementation changes land **through a ticket** that moves
-`docs/tickets/1-todo/ → 2-review/ → 3-done/`, and **no commit happens until the
-user has verified the in-review ticket.** The binding rules load from
-`.claude/rules/`:
+`docs/tickets/1-todo/ → 2-review/ → 3-done/`. Work in review is committed and
+pushed on its own `ticket/T<NNNN>` branch — that is how it travels between
+machines and how CI sees it — but **nothing reaches `master` until the user has
+verified the in-review ticket.** The binding rules load from `.claude/rules/`:
 
 - `work-sequence.md` — the ticket state machine, the red-test-first bugfix loop,
-  the commit gate.
+  the `master` gate.
 - `engineering-standards.md` — the design constraints (below) and the cargo
   quality gates.
 
