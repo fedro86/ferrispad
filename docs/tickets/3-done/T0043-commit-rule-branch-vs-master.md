@@ -1,7 +1,7 @@
 ---
 id: T0043
 title: Fix the commit rule — branch commits are allowed, master is the human gate
-status: review
+status: done
 created: 2026-09-16
 severity: minor
 area: process
@@ -147,3 +147,5 @@ Review round 1 (2026-09-23) — fixes applied on the branch:
 - Interacts with T0036 (CI on push/PR): without a pushed branch commit those
   gates cannot run at all, which is independent evidence the old wording was
   unworkable.
+- Verified by the user on 2026-09-23 and landed on `master` by squash-merging
+  PR #35 — the first ticket to land with the procedure it defines.
