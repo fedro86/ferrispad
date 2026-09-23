@@ -779,26 +779,36 @@ pub fn is_plugin_installed(plugin_name: &str) -> bool {
     plugin_dir.join("init.lua").exists()
 }
 
-/// Compare version strings (simple semver comparison)
-/// Returns true if available > installed
-pub fn is_update_available(installed_version: &str, available_version: &str) -> bool {
-    let parse_version =
-        |v: &str| -> Vec<u32> { v.split('.').filter_map(|s| s.parse().ok()).collect() };
-
-    let installed = parse_version(installed_version);
-    let available = parse_version(available_version);
-
-    // Compare component by component
-    for (i, av) in available.iter().enumerate() {
-        let iv = installed.get(i).copied().unwrap_or(0);
-        if *av > iv {
-            return true;
-        } else if *av < iv {
-            return false;
-        }
+/// Parse a plugin version as semver, tolerating the short forms plugin
+/// authors write (`"1"`, `"1.2"`, `"1.2-beta"`): a core with fewer than three
+/// numeric components is padded with `.0` before parsing. Anything else that
+/// is not valid semver yields `None`.
+fn parse_plugin_version(version: &str) -> Option<semver::Version> {
+    let version = version.trim();
+    if let Ok(v) = semver::Version::parse(version) {
+        return Some(v);
     }
+    let core_end = version.find(['-', '+']).unwrap_or(version.len());
+    let (core, suffix) = version.split_at(core_end);
+    let padding = match core.split('.').count() {
+        1 => ".0.0",
+        2 => ".0",
+        _ => return None,
+    };
+    semver::Version::parse(&format!("{core}{padding}{suffix}")).ok()
+}
 
-    false
+/// True if `available_version` is newer than `installed_version` under semver
+/// ordering (so `1.0.0-rc1 < 1.0.0`). Fails closed: if either version cannot
+/// be parsed, no update is offered.
+pub fn is_update_available(installed_version: &str, available_version: &str) -> bool {
+    match (
+        parse_plugin_version(installed_version),
+        parse_plugin_version(available_version),
+    ) {
+        (Some(installed), Some(available)) => available > installed,
+        _ => false,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -874,6 +884,33 @@ mod tests {
         assert!(is_update_available("1.0", "1.0.1"));
         assert!(is_update_available("1", "1.1"));
         assert!(!is_update_available("1.0.1", "1.0"));
+    }
+
+    // Regression (T0034): the hand-rolled comparator dropped every
+    // non-numeric dot component, so "1.0.0-rc1" parsed as [1, 0] and compared
+    // equal to "1.0.0" — the release was never offered over its own
+    // prerelease, and rc1 -> rc2 was invisible.
+    #[test]
+    fn release_is_an_update_over_its_prerelease() {
+        assert!(is_update_available("1.0.0-rc1", "1.0.0"));
+        assert!(is_update_available("1.0.0-rc1", "1.0.0-rc2"));
+        assert!(is_update_available("1.0-beta", "1.0.0"));
+    }
+
+    #[test]
+    fn prerelease_is_not_an_update_over_its_release() {
+        assert!(!is_update_available("1.0.0", "1.0.0-rc1"));
+        assert!(!is_update_available("1.0.0-rc2", "1.0.0-rc1"));
+        assert!(!is_update_available("1.0.0-rc1", "1.0.0-rc1"));
+    }
+
+    // Unparseable versions fail closed (no update offered), like
+    // `updater::is_newer_version`.
+    #[test]
+    fn unparseable_version_is_never_an_update() {
+        assert!(!is_update_available("1.0.0", "latest"));
+        assert!(!is_update_available("garbage", "1.0.0"));
+        assert!(!is_update_available("1.0.0", ""));
     }
 
     #[test]
