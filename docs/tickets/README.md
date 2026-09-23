@@ -13,8 +13,8 @@ states. The state is encoded in the directory the ticket file lives in.
 docs/tickets/
 ├── _template.md   # copy this for a new ticket
 ├── 1-todo/        # specified, not started or in progress
-├── 2-review/      # implementation done, tests pass — NOT committed, awaiting human verification
-└── 3-done/        # verified by the user, commit landed
+├── 2-review/      # done on a ticket branch, gates pass — NOT on master, awaiting human verification
+└── 3-done/        # verified by the user, cleared to land on master
 ```
 
 ## Rules (short form — full rules in `.claude/rules/`)
@@ -26,10 +26,13 @@ docs/tickets/
 3. **Red test first for defects.** Write the regression test that reproduces
    the bug and watch it FAIL before touching the fix. A bugfix diff whose test
    never failed is not reviewable.
-4. **No commit while a ticket is in `1-todo/` or `2-review/`.** Human review is
-   non-negotiable. The gates (`cargo test` / `clippy` / `fmt`) are *necessary*;
-   the ticket being in `3-done/` is what *authorises* the commit.
-5. **One ticket, one diff, one commit** (typically).
+4. **Nothing reaches `master` while a ticket is in `1-todo/` or `2-review/`.**
+   Commit and push on the ticket's own branch — that is how work moves between
+   machines and how CI runs. Human review is non-negotiable for the landing: the
+   gates (`cargo test` / `clippy` / `fmt`) are *necessary*; the ticket being in
+   `3-done/` is what *authorises* `master`.
+5. **One ticket, one diff, one commit on `master`** (typically) — the ticket
+   branch may hold several commits; the PR is squash-merged.
 
 ## State machine
 
@@ -43,8 +46,8 @@ docs/tickets/
 | From → To | Who | What it means |
 |---|---|---|
 | ∅ → `1-todo/` | Claude | Ticket specified, not implemented. |
-| `1-todo/` → `2-review/` | Claude | Code on disk, tests pass, **not committed**. Ticket updated with what was actually done. |
-| `2-review/` → `3-done/` | Claude (after user approval) | User verified via the recipe. Commit can land. |
+| `1-todo/` → `2-review/` | Claude | Code committed and pushed on `ticket/T<NNNN>`, gates pass, **not on `master`**. Ticket updated with what was actually done. |
+| `2-review/` → `3-done/` | Claude (after user approval) | User verified via the recipe. The change can land on `master`. |
 
 ## Naming
 

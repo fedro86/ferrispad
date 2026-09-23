@@ -15,8 +15,8 @@ A ticket's state **is** the directory its file lives in, under `docs/tickets/`:
 | Dir | Meaning |
 |-----|---------|
 | `1-todo/` | Specified, not started or in progress. |
-| `2-review/` | Implementation done, code on disk, tests pass — **not committed**, waiting for human verification. |
-| `3-done/` | User verified via the recipe, commit landed. |
+| `2-review/` | Implementation done, gates pass, committed and pushed on the `ticket/T<NNNN>` branch — **not on `master`**, waiting for human verification. |
+| `3-done/` | User verified via the recipe; the change is cleared to land on `master`. |
 
 The file keeps the same name across all three folders; moving it is the only
 thing that changes. Naming: `T<NNNN>-<short-slug>.md` — zero-padded, monotonic
@@ -29,13 +29,20 @@ ID, never reused or renumbered. Copy `docs/tickets/_template.md` for new tickets
    manual repro — "run the test suite" is *not* a recipe), Acceptance criteria,
    Affected files, Notes.
 2. **`1-todo/` → `2-review/`** — **Open the tracking GitHub issue first** (see
-   *GitHub issue tracking* below), then implement (see the bugfix loop below).
-   Update the ticket with what was *actually* done and the working verification
-   recipe. Run the gates. **Do not commit.** Hand back to the user with the
-   recipe to run.
-3. **`2-review/` → `3-done/`** — *Only after the user approves.* Move the
-   ticket to `3-done/`, **then** `git commit` with `Closes #<issue>` in the body
-   (which closes the tracking issue when the commit reaches `master`).
+   *GitHub issue tracking* below), then implement (see the bugfix loop below) on
+   a `ticket/T<NNNN>` branch. Update the ticket with what was *actually* done
+   and the working verification recipe. Run the gates, then **commit and push
+   that branch** — that is what carries the work between machines and what makes
+   the CI gates run at all (T0036 wired them to `push`/`pull_request`). Open the
+   PR as a **draft** against `master`, and hand back to the user with the recipe
+   to run. **Nothing lands on `master` at this step.**
+3. **`2-review/` → `3-done/`** — *Only after the user approves.* Move the ticket
+   to `3-done/` in a new commit on the ticket branch and push it (never amend or
+   rebase a pushed branch — that needs a force-push). Then mark the PR ready and
+   **squash-merge** it (`gh pr merge <pr> --squash`), with a Conventional-Commits
+   subject naming the ticket and a body ending in `Closes #<issue>` plus the
+   `Co-Authored-By` trailer. The squash commit is the ticket's single commit on
+   `master`, and reaching `master` is what closes the issue.
 
 ## GitHub issue tracking
 
@@ -51,9 +58,11 @@ automatically — no owner/name hardcoded).
     --body "<one-line goal>\n\nTicket: docs/tickets/2-review/T<NNNN>-<slug>.md"
   ```
   Record the number in the ticket's `issue:` frontmatter field.
-- **Close when the ticket lands** (`3-done/` + commit): put `Closes #<issue>` in
-  the commit body so pushing to `master` auto-closes it. If the commit is not
-  pushed right away, `gh issue close <issue>` once it is.
+- **Close when the ticket lands on `master`**: the squash-merge commit body
+  carries `Closes #<issue>`, so the issue closes when it reaches `master`.
+  Writing `Closes #<issue>` in branch commits is harmless too — GitHub only acts
+  on it once the commit is on the default branch. The draft PR body links the
+  issue the same way.
 - **One ticket ⇄ one issue.** Don't open issues for tickets you aren't working
   yet, and don't retro-file issues for already-`3-done/` tickets.
 
@@ -81,13 +90,16 @@ looks right" is not evidence the bug existed or is gone.
 
 ## Hard rules (do not violate)
 
-- **No commit while any ticket is in `1-todo/` or `2-review/`.** Human review
-  is non-negotiable before commit. The pre-commit hook (fmt → clippy → test) is
-  *necessary* but not *sufficient* — the ticket being in `3-done/` is what
-  authorises the commit.
-- **One ticket, one diff, one commit** (typically). Don't bundle tickets into
-  one commit; don't split one ticket across commits. Exceptions must be
-  explicit ("depends on T0002 landing first").
+- **Nothing reaches `master` while any ticket is in `1-todo/` or `2-review/`.**
+  Committing and pushing on the ticket's own branch is expected — it is how the
+  work moves between machines and how CI sees it at all. What human review gates
+  is the *landing*: the pre-commit hook (fmt → clippy → test) is *necessary* but
+  not *sufficient* — the ticket being in `3-done/` is what authorises `master`.
+- **One ticket, one diff, one commit on `master`** (typically). The ticket
+  branch may carry any number of commits (WIP moving between machines, review
+  fixes, the `3-done/` move, merges from `master`); the squash-merge collapses
+  them into one. Don't bundle tickets into one PR; don't split one ticket
+  across PRs. Exceptions must be explicit ("depends on T0002 landing first").
 - **Small.** A ticket fits one sitting and one diff. If it grows past ~5
   in-scope bullets, split it into dependent tickets.
 - **Self-contained.** A ticket is readable without prior ticket context.
