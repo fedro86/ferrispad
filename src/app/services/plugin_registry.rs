@@ -243,53 +243,26 @@ fn today_date_string() -> String {
 
 /// Fetch the official plugin registry from GitHub
 fn fetch_plugin_registry() -> Result<PluginRegistry, AppError> {
-    let response = minreq::get(REGISTRY_URL)
+    let request = minreq::get(REGISTRY_URL)
         .with_header("User-Agent", "FerrisPad")
-        .with_timeout(10)
-        .send()
-        .map_err(|e| AppError::Network(format!("Failed to fetch plugin registry: {}", e)))?;
-
-    if response.status_code == 403 || response.status_code == 429 {
-        return Err(AppError::Network(
-            "GitHub rate limit reached. Try again in a few minutes.".to_string(),
-        ));
-    }
-
-    if response.status_code != 200 {
-        return Err(AppError::Network(format!(
-            "HTTP {} fetching registry",
-            response.status_code
-        )));
-    }
-
-    response
-        .json()
+        .with_timeout(10);
+    let data = fetch_limited(request, REGISTRY_URL, MAX_REGISTRY_BYTES, "plugin registry")?;
+    serde_json::from_slice(&data)
         .map_err(|e| AppError::Network(format!("Invalid JSON in registry: {}", e)))
 }
 
 /// Fetch the community plugin registry from GitHub
 fn fetch_community_registry() -> Result<CommunityRegistry, AppError> {
-    let response = minreq::get(COMMUNITY_REGISTRY_URL)
+    let request = minreq::get(COMMUNITY_REGISTRY_URL)
         .with_header("User-Agent", "FerrisPad")
-        .with_timeout(10)
-        .send()
-        .map_err(|e| AppError::Network(format!("Failed to fetch community registry: {}", e)))?;
-
-    if response.status_code == 403 || response.status_code == 429 {
-        return Err(AppError::Network(
-            "GitHub rate limit reached. Try again in a few minutes.".to_string(),
-        ));
-    }
-
-    if response.status_code != 200 {
-        return Err(AppError::Network(format!(
-            "HTTP {} fetching community registry",
-            response.status_code
-        )));
-    }
-
-    response
-        .json()
+        .with_timeout(10);
+    let data = fetch_limited(
+        request,
+        COMMUNITY_REGISTRY_URL,
+        MAX_REGISTRY_BYTES,
+        "community registry",
+    )?;
+    serde_json::from_slice(&data)
         .map_err(|e| AppError::Network(format!("Invalid JSON in community registry: {}", e)))
 }
 
@@ -389,12 +362,37 @@ pub fn fetch_community_registry_cached() -> Result<CommunityRegistry, AppError> 
 // File download
 // ---------------------------------------------------------------------------
 
-/// Fetch a single file from a URL as a string
-fn fetch_file(url: &str) -> Result<String, AppError> {
-    let response = minreq::get(url)
-        .with_header("User-Agent", "FerrisPad")
-        .with_timeout(30)
-        .send()
+/// Largest registry index (`plugins.json` / `community-plugins.json`) accepted.
+const MAX_REGISTRY_BYTES: usize = 1024 * 1024;
+/// Largest `init.lua` accepted, official or community.
+const MAX_INIT_LUA_BYTES: usize = 100 * 1024;
+/// Largest `plugin.toml` accepted, official or community.
+const MAX_PLUGIN_TOML_BYTES: usize = 10 * 1024;
+/// Largest optional `README.md` accepted.
+const MAX_README_BYTES: usize = 100 * 1024;
+/// Largest GitHub repo-metadata JSON accepted (`fetch_default_branch`).
+const MAX_REPO_API_BYTES: usize = 64 * 1024;
+/// Largest HTTP response head (all headers together) accepted.
+const MAX_HEADERS_BYTES: usize = 64 * 1024;
+
+/// Send `request` and return its body, refusing anything larger than
+/// `max_bytes`. The body is streamed and reading stops one byte past the cap,
+/// so an oversized or endless response never gets buffered in full. Every
+/// download in this module goes through here, so none is unbounded.
+fn fetch_limited(
+    request: minreq::Request,
+    url: &str,
+    max_bytes: usize,
+    file_name: &str,
+) -> Result<Vec<u8>, AppError> {
+    use std::io::Read;
+
+    // Bound the response head too: minreq reads headers without a limit by
+    // default, so a hostile server could stream them forever.
+    let response = request
+        .with_max_status_line_length(Some(1024))
+        .with_max_headers_size(Some(MAX_HEADERS_BYTES))
+        .send_lazy()
         .map_err(|e| AppError::Network(format!("Download failed: {}", e)))?;
 
     if response.status_code == 403 || response.status_code == 429 {
@@ -410,53 +408,28 @@ fn fetch_file(url: &str) -> Result<String, AppError> {
         )));
     }
 
-    response
-        .as_str()
-        .map(|s| s.to_string())
-        .map_err(|e| AppError::Network(format!("Invalid response encoding: {}", e)))
-}
-
-/// Fetch a file from a URL as raw bytes
-fn fetch_file_bytes(url: &str) -> Result<Vec<u8>, AppError> {
-    let response = minreq::get(url)
-        .with_header("User-Agent", "FerrisPad")
-        .with_timeout(30)
-        .send()
+    let mut data = Vec::new();
+    // `ResponseLazy` is both an `Iterator` and a `Read`; the byte cap is `Read::take`.
+    Read::take(response, (max_bytes as u64).saturating_add(1))
+        .read_to_end(&mut data)
         .map_err(|e| AppError::Network(format!("Download failed: {}", e)))?;
-
-    if response.status_code == 403 || response.status_code == 429 {
-        return Err(AppError::Network(
-            "GitHub rate limit reached. Try again in a few minutes.".to_string(),
-        ));
-    }
-
-    if response.status_code != 200 {
-        return Err(AppError::Network(format!(
-            "HTTP {} downloading {}",
-            response.status_code, url
-        )));
-    }
-
-    Ok(response.as_bytes().to_vec())
-}
-
-// ---------------------------------------------------------------------------
-// Size limit enforcement
-// ---------------------------------------------------------------------------
-
-/// Enforce a maximum byte-size limit on downloaded content.
-///
-/// Returns `Err(AppError::Network)` if the data exceeds `max_bytes`.
-pub fn enforce_size_limit(data: &[u8], max_bytes: usize, file_name: &str) -> Result<(), AppError> {
     if data.len() > max_bytes {
         return Err(AppError::Network(format!(
-            "{} exceeds size limit ({} bytes > {} bytes)",
-            file_name,
-            data.len(),
-            max_bytes
+            "{} exceeds size limit (more than {} bytes)",
+            file_name, max_bytes
         )));
     }
-    Ok(())
+    Ok(data)
+}
+
+/// Download a plugin file (30 s timeout) as UTF-8 text, capped at `max_bytes`.
+fn fetch_text(url: &str, max_bytes: usize, file_name: &str) -> Result<String, AppError> {
+    let request = minreq::get(url)
+        .with_header("User-Agent", "FerrisPad")
+        .with_timeout(30);
+    let data = fetch_limited(request, url, max_bytes, file_name)?;
+    String::from_utf8(data)
+        .map_err(|e| AppError::Network(format!("{} is not valid UTF-8: {}", file_name, e)))
 }
 
 // ---------------------------------------------------------------------------
@@ -500,14 +473,13 @@ pub fn fetch_default_branch(repo_url: &str) -> String {
         return "main".to_string();
     };
     let api_url = format!("https://api.github.com/repos/{}/{}", owner, repo);
-    let response = minreq::get(&api_url)
+    let request = minreq::get(&api_url)
         .with_header("User-Agent", "FerrisPad")
         .with_header("Accept", "application/vnd.github.v3+json")
-        .with_timeout(10)
-        .send();
-    match response {
-        Ok(resp) if resp.status_code == 200 => {
-            let body = resp.as_str().unwrap_or("");
+        .with_timeout(10);
+    match fetch_limited(request, &api_url, MAX_REPO_API_BYTES, "repository metadata") {
+        Ok(data) => {
+            let body = std::str::from_utf8(&data).unwrap_or("");
             // Lightweight extraction — avoid pulling in a JSON library
             if let Some(pos) = body.find("\"default_branch\"") {
                 let rest = &body[pos..];
@@ -529,17 +501,14 @@ pub fn fetch_default_branch(repo_url: &str) -> String {
 
 /// Fetch the `plugin.toml` from a community plugin's GitHub repository.
 ///
-/// Enforces a 10 KB size limit to prevent abuse.
+/// Capped at `MAX_PLUGIN_TOML_BYTES` (10 KB) while downloading.
 pub fn fetch_community_plugin_toml(repo_url: &str, branch: &str) -> Result<String, AppError> {
     let (owner, repo) = parse_github_url(repo_url)?;
     let url = format!(
         "https://raw.githubusercontent.com/{}/{}/{}/plugin.toml",
         owner, repo, branch
     );
-    let data = fetch_file_bytes(&url)?;
-    enforce_size_limit(&data, 10 * 1024, "plugin.toml")?;
-    String::from_utf8(data)
-        .map_err(|e| AppError::Network(format!("plugin.toml is not valid UTF-8: {}", e)))
+    fetch_text(&url, MAX_PLUGIN_TOML_BYTES, "plugin.toml")
 }
 
 // ---------------------------------------------------------------------------
@@ -622,10 +591,10 @@ pub fn install_plugin(plugin_info: &AvailablePluginInfo) -> Result<VerificationS
 
     // Download files to memory first (don't write until verified)
     let init_lua_url = format!("{}init.lua", base_url);
-    let init_lua_content = fetch_file(&init_lua_url)?;
+    let init_lua_content = fetch_text(&init_lua_url, MAX_INIT_LUA_BYTES, "init.lua")?;
 
     let plugin_toml_url = format!("{}plugin.toml", base_url);
-    let plugin_toml_content = fetch_file(&plugin_toml_url)?;
+    let plugin_toml_content = fetch_text(&plugin_toml_url, MAX_PLUGIN_TOML_BYTES, "plugin.toml")?;
 
     // Verify checksums and signature
     let (expected_init, expected_toml) = match &plugin_info.checksums {
@@ -662,7 +631,7 @@ pub fn install_plugin(plugin_info: &AvailablePluginInfo) -> Result<VerificationS
 
     // Try to download README.md (optional, don't fail if missing)
     let readme_url = format!("{}README.md", base_url);
-    if let Ok(readme) = fetch_file(&readme_url) {
+    if let Ok(readme) = fetch_text(&readme_url, MAX_README_BYTES, "README.md") {
         let readme_path = plugin_dir.join("README.md");
         let _ = std::fs::write(&readme_path, &readme);
     }
@@ -693,7 +662,7 @@ pub fn install_plugin(plugin_info: &AvailablePluginInfo) -> Result<VerificationS
 
 /// Install a community plugin from a GitHub repository.
 ///
-/// Downloads `init.lua` (100 KB limit), verifies checksums if provided,
+/// Downloads `init.lua` (capped at `MAX_INIT_LUA_BYTES`), verifies checksums if provided,
 /// writes plugin files and a `.source` provenance file.
 pub fn install_community_plugin(
     name: &str,
@@ -709,11 +678,7 @@ pub fn install_community_plugin(
         owner, repo, branch
     );
 
-    let init_lua_bytes = fetch_file_bytes(&init_lua_url)?;
-    enforce_size_limit(&init_lua_bytes, 100 * 1024, "init.lua")?;
-
-    let init_lua_content = String::from_utf8(init_lua_bytes.clone())
-        .map_err(|e| AppError::Network(format!("init.lua is not valid UTF-8: {}", e)))?;
+    let init_lua_content = fetch_text(&init_lua_url, MAX_INIT_LUA_BYTES, "init.lua")?;
 
     // Verify checksums if provided
     if let Some(cs) = checksums {
@@ -743,7 +708,7 @@ pub fn install_community_plugin(
         "https://raw.githubusercontent.com/{}/{}/{}/README.md",
         owner, repo, branch
     );
-    if let Ok(readme) = fetch_file(&readme_url) {
+    if let Ok(readme) = fetch_text(&readme_url, MAX_README_BYTES, "README.md") {
         let _ = std::fs::write(plugin_dir.join("README.md"), &readme);
     }
 
@@ -859,6 +824,90 @@ mod tests {
         assert_eq!(dir, get_plugin_dir().join("python-lint"));
     }
 
+    // --- T0035: download size limits apply while streaming ---
+
+    /// One-shot local HTTP server: answers the first request with a 200 whose
+    /// headers announce `declared_len` bytes, writes `sent_len` bytes of body,
+    /// then holds the connection open (never finishing the body) until the
+    /// test process exits. Returns the URL to fetch.
+    fn serve_body_then_stall(declared_len: usize, sent_len: usize) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let url = format!("http://{}/file", listener.local_addr().expect("addr"));
+        std::thread::spawn(move || {
+            let Ok((mut conn, _)) = listener.accept() else {
+                return;
+            };
+            let mut req = [0u8; 4096];
+            let _ = conn.read(&mut req);
+            let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {declared_len}\r\n\r\n");
+            let _ = conn.write_all(head.as_bytes());
+            let _ = conn.write_all(&vec![b'a'; sent_len]);
+            let _ = conn.flush();
+            std::thread::sleep(std::time::Duration::from_secs(120));
+        });
+        url
+    }
+
+    /// Run `fetch_limited` on a worker thread; `None` if it has not returned
+    /// within `secs`.
+    fn fetch_within(url: String, max_bytes: usize, secs: u64) -> Option<Result<Vec<u8>, AppError>> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let request = minreq::get(&url).with_timeout(60);
+            let _ = tx.send(fetch_limited(request, &url, max_bytes, "init.lua"));
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(secs)).ok()
+    }
+
+    // A server that announces 1 GiB, sends 200 KB past a 100 KB cap and then
+    // stalls. Buffering the whole body before checking the size blocks here
+    // until the network timeout (and, against a server that keeps sending,
+    // allocates without bound); the cap must abort the read as soon as it is
+    // crossed.
+    #[test]
+    fn oversized_download_aborts_mid_stream() {
+        let url = serve_body_then_stall(1 << 30, 200 * 1024);
+        let result = fetch_within(url, 100 * 1024, 5)
+            .expect("download did not abort at the size cap: body is being buffered in full");
+        let err = result.expect_err("oversized body must be rejected");
+        assert!(
+            err.to_string().contains("size limit"),
+            "unexpected error: {err}"
+        );
+    }
+
+    // A body at or under the cap is returned intact.
+    #[test]
+    fn download_within_limit_is_returned() {
+        let url = serve_body_then_stall(1024, 1024);
+        let data = fetch_within(url, 1024, 5)
+            .expect("download did not finish")
+            .expect("body within the cap must be accepted");
+        assert_eq!(data.len(), 1024);
+    }
+
+    // Real HTTPS through the streaming path (rustls, GitHub's chunked/gzip-free
+    // raw responses), bypassing the registry disk cache.
+    #[test]
+    #[ignore] // requires network access — run with: cargo test --lib plugin_registry -- --ignored
+    fn fetch_limited_reads_real_registry_and_plugin_files() {
+        let request = minreq::get(REGISTRY_URL)
+            .with_header("User-Agent", "FerrisPad")
+            .with_timeout(10);
+        let data = fetch_limited(request, REGISTRY_URL, MAX_REGISTRY_BYTES, "plugin registry")
+            .expect("registry download");
+        let registry: PluginRegistry = serde_json::from_slice(&data).expect("registry JSON");
+        let first = registry.plugins.first().expect("at least one plugin");
+        let init = fetch_text(
+            &format!("{}{}init.lua", REPO_RAW_BASE, first.path),
+            MAX_INIT_LUA_BYTES,
+            "init.lua",
+        )
+        .expect("init.lua download");
+        assert!(!init.is_empty());
+    }
+
     #[test]
     fn test_is_update_available() {
         assert!(is_update_available("1.0.0", "1.0.1"));
@@ -901,16 +950,6 @@ mod tests {
     fn test_parse_github_url_invalid() {
         assert!(parse_github_url("https://gitlab.com/user/repo").is_err());
         assert!(parse_github_url("not a url").is_err());
-    }
-
-    #[test]
-    fn test_enforce_size_limit_ok() {
-        assert!(enforce_size_limit(b"hello", 10, "test.lua").is_ok());
-    }
-
-    #[test]
-    fn test_enforce_size_limit_exceeded() {
-        assert!(enforce_size_limit(b"hello world", 5, "test.lua").is_err());
     }
 
     #[test]
