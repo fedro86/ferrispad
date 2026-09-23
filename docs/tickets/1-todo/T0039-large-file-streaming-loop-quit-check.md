@@ -73,3 +73,34 @@ it is practical; otherwise rely on the manual repro.
   distinct, self-terminating sibling of that bug. `StreamLoadResult::Cancelled`
   and the `cancelled: Arc<AtomicBool>` plumbing already exist — the fix is to
   wire the quit path into them.
+
+## Findings (2026-09-23) — blocked on a user decision
+
+Work started (issue #46, branch `ticket/T0039`), then paused: the ticket's
+premise does not hold as written.
+
+- **The main-window close never reaches FerrisPad while this dialog is up.**
+  The progress dialog is `make_modal(true)`, and FLTK drops `FL_CLOSE` for any
+  window other than the modal one (`fltk-sys` `Fl.cxx:1394`:
+  `case FL_CLOSE: if (grab() || (modal() && window != modal())) return 0;`).
+  So the main window's `Event::Close` handler (`main.rs:375-385`, the only place
+  that calls `program_should_quit(true)`) does not run, and
+  `app::should_program_quit()` stays false for the whole load. Ctrl+Q is a
+  keyboard event and goes to the modal dialog, not the menu.
+- **Closing the progress dialog itself already cancels.** Its X is allowed
+  (it *is* the modal window); the default callback hides it, `while
+  dialog.shown()` exits, `cancelled` is set and the reader thread stops.
+- The branch has the `should_program_quit()` check (harmless, consistent with
+  `run_dialog`, but effectively unreachable today) and two unit tests on
+  `read_file_in_chunks` (cancel flag stops the reader before any read; without
+  it the whole file streams and `Done` arrives). Both green.
+
+Options:
+
+1. Ship the branch as a defensive change + tests (no user-visible effect).
+2. Let quit work during a load: e.g. make the dialog non-modal or add a
+   window-level quit path, so X / Ctrl+Q on the main window cancel the load.
+   A real UI change — needs manual verification on a display.
+3. Add a visible **Cancel** button (the ticket's out-of-scope item) — the
+   explicit way out, alongside the dialog's own X.
+4. Close as "not reproducible as described": the dialog's X already cancels.

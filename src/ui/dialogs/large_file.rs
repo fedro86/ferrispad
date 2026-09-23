@@ -241,7 +241,6 @@ pub enum StreamLoadResult {
 }
 
 /// Message sent from reader thread to main thread
-/// Message sent from reader thread to main thread
 enum ChunkMessage {
     /// A chunk of text data
     Chunk(String),
@@ -324,6 +323,15 @@ pub fn load_to_buffer_with_progress(path: &Path, size: u64) -> StreamLoadResult 
     while dialog.shown() {
         app::wait_for(0.01).ok(); // 10ms timeout for responsiveness
 
+        // The app is quitting (main window closed / Ctrl+Q): stop the load
+        // instead of reading the rest of a possibly multi-GB file first. This
+        // loop pumps its own events, so it must check the quit flag itself
+        // (as `run_dialog` does for the button dialogs, T0017).
+        if app::should_program_quit() {
+            dialog.hide();
+            break;
+        }
+
         // Process all available chunks (don't block)
         loop {
             match rx.try_recv() {
@@ -359,7 +367,7 @@ pub fn load_to_buffer_with_progress(path: &Path, size: u64) -> StreamLoadResult 
         }
     }
 
-    // Dialog was closed - signal cancellation
+    // Dialog was closed or the app is quitting - stop the reader thread
     cancelled.store(true, Ordering::Relaxed);
     StreamLoadResult::Cancelled
 }
@@ -406,5 +414,55 @@ fn read_file_in_chunks(path: &Path, cancelled: &AtomicBool, tx: mpsc::Sender<Chu
             // Receiver dropped, likely cancelled
             return;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // T0039: the quit path cancels a streaming load by setting `cancelled`;
+    // the reader thread must then stop before reading anything more, not
+    // stream the rest of the file.
+    #[test]
+    fn reader_stops_without_reading_when_cancelled() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("big.txt");
+        std::fs::write(&path, vec![b'x'; 3 * 1024 * 1024]).expect("write");
+
+        let cancelled = AtomicBool::new(true);
+        let (tx, rx) = mpsc::channel();
+        read_file_in_chunks(&path, &cancelled, tx);
+
+        let messages: Vec<ChunkMessage> = rx.iter().collect();
+        assert_eq!(messages.len(), 1, "expected only the cancellation message");
+        assert!(
+            matches!(&messages[0], ChunkMessage::Error(e) if e.kind() == io::ErrorKind::Interrupted),
+            "expected an Interrupted error"
+        );
+    }
+
+    // Pin: without cancellation the whole file arrives, in 1 MB chunks, then Done.
+    #[test]
+    fn reader_streams_whole_file_when_not_cancelled() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("big.txt");
+        std::fs::write(&path, vec![b'x'; 3 * 1024 * 1024 + 7]).expect("write");
+
+        let cancelled = AtomicBool::new(false);
+        let (tx, rx) = mpsc::channel();
+        read_file_in_chunks(&path, &cancelled, tx);
+
+        let mut total = 0;
+        let mut done = false;
+        for msg in rx.iter() {
+            match msg {
+                ChunkMessage::Chunk(text) => total += text.len(),
+                ChunkMessage::Done => done = true,
+                ChunkMessage::Error(e) => panic!("unexpected error: {e}"),
+            }
+        }
+        assert!(done);
+        assert_eq!(total, 3 * 1024 * 1024 + 7);
     }
 }
