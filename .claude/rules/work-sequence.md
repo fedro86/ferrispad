@@ -37,9 +37,12 @@ ID, never reused or renumbered. Copy `docs/tickets/_template.md` for new tickets
    PR as a **draft** against `master`, and hand back to the user with the recipe
    to run. **Nothing lands on `master` at this step.**
 3. **`2-review/` → `3-done/`** — *Only after the user approves.* Move the ticket
-   to `3-done/`, amend the ticket branch's commit so its body carries
-   `Closes #<issue>`, **then** let it land on `master` (mark the PR ready and
-   merge, or push directly) — reaching `master` is what closes the issue.
+   to `3-done/` in a new commit on the ticket branch and push it (never amend or
+   rebase a pushed branch — that needs a force-push). Then mark the PR ready and
+   **squash-merge** it (`gh pr merge <pr> --squash`), with a Conventional-Commits
+   subject naming the ticket and a body ending in `Closes #<issue>` plus the
+   `Co-Authored-By` trailer. The squash commit is the ticket's single commit on
+   `master`, and reaching `master` is what closes the issue.
 
 ## GitHub issue tracking
 
@@ -55,9 +58,11 @@ automatically — no owner/name hardcoded).
     --body "<one-line goal>\n\nTicket: docs/tickets/2-review/T<NNNN>-<slug>.md"
   ```
   Record the number in the ticket's `issue:` frontmatter field.
-- **Close when the ticket lands** (`3-done/` + commit): put `Closes #<issue>` in
-  the commit body so pushing to `master` auto-closes it. If the commit is not
-  pushed right away, `gh issue close <issue>` once it is.
+- **Close when the ticket lands on `master`**: the squash-merge commit body
+  carries `Closes #<issue>`, so the issue closes when it reaches `master`.
+  Writing `Closes #<issue>` in branch commits is harmless too — GitHub only acts
+  on it once the commit is on the default branch. The draft PR body links the
+  issue the same way.
 - **One ticket ⇄ one issue.** Don't open issues for tickets you aren't working
   yet, and don't retro-file issues for already-`3-done/` tickets.
 
@@ -90,9 +95,11 @@ looks right" is not evidence the bug existed or is gone.
   work moves between machines and how CI sees it at all. What human review gates
   is the *landing*: the pre-commit hook (fmt → clippy → test) is *necessary* but
   not *sufficient* — the ticket being in `3-done/` is what authorises `master`.
-- **One ticket, one diff, one commit** (typically). Don't bundle tickets into
-  one commit; don't split one ticket across commits. Exceptions must be
-  explicit ("depends on T0002 landing first").
+- **One ticket, one diff, one commit on `master`** (typically). The ticket
+  branch may carry any number of commits (WIP moving between machines, review
+  fixes, the `3-done/` move, merges from `master`); the squash-merge collapses
+  them into one. Don't bundle tickets into one PR; don't split one ticket
+  across PRs. Exceptions must be explicit ("depends on T0002 landing first").
 - **Small.** A ticket fits one sitting and one diff. If it grows past ~5
   in-scope bullets, split it into dependent tickets.
 - **Self-contained.** A ticket is readable without prior ticket context.

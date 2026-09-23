@@ -32,13 +32,15 @@ as a rule violation during review purely because of it.
   sentence in the *Work sequence* section.
 - `.claude/skills/new-ticket/SKILL.md` — the closing invariant that repeats the
   ban.
+- The landing mechanism: a draft PR while in review, then a squash-merge at
+  `3-done/` — no amend or force-push of a pushed ticket branch.
 
 ## Out of scope
 
 - The pre-commit hook and the three gates — unchanged, they still run on every
   commit.
-- Whether a ticket PR is a draft, and who merges it. The new wording says
-  `master` needs the user's verification; it does not prescribe the mechanism.
+- Branch protection or any GitHub-side enforcement of the rule — it stays a
+  documented process, backed by the pre-commit hook and CI.
 - Re-auditing already-landed tickets against the corrected rule.
 
 ## How to test
@@ -57,7 +59,14 @@ grep -rn "master" .claude/rules/work-sequence.md docs/tickets/README.md \
   .claude/CLAUDE.md .claude/skills/new-ticket/SKILL.md
 #    Expected: each of the four files mentions the master gate.
 
-# 3. Nothing else moved.
+# 3. No step asks to amend or rebase a pushed ticket branch; landing is a squash-merge.
+grep -rniE "amend|rebase" .claude/rules/work-sequence.md docs/tickets/README.md \
+  .claude/CLAUDE.md .claude/skills/new-ticket/SKILL.md
+#    Expected: only the "never amend or rebase a pushed branch" line.
+grep -rn "squash" .claude/rules/work-sequence.md docs/tickets/README.md
+#    Expected: transition 3, the one-commit hard rule, README rule 5.
+
+# 4. Nothing else moved.
 nix develop -c cargo test
 #    Expected: green, unchanged from before the ticket.
 ```
@@ -95,6 +104,22 @@ grep -rni "not committed|do not commit"                      → no matches
 master gate named in all four files                          → 9 / 6 / 2 / 1 hits
 ```
 
+Review round 1 (2026-09-23) — fixes applied on the branch:
+
+- Transition 3 no longer amends the pushed branch commit (that needs a
+  force-push, which is what blocked the T0032 landing). The `3-done/` move is a
+  new branch commit; the PR is **squash-merged**, and the squash commit body
+  carries `Closes #<issue>` + `Co-Authored-By`.
+- "One ticket, one commit" is now "one commit **on `master`**": the ticket
+  branch may hold WIP, review-fix and merge-from-`master` commits; the squash
+  collapses them (`work-sequence.md` hard rules, `README.md` rule 5).
+- *GitHub issue tracking* → "Close when the ticket lands" rewritten to match
+  (it still said "`3-done/` + commit" and offered a manual `gh issue close`).
+- Out of scope no longer contradicts the diff on draft PRs; the landing
+  mechanism is now explicitly in scope.
+- The branch was brought up to date by merging `master` (not rebasing — no
+  force-push; the squash-merge keeps `master` linear).
+
 ## Acceptance criteria
 
 - [x] No file in `.claude/` or `docs/tickets/` states an unconditional commit ban.
@@ -102,6 +127,8 @@ master gate named in all four files                          → 9 / 6 / 2 / 1 h
       expected; the user's verification is what authorises `master`.
 - [x] The `2-review/` → `3-done/` step still requires user approval, and still
       carries `Closes #<issue>`.
+- [x] No step requires amending, rebasing or force-pushing a pushed ticket
+      branch; `master` gets exactly one (squash) commit per ticket.
 - [x] `cargo test`, `cargo clippy --all-targets --all-features`, and
       `cargo fmt --check` all pass with zero warnings.
 
@@ -116,7 +143,7 @@ master gate named in all four files                          → 9 / 6 / 2 / 1 h
 
 - Origin: fell out of the T0032 review. The commit on `ticket/T0032` was
   reported as a rule violation; the user's call is that the rule is the defect
-  ("bisogna committare se devo passare da un computer all'altro").
+  ("work has to be committed if I am to move between computers").
 - Interacts with T0036 (CI on push/PR): without a pushed branch commit those
   gates cannot run at all, which is independent evidence the old wording was
   unworkable.

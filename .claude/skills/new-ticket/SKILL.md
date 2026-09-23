@@ -48,4 +48,5 @@ changes across state moves — only its directory does.
 - **Nothing reaches `master` while the ticket sits in `1-todo/` or
   `2-review/`** — commit and push on the `ticket/T<NNNN>` branch as usual (it is
   how the work travels between machines and how CI runs); user verification
-  moves the ticket to `3-done/`, which is what clears the landing.
+  moves the ticket to `3-done/`, which is what clears the squash-merge to
+  `master`.

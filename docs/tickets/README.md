@@ -31,7 +31,8 @@ docs/tickets/
    machines and how CI runs. Human review is non-negotiable for the landing: the
    gates (`cargo test` / `clippy` / `fmt`) are *necessary*; the ticket being in
    `3-done/` is what *authorises* `master`.
-5. **One ticket, one diff, one commit** (typically).
+5. **One ticket, one diff, one commit on `master`** (typically) — the ticket
+   branch may hold several commits; the PR is squash-merged.
 
 ## State machine
 
