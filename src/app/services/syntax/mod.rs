@@ -299,7 +299,7 @@ impl SyntaxHighlighter {
             Some(s) => s.clone(),
             None => return,
         };
-        let theme = &inner.theme_set.themes[&self.theme_name];
+        let theme = highlighter::resolve_theme(&inner.theme_set, &self.theme_name);
         let highlighter = Highlighter::new(theme);
         let parse_state = ParseState::new(&syntax);
         let highlight_state = HighlightState::new(&highlighter, ScopeStack::new());
@@ -327,7 +327,7 @@ impl SyntaxHighlighter {
 
         let syntax_set = inner.syntax_set_for(&cs.syntax_name);
         syntax_set.find_syntax_by_name(&cs.syntax_name)?;
-        let theme = &inner.theme_set.themes[&self.theme_name];
+        let theme = highlighter::resolve_theme(&inner.theme_set, &self.theme_name);
         let highlighter = Highlighter::new(theme);
 
         let byte_start = cs.byte_offset;
@@ -399,4 +399,77 @@ impl SyntaxHighlighter {
 
 fn make_default_style(text: &str) -> String {
     std::iter::repeat_n('A', text.len()).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- T0033: a theme name missing from the ThemeSet must not panic ---
+
+    // Every highlight entry point indexed `theme_set.themes[&self.theme_name]`,
+    // which panics on an unknown key. Force a name that no ThemeSet contains
+    // (as a new SyntaxTheme variant or a user-supplied theme would) and drive
+    // each path: all must fall back to a default theme and still produce styles.
+    fn highlighter_with_missing_theme() -> SyntaxHighlighter {
+        let mut h = SyntaxHighlighter::new(SyntaxTheme::Base16OceanDark, Font::Courier, 14);
+        h.theme_name = "no-such-theme".to_string();
+        h
+    }
+
+    const SRC: &str = "fn main() {\n    let x = 1;\n}\n";
+
+    #[test]
+    fn highlight_full_with_missing_theme_falls_back() {
+        let mut h = highlighter_with_missing_theme();
+        let result = h.highlight_full(SRC, "Rust");
+        assert_eq!(result.style_string.len(), SRC.len());
+    }
+
+    #[test]
+    fn highlight_incremental_with_missing_theme_falls_back() {
+        let mut h = highlighter_with_missing_theme();
+        let mut checkpoints = SparseCheckpoints::new();
+        let result = h.highlight_incremental(SRC, 0, &mut checkpoints, "Rust");
+        assert_eq!(result.byte_start + result.style_chars.len(), SRC.len());
+    }
+
+    #[test]
+    fn chunked_highlight_with_missing_theme_falls_back() {
+        let mut h = highlighter_with_missing_theme();
+        h.start_chunked(DocumentId(1), SRC.to_string(), "Rust");
+        let chunk = h.process_chunk().expect("chunked highlight is active");
+        assert!(chunk.done);
+        assert_eq!(chunk.style_chars.len(), SRC.len());
+    }
+
+    // Last rungs of the fallback chain: an empty ThemeSet (no requested theme,
+    // no default key, nothing to pick) still yields a usable theme.
+    #[test]
+    fn resolve_theme_on_empty_set_uses_builtin_default() {
+        let empty = ThemeSet::default();
+        let theme = highlighter::resolve_theme(&empty, "base16-ocean.dark");
+        assert!(theme.scopes.is_empty());
+    }
+
+    #[test]
+    fn resolve_theme_prefers_the_requested_theme() {
+        let set = ThemeSet::load_defaults();
+        let theme = highlighter::resolve_theme(&set, "Solarized (light)");
+        assert_eq!(theme.name.as_deref(), Some("Solarized (light)"));
+    }
+
+    // The fallback must stay a safety net, not hide a typo: every theme the UI
+    // offers has to exist in the ThemeSet we actually load.
+    #[test]
+    fn every_syntax_theme_key_is_in_the_default_theme_set() {
+        let set = ThemeSet::load_defaults();
+        for theme in SyntaxTheme::all() {
+            assert!(
+                set.themes.contains_key(theme.theme_key()),
+                "{theme:?} maps to missing key {:?}",
+                theme.theme_key()
+            );
+        }
+    }
 }
