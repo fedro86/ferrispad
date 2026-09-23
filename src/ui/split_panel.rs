@@ -229,6 +229,38 @@ impl SyntaxDiffMap {
     }
 }
 
+/// Merge a pane's syntax style bytes with its diff backgrounds: for each
+/// byte, look up the syntax foreground in `main_style_table` (style char
+/// `'A' + index`) and combine it with that byte's diff background. Positions
+/// with no usable syntax style get the diff-only base style.
+fn combine_syntax_diff(
+    syntax_bytes: &[u8],
+    diff_map: &[DiffBg],
+    main_style_table: &[StyleTableEntryExt],
+    sdm: &mut SyntaxDiffMap,
+) -> String {
+    let mut combined = Vec::with_capacity(diff_map.len());
+
+    for (i, &diff_bg) in diff_map.iter().enumerate() {
+        // Syntax foreground from the main style table. Every step is checked:
+        // past the end of the syntax string, a byte below 'A', or an index
+        // outside the table all mean "no syntax colour here".
+        let syntax_fg = syntax_bytes
+            .get(i)
+            .and_then(|byte| byte.checked_sub(b'A'))
+            .and_then(|idx| main_style_table.get(usize::from(idx)))
+            .map(|entry| entry.color);
+
+        let ch = match syntax_fg {
+            Some(fg) => sdm.get_or_insert(fg, diff_bg),
+            None => (b'A' + diff_bg.base_index() as u8) as char,
+        };
+        combined.push(ch as u8);
+    }
+
+    String::from_utf8(combined).unwrap_or_default()
+}
+
 /// Build the diff-background map for a pane: for each byte position in `text`,
 /// determine which DiffBg applies based on the line highlights.
 fn build_diff_map(text: &str, highlights: &[LineHighlight]) -> Vec<DiffBg> {
@@ -903,32 +935,12 @@ impl SplitPanel {
         let diff_map = build_diff_map(content, highlights);
 
         let style_string = match syntax_result {
-            Some(result) => {
-                let syntax_bytes = result.style_string.as_bytes();
-                let mut combined = Vec::with_capacity(content.len());
-
-                for (i, &diff_bg) in diff_map.iter().enumerate() {
-                    // Get syntax foreground color from the main style table
-                    let syntax_fg = if i < syntax_bytes.len() {
-                        let style_idx = (syntax_bytes[i] - b'A') as usize;
-                        if style_idx < main_style_table.len() {
-                            Some(main_style_table[style_idx].color)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
-
-                    let ch = match syntax_fg {
-                        Some(fg) => sdm.get_or_insert(fg, diff_bg),
-                        None => (b'A' + diff_bg.base_index() as u8) as char,
-                    };
-                    combined.push(ch as u8);
-                }
-
-                String::from_utf8(combined).unwrap_or_default()
-            }
+            Some(result) => combine_syntax_diff(
+                result.style_string.as_bytes(),
+                &diff_map,
+                main_style_table,
+                sdm,
+            ),
             None => {
                 // No syntax info: fall back to diff-only highlighting
                 diff_map
@@ -1327,5 +1339,51 @@ impl SplitPanel {
     /// Set the right pane editable or read-only.
     pub fn set_right_editable(&mut self, editable: bool) {
         self.right_read_only.set(!editable);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn diff_map_for_tests() -> SyntaxDiffMap {
+        SyntaxDiffMap::new(true, (0, 0, 0), (255, 255, 255), Font::Courier, 14)
+    }
+
+    fn style_entry(color: Color) -> StyleTableEntryExt {
+        StyleTableEntryExt {
+            color,
+            font: Font::Courier,
+            size: 14,
+            attr: TextAttr::None,
+            bgcolor: Color::Black,
+        }
+    }
+
+    // --- T0037: a style byte below 'A' must not underflow ---
+
+    // `combine_syntax_diff` computed `syntax_bytes[i] - b'A'` unguarded: a NUL,
+    // space or any byte < 'A' in the syntax style string was "attempt to
+    // subtract with overflow" in debug builds. Such bytes carry no syntax
+    // colour and must fall back to the diff-only base style.
+    #[test]
+    fn style_bytes_below_a_fall_back_to_diff_style() {
+        let table = [style_entry(Color::Red)];
+        let mut sdm = diff_map_for_tests();
+        let diff = [DiffBg::Normal, DiffBg::Added, DiffBg::Removed];
+        let out = combine_syntax_diff(b"\0 @", &diff, &table, &mut sdm);
+        assert_eq!(out, "ABC");
+    }
+
+    // Pin: valid style chars still pick up their syntax colour (a combined
+    // entry after the 6 base diff styles); out-of-table chars and positions
+    // past the end of the syntax string fall back to the diff base style.
+    #[test]
+    fn valid_style_bytes_combine_with_diff_background() {
+        let table = [style_entry(Color::Red)];
+        let mut sdm = diff_map_for_tests();
+        let diff = [DiffBg::Normal, DiffBg::Added, DiffBg::Modified];
+        let out = combine_syntax_diff(b"AZ", &diff, &table, &mut sdm);
+        assert_eq!(out, "GBD");
     }
 }
