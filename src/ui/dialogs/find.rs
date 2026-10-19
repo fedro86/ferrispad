@@ -76,10 +76,28 @@ impl Direction {
             Direction::Backward => start,
         }
     }
+
+    /// The char boundary one character away from `pos` in this direction, or
+    /// `None` at the end of the document (or if `pos` is not a boundary).
+    fn step(self, text: &str, pos: usize) -> Option<usize> {
+        match self {
+            Direction::Forward => text.get(pos..)?.chars().next().map(|c| pos + c.len_utf8()),
+            Direction::Backward => text
+                .get(..pos)?
+                .chars()
+                .next_back()
+                .map(|c| pos - c.len_utf8()),
+        }
+    }
 }
 
 /// Search `text` for `query` from `from` in `dir`, wrapping around once to
 /// the other end of the document when the first pass finds nothing.
+///
+/// An empty regex match (`^`, `$`, `\b`, `a*`) sitting exactly at `from` is
+/// where the previous search stopped, so it is stepped past: every Find Next /
+/// Find Prev moves. It is still returned when it is the only match left, as
+/// wrapping all the way round would.
 ///
 /// Returns `(start, end)` byte offsets into `text`, or `Err` with the message
 /// of an invalid regex.
@@ -90,13 +108,25 @@ fn search_wrapping(
     dir: Direction,
     opts: SearchOptions,
 ) -> Result<Option<(usize, usize)>, String> {
-    if let Some(found) = dir.search_once(text, query, from, opts)? {
-        return Ok(Some(found));
+    let empty_at_from = Some((from, from));
+    let mut found = dir.search_once(text, query, from, opts)?;
+    let stepped_past = found == empty_at_from;
+    if stepped_past {
+        found = match dir.step(text, from) {
+            Some(next) => dir.search_once(text, query, next, opts)?,
+            None => None,
+        };
     }
-    match dir.wrap_start(text.len(), from) {
-        Some(wrap) => dir.search_once(text, query, wrap, opts),
-        None => Ok(None),
+    if found.is_none()
+        && let Some(wrap) = dir.wrap_start(text.len(), from)
+    {
+        found = dir.search_once(text, query, wrap, opts)?;
     }
+    Ok(if stepped_past {
+        found.or(empty_at_from)
+    } else {
+        found
+    })
 }
 
 impl FindState {
@@ -813,6 +843,58 @@ mod tests {
             Ok(Some((0, 1)))
         );
         assert_eq!(state.locate(Forward, text, "x", 0, PLAIN), Ok(Some((0, 1))));
+    }
+
+    #[test]
+    fn empty_regex_match_advances_on_find_next() {
+        // The cursor starts at the end of the text (where it sits after a
+        // paste), so the first Find Next wraps to the top.
+        let state = FindState::new();
+        let text = "a\nb\nc";
+        let hits: Vec<_> = (0..4)
+            .map(|_| state.locate(Forward, text, "^", text.len(), REGEX))
+            .collect();
+        assert_eq!(
+            hits,
+            [
+                Ok(Some((0, 0))),
+                Ok(Some((2, 2))),
+                Ok(Some((4, 4))),
+                Ok(Some((0, 0)))
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_regex_match_steps_back_on_find_prev() {
+        let state = FindState::new();
+        let text = "a\nb\nc";
+        let hits: Vec<_> = (0..4)
+            .map(|_| state.locate(Backward, text, "$", 0, REGEX))
+            .collect();
+        assert_eq!(
+            hits,
+            [
+                Ok(Some((5, 5))),
+                Ok(Some((3, 3))),
+                Ok(Some((1, 1))),
+                Ok(Some((5, 5)))
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_match_at_the_start_point_is_skipped() {
+        // Find Next / Find Prev never return an empty match sitting exactly
+        // where the search starts, so every press moves.
+        let text = "a\nb\nc";
+        assert_eq!(search(Forward, text, "^", 2, REGEX), Some((4, 4)));
+        assert_eq!(search(Backward, text, "$", 3, REGEX), Some((1, 1)));
+        // An empty match at the far end is still found by the wrap pass.
+        assert_eq!(search(Forward, "abc", "$", 3, REGEX), Some((3, 3)));
+        assert_eq!(search(Backward, "abc", "^", 0, REGEX), Some((0, 0)));
+        // A non-empty match ending at the start point is not lost.
+        assert_eq!(search(Backward, "baa", "a*", 3, REGEX), Some((1, 3)));
     }
 
     #[test]
