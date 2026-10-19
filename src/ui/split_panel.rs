@@ -22,7 +22,7 @@ use fltk::{
 use super::dialogs::{DialogTheme, SCROLLBAR_SIZE};
 use crate::app::Message;
 use crate::app::plugins::widgets::{
-    HighlightColor, LineHighlight, SplitDisplayMode, SplitViewAction, SplitViewRequest,
+    HighlightColor, LineHighlight, SplitDisplayMode, SplitPane, SplitViewAction, SplitViewRequest,
 };
 
 /// Get the vertical scrollbar value of a TextDisplay/TextEditor via FFI.
@@ -56,14 +56,79 @@ fn get_vscrollbar_value_raw(widget_ptr: fltk::app::WidgetPtr) -> f64 {
     }
 }
 
-/// Get the vertical scrollbar value of a TextDisplay.
-fn get_vscrollbar_value(display: &TextDisplay) -> f64 {
-    get_vscrollbar_value_raw(display.as_widget_ptr())
+/// Get the vertical scrollbar value of a pane's TextDisplay/TextEditor.
+fn get_vscrollbar_value<W: WidgetExt>(widget: &W) -> f64 {
+    get_vscrollbar_value_raw(widget.as_widget_ptr())
 }
 
-/// Get the vertical scrollbar value of a TextEditor.
-fn get_vscrollbar_value_editor(editor: &TextEditor) -> f64 {
-    get_vscrollbar_value_raw(editor.as_widget_ptr())
+/// Style scrollbars on a widget via FFI using its raw pointer.
+fn style_scrollbars_raw(widget_ptr: fltk::app::WidgetPtr, theme: &DialogTheme) {
+    // SAFETY: widget_ptr is a valid Fl_Group subclass (TextDisplay/TextEditor).
+    // Fl_Group_children/Fl_Group_child are stable FLTK C API. We null-check
+    // child pointers and clamp the index to min(2) before access.
+    unsafe extern "C" {
+        fn Fl_Group_children(grp: *mut std::ffi::c_void) -> std::ffi::c_int;
+        fn Fl_Group_child(
+            grp: *mut std::ffi::c_void,
+            index: std::ffi::c_int,
+        ) -> *mut std::ffi::c_void;
+    }
+    unsafe {
+        use fltk::valuator::Scrollbar;
+        let group_ptr = widget_ptr as *mut std::ffi::c_void;
+        let nchildren = Fl_Group_children(group_ptr);
+        for i in 0..nchildren.min(2) {
+            let ptr = Fl_Group_child(group_ptr, i);
+            if !ptr.is_null() {
+                let mut sb = Scrollbar::from_widget_ptr(ptr as fltk::app::WidgetPtr);
+                sb.set_frame(FrameType::FlatBox);
+                sb.set_color(theme.scroll_track);
+                sb.set_slider_frame(FrameType::FlatBox);
+                sb.set_selection_color(theme.scroll_thumb);
+            }
+        }
+    }
+}
+
+/// The scroll-sync half of a pane's event handler (FLTK's `handle()`
+/// replaces rather than stacks, so each pane installs one combined handler).
+/// A mouse-wheel notch scrolls both panes by 3 lines; a release — the end of
+/// a scrollbar drag — aligns `other` with `this`. `syncing` guards against
+/// re-entry while the other pane scrolls. Returns whether the event was
+/// consumed (wheel: yes; release: no, so FLTK finishes handling it).
+fn sync_scroll<A: DisplayExt, B: DisplayExt>(
+    this: &mut A,
+    other: &mut B,
+    syncing: &Cell<bool>,
+    event: Event,
+) -> bool {
+    if syncing.get() {
+        return false;
+    }
+    match event {
+        Event::MouseWheel => {
+            syncing.set(true);
+            let delta = match app::event_dy() {
+                app::MouseWheel::Up => -3,
+                app::MouseWheel::Down => 3,
+                _ => 0,
+            };
+            let current = get_vscrollbar_value(this) as i32;
+            let new_line = (current + delta).max(1);
+            this.scroll(new_line, 0);
+            other.scroll(new_line, 0);
+            syncing.set(false);
+            true
+        }
+        Event::Released => {
+            syncing.set(true);
+            let val = get_vscrollbar_value(this) as i32;
+            other.scroll(val, 0);
+            syncing.set(false);
+            false
+        }
+        _ => false,
+    }
 }
 
 /// Maximum style entries for the split view style table.
@@ -318,6 +383,32 @@ fn build_diff_map(text: &str, highlights: &[LineHighlight]) -> Vec<DiffBg> {
     map
 }
 
+/// Build one pane's style string: its diff backgrounds, merged with the
+/// syntax foregrounds from `syntax_bytes` when syntax info is available, or
+/// the diff-only base styles when it is not.
+fn pane_style_string(
+    content: &str,
+    highlights: &[LineHighlight],
+    syntax_bytes: Option<&[u8]>,
+    main_style_table: &[StyleTableEntryExt],
+    sdm: &mut SyntaxDiffMap,
+) -> String {
+    if content.is_empty() {
+        return String::new();
+    }
+
+    let diff_map = build_diff_map(content, highlights);
+
+    match syntax_bytes {
+        Some(bytes) => combine_syntax_diff(bytes, &diff_map, main_style_table, sdm),
+        // No syntax info: fall back to diff-only highlighting
+        None => diff_map
+            .iter()
+            .map(|d| (b'A' + d.base_index() as u8) as char)
+            .collect(),
+    }
+}
+
 /// Height of the split panel header
 const HEADER_HEIGHT: i32 = 24;
 
@@ -330,6 +421,145 @@ const ACTION_BAR_HEIGHT: i32 = 34;
 /// Default height of the split panel content area
 const DEFAULT_CONTENT_HEIGHT: i32 = 250;
 
+/// Width of a pane's line-number gutter when line numbers are shown
+const LINENUMBER_WIDTH: i32 = 40;
+
+/// Scrollbar marker data for one pane: (line, color) pairs, shared with the
+/// content row's draw callback.
+type Markers = Rc<RefCell<Vec<(u32, HighlightColor)>>>;
+
+/// Create an (unlabelled) pane label frame in the current group.
+/// `Pane::new` sets its text.
+fn new_pane_label() -> Frame {
+    let mut label = Frame::default();
+    label.set_frame(FrameType::FlatBox);
+    label.set_label_size(11);
+    label.set_label_font(Font::HelveticaBold);
+    label.set_align(Align::Left | Align::Inside);
+    label
+}
+
+/// One side of the split view: its display widget, text and style buffers,
+/// label and scrollbar markers. The left pane is a `TextDisplay`; the right
+/// pane is a `TextEditor` so a request can make it editable.
+struct Pane<D: DisplayExt> {
+    /// Text display widget
+    display: D,
+    /// Content buffer
+    buffer: TextBuffer,
+    /// Style buffer (one style char per content byte)
+    style_buffer: TextBuffer,
+    /// Label above the pane (e.g. HEAD / Working Copy)
+    label: Frame,
+    /// Label text used when a request leaves the pane's label empty
+    default_label: &'static str,
+    /// Scrollbar marker data: (line, color) pairs
+    markers: Markers,
+}
+
+impl<D: DisplayExt> Pane<D> {
+    /// Wire `display` up as a pane. `label` must already sit in the labels
+    /// row, and `display` must have been created inside the content row.
+    fn new(mut display: D, mut label: Frame, default_label: &'static str) -> Self {
+        label.set_label(&format!("  {default_label}"));
+
+        let buffer = TextBuffer::default();
+        display.set_buffer(buffer.clone());
+        display.set_frame(FrameType::FlatBox);
+        display.set_text_font(Font::Courier);
+        display.set_text_size(13);
+        display.set_linenumber_width(LINENUMBER_WIDTH);
+
+        Self {
+            display,
+            buffer,
+            style_buffer: TextBuffer::default(),
+            label,
+            default_label,
+            markers: Rc::new(RefCell::new(Vec::new())),
+        }
+    }
+
+    /// Show one side of a request: its content, label and line-number gutter.
+    fn load(&mut self, side: &SplitPane) {
+        self.buffer.set_text(&side.content);
+        let label = if side.label.is_empty() {
+            self.default_label
+        } else {
+            side.label.as_str()
+        };
+        self.label.set_label(&format!("  {label}"));
+        self.display.set_linenumber_width(if side.line_numbers {
+            LINENUMBER_WIDTH
+        } else {
+            0
+        });
+    }
+
+    /// Set the pane's text font and size.
+    fn set_font(&mut self, font: Font, size: i32) {
+        self.display.set_text_font(font);
+        self.display.set_text_size(size);
+    }
+
+    /// Fill the style buffer with combined syntax+diff highlighting for
+    /// `side`, registering any new style combinations in `sdm`.
+    fn apply_syntax_diff(
+        &mut self,
+        side: &SplitPane,
+        syntax_result: Option<&crate::app::services::syntax::FullHighlightResult>,
+        main_style_table: &[StyleTableEntryExt],
+        sdm: &mut SyntaxDiffMap,
+    ) {
+        let style_string = pane_style_string(
+            &side.content,
+            &side.highlights,
+            syntax_result.map(|result| result.style_string.as_bytes()),
+            main_style_table,
+            sdm,
+        );
+        self.style_buffer.set_text(&style_string);
+    }
+
+    /// Attach `table` as the pane's style table, over its style buffer.
+    fn set_style_table(&mut self, table: Vec<StyleTableEntryExt>) {
+        self.display
+            .set_highlight_data_ext(self.style_buffer.clone(), table);
+    }
+
+    /// Replace the scrollbar markers with one per highlighted line.
+    fn set_markers(&self, highlights: &[LineHighlight]) {
+        *self.markers.borrow_mut() = highlights.iter().map(|h| (h.line, h.color)).collect();
+    }
+
+    /// Empty the content and style buffers.
+    fn clear(&mut self) {
+        self.buffer.set_text("");
+        self.style_buffer.set_text("");
+    }
+
+    /// Apply theme colors to the label, display, line numbers and scrollbars.
+    fn apply_theme(
+        &mut self,
+        theme: &DialogTheme,
+        label_bg: Color,
+        label_text: Color,
+        editor_bg: Color,
+        linenumber_bg: Color,
+    ) {
+        self.label.set_color(label_bg);
+        self.label.set_label_color(label_text);
+
+        self.display.set_color(editor_bg);
+        self.display.set_text_color(theme.text);
+        self.display.set_linenumber_bgcolor(linenumber_bg);
+        self.display.set_linenumber_fgcolor(theme.text_dim);
+
+        self.display.set_scrollbar_size(SCROLLBAR_SIZE);
+        style_scrollbars_raw(self.display.as_widget_ptr(), theme);
+    }
+}
+
 /// Split panel widget for showing side-by-side content
 pub struct SplitPanel {
     /// The outer container (Flex column)
@@ -339,24 +569,12 @@ pub struct SplitPanel {
     pub divider: Option<Frame>,
     /// Header frame showing title
     header: Frame,
-    /// Left pane text display
-    left_display: TextDisplay,
-    /// Left pane buffer
-    left_buffer: TextBuffer,
-    /// Left pane style buffer
-    left_style_buffer: TextBuffer,
-    /// Left pane label
-    left_label: Frame,
-    /// Right pane editor (TextEditor used as display; read-only controlled via handle closure)
-    right_editor: TextEditor,
+    /// Left pane (read-only TextDisplay)
+    left: Pane<TextDisplay>,
+    /// Right pane (TextEditor used as display; read-only controlled via handle closure)
+    right: Pane<TextEditor>,
     /// Whether the right pane is currently read-only (shared with handle closure)
     right_read_only: Rc<Cell<bool>>,
-    /// Right pane buffer
-    right_buffer: TextBuffer,
-    /// Right pane style buffer
-    right_style_buffer: TextBuffer,
-    /// Right pane label
-    right_label: Frame,
     /// Labels row (HEAD / Working Copy)
     labels_row: Flex,
     /// Content row (holds left and right displays)
@@ -390,10 +608,6 @@ pub struct SplitPanel {
     /// DiffBg variant index for each cached style entry (parallel vec).
     /// Used to rebuild bgcolors on theme change.
     cached_diff_bg_indices: Vec<u8>,
-    /// Scrollbar marker data for left pane: (line, color) pairs
-    left_markers: Rc<RefCell<Vec<(u32, HighlightColor)>>>,
-    /// Scrollbar marker data for right pane: (line, color) pairs
-    right_markers: Rc<RefCell<Vec<(u32, HighlightColor)>>>,
     /// Total line count in the aligned diff (same for both panes)
     marker_total_lines: Rc<Cell<u32>>,
     /// Whether markers are in dark mode
@@ -443,19 +657,8 @@ impl SplitPanel {
         labels_row.set_margin(0);
         labels_row.set_pad(0);
 
-        let mut left_label = Frame::default();
-        left_label.set_frame(FrameType::FlatBox);
-        left_label.set_label_size(11);
-        left_label.set_label_font(Font::HelveticaBold);
-        left_label.set_align(Align::Left | Align::Inside);
-        left_label.set_label("  Left");
-
-        let mut right_label = Frame::default();
-        right_label.set_frame(FrameType::FlatBox);
-        right_label.set_label_size(11);
-        right_label.set_label_font(Font::HelveticaBold);
-        right_label.set_align(Align::Left | Align::Inside);
-        right_label.set_label("  Right");
+        let left_label = new_pane_label();
+        let right_label = new_pane_label();
 
         labels_row.end();
         container.fixed(&labels_row, LABEL_HEIGHT);
@@ -466,23 +669,8 @@ impl SplitPanel {
         content_row.set_margin(2);
         content_row.set_pad(1); // 1px gap between panes
 
-        let left_buffer = TextBuffer::default();
-        let left_style_buffer = TextBuffer::default();
-        let mut left_display = TextDisplay::default();
-        left_display.set_buffer(left_buffer.clone());
-        left_display.set_frame(FrameType::FlatBox);
-        left_display.set_text_font(Font::Courier);
-        left_display.set_text_size(13);
-        left_display.set_linenumber_width(40);
-
-        let right_buffer = TextBuffer::default();
-        let right_style_buffer = TextBuffer::default();
-        let mut right_editor = TextEditor::default();
-        right_editor.set_buffer(right_buffer.clone());
-        right_editor.set_frame(FrameType::FlatBox);
-        right_editor.set_text_font(Font::Courier);
-        right_editor.set_text_size(13);
-        right_editor.set_linenumber_width(40);
+        let mut left = Pane::new(TextDisplay::default(), left_label, "Left");
+        let mut right = Pane::new(TextEditor::default(), right_label, "Right");
 
         content_row.end();
 
@@ -492,83 +680,28 @@ impl SplitPanel {
         // Read-only flag shared between SplitPanel and the right pane's handle closure
         let right_read_only = Rc::new(Cell::new(true));
 
-        // Event-driven synchronized scrolling.
-        // Combines mouse wheel sync and scrollbar drag sync in a single handler
-        // per pane (FLTK's handle() replaces, not stacks).
+        // Event-driven synchronized scrolling (mouse wheel + scrollbar drag),
+        // one combined handler per pane; see `sync_scroll`.
         let syncing = Rc::new(Cell::new(false));
 
         {
             let flag = syncing.clone();
-            let mut other = right_editor.clone();
-            left_display.handle(move |disp, event| {
-                match event {
-                    Event::MouseWheel if !flag.get() => {
-                        flag.set(true);
-                        let dy = app::event_dy();
-                        let delta = match dy {
-                            app::MouseWheel::Up => -3,
-                            app::MouseWheel::Down => 3,
-                            _ => 0,
-                        };
-                        let current = get_vscrollbar_value(disp) as i32;
-                        let new_line = (current + delta).max(1);
-                        disp.scroll(new_line, 0);
-                        other.scroll(new_line, 0);
-                        flag.set(false);
-                        true // consume
-                    }
-                    Event::Released if !flag.get() => {
-                        // After scrollbar drag release, sync the other pane
-                        flag.set(true);
-                        let val = get_vscrollbar_value(disp) as i32;
-                        other.scroll(val, 0);
-                        flag.set(false);
-                        false // don't consume — let FLTK finish handling
-                    }
-                    _ => false,
-                }
-            });
+            let mut other = right.display.clone();
+            left.display
+                .handle(move |disp, event| sync_scroll(disp, &mut other, &flag, event));
         }
 
-        // Right pane handler: combines scroll sync + read-only blocking
+        // Right pane handler: combines read-only blocking + scroll sync
         {
             let flag = syncing;
             let read_only = right_read_only.clone();
-            let mut other = left_display.clone();
-            right_editor.handle(move |ed, event| {
+            let mut other = left.display.clone();
+            right.display.handle(move |ed, event| {
                 // Block keyboard input and paste when read-only
-                if read_only.get() {
-                    match event {
-                        Event::KeyDown | Event::Paste => return true, // consume to block
-                        _ => {}
-                    }
+                if read_only.get() && matches!(event, Event::KeyDown | Event::Paste) {
+                    return true; // consume to block
                 }
-                // Scroll sync
-                match event {
-                    Event::MouseWheel if !flag.get() => {
-                        flag.set(true);
-                        let dy = app::event_dy();
-                        let delta = match dy {
-                            app::MouseWheel::Up => -3,
-                            app::MouseWheel::Down => 3,
-                            _ => 0,
-                        };
-                        let current = get_vscrollbar_value_editor(ed) as i32;
-                        let new_line = (current + delta).max(1);
-                        ed.scroll(new_line, 0);
-                        other.scroll(new_line, 0);
-                        flag.set(false);
-                        true
-                    }
-                    Event::Released if !flag.get() => {
-                        flag.set(true);
-                        let val = get_vscrollbar_value_editor(ed) as i32;
-                        other.scroll(val, 0);
-                        flag.set(false);
-                        false
-                    }
-                    _ => false,
-                }
+                sync_scroll(ed, &mut other, &flag, event)
             });
         }
 
@@ -576,15 +709,9 @@ impl SplitPanel {
             container,
             divider: None,
             header,
-            left_display,
-            left_buffer,
-            left_style_buffer,
-            left_label,
-            right_editor,
+            left,
+            right,
             right_read_only,
-            right_buffer,
-            right_style_buffer,
-            right_label,
             labels_row,
             content_row,
             action_bar,
@@ -601,8 +728,6 @@ impl SplitPanel {
             editor_font_size: 13,
             cached_style_table: Vec::new(),
             cached_diff_bg_indices: Vec::new(),
-            left_markers: Rc::new(RefCell::new(Vec::new())),
-            right_markers: Rc::new(RefCell::new(Vec::new())),
             marker_total_lines: Rc::new(Cell::new(0)),
             markers_dark: Rc::new(Cell::new(false)),
         }
@@ -697,72 +822,27 @@ impl SplitPanel {
             self.header.set_label("  Split View");
         }
 
-        self.left_buffer.set_text(&request.left.content);
-        if !request.left.label.is_empty() {
-            self.left_label
-                .set_label(&format!("  {}", request.left.label));
-        } else {
-            self.left_label.set_label("  Left");
-        }
-        if request.left.line_numbers {
-            self.left_display.set_linenumber_width(40);
-        } else {
-            self.left_display.set_linenumber_width(0);
-        }
-
-        self.right_buffer.set_text(&request.right.content);
-        if !request.right.label.is_empty() {
-            self.right_label
-                .set_label(&format!("  {}", request.right.label));
-        } else {
-            self.right_label.set_label("  Right");
-        }
-        if request.right.line_numbers {
-            self.right_editor.set_linenumber_width(40);
-        } else {
-            self.right_editor.set_linenumber_width(0);
-        }
+        self.left.load(&request.left);
+        self.right.load(&request.right);
 
         // Both modes follow the user's editor font; panel mode no longer hardcodes
         // (Font::Courier, 13) so custom fonts (Consolas, Fira Code, ...) propagate
         // through the diff viewer too.
-        let (pane_font, pane_size) = (font, font_size);
-        self.left_display.set_text_font(pane_font);
-        self.left_display.set_text_size(pane_size);
-        self.right_editor.set_text_font(pane_font);
-        self.right_editor.set_text_size(pane_size);
+        self.left.set_font(font, font_size);
+        self.right.set_font(font, font_size);
 
-        // Build combined syntax+diff style table
-        let mut sdm = SyntaxDiffMap::new(self.is_dark, theme_bg, theme_fg, pane_font, pane_size);
+        // Build combined syntax+diff style table, shared by both panes
+        let mut sdm = SyntaxDiffMap::new(self.is_dark, theme_bg, theme_fg, font, font_size);
+        self.left
+            .apply_syntax_diff(&request.left, left_syntax, main_style_table, &mut sdm);
+        self.right
+            .apply_syntax_diff(&request.right, right_syntax, main_style_table, &mut sdm);
 
-        // Apply syntax+diff highlights for each pane
-        self.apply_syntax_diff_pane(
-            true, // left
-            &request.left.content,
-            &request.left.highlights,
-            left_syntax,
-            main_style_table,
-            &mut sdm,
-        );
-        self.apply_syntax_diff_pane(
-            false, // right
-            &request.right.content,
-            &request.right.highlights,
-            right_syntax,
-            main_style_table,
-            &mut sdm,
-        );
-
-        // Cache diff bg indices before consuming the map
+        // Cache diff bg indices before consuming the map, then cache and
+        // apply the style table to both panes
         self.cached_diff_bg_indices = sdm.diff_bg_indices();
-        let final_table = sdm.into_entries();
-
-        // Cache and apply the style table to both displays
-        self.cached_style_table = final_table.clone();
-        self.left_display
-            .set_highlight_data_ext(self.left_style_buffer.clone(), final_table.clone());
-        self.right_editor
-            .set_highlight_data_ext(self.right_style_buffer.clone(), final_table);
+        self.cached_style_table = sdm.into_entries();
+        self.apply_cached_style_table();
 
         // Set right pane editability based on request
         self.set_right_editable(!request.right.read_only);
@@ -786,31 +866,15 @@ impl SplitPanel {
             .min()
             .unwrap_or(1)
             .saturating_sub(3) as i32; // 3 lines of context above
-        self.left_display.scroll(first_change_line, 0);
-        self.right_editor.scroll(first_change_line, 0);
+        self.left.display.scroll(first_change_line, 0);
+        self.right.display.scroll(first_change_line, 0);
 
         // Update scrollbar marker data
         let total_lines = request.left.content.lines().count().max(1) as u32;
         self.marker_total_lines.set(total_lines);
         self.markers_dark.set(self.is_dark);
-        {
-            let mut lm = self.left_markers.borrow_mut();
-            *lm = request
-                .left
-                .highlights
-                .iter()
-                .map(|h| (h.line, h.color))
-                .collect();
-        }
-        {
-            let mut rm = self.right_markers.borrow_mut();
-            *rm = request
-                .right
-                .highlights
-                .iter()
-                .map(|h| (h.line, h.color))
-                .collect();
-        }
+        self.left.set_markers(&request.left.highlights);
+        self.right.set_markers(&request.right.highlights);
         self.setup_scrollbar_markers();
 
         self.container.redraw();
@@ -820,38 +884,39 @@ impl SplitPanel {
     /// The callback draws colored markers directly on top of each pane's scrollbar
     /// track area after all children have been rendered.
     fn setup_scrollbar_markers(&mut self) {
-        let left_disp = self.left_display.clone();
-        let right_ed = self.right_editor.clone();
-        let lm = self.left_markers.clone();
-        let rm = self.right_markers.clone();
+        let left_disp = self.left.display.clone();
+        let right_ed = self.right.display.clone();
+        let lm = self.left.markers.clone();
+        let rm = self.right.markers.clone();
         let total = self.marker_total_lines.clone();
-        let total2 = self.marker_total_lines.clone();
         let dark = self.markers_dark.clone();
-        let dark2 = self.markers_dark.clone();
 
         self.content_row.draw(move |cr| {
             // Draw children first (the text displays)
             cr.draw_children();
 
-            let sb_w = SCROLLBAR_SIZE;
-            let btn_h = sb_w; // scrollbar arrow buttons are square
-
-            // Left pane markers
-            let lx = left_disp.x() + left_disp.w() - sb_w;
-            let ly = left_disp.y() + btn_h;
-            let lh = left_disp.h() - btn_h * 2;
-            if lh > 0 {
-                Self::draw_markers(lx, ly, sb_w, lh, &lm, &total, &dark);
-            }
-
-            // Right pane markers
-            let rx = right_ed.x() + right_ed.w() - sb_w;
-            let ry = right_ed.y() + btn_h;
-            let rh = right_ed.h() - btn_h * 2;
-            if rh > 0 {
-                Self::draw_markers(rx, ry, sb_w, rh, &rm, &total2, &dark2);
-            }
+            Self::draw_pane_markers(&left_disp, &lm, total.get(), dark.get());
+            Self::draw_pane_markers(&right_ed, &rm, total.get(), dark.get());
         });
+    }
+
+    /// Draw a pane's markers over its vertical scrollbar track (between the
+    /// two square arrow buttons).
+    fn draw_pane_markers<W: WidgetExt>(
+        display: &W,
+        markers: &Markers,
+        total_lines: u32,
+        is_dark: bool,
+    ) {
+        let sb_w = SCROLLBAR_SIZE;
+        let btn_h = sb_w; // scrollbar arrow buttons are square
+
+        let x = display.x() + display.w() - sb_w;
+        let y = display.y() + btn_h;
+        let h = display.h() - btn_h * 2;
+        if h > 0 {
+            Self::draw_markers(x, y, sb_w, h, markers, total_lines, is_dark);
+        }
     }
 
     /// Draw colored markers on a frame that overlays the scrollbar track.
@@ -860,9 +925,9 @@ impl SplitPanel {
         frame_y: i32,
         frame_w: i32,
         frame_h: i32,
-        markers: &Rc<RefCell<Vec<(u32, HighlightColor)>>>,
-        total_lines: &Rc<Cell<u32>>,
-        is_dark: &Rc<Cell<bool>>,
+        markers: &Markers,
+        total_lines: u32,
+        dark: bool,
     ) {
         use fltk::draw;
 
@@ -870,8 +935,7 @@ impl SplitPanel {
         if markers.is_empty() {
             return;
         }
-        let total = total_lines.get().max(1) as f64;
-        let dark = is_dark.get();
+        let total = total_lines.max(1) as f64;
 
         if frame_h <= 0 {
             return;
@@ -912,49 +976,10 @@ impl SplitPanel {
         }
     }
 
-    /// Apply combined syntax+diff highlighting for one pane.
-    /// Writes the result into the appropriate style buffer.
-    fn apply_syntax_diff_pane(
-        &mut self,
-        is_left: bool,
-        content: &str,
-        highlights: &[LineHighlight],
-        syntax_result: Option<&crate::app::services::syntax::FullHighlightResult>,
-        main_style_table: &[StyleTableEntryExt],
-        sdm: &mut SyntaxDiffMap,
-    ) {
-        if content.is_empty() {
-            if is_left {
-                self.left_style_buffer.set_text("");
-            } else {
-                self.right_style_buffer.set_text("");
-            }
-            return;
-        }
-
-        let diff_map = build_diff_map(content, highlights);
-
-        let style_string = match syntax_result {
-            Some(result) => combine_syntax_diff(
-                result.style_string.as_bytes(),
-                &diff_map,
-                main_style_table,
-                sdm,
-            ),
-            None => {
-                // No syntax info: fall back to diff-only highlighting
-                diff_map
-                    .iter()
-                    .map(|d| (b'A' + d.base_index() as u8) as char)
-                    .collect()
-            }
-        };
-
-        if is_left {
-            self.left_style_buffer.set_text(&style_string);
-        } else {
-            self.right_style_buffer.set_text(&style_string);
-        }
+    /// Apply the cached style table to both panes.
+    fn apply_cached_style_table(&mut self) {
+        self.left.set_style_table(self.cached_style_table.clone());
+        self.right.set_style_table(self.cached_style_table.clone());
     }
 
     /// Rebuild action buttons based on the request.
@@ -1050,10 +1075,8 @@ impl SplitPanel {
         self.is_tab_mode = false;
         self.diff_title.clear();
         self.cached_actions.clear();
-        self.left_buffer.set_text("");
-        self.right_buffer.set_text("");
-        self.left_style_buffer.set_text("");
-        self.right_style_buffer.set_text("");
+        self.left.clear();
+        self.right.clear();
     }
 
     /// Check if the panel is visible
@@ -1068,7 +1091,7 @@ impl SplitPanel {
 
     /// Get the content of the right pane (for accept action)
     pub fn right_content(&self) -> String {
-        self.right_buffer.text()
+        self.right.buffer.text()
     }
 
     /// Get the current panel height for flex layout
@@ -1110,37 +1133,26 @@ impl SplitPanel {
             Color::from_rgb(30, 30, 30)
         };
         self.labels_row.set_color(label_bg);
-        self.left_label.set_color(label_bg);
-        self.left_label.set_label_color(label_text);
-        self.right_label.set_color(label_bg);
-        self.right_label.set_label_color(label_text);
 
         let editor_bg = Color::from_rgb(r, g, b);
         self.content_row.set_color(editor_bg);
-        self.left_display.set_color(editor_bg);
-        self.left_display.set_text_color(theme.text);
-        self.right_editor.set_color(editor_bg);
-        self.right_editor.set_text_color(theme.text);
 
         let (ln_r, ln_g, ln_b) = if theme.is_dark() {
             super::dialogs::darken(r, g, b, 0.80)
         } else {
             super::dialogs::darken(r, g, b, 0.95)
         };
-        self.left_display
-            .set_linenumber_bgcolor(Color::from_rgb(ln_r, ln_g, ln_b));
-        self.left_display.set_linenumber_fgcolor(theme.text_dim);
-        self.right_editor
-            .set_linenumber_bgcolor(Color::from_rgb(ln_r, ln_g, ln_b));
-        self.right_editor.set_linenumber_fgcolor(theme.text_dim);
+        let linenumber_bg = Color::from_rgb(ln_r, ln_g, ln_b);
+
+        self.left
+            .apply_theme(&theme, label_bg, label_text, editor_bg, linenumber_bg);
+        self.right
+            .apply_theme(&theme, label_bg, label_text, editor_bg, linenumber_bg);
 
         self.action_bar.set_color(theme.bg);
 
         // In tab mode, override header/action_bar to match the diff tab's tinted background
         self.update_tab_mode_colors();
-
-        self.style_text_display_scrollbars(&mut self.left_display.clone(), &theme);
-        self.style_text_editor_scrollbars(&mut self.right_editor.clone(), &theme);
 
         // Rebuild diff background colors in the cached style table.
         // Each entry's bgcolor needs updating based on its DiffBg variant.
@@ -1200,14 +1212,7 @@ impl SplitPanel {
                 }
             }
 
-            self.left_display.set_highlight_data_ext(
-                self.left_style_buffer.clone(),
-                self.cached_style_table.clone(),
-            );
-            self.right_editor.set_highlight_data_ext(
-                self.right_style_buffer.clone(),
-                self.cached_style_table.clone(),
-            );
+            self.apply_cached_style_table();
         }
     }
 
@@ -1273,10 +1278,8 @@ impl SplitPanel {
     fn update_display_fonts(&mut self) {
         let (font, size) = (self.editor_font, self.editor_font_size);
 
-        self.left_display.set_text_font(font);
-        self.left_display.set_text_size(size);
-        self.right_editor.set_text_font(font);
-        self.right_editor.set_text_size(size);
+        self.left.set_font(font, size);
+        self.right.set_font(font, size);
 
         // Update all style table entries and reapply
         if !self.cached_style_table.is_empty() {
@@ -1284,56 +1287,8 @@ impl SplitPanel {
                 entry.font = font;
                 entry.size = size;
             }
-            self.left_display.set_highlight_data_ext(
-                self.left_style_buffer.clone(),
-                self.cached_style_table.clone(),
-            );
-            self.right_editor.set_highlight_data_ext(
-                self.right_style_buffer.clone(),
-                self.cached_style_table.clone(),
-            );
+            self.apply_cached_style_table();
         }
-    }
-
-    /// Style scrollbars on a widget via FFI using its raw pointer.
-    fn style_scrollbars_raw(widget_ptr: fltk::app::WidgetPtr, theme: &DialogTheme) {
-        // SAFETY: widget_ptr is a valid Fl_Group subclass (TextDisplay/TextEditor).
-        // Fl_Group_children/Fl_Group_child are stable FLTK C API. We null-check
-        // child pointers and clamp the index to min(2) before access.
-        unsafe extern "C" {
-            fn Fl_Group_children(grp: *mut std::ffi::c_void) -> std::ffi::c_int;
-            fn Fl_Group_child(
-                grp: *mut std::ffi::c_void,
-                index: std::ffi::c_int,
-            ) -> *mut std::ffi::c_void;
-        }
-        unsafe {
-            use fltk::valuator::Scrollbar;
-            let group_ptr = widget_ptr as *mut std::ffi::c_void;
-            let nchildren = Fl_Group_children(group_ptr);
-            for i in 0..nchildren.min(2) {
-                let ptr = Fl_Group_child(group_ptr, i);
-                if !ptr.is_null() {
-                    let mut sb = Scrollbar::from_widget_ptr(ptr as fltk::app::WidgetPtr);
-                    sb.set_frame(FrameType::FlatBox);
-                    sb.set_color(theme.scroll_track);
-                    sb.set_slider_frame(FrameType::FlatBox);
-                    sb.set_selection_color(theme.scroll_thumb);
-                }
-            }
-        }
-    }
-
-    /// Style scrollbars on a TextDisplay widget.
-    fn style_text_display_scrollbars(&self, display: &mut TextDisplay, theme: &DialogTheme) {
-        display.set_scrollbar_size(SCROLLBAR_SIZE);
-        Self::style_scrollbars_raw(display.as_widget_ptr(), theme);
-    }
-
-    /// Style scrollbars on a TextEditor widget.
-    fn style_text_editor_scrollbars(&self, editor: &mut TextEditor, theme: &DialogTheme) {
-        editor.set_scrollbar_size(SCROLLBAR_SIZE);
-        Self::style_scrollbars_raw(editor.as_widget_ptr(), theme);
     }
 
     /// Set the right pane editable or read-only.
@@ -1385,5 +1340,41 @@ mod tests {
         let diff = [DiffBg::Normal, DiffBg::Added, DiffBg::Modified];
         let out = combine_syntax_diff(b"AZ", &diff, &table, &mut sdm);
         assert_eq!(out, "GBD");
+    }
+
+    // --- T0027: per-pane style string (extracted from apply_syntax_diff_pane) ---
+
+    fn added_line(line: u32) -> LineHighlight {
+        LineHighlight {
+            line,
+            color: HighlightColor::Added,
+            spans: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn pane_style_string_is_empty_for_empty_content() {
+        let mut sdm = diff_map_for_tests();
+        let out = pane_style_string("", &[added_line(1)], Some(b"A"), &[], &mut sdm);
+        assert_eq!(out, "");
+    }
+
+    // Without syntax info every byte gets its diff-only base style:
+    // line 2 is "added" ('B'), the rest normal ('A'), newlines included.
+    #[test]
+    fn pane_style_string_without_syntax_uses_diff_base_styles() {
+        let mut sdm = diff_map_for_tests();
+        let out = pane_style_string("ab\ncd\nef", &[added_line(2)], None, &[], &mut sdm);
+        assert_eq!(out, "AAABBAAA");
+    }
+
+    // With syntax info the syntax foreground is merged into the diff
+    // background: the first combination lands after the 6 base styles ('G').
+    #[test]
+    fn pane_style_string_with_syntax_combines_styles() {
+        let table = [style_entry(Color::Red)];
+        let mut sdm = diff_map_for_tests();
+        let out = pane_style_string("ab", &[added_line(1)], Some(b"AA"), &table, &mut sdm);
+        assert_eq!(out, "GG");
     }
 }
