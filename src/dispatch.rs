@@ -719,6 +719,17 @@ pub fn handle_deferred(
             );
             state.dispatch_file_actions(actions);
         }
+        Message::DeferredOpenCliFile(path) => {
+            let theme_bg = state.highlight.highlighter().theme_background();
+            let actions = state.file.open_cli_path(
+                path,
+                &mut state.tab_manager,
+                &state.settings,
+                theme_bg,
+                state.tabs_enabled,
+            );
+            state.dispatch_file_actions(actions);
+        }
         Message::DeferredGotoLine(line) => {
             if let Some(doc) = state.tab_manager.active_doc() {
                 let text = crate::app::infrastructure::buffer::buffer_text_no_leak(&doc.buffer);

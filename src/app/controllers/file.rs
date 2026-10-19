@@ -217,6 +217,31 @@ impl FileController {
         }
     }
 
+    /// Open a path given on the command line. A missing file whose folder
+    /// exists starts a new, empty, unmodified document bound to that path, so
+    /// Save creates it without asking for a name (like gedit or vim).
+    pub fn open_cli_path(
+        &mut self,
+        path: String,
+        tab_manager: &mut TabManager,
+        settings: &Rc<RefCell<AppSettings>>,
+        theme_bg: (u8, u8, u8),
+        tabs_enabled: bool,
+    ) -> Vec<FileAction> {
+        match resolve_cli_open_target(&path) {
+            CliOpenTarget::Open(path) => {
+                self.open_file(path, tab_manager, settings, theme_bg, tabs_enabled)
+            }
+            CliOpenTarget::NewFile(path) => {
+                if let Some(parent) = std::path::Path::new(&path).parent() {
+                    self.last_open_directory = Some(parent.to_string_lossy().to_string());
+                }
+                self.open_file_content(path, String::new(), tab_manager, tabs_enabled)
+            }
+            CliOpenTarget::Invalid(message) => vec![FileAction::ShowError(message)],
+        }
+    }
+
     pub fn file_new(&self, tab_manager: &mut TabManager, tabs_enabled: bool) -> Vec<FileAction> {
         if tabs_enabled {
             let id = tab_manager.add_untitled();
@@ -792,5 +817,206 @@ impl FileController {
                 FileAction::DeferOpenHooks { path, content },
             ]
         }
+    }
+}
+
+/// What a path given on the command line resolves to.
+#[derive(Debug, PartialEq, Eq)]
+pub enum CliOpenTarget {
+    /// An existing regular file: open it as usual.
+    Open(String),
+    /// The file does not exist yet but its folder does: start a new, empty
+    /// document bound to this path (the parent is canonicalized).
+    NewFile(String),
+    /// Refuse the path; the string is the message shown to the user.
+    Invalid(String),
+}
+
+/// Decide how to open a path that came from the command line.
+///
+/// The path is untrusted input, so this fails closed: an existing path must
+/// be a regular file (symlinks are followed, dangling ones are refused); a
+/// missing path is only accepted when its parent canonicalizes to an existing
+/// directory. Nothing is created on disk here, and directories never are.
+pub fn resolve_cli_open_target(path: &str) -> CliOpenTarget {
+    let path_ref = std::path::Path::new(path);
+    match fs::symlink_metadata(path_ref) {
+        Ok(_) => {
+            // Follow symlinks: the target must be a regular file.
+            return match fs::metadata(path_ref) {
+                Ok(meta) if meta.is_file() => CliOpenTarget::Open(path.to_string()),
+                _ => CliOpenTarget::Invalid(format!(
+                    "Cannot open '{}': it is not a regular file.",
+                    path
+                )),
+            };
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return CliOpenTarget::Invalid(format!("Cannot open '{}': {}", path, e)),
+    }
+
+    // `file_name()` is None for paths ending in `..` or a root.
+    let Some(file_name) = path_ref.file_name() else {
+        return CliOpenTarget::Invalid(format!("Cannot open '{}': not a file path.", path));
+    };
+    let parent = match path_ref.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => std::path::Path::new("."),
+    };
+    let canonical_parent = match fs::canonicalize(parent) {
+        Ok(p) if p.is_dir() => p,
+        _ => {
+            return CliOpenTarget::Invalid(format!(
+                "Cannot create '{}': the folder '{}' does not exist.",
+                path,
+                parent.display()
+            ));
+        }
+    };
+
+    let new_path = strip_verbatim_prefix(canonical_parent.join(file_name));
+    // Re-check after canonicalization: the resolved path must still be free.
+    if fs::symlink_metadata(&new_path).is_ok() {
+        return CliOpenTarget::Invalid(format!(
+            "Cannot create '{}': the path already exists.",
+            path
+        ));
+    }
+    match new_path.to_str() {
+        Some(s) => CliOpenTarget::NewFile(s.to_string()),
+        None => CliOpenTarget::Invalid(format!("Cannot create '{}': the path is not UTF-8.", path)),
+    }
+}
+
+/// `fs::canonicalize` returns `\\?\C:\...` on Windows; keep the plain drive
+/// form so titles and saved sessions show the usual path.
+#[cfg(windows)]
+fn strip_verbatim_prefix(p: std::path::PathBuf) -> std::path::PathBuf {
+    match p.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => std::path::PathBuf::from(rest),
+        _ => p,
+    }
+}
+
+#[cfg(not(windows))]
+fn strip_verbatim_prefix(p: std::path::PathBuf) -> std::path::PathBuf {
+    p
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn path_str(p: &std::path::Path) -> String {
+        p.to_str().expect("temp path is UTF-8").to_string()
+    }
+
+    #[test]
+    fn open_missing_path_with_existing_parent_starts_new_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("new.txt");
+        let expected = std::fs::canonicalize(dir.path()).unwrap().join("new.txt");
+
+        assert_eq!(
+            resolve_cli_open_target(&path_str(&target)),
+            CliOpenTarget::NewFile(path_str(&expected))
+        );
+        assert!(!target.exists(), "resolving must not create the file");
+    }
+
+    #[test]
+    fn open_missing_path_with_missing_parent_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing_dir = dir.path().join("nodir");
+        let target = missing_dir.join("new.txt");
+
+        assert!(matches!(
+            resolve_cli_open_target(&path_str(&target)),
+            CliOpenTarget::Invalid(_)
+        ));
+        assert!(!missing_dir.exists(), "no directory may be created");
+    }
+
+    #[test]
+    fn open_directory_path_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+
+        assert!(matches!(
+            resolve_cli_open_target(&path_str(dir.path())),
+            CliOpenTarget::Invalid(_)
+        ));
+    }
+
+    #[test]
+    fn open_existing_file_keeps_the_given_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.txt");
+        std::fs::write(&file, "x").unwrap();
+
+        assert_eq!(
+            resolve_cli_open_target(&path_str(&file)),
+            CliOpenTarget::Open(path_str(&file))
+        );
+    }
+
+    #[test]
+    fn open_missing_path_resolves_dot_dot_in_the_parent() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        let target = dir.path().join("sub").join("..").join("new.txt");
+        let expected = std::fs::canonicalize(dir.path()).unwrap().join("new.txt");
+
+        assert_eq!(
+            resolve_cli_open_target(&path_str(&target)),
+            CliOpenTarget::NewFile(path_str(&expected))
+        );
+    }
+
+    #[test]
+    fn open_missing_path_under_a_missing_dir_with_dot_dot_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("nodir").join("..").join("new.txt");
+
+        assert!(matches!(
+            resolve_cli_open_target(&path_str(&target)),
+            CliOpenTarget::Invalid(_)
+        ));
+    }
+
+    #[test]
+    fn open_path_ending_in_dot_dot_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("nodir").join("..");
+
+        assert!(matches!(
+            resolve_cli_open_target(&path_str(&target)),
+            CliOpenTarget::Invalid(_)
+        ));
+    }
+
+    #[test]
+    fn open_missing_path_whose_parent_is_a_file_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a.txt");
+        std::fs::write(&file, "x").unwrap();
+
+        assert!(matches!(
+            resolve_cli_open_target(&path_str(&file.join("new.txt"))),
+            CliOpenTarget::Invalid(_)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_dangling_symlink_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let link = dir.path().join("link.txt");
+        std::os::unix::fs::symlink(dir.path().join("elsewhere.txt"), &link).unwrap();
+
+        assert!(matches!(
+            resolve_cli_open_target(&path_str(&link)),
+            CliOpenTarget::Invalid(_)
+        ));
+        assert!(!dir.path().join("elsewhere.txt").exists());
     }
 }
