@@ -1,7 +1,7 @@
 ---
 id: T0026
 title: Convert menu.rs closures to add_emit + a single shortcut table
-status: review
+status: done
 created: 2026-08-24
 severity: minor
 area: ui
