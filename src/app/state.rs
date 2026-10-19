@@ -931,6 +931,31 @@ impl AppState {
         }
     }
 
+    /// Run the menu command bound to `shortcut` (a normalized shortcut
+    /// string), resolved like the menu binds it: built-in table, the user's
+    /// overrides, then plugin menu items. Does nothing when no active item is
+    /// bound to it.
+    pub fn run_shortcut(&mut self, shortcut: &str) {
+        let plugins = self
+            .plugins
+            .list_plugins()
+            .iter()
+            .map(|p| (p.name.as_str(), p.menu_items.as_slice()));
+        let Some(path) = crate::ui::menu::command_for_shortcut(
+            shortcut,
+            &self.shortcut_registry,
+            self.tabs_enabled,
+            plugins,
+        ) else {
+            return;
+        };
+        if let Some(mut item) = self.menu.find_item(&path)
+            && item.active()
+        {
+            item.do_callback(&self.menu);
+        }
+    }
+
     /// Show the Key Shortcuts dialog and apply changes.
     pub fn show_key_shortcuts(&mut self) {
         use crate::ui::dialogs::shortcut_dialog::show_shortcut_dialog;

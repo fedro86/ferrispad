@@ -74,6 +74,10 @@ pub enum Message {
     CheckForUpdates,
     ShowAbout,
     ShowKeyShortcuts,
+    /// Run the command bound to this normalized shortcut (e.g. "ctrl+z").
+    /// Sent when FLTK's key and the typed text disagree because a non-first
+    /// keyboard layout is active (T0057).
+    RunShortcut(String),
 
     // Syntax highlighting
     BufferModified {
