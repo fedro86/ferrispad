@@ -94,6 +94,9 @@ enum LayoutItem {
     },
 }
 
+/// What the pointer is over. Also the tab bar's whole hover state: the item
+/// stored in `TabBarState::hover` is the one drawn highlighted.
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum HitResult {
     Tab { index: usize, is_close: bool },
     GroupLabel(GroupId),
@@ -103,6 +106,27 @@ enum HitResult {
     ScrollLeft,
     ScrollRight,
     None,
+}
+
+impl HitResult {
+    /// True when the hit names a tab index or group id, which a rebuild of
+    /// the tab list can invalidate.
+    fn refers_to_tab_or_group(&self) -> bool {
+        matches!(
+            self,
+            HitResult::Tab { .. } | HitResult::GroupLabel(_) | HitResult::CollapsedChip(_)
+        )
+    }
+}
+
+/// Replace the hover state with `hit`. Returns true when it changed, i.e. the
+/// tab bar needs a redraw.
+fn update_hover(hover: &mut HitResult, hit: HitResult) -> bool {
+    if *hover == hit {
+        return false;
+    }
+    *hover = hit;
+    true
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -125,14 +149,8 @@ struct TabBarState {
     is_dark: bool,
     /// Editor background color from syntax theme
     theme_bg: ThemeRgb,
-    hover_tab_index: Option<usize>,
-    hover_close: bool,
-    hover_plus: bool,
-    hover_group_label: Option<GroupId>,
-    hover_collapsed_chip: Option<GroupId>,
-    hover_scroll_left: bool,
-    hover_scroll_right: bool,
-    hover_diff_tab: bool,
+    /// Item under the pointer (`HitResult::None` when nothing is hovered)
+    hover: HitResult,
     diff_tab: Option<DiffTabInfo>,
     drag_source: Option<DragSource>,
     drag_target: Option<DragTarget>,
@@ -168,14 +186,7 @@ impl TabBar {
             layout: Vec::new(),
             is_dark: false,
             theme_bg: ThemeRgb::new(255, 255, 255), // Default to white
-            hover_tab_index: None,
-            hover_close: false,
-            hover_plus: false,
-            hover_group_label: None,
-            hover_collapsed_chip: None,
-            hover_scroll_left: false,
-            hover_scroll_right: false,
-            hover_diff_tab: false,
+            hover: HitResult::None,
             diff_tab: None,
             drag_source: None,
             drag_target: None,
@@ -234,10 +245,9 @@ impl TabBar {
                 collapsed: g.collapsed,
             });
         }
-        st.hover_tab_index = None;
-        st.hover_close = false;
-        st.hover_group_label = None;
-        st.hover_collapsed_chip = None;
+        if st.hover.refers_to_tab_or_group() {
+            st.hover = HitResult::None;
+        }
         compute_layout(&mut st);
         drop(st);
         self.widget.redraw();
@@ -374,7 +384,9 @@ impl TabBar {
         let mut st = self.state.borrow_mut();
         if st.diff_tab.is_some() {
             st.diff_tab = None;
-            st.hover_diff_tab = false;
+            if matches!(st.hover, HitResult::DiffTab { .. }) {
+                st.hover = HitResult::None;
+            }
             compute_layout(&mut st);
             drop(st);
             self.widget.redraw();
@@ -934,6 +946,102 @@ fn group_color_to_fltk(gc: GroupColor, is_dark: bool) -> Color {
     Color::from_rgb(r, g, b)
 }
 
+/// Draw a tab's rounded background. Active tabs leave a 2px gap at the top
+/// (menu bar separation); inactive tabs sit 2px lower.
+fn draw_tab_background(tx: i32, wy: i32, wh: i32, tab_width: i32, is_active: bool, bg: Color) {
+    let inset = if is_active { 2 } else { 4 };
+    draw_rounded_top_rect(tx, wy + inset, tab_width, wh - inset, CORNER_RADIUS, bg);
+}
+
+/// Draw a tab's title, truncated to leave room for the close button.
+fn draw_tab_title(label: &str, tx: i32, wy: i32, wh: i32, tab_width: i32, color: Color) {
+    let text_area_width =
+        tab_width - TAB_H_PADDING - CLOSE_BTN_MARGIN - CLOSE_BTN_SIZE - TAB_H_PADDING;
+    let display_text = truncate_to_fit(label, text_area_width);
+
+    draw::set_draw_color(color);
+    draw::set_font(Font::Helvetica, 12);
+    let text_x = tx + TAB_H_PADDING;
+    let text_y = wy + (wh + 12) / 2;
+    draw::draw_text(&display_text, text_x, text_y);
+}
+
+/// Draw a tab's close button: the hover square when `hover_bg` is set, then
+/// the `×` glyph in `color`.
+fn draw_close_button(
+    tx: i32,
+    wy: i32,
+    wh: i32,
+    tab_width: i32,
+    hover_bg: Option<Color>,
+    color: Color,
+) {
+    let close_x = tx + tab_width - CLOSE_BTN_MARGIN - CLOSE_BTN_SIZE;
+    let close_y = wy + (wh - CLOSE_BTN_SIZE) / 2;
+
+    if let Some(bg) = hover_bg {
+        draw::set_draw_color(bg);
+        draw::draw_rectf(
+            close_x - 2,
+            close_y - 2,
+            CLOSE_BTN_SIZE + 4,
+            CLOSE_BTN_SIZE + 4,
+        );
+    }
+
+    draw::set_draw_color(color);
+    draw::set_font(Font::HelveticaBold, 20);
+    draw::draw_text2(
+        "\u{00d7}",
+        close_x,
+        close_y,
+        CLOSE_BTN_SIZE,
+        CLOSE_BTN_SIZE,
+        Align::Center,
+    );
+}
+
+/// Draw a scroll arrow button. A disabled arrow is drawn faded and never
+/// highlighted, even while hovered.
+fn draw_scroll_arrow(
+    ax: i32,
+    wy: i32,
+    wh: i32,
+    glyph: &str,
+    enabled: bool,
+    is_hover: bool,
+    colors: &ThemeColors,
+) {
+    let arrow_h = wh - 8;
+    let arrow_y = wy + 4;
+    let is_hover = is_hover && enabled;
+
+    let bg = if is_hover {
+        colors.close_hover_bg
+    } else {
+        colors.inactive_bg
+    };
+    draw_rounded_rect(ax, arrow_y, SCROLL_ARROW_WIDTH, arrow_h, 4, bg);
+
+    let text_color = if !enabled {
+        Color::from_rgb(100, 100, 100)
+    } else if is_hover {
+        colors.active_text
+    } else {
+        colors.inactive_text
+    };
+    draw::set_draw_color(text_color);
+    draw::set_font(Font::HelveticaBold, 14);
+    draw::draw_text2(
+        glyph,
+        ax,
+        arrow_y,
+        SCROLL_ARROW_WIDTH,
+        arrow_h,
+        Align::Center,
+    );
+}
+
 fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
     let wx = wid.x();
     let wy = wid.y();
@@ -956,27 +1064,12 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                     continue;
                 };
 
-                // Tab background (2px gap at top for menu bar separation)
-                if tab.is_active {
-                    draw_rounded_top_rect(
-                        tx,
-                        wy + 2,
-                        tab_width,
-                        wh - 2,
-                        CORNER_RADIUS,
-                        colors.active_bg,
-                    );
+                let bg = if tab.is_active {
+                    colors.active_bg
                 } else {
-                    let inactive_h = wh - 4;
-                    draw_rounded_top_rect(
-                        tx,
-                        wy + 4,
-                        tab_width,
-                        inactive_h,
-                        CORNER_RADIUS,
-                        colors.inactive_bg,
-                    );
-                }
+                    colors.inactive_bg
+                };
+                draw_tab_background(tx, wy, wh, tab_width, tab.is_active, bg);
 
                 // Group color underline
                 if let Some(gid) = tab.group_id
@@ -1000,50 +1093,33 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                     tab.display_name.clone()
                 };
 
-                let text_area_width =
-                    tab_width - TAB_H_PADDING - CLOSE_BTN_MARGIN - CLOSE_BTN_SIZE - TAB_H_PADDING;
-                let display_text = truncate_to_fit(&label, text_area_width);
+                draw_tab_title(&label, tx, wy, wh, tab_width, text_color);
 
-                draw::set_draw_color(text_color);
-                draw::set_font(Font::Helvetica, 12);
-                let text_x = tx + TAB_H_PADDING;
-                let text_y = wy + (wh + 12) / 2;
-                draw::draw_text(&display_text, text_x, text_y);
-
-                // Close button
-                let close_x = tx + tab_width - CLOSE_BTN_MARGIN - CLOSE_BTN_SIZE;
-                let close_y = wy + (wh - CLOSE_BTN_SIZE) / 2;
-
-                let is_hovered_tab = st.hover_tab_index == Some(*index);
-                if is_hovered_tab && st.hover_close {
-                    draw::set_draw_color(colors.close_hover_bg);
-                    draw::draw_rectf(
-                        close_x - 2,
-                        close_y - 2,
-                        CLOSE_BTN_SIZE + 4,
-                        CLOSE_BTN_SIZE + 4,
-                    );
-                }
-
+                // Close button: always drawn, highlighted while the pointer is on it
+                let (is_hovered_tab, close_hovered) = match st.hover {
+                    HitResult::Tab {
+                        index: hovered,
+                        is_close,
+                    } if hovered == *index => (true, is_close),
+                    _ => (false, false),
+                };
                 let close_color = if tab.is_active || is_hovered_tab {
                     text_color
                 } else {
                     colors.inactive_text
                 };
-                draw::set_draw_color(close_color);
-                draw::set_font(Font::HelveticaBold, 20);
-                draw::draw_text2(
-                    "\u{00d7}",
-                    close_x,
-                    close_y,
-                    CLOSE_BTN_SIZE,
-                    CLOSE_BTN_SIZE,
-                    Align::Center,
+                draw_close_button(
+                    tx,
+                    wy,
+                    wh,
+                    tab_width,
+                    close_hovered.then_some(colors.close_hover_bg),
+                    close_color,
                 );
             }
             LayoutItem::GroupLabel { group_id, x, width } => {
                 let lx = wx + *x;
-                let is_hover = st.hover_group_label == Some(*group_id);
+                let is_hover = st.hover == HitResult::GroupLabel(*group_id);
                 if let Some(ginfo) = st.groups.iter().find(|g| g.id == *group_id) {
                     let gc = group_color_to_fltk(ginfo.color, st.is_dark);
                     let pill_h = 18;
@@ -1098,7 +1174,7 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                 let cx = wx + *x;
                 let chip_h = wh - 2;
                 let chip_y = wy + 2;
-                let is_hover = st.hover_collapsed_chip == Some(*group_id);
+                let is_hover = st.hover == HitResult::CollapsedChip(*group_id);
 
                 let gc = group_color_to_fltk(*color, st.is_dark);
                 let bg = if is_hover {
@@ -1156,22 +1232,14 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                     let tx = wx + *x;
                     let tab_width = *width;
 
-                    // Tab background with a subtle accent tint
-                    if dt.is_active {
-                        // Active: match editor background with slight tint
-                        let tinted = diff_tab_tint_from_bg(st.theme_bg.to_tuple(), st.is_dark);
-                        draw_rounded_top_rect(tx, wy + 2, tab_width, wh - 2, CORNER_RADIUS, tinted);
+                    // Tab background; active matches the editor background
+                    // with a subtle accent tint
+                    let bg = if dt.is_active {
+                        diff_tab_tint_from_bg(st.theme_bg.to_tuple(), st.is_dark)
                     } else {
-                        let inactive_h = wh - 4;
-                        draw_rounded_top_rect(
-                            tx,
-                            wy + 4,
-                            tab_width,
-                            inactive_h,
-                            CORNER_RADIUS,
-                            colors.inactive_bg,
-                        );
-                    }
+                        colors.inactive_bg
+                    };
+                    draw_tab_background(tx, wy, wh, tab_width, dt.is_active, bg);
 
                     // Text label
                     let text_color = if dt.is_active {
@@ -1179,50 +1247,19 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                     } else {
                         colors.inactive_text
                     };
-                    let text_area_width = tab_width
-                        - TAB_H_PADDING
-                        - CLOSE_BTN_MARGIN
-                        - CLOSE_BTN_SIZE
-                        - TAB_H_PADDING;
-                    let display_text = truncate_to_fit(&dt.title, text_area_width);
+                    draw_tab_title(&dt.title, tx, wy, wh, tab_width, text_color);
 
-                    draw::set_draw_color(text_color);
-                    draw::set_font(Font::Helvetica, 12);
-                    let text_x = tx + TAB_H_PADDING;
-                    let text_y = wy + (wh + 12) / 2;
-                    draw::draw_text(&display_text, text_x, text_y);
-
-                    // Close button
-                    let close_x = tx + tab_width - CLOSE_BTN_MARGIN - CLOSE_BTN_SIZE;
-                    let close_y = wy + (wh - CLOSE_BTN_SIZE) / 2;
-
-                    // Hover highlight background (like regular tabs)
-                    if st.hover_diff_tab {
-                        draw::set_draw_color(colors.close_hover_bg);
-                        draw::draw_rectf(
-                            close_x - 2,
-                            close_y - 2,
-                            CLOSE_BTN_SIZE + 4,
-                            CLOSE_BTN_SIZE + 4,
-                        );
-                    }
-
-                    // Always draw X when active or hovered (matching regular tab behavior)
-                    if dt.is_active || st.hover_diff_tab {
-                        let close_color = if dt.is_active {
-                            colors.active_text
-                        } else {
-                            colors.inactive_text
-                        };
-                        draw::set_draw_color(close_color);
-                        draw::set_font(Font::HelveticaBold, 20);
-                        draw::draw_text2(
-                            "\u{00d7}",
-                            close_x,
-                            close_y,
-                            CLOSE_BTN_SIZE,
-                            CLOSE_BTN_SIZE,
-                            Align::Center,
+                    // Close button: shown when active or hovered; hovering anywhere
+                    // on the diff tab highlights it
+                    let is_hover = matches!(st.hover, HitResult::DiffTab { .. });
+                    if dt.is_active || is_hover {
+                        draw_close_button(
+                            tx,
+                            wy,
+                            wh,
+                            tab_width,
+                            is_hover.then_some(colors.close_hover_bg),
+                            text_color,
                         );
                     }
                 }
@@ -1233,14 +1270,15 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                 let circle_x = px + (PLUS_BTN_WIDTH - circle_size) / 2;
                 let circle_y = wy + (wh - circle_size) / 2;
                 // Use active tab color as base, with slight adjustment for hover
-                let bg = if st.hover_plus {
+                let is_hover = st.hover == HitResult::PlusButton;
+                let bg = if is_hover {
                     colors.close_hover_bg
                 } else {
                     colors.active_bg
                 };
                 draw::set_draw_color(bg);
                 draw::draw_pie(circle_x, circle_y, circle_size, circle_size, 0.0, 360.0);
-                let text_color = if st.hover_plus {
+                let text_color = if is_hover {
                     colors.active_text
                 } else {
                     colors.inactive_text
@@ -1258,75 +1296,12 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                 );
             }
             LayoutItem::ScrollLeft { x, enabled } => {
-                let ax = wx + *x;
-                let arrow_h = wh - 8;
-                let arrow_y = wy + 4;
-                let is_hover = st.hover_scroll_left && *enabled;
-
-                // Background
-                let bg = if is_hover {
-                    colors.close_hover_bg
-                } else {
-                    colors.inactive_bg
-                };
-                draw_rounded_rect(ax, arrow_y, SCROLL_ARROW_WIDTH, arrow_h, 4, bg);
-
-                // Arrow symbol
-                let text_color = if *enabled {
-                    if is_hover {
-                        colors.active_text
-                    } else {
-                        colors.inactive_text
-                    }
-                } else {
-                    // Disabled: very faded
-                    Color::from_rgb(100, 100, 100)
-                };
-                draw::set_draw_color(text_color);
-                draw::set_font(Font::HelveticaBold, 14);
-                draw::draw_text2(
-                    "\u{25c0}",
-                    ax,
-                    arrow_y,
-                    SCROLL_ARROW_WIDTH,
-                    arrow_h,
-                    Align::Center,
-                );
+                let is_hover = st.hover == HitResult::ScrollLeft;
+                draw_scroll_arrow(wx + *x, wy, wh, "\u{25c0}", *enabled, is_hover, &colors);
             }
             LayoutItem::ScrollRight { x, enabled } => {
-                let ax = wx + *x;
-                let arrow_h = wh - 8;
-                let arrow_y = wy + 4;
-                let is_hover = st.hover_scroll_right && *enabled;
-
-                // Background
-                let bg = if is_hover {
-                    colors.close_hover_bg
-                } else {
-                    colors.inactive_bg
-                };
-                draw_rounded_rect(ax, arrow_y, SCROLL_ARROW_WIDTH, arrow_h, 4, bg);
-
-                // Arrow symbol
-                let text_color = if *enabled {
-                    if is_hover {
-                        colors.active_text
-                    } else {
-                        colors.inactive_text
-                    }
-                } else {
-                    Color::from_rgb(100, 100, 100)
-                };
-                draw::set_draw_color(text_color);
-                draw::set_font(Font::HelveticaBold, 14);
-                draw::draw_text2(
-                    "\u{25b6}",
-                    ax,
-                    arrow_y,
-                    SCROLL_ARROW_WIDTH,
-                    arrow_h,
-                    Align::Center,
-                );
+                let is_hover = st.hover == HitResult::ScrollRight;
+                draw_scroll_arrow(wx + *x, wy, wh, "\u{25b6}", *enabled, is_hover, &colors);
             }
         }
     }
@@ -1875,57 +1850,7 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
             let my = fltk::app::event_y();
 
             let hit = hit_test_layout(&st.layout, wid.y(), mx, my);
-
-            let (
-                new_hover,
-                new_close,
-                new_hover_plus,
-                new_hover_group,
-                new_hover_chip,
-                new_scroll_left,
-                new_scroll_right,
-                new_hover_diff,
-            ) = match hit {
-                HitResult::Tab { index, is_close } => (
-                    Some(index),
-                    is_close,
-                    false,
-                    None,
-                    None,
-                    false,
-                    false,
-                    false,
-                ),
-                HitResult::PlusButton => (None, false, true, None, None, false, false, false),
-                HitResult::GroupLabel(gid) => {
-                    (None, false, false, Some(gid), None, false, false, false)
-                }
-                HitResult::CollapsedChip(gid) => {
-                    (None, false, false, None, Some(gid), false, false, false)
-                }
-                HitResult::DiffTab { .. } => (None, false, false, None, None, false, false, true),
-                HitResult::ScrollLeft => (None, false, false, None, None, true, false, false),
-                HitResult::ScrollRight => (None, false, false, None, None, false, true, false),
-                HitResult::None => (None, false, false, None, None, false, false, false),
-            };
-
-            if new_hover != st.hover_tab_index
-                || new_close != st.hover_close
-                || new_hover_plus != st.hover_plus
-                || new_hover_group != st.hover_group_label
-                || new_hover_chip != st.hover_collapsed_chip
-                || new_scroll_left != st.hover_scroll_left
-                || new_scroll_right != st.hover_scroll_right
-                || new_hover_diff != st.hover_diff_tab
-            {
-                st.hover_tab_index = new_hover;
-                st.hover_close = new_close;
-                st.hover_plus = new_hover_plus;
-                st.hover_group_label = new_hover_group;
-                st.hover_collapsed_chip = new_hover_chip;
-                st.hover_scroll_left = new_scroll_left;
-                st.hover_scroll_right = new_scroll_right;
-                st.hover_diff_tab = new_hover_diff;
+            if update_hover(&mut st.hover, hit) {
                 drop(st);
                 wid.redraw();
             }
@@ -1935,28 +1860,96 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
             let mut st = state.borrow_mut();
             st.drag_source = None;
             st.drag_target = None;
-            if st.hover_tab_index.is_some()
-                || st.hover_close
-                || st.hover_plus
-                || st.hover_group_label.is_some()
-                || st.hover_collapsed_chip.is_some()
-                || st.hover_scroll_left
-                || st.hover_scroll_right
-                || st.hover_diff_tab
-            {
-                st.hover_tab_index = None;
-                st.hover_close = false;
-                st.hover_plus = false;
-                st.hover_group_label = None;
-                st.hover_collapsed_chip = None;
-                st.hover_scroll_left = false;
-                st.hover_scroll_right = false;
-                st.hover_diff_tab = false;
+            if update_hover(&mut st.hover, HitResult::None) {
                 drop(st);
                 wid.redraw();
             }
             false
         }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hover_change_requests_redraw() {
+        let mut hover = HitResult::None;
+        assert!(update_hover(&mut hover, HitResult::PlusButton));
+        assert_eq!(hover, HitResult::PlusButton);
+        assert!(update_hover(&mut hover, HitResult::ScrollLeft));
+        assert_eq!(hover, HitResult::ScrollLeft);
+    }
+
+    #[test]
+    fn same_hover_skips_redraw() {
+        let mut hover = HitResult::GroupLabel(GroupId(3));
+        assert!(!update_hover(&mut hover, HitResult::GroupLabel(GroupId(3))));
+        assert_eq!(hover, HitResult::GroupLabel(GroupId(3)));
+    }
+
+    #[test]
+    fn moving_onto_close_button_of_same_tab_requests_redraw() {
+        let mut hover = HitResult::Tab {
+            index: 2,
+            is_close: false,
+        };
+        let on_close = HitResult::Tab {
+            index: 2,
+            is_close: true,
+        };
+        assert!(update_hover(&mut hover, on_close));
+        assert_eq!(hover, on_close);
+    }
+
+    #[test]
+    fn moving_to_other_tab_or_group_requests_redraw() {
+        let mut hover = HitResult::Tab {
+            index: 0,
+            is_close: false,
+        };
+        assert!(update_hover(
+            &mut hover,
+            HitResult::Tab {
+                index: 1,
+                is_close: false
+            }
+        ));
+        let mut hover = HitResult::CollapsedChip(GroupId(1));
+        assert!(update_hover(
+            &mut hover,
+            HitResult::CollapsedChip(GroupId(2))
+        ));
+        assert!(update_hover(&mut hover, HitResult::GroupLabel(GroupId(2))));
+    }
+
+    #[test]
+    fn leave_clears_hover_once() {
+        let mut hover = HitResult::DiffTab { is_close: true };
+        // Event::Leave sets the hover to None
+        assert!(update_hover(&mut hover, HitResult::None));
+        assert_eq!(hover, HitResult::None);
+        // A second Leave (nothing hovered) does not redraw
+        assert!(!update_hover(&mut hover, HitResult::None));
+    }
+
+    #[test]
+    fn only_tab_and_group_hovers_are_invalidated_by_rebuild() {
+        assert!(
+            HitResult::Tab {
+                index: 0,
+                is_close: true
+            }
+            .refers_to_tab_or_group()
+        );
+        assert!(HitResult::GroupLabel(GroupId(1)).refers_to_tab_or_group());
+        assert!(HitResult::CollapsedChip(GroupId(1)).refers_to_tab_or_group());
+        assert!(!HitResult::PlusButton.refers_to_tab_or_group());
+        assert!(!HitResult::ScrollLeft.refers_to_tab_or_group());
+        assert!(!HitResult::ScrollRight.refers_to_tab_or_group());
+        assert!(!HitResult::DiffTab { is_close: false }.refers_to_tab_or_group());
+        assert!(!HitResult::None.refers_to_tab_or_group());
     }
 }
