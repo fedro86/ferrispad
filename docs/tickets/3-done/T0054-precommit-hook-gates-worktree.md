@@ -1,7 +1,7 @@
 ---
 id: T0054
 title: Run the pre-commit gates in the worktree being committed, not the main checkout
-status: review
+status: done
 created: 2026-10-19
 severity: moderate
 area: process
