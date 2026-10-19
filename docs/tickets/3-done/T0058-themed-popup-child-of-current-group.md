@@ -1,7 +1,7 @@
 ---
 id: T0058
 title: Themed popups always open as top-level windows, never inside another window
-status: review
+status: done
 created: 2026-10-19
 severity: severe
 area: ui
