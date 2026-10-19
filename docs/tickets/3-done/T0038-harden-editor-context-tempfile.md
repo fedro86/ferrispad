@@ -1,7 +1,7 @@
 ---
 id: T0038
 title: Harden the editor-context temp file (permissions + cleanup)
-status: review
+status: done
 created: 2026-08-24
 severity: minor
 area: security
