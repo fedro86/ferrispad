@@ -24,6 +24,7 @@ use std::rc::Rc;
 
 use super::{DialogTheme, SCROLLBAR_SIZE, darken, lighten};
 use crate::app::services::file_size::format_size;
+use crate::ui::scrollbar::style_scrollbars;
 
 /// Size of each page in bytes (1MB chunks for smooth scrolling)
 const PAGE_SIZE: usize = 1024 * 1024;
@@ -479,34 +480,10 @@ pub fn show_readonly_viewer(
     display.set_color(theme.input_bg);
     display.set_text_color(theme.text);
     display.set_scrollbar_size(SCROLLBAR_SIZE);
-    // SAFETY: TextDisplay inherits Fl_Group. Fl_Group_children/Fl_Group_child
-    // are stable FLTK C API. We null-check child pointers and clamp index to
-    // min(2) before reconstructing Scrollbar widgets.
-    unsafe extern "C" {
-        fn Fl_Group_children(grp: *mut std::ffi::c_void) -> std::ffi::c_int;
-        fn Fl_Group_child(
-            grp: *mut std::ffi::c_void,
-            index: std::ffi::c_int,
-        ) -> *mut std::ffi::c_void;
-    }
     // Style both scrollbars, then enable word wrap to eliminate the
     // horizontal scrollbar entirely (FLTK re-shows hidden scrollbars
     // when content is loaded, so hiding alone doesn't stick).
-    unsafe {
-        use fltk::valuator::Scrollbar;
-        let group_ptr = display.as_widget_ptr() as *mut std::ffi::c_void;
-        let nchildren = Fl_Group_children(group_ptr);
-        for i in 0..nchildren.min(2) {
-            let ptr = Fl_Group_child(group_ptr, i);
-            if !ptr.is_null() {
-                let mut sb = Scrollbar::from_widget_ptr(ptr as fltk::app::WidgetPtr);
-                sb.set_frame(FrameType::FlatBox);
-                sb.set_color(theme.scroll_track);
-                sb.set_slider_frame(FrameType::FlatBox);
-                sb.set_selection_color(theme.scroll_thumb);
-            }
-        }
-    }
+    style_scrollbars(&display, theme.scroll_track, theme.scroll_thumb);
     display.wrap_mode(WrapMode::AtBounds, 0);
 
     // Status bar

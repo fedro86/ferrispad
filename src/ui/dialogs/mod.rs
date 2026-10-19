@@ -22,6 +22,8 @@ use fltk::{
     window::Window,
 };
 
+use super::scrollbar::style_scrollbar;
+
 /// Global scrollbar width used across all dialogs.
 pub const SCROLLBAR_SIZE: i32 = 12;
 
@@ -197,6 +199,23 @@ pub(crate) fn lighten(r: u8, g: u8, b: u8, factor: f32) -> (u8, u8, u8) {
     )
 }
 
+/// Scrollbar `(track, thumb)` colors for a surface with background `base`.
+/// Dark: the track is darker than `base` and the thumb lighter. Light: both
+/// are darker, the thumb more so. Shared by the dialogs (`DialogTheme`, on the
+/// dialog background) and the main editor (on the editor background).
+pub(crate) fn scrollbar_colors(base: (u8, u8, u8), is_dark: bool) -> (Color, Color) {
+    let (r, g, b) = base;
+    let (track, thumb) = if is_dark {
+        (darken(r, g, b, 0.70), lighten(r, g, b, 0.20))
+    } else {
+        (darken(r, g, b, 0.95), darken(r, g, b, 0.75))
+    };
+    (
+        Color::from_rgb(track.0, track.1, track.2),
+        Color::from_rgb(thumb.0, thumb.1, thumb.2),
+    )
+}
+
 impl DialogTheme {
     /// Create theme colors based on the syntax theme background.
     /// This ensures dialogs match the tab bar and main window appearance.
@@ -284,16 +303,7 @@ impl DialogTheme {
             (Color::from_rgb(0, 0, 0), Color::from_rgb(80, 80, 80))
         };
 
-        // Scrollbar colors
-        let (scroll_track, scroll_thumb) = if is_dark {
-            let (tr, tg, tb) = darken(bg_r, bg_g, bg_b, 0.70);
-            let (thr, thg, thb) = lighten(bg_r, bg_g, bg_b, 0.20);
-            (Color::from_rgb(tr, tg, tb), Color::from_rgb(thr, thg, thb))
-        } else {
-            let (tr, tg, tb) = darken(bg_r, bg_g, bg_b, 0.95);
-            let (thr, thg, thb) = darken(bg_r, bg_g, bg_b, 0.75);
-            (Color::from_rgb(tr, tg, tb), Color::from_rgb(thr, thg, thb))
-        };
+        let (scroll_track, scroll_thumb) = scrollbar_colors((bg_r, bg_g, bg_b), is_dark);
 
         // Accent color: complementary hue from theme bg
         let (ar, ag, ab) = accent_from_bg(r, g, b, is_dark);
@@ -373,16 +383,9 @@ impl DialogTheme {
     /// Apply flat themed scrollbar styling to a Scroll widget.
     pub fn style_scroll(&self, scroll: &mut Scroll) {
         scroll.set_scrollbar_size(SCROLLBAR_SIZE);
-        let mut vsb = scroll.scrollbar();
-        vsb.set_frame(FrameType::FlatBox);
-        vsb.set_color(self.scroll_track);
-        vsb.set_slider_frame(FrameType::FlatBox);
-        vsb.set_selection_color(self.scroll_thumb);
-        let mut hsb = scroll.hscrollbar();
-        hsb.set_frame(FrameType::FlatBox);
-        hsb.set_color(self.scroll_track);
-        hsb.set_slider_frame(FrameType::FlatBox);
-        hsb.set_selection_color(self.scroll_thumb);
+        for mut sb in [scroll.scrollbar(), scroll.hscrollbar()] {
+            style_scrollbar(&mut sb, self.scroll_track, self.scroll_thumb);
+        }
     }
 }
 
@@ -446,4 +449,35 @@ pub fn show_themed_message(theme_bg: (u8, u8, u8), title: &str, message: &str) {
     dialog.show();
     theme.apply_titlebar(&dialog);
     run_dialog(&dialog);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scrollbar_colors_dark_darkens_track_and_lightens_thumb() {
+        let (track, thumb) = scrollbar_colors((40, 44, 52), true);
+        // track = base * 0.70; thumb = base + (255 - base) * 0.20
+        assert_eq!(track, Color::from_rgb(28, 30, 36));
+        assert_eq!(thumb, Color::from_rgb(83, 86, 92));
+    }
+
+    #[test]
+    fn scrollbar_colors_light_darkens_both() {
+        let (track, thumb) = scrollbar_colors((250, 250, 250), false);
+        // track = base * 0.95; thumb = base * 0.75
+        assert_eq!(track, Color::from_rgb(237, 237, 237));
+        assert_eq!(thumb, Color::from_rgb(187, 187, 187));
+    }
+
+    #[test]
+    fn dialog_theme_scrollbar_colors_derive_from_dialog_bg() {
+        let theme = DialogTheme::from_theme_bg((40, 44, 52));
+        let (r, g, b) = theme.bg.to_rgb();
+        assert_eq!(
+            (theme.scroll_track, theme.scroll_thumb),
+            scrollbar_colors((r, g, b), true)
+        );
+    }
 }

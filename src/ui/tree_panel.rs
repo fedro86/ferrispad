@@ -20,6 +20,7 @@ use fltk::{
 };
 
 use super::dialogs::{DialogTheme, SCROLLBAR_SIZE, darken, lighten};
+use super::scrollbar::style_scrollbars;
 use super::theme::divider_color_from_bg;
 use crate::app::Message;
 use crate::app::plugins::widgets::{
@@ -1046,31 +1047,7 @@ impl TreePanel {
 
         // Style scrollbars to match the editor (Tree inherits Fl_Group)
         self.tree.set_scrollbar_size(SCROLLBAR_SIZE);
-        // SAFETY: Tree inherits Fl_Group. Fl_Group_children/Fl_Group_child are
-        // stable FLTK C API. We null-check child pointers and clamp index to
-        // min(2) before reconstructing Scrollbar widgets.
-        unsafe extern "C" {
-            fn Fl_Group_children(grp: *mut std::ffi::c_void) -> std::ffi::c_int;
-            fn Fl_Group_child(
-                grp: *mut std::ffi::c_void,
-                index: std::ffi::c_int,
-            ) -> *mut std::ffi::c_void;
-        }
-        unsafe {
-            use fltk::valuator::Scrollbar;
-            let group_ptr = self.tree.as_widget_ptr() as *mut std::ffi::c_void;
-            let nchildren = Fl_Group_children(group_ptr);
-            for i in 0..nchildren.min(2) {
-                let ptr = Fl_Group_child(group_ptr, i);
-                if !ptr.is_null() {
-                    let mut sb = Scrollbar::from_widget_ptr(ptr as fltk::app::WidgetPtr);
-                    sb.set_frame(FrameType::FlatBox);
-                    sb.set_color(theme.scroll_track);
-                    sb.set_slider_frame(FrameType::FlatBox);
-                    sb.set_selection_color(theme.scroll_thumb);
-                }
-            }
-        }
+        style_scrollbars(&self.tree, theme.scroll_track, theme.scroll_thumb);
     }
 }
 

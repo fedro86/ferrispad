@@ -20,75 +20,11 @@ use fltk::{
 };
 
 use super::dialogs::{DialogTheme, SCROLLBAR_SIZE};
+use super::scrollbar::{style_scrollbars, text_display_vscroll_value};
 use crate::app::Message;
 use crate::app::plugins::widgets::{
     HighlightColor, LineHighlight, SplitDisplayMode, SplitPane, SplitViewAction, SplitViewRequest,
 };
-
-/// Get the vertical scrollbar value of a TextDisplay/TextEditor via FFI.
-/// Works with any widget that is a Fl_Group subclass with scrollbar children.
-/// The vertical scrollbar is typically at index 1.
-fn get_vscrollbar_value_raw(widget_ptr: fltk::app::WidgetPtr) -> f64 {
-    // SAFETY: widget_ptr is a valid Fl_Group subclass (TextDisplay/TextEditor).
-    // Fl_Group_children/Fl_Group_child are stable FLTK C API. We null-check
-    // the child pointer before reconstructing. The widget outlives this call.
-    unsafe extern "C" {
-        fn Fl_Group_children(grp: *mut std::ffi::c_void) -> std::ffi::c_int;
-        fn Fl_Group_child(
-            grp: *mut std::ffi::c_void,
-            index: std::ffi::c_int,
-        ) -> *mut std::ffi::c_void;
-    }
-    unsafe {
-        use fltk::valuator::Scrollbar;
-        let group_ptr = widget_ptr as *mut std::ffi::c_void;
-        let nchildren = Fl_Group_children(group_ptr);
-        // child[0] = horizontal scrollbar (wide, short)
-        // child[1] = vertical scrollbar (narrow, tall)
-        if nchildren > 1 {
-            let ptr = Fl_Group_child(group_ptr, 1);
-            if !ptr.is_null() {
-                let sb = Scrollbar::from_widget_ptr(ptr as fltk::app::WidgetPtr);
-                return sb.value();
-            }
-        }
-        0.0
-    }
-}
-
-/// Get the vertical scrollbar value of a pane's TextDisplay/TextEditor.
-fn get_vscrollbar_value<W: WidgetExt>(widget: &W) -> f64 {
-    get_vscrollbar_value_raw(widget.as_widget_ptr())
-}
-
-/// Style scrollbars on a widget via FFI using its raw pointer.
-fn style_scrollbars_raw(widget_ptr: fltk::app::WidgetPtr, theme: &DialogTheme) {
-    // SAFETY: widget_ptr is a valid Fl_Group subclass (TextDisplay/TextEditor).
-    // Fl_Group_children/Fl_Group_child are stable FLTK C API. We null-check
-    // child pointers and clamp the index to min(2) before access.
-    unsafe extern "C" {
-        fn Fl_Group_children(grp: *mut std::ffi::c_void) -> std::ffi::c_int;
-        fn Fl_Group_child(
-            grp: *mut std::ffi::c_void,
-            index: std::ffi::c_int,
-        ) -> *mut std::ffi::c_void;
-    }
-    unsafe {
-        use fltk::valuator::Scrollbar;
-        let group_ptr = widget_ptr as *mut std::ffi::c_void;
-        let nchildren = Fl_Group_children(group_ptr);
-        for i in 0..nchildren.min(2) {
-            let ptr = Fl_Group_child(group_ptr, i);
-            if !ptr.is_null() {
-                let mut sb = Scrollbar::from_widget_ptr(ptr as fltk::app::WidgetPtr);
-                sb.set_frame(FrameType::FlatBox);
-                sb.set_color(theme.scroll_track);
-                sb.set_slider_frame(FrameType::FlatBox);
-                sb.set_selection_color(theme.scroll_thumb);
-            }
-        }
-    }
-}
 
 /// The scroll-sync half of a pane's event handler (FLTK's `handle()`
 /// replaces rather than stacks, so each pane installs one combined handler).
@@ -113,7 +49,7 @@ fn sync_scroll<A: DisplayExt, B: DisplayExt>(
                 app::MouseWheel::Down => 3,
                 _ => 0,
             };
-            let current = get_vscrollbar_value(this) as i32;
+            let current = text_display_vscroll_value(this) as i32;
             let new_line = (current + delta).max(1);
             this.scroll(new_line, 0);
             other.scroll(new_line, 0);
@@ -122,7 +58,7 @@ fn sync_scroll<A: DisplayExt, B: DisplayExt>(
         }
         Event::Released => {
             syncing.set(true);
-            let val = get_vscrollbar_value(this) as i32;
+            let val = text_display_vscroll_value(this) as i32;
             other.scroll(val, 0);
             syncing.set(false);
             false
@@ -556,7 +492,7 @@ impl<D: DisplayExt> Pane<D> {
         self.display.set_linenumber_fgcolor(theme.text_dim);
 
         self.display.set_scrollbar_size(SCROLLBAR_SIZE);
-        style_scrollbars_raw(self.display.as_widget_ptr(), theme);
+        style_scrollbars(&self.display, theme.scroll_track, theme.scroll_thumb);
     }
 }
 
