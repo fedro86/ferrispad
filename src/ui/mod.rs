@@ -1,9 +1,12 @@
+pub mod color;
 pub mod diagnostic_panel;
 pub mod dialogs;
+pub mod divider;
 pub mod editor_container;
 pub mod file_dialogs;
 pub mod main_window;
 pub mod menu;
+pub mod scrollbar;
 pub mod split_panel;
 pub mod start_page;
 pub mod status_bar;

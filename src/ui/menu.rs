@@ -40,8 +40,10 @@ const RESERVED_SHORTCUTS: &[&str] = &[
 ];
 
 /// Built-in shortcuts: (menu_path/command_id, default_shortcut_string).
-/// This table is the single source of truth for default built-in shortcuts.
-/// The `tabs_enabled` variants are handled separately in `build_menu()`.
+/// This table is the single source of truth for default built-in shortcuts:
+/// a menu item from `builtin_menu_entries()` gets a shortcut iff its path has
+/// a row here. Read it through `builtin_shortcut_defaults()`, which applies
+/// the `tabs_enabled` variants.
 pub const BUILTIN_SHORTCUTS: &[(&str, &str)] = &[
     ("File/New", "Ctrl+T"), // Ctrl+N when tabs off
     ("File/Open...", "Ctrl+O"),
@@ -66,6 +68,30 @@ pub const BUILTIN_SHORTCUTS: &[(&str, &str)] = &[
     ("View/Preview in Browser", "Ctrl+M"),
     ("Plugins/General/Run All Checks", "Ctrl+Shift+L"),
 ];
+
+/// Built-in commands whose menu items exist only when tabs are enabled.
+const TAB_ONLY_COMMANDS: &[&str] = &["File/Close Tab", "File/Next Tab", "File/Previous Tab"];
+
+/// The built-in `(command_id, default_shortcut)` pairs that apply for this
+/// tab mode: tab-only commands are left out when tabs are disabled, and
+/// `File/New` falls back to Ctrl+N. The menu build, the in-place override
+/// pass and the shortcut dialog all read `BUILTIN_SHORTCUTS` through here, so
+/// the tab-mode rules live in one place.
+pub fn builtin_shortcut_defaults(
+    tabs_enabled: bool,
+) -> impl Iterator<Item = (&'static str, &'static str)> {
+    BUILTIN_SHORTCUTS.iter().filter_map(move |&(id, default)| {
+        if tabs_enabled {
+            Some((id, default))
+        } else if TAB_ONLY_COMMANDS.contains(&id) {
+            None
+        } else if id == "File/New" {
+            Some((id, "Ctrl+N"))
+        } else {
+            Some((id, default))
+        }
+    })
+}
 
 /// Resolve the effective shortcut for a built-in command.
 /// Returns the FLTK Shortcut from the registry override or the provided default string.
@@ -125,19 +151,8 @@ pub fn apply_shortcut_overrides(
     registry: &ShortcutRegistry,
     tabs_enabled: bool,
 ) {
-    for &(id, default) in BUILTIN_SHORTCUTS {
-        // Skip tab-only shortcuts when tabs are disabled
-        if !tabs_enabled && matches!(id, "File/Close Tab" | "File/Next Tab" | "File/Previous Tab") {
-            continue;
-        }
-        // Handle File/New special case (Ctrl+N when tabs off)
-        let actual_default = if id == "File/New" && !tabs_enabled {
-            "Ctrl+N"
-        } else {
-            default
-        };
-
-        let shortcut = resolve_shortcut(registry, id, actual_default);
+    for (id, default) in builtin_shortcut_defaults(tabs_enabled) {
+        let shortcut = resolve_shortcut(registry, id, default);
         let idx = menu.find_index(id);
         if idx >= 0
             && let Some(mut item) = menu.at(idx)
@@ -295,6 +310,137 @@ pub fn is_valid_shortcut(s: &str) -> bool {
     !s.is_empty() && parse_shortcut(s).is_some()
 }
 
+/// One built-in menu item: its path (which is also its command ID), its flags
+/// and the Message it emits. The shortcut is deliberately not stored here: it
+/// is looked up by path in `BUILTIN_SHORTCUTS`, so a default shortcut lives in
+/// exactly one place and a path typo on either side fails the unit tests.
+#[derive(Debug, Clone)]
+pub struct MenuEntry {
+    pub path: String,
+    pub flag: MenuFlag,
+    pub msg: Message,
+}
+
+/// The built-in menu, in display order. Pure data (no FLTK widget), so the
+/// menu/shortcut-table consistency is unit-testable.
+pub fn builtin_menu_entries(
+    settings: &AppSettings,
+    initial_dark_mode: bool,
+    tabs_enabled: bool,
+) -> Vec<MenuEntry> {
+    let item = |path: &str, flag: MenuFlag, msg: Message| MenuEntry {
+        path: path.to_string(),
+        flag,
+        msg,
+    };
+    let normal = |path: &str, msg: Message| item(path, MenuFlag::Normal, msg);
+    let toggle = |path: &str, on: bool, msg: Message| {
+        let flag = if on {
+            MenuFlag::Toggle | MenuFlag::Value
+        } else {
+            MenuFlag::Toggle
+        };
+        item(path, flag, msg)
+    };
+
+    // File
+    let mut entries = vec![
+        normal("File/New", Message::FileNew),
+        normal("File/Open...", Message::FileOpen),
+        normal("File/Save", Message::FileSave),
+        normal("File/Save As...", Message::FileSaveAs),
+        normal("File/Reload", Message::FileReload),
+        normal("File/Reload All", Message::FileReloadAll),
+        normal("File/Sessions...", Message::SessionShowPicker),
+        normal("File/New Session Window...", Message::SessionNewWindow),
+    ];
+    if tabs_enabled {
+        entries.extend([
+            normal("File/Close Tab", Message::TabCloseActive),
+            normal("File/Next Tab", Message::TabNext),
+            normal("File/Previous Tab", Message::TabPrevious),
+        ]);
+    }
+    entries.extend([
+        normal("File/Settings...", Message::OpenSettings),
+        normal("File/Quit", Message::FileQuit),
+        // Edit
+        normal("Edit/Undo", Message::EditUndo),
+        normal("Edit/Redo", Message::EditRedo),
+        normal("Edit/Cut", Message::EditCut),
+        normal("Edit/Copy", Message::EditCopy),
+        normal("Edit/Paste", Message::EditPaste),
+        normal("Edit/Select All", Message::SelectAll),
+        normal("Edit/Find...", Message::ShowFind),
+        normal("Edit/Replace...", Message::ShowReplace),
+        normal("Edit/Go To Line...", Message::ShowGoToLine),
+        normal("Edit/Key Shortcuts...", Message::ShowKeyShortcuts),
+        // View
+        toggle(
+            "View/Toggle Line Numbers",
+            settings.line_numbers_enabled,
+            Message::ToggleLineNumbers,
+        ),
+        toggle(
+            "View/Toggle Word Wrap",
+            settings.word_wrap_enabled,
+            Message::ToggleWordWrap,
+        ),
+        toggle(
+            "View/Toggle Dark Mode",
+            initial_dark_mode,
+            Message::ToggleDarkMode,
+        ),
+        toggle(
+            "View/Toggle Syntax Highlighting",
+            settings.highlighting_enabled,
+            Message::ToggleHighlighting,
+        ),
+        normal("View/Preview in Browser", Message::TogglePreview),
+        normal("View/Diagnostics Panel", Message::ToggleDiagnosticsPanel),
+        // Format
+        normal(
+            "Format/Font/Screen (Bold)",
+            Message::SetFont("ScreenBold".to_string()),
+        ),
+        normal(
+            "Format/Font/Courier",
+            Message::SetFont("Courier".to_string()),
+        ),
+        normal(
+            "Format/Font/Helvetica Mono",
+            Message::SetFont("HelveticaMono".to_string()),
+        ),
+        normal("Format/Font/More Fonts...", Message::OpenFontPicker),
+    ]);
+    let current_size = settings.font_size as i32;
+    entries.extend(PRESET_FONT_SIZES.iter().map(|&sz| {
+        normal(
+            &font_size_path(sz, sz == current_size),
+            Message::SetFontSize(sz),
+        )
+    }));
+    entries.extend([
+        // Plugins - General submenu with core functionality
+        toggle(
+            "Plugins/General/Enable Plugins",
+            settings.plugins_enabled,
+            Message::PluginsToggleGlobal,
+        ),
+        normal("Plugins/General/Run All Checks", Message::ManualHighlight),
+        normal("Plugins/General/Reload All", Message::PluginsReloadAll),
+        normal(
+            "Plugins/General/Plugin Manager...",
+            Message::ShowPluginManager,
+        ),
+        normal("Plugins/General/Settings...", Message::ShowPluginSettings),
+        // Help
+        normal("Help/About FerrisPad", Message::ShowAbout),
+        normal("Help/Check for Updates...", Message::CheckForUpdates),
+    ]);
+    entries
+}
+
 pub fn build_menu(
     menu: &mut MenuBar,
     sender: &Sender<Message>,
@@ -303,331 +449,16 @@ pub fn build_menu(
     tabs_enabled: bool,
     registry: &ShortcutRegistry,
 ) {
-    let s = sender;
-
-    // Helper: resolve shortcut from registry, with special-case for File/New
-    let rs = |id: &str| -> Shortcut {
-        let default = BUILTIN_SHORTCUTS
-            .iter()
-            .find(|(k, _)| *k == id)
-            .map(|(_, v)| *v)
-            .unwrap_or("");
-        // File/New uses Ctrl+N when tabs disabled
-        let actual_default = if id == "File/New" && !tabs_enabled {
-            "Ctrl+N"
-        } else {
-            default
-        };
-        resolve_shortcut(registry, id, actual_default)
-    };
-
-    // File
-    menu.add("File/New", rs("File/New"), MenuFlag::Normal, {
-        let s = *s;
-        move |_| s.send(Message::FileNew)
-    });
-    menu.add("File/Open...", rs("File/Open..."), MenuFlag::Normal, {
-        let s = *s;
-        move |_| s.send(Message::FileOpen)
-    });
-    menu.add("File/Save", rs("File/Save"), MenuFlag::Normal, {
-        let s = *s;
-        move |_| s.send(Message::FileSave)
-    });
-    menu.add(
-        "File/Save As...",
-        rs("File/Save As..."),
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::FileSaveAs)
-        },
-    );
-    menu.add("File/Reload", rs("File/Reload"), MenuFlag::Normal, {
-        let s = *s;
-        move |_| s.send(Message::FileReload)
-    });
-    menu.add(
-        "File/Reload All",
-        rs("File/Reload All"),
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::FileReloadAll)
-        },
-    );
-    menu.add("File/Sessions...", Shortcut::None, MenuFlag::Normal, {
-        let s = *s;
-        move |_| s.send(Message::SessionShowPicker)
-    });
-    menu.add(
-        "File/New Session Window...",
-        rs("File/New Session Window..."),
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::SessionNewWindow)
-        },
-    );
-    if tabs_enabled {
-        menu.add("File/Close Tab", rs("File/Close Tab"), MenuFlag::Normal, {
-            let s = *s;
-            move |_| s.send(Message::TabCloseActive)
-        });
-        menu.add("File/Next Tab", rs("File/Next Tab"), MenuFlag::Normal, {
-            let s = *s;
-            move |_| s.send(Message::TabNext)
-        });
-        menu.add(
-            "File/Previous Tab",
-            rs("File/Previous Tab"),
-            MenuFlag::Normal,
-            {
-                let s = *s;
-                move |_| s.send(Message::TabPrevious)
-            },
-        );
+    for entry in builtin_menu_entries(settings, initial_dark_mode, tabs_enabled) {
+        // Items without a BUILTIN_SHORTCUTS row get no shortcut (and are not
+        // rebindable), exactly as before.
+        let shortcut = builtin_shortcut_defaults(tabs_enabled)
+            .find(|&(id, _)| id == entry.path)
+            .map_or(Shortcut::None, |(id, default)| {
+                resolve_shortcut(registry, id, default)
+            });
+        menu.add_emit(&entry.path, shortcut, entry.flag, *sender, entry.msg);
     }
-    menu.add("File/Settings...", Shortcut::None, MenuFlag::Normal, {
-        let s = *s;
-        move |_| s.send(Message::OpenSettings)
-    });
-    menu.add("File/Quit", rs("File/Quit"), MenuFlag::Normal, {
-        let s = *s;
-        move |_| s.send(Message::FileQuit)
-    });
-
-    // Edit
-    menu.add("Edit/Undo", rs("Edit/Undo"), MenuFlag::Normal, {
-        let s = *s;
-        move |_| s.send(Message::EditUndo)
-    });
-    menu.add("Edit/Redo", rs("Edit/Redo"), MenuFlag::Normal, {
-        let s = *s;
-        move |_| s.send(Message::EditRedo)
-    });
-    menu.add("Edit/Cut", rs("Edit/Cut"), MenuFlag::Normal, {
-        let s = *s;
-        move |_| s.send(Message::EditCut)
-    });
-    menu.add("Edit/Copy", rs("Edit/Copy"), MenuFlag::Normal, {
-        let s = *s;
-        move |_| s.send(Message::EditCopy)
-    });
-    menu.add("Edit/Paste", rs("Edit/Paste"), MenuFlag::Normal, {
-        let s = *s;
-        move |_| s.send(Message::EditPaste)
-    });
-    menu.add(
-        "Edit/Select All",
-        rs("Edit/Select All"),
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::SelectAll)
-        },
-    );
-    menu.add("Edit/Find...", rs("Edit/Find..."), MenuFlag::Normal, {
-        let s = *s;
-        move |_| s.send(Message::ShowFind)
-    });
-    menu.add(
-        "Edit/Replace...",
-        rs("Edit/Replace..."),
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::ShowReplace)
-        },
-    );
-    menu.add(
-        "Edit/Go To Line...",
-        rs("Edit/Go To Line..."),
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::ShowGoToLine)
-        },
-    );
-    menu.add("Edit/Key Shortcuts...", Shortcut::None, MenuFlag::Normal, {
-        let s = *s;
-        move |_| s.send(Message::ShowKeyShortcuts)
-    });
-
-    // View
-    let ln_flag = if settings.line_numbers_enabled {
-        MenuFlag::Toggle | MenuFlag::Value
-    } else {
-        MenuFlag::Toggle
-    };
-    menu.add("View/Toggle Line Numbers", Shortcut::None, ln_flag, {
-        let s = *s;
-        move |_| s.send(Message::ToggleLineNumbers)
-    });
-    let ww_flag = if settings.word_wrap_enabled {
-        MenuFlag::Toggle | MenuFlag::Value
-    } else {
-        MenuFlag::Toggle
-    };
-    menu.add("View/Toggle Word Wrap", Shortcut::None, ww_flag, {
-        let s = *s;
-        move |_| s.send(Message::ToggleWordWrap)
-    });
-    let dm_flag = if initial_dark_mode {
-        MenuFlag::Toggle | MenuFlag::Value
-    } else {
-        MenuFlag::Toggle
-    };
-    menu.add("View/Toggle Dark Mode", Shortcut::None, dm_flag, {
-        let s = *s;
-        move |_| s.send(Message::ToggleDarkMode)
-    });
-    let hl_flag = if settings.highlighting_enabled {
-        MenuFlag::Toggle | MenuFlag::Value
-    } else {
-        MenuFlag::Toggle
-    };
-    menu.add(
-        "View/Toggle Syntax Highlighting",
-        Shortcut::None,
-        hl_flag,
-        {
-            let s = *s;
-            move |_| s.send(Message::ToggleHighlighting)
-        },
-    );
-    menu.add(
-        "View/Preview in Browser",
-        rs("View/Preview in Browser"),
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::TogglePreview)
-        },
-    );
-    menu.add(
-        "View/Diagnostics Panel",
-        Shortcut::None,
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::ToggleDiagnosticsPanel)
-        },
-    );
-
-    // Format
-    menu.add(
-        "Format/Font/Screen (Bold)",
-        Shortcut::None,
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::SetFont("ScreenBold".to_string()))
-        },
-    );
-    menu.add("Format/Font/Courier", Shortcut::None, MenuFlag::Normal, {
-        let s = *s;
-        move |_| s.send(Message::SetFont("Courier".to_string()))
-    });
-    menu.add(
-        "Format/Font/Helvetica Mono",
-        Shortcut::None,
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::SetFont("HelveticaMono".to_string()))
-        },
-    );
-    menu.add(
-        "Format/Font/More Fonts...",
-        Shortcut::None,
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::OpenFontPicker)
-        },
-    );
-    let current_size = settings.font_size as i32;
-    for &sz in PRESET_FONT_SIZES {
-        let label = font_size_label(sz, sz == current_size);
-        menu.add(
-            &format!("Format/Font Size/{}", label),
-            Shortcut::None,
-            MenuFlag::Normal,
-            {
-                let s = *s;
-                move |_| s.send(Message::SetFontSize(sz))
-            },
-        );
-    }
-
-    // Plugins - General submenu with core functionality
-    let plugins_flag = if settings.plugins_enabled {
-        MenuFlag::Toggle | MenuFlag::Value
-    } else {
-        MenuFlag::Toggle
-    };
-    menu.add(
-        "Plugins/General/Enable Plugins",
-        Shortcut::None,
-        plugins_flag,
-        {
-            let s = *s;
-            move |_| s.send(Message::PluginsToggleGlobal)
-        },
-    );
-
-    menu.add(
-        "Plugins/General/Run All Checks",
-        rs("Plugins/General/Run All Checks"),
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::ManualHighlight)
-        },
-    );
-    menu.add(
-        "Plugins/General/Reload All",
-        Shortcut::None,
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::PluginsReloadAll)
-        },
-    );
-    menu.add(
-        "Plugins/General/Plugin Manager...",
-        Shortcut::None,
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::ShowPluginManager)
-        },
-    );
-    menu.add(
-        "Plugins/General/Settings...",
-        Shortcut::None,
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::ShowPluginSettings)
-        },
-    );
-
-    // Help
-    menu.add("Help/About FerrisPad", Shortcut::None, MenuFlag::Normal, {
-        let s = *s;
-        move |_| s.send(Message::ShowAbout)
-    });
-    menu.add(
-        "Help/Check for Updates...",
-        Shortcut::None,
-        MenuFlag::Normal,
-        {
-            let s = *s;
-            move |_| s.send(Message::CheckForUpdates)
-        },
-    );
 }
 
 /// Remove all menu entries for a plugin by name.
@@ -995,6 +826,164 @@ mod tests {
     #[test]
     fn test_parse_shortcut_invalid_key() {
         assert!(parse_shortcut("Ctrl+!!!").is_none());
+    }
+
+    fn entries(tabs_enabled: bool) -> Vec<MenuEntry> {
+        builtin_menu_entries(&AppSettings::default(), false, tabs_enabled)
+    }
+
+    #[test]
+    fn every_builtin_shortcut_names_exactly_one_menu_item() {
+        // A typo in either the table or the menu path would orphan the
+        // shortcut (it silently never fires); catch it here.
+        for tabs_enabled in [true, false] {
+            let entries = entries(tabs_enabled);
+            for (id, _) in builtin_shortcut_defaults(tabs_enabled) {
+                let hits = entries.iter().filter(|e| e.path == id).count();
+                assert_eq!(
+                    hits, 1,
+                    "shortcut id {id:?} matches {hits} menu items (tabs_enabled={tabs_enabled})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_builtin_table_row_is_reachable_with_tabs() {
+        // With tabs on, every row of the raw table must be in the menu.
+        let entries = entries(true);
+        for &(id, _) in BUILTIN_SHORTCUTS {
+            assert!(
+                entries.iter().any(|e| e.path == id),
+                "BUILTIN_SHORTCUTS row {id:?} has no menu item"
+            );
+        }
+    }
+
+    #[test]
+    fn builtin_menu_paths_are_unique() {
+        for tabs_enabled in [true, false] {
+            let mut seen = HashSet::new();
+            for e in entries(tabs_enabled) {
+                assert!(
+                    seen.insert(e.path.clone()),
+                    "duplicate menu path {:?}",
+                    e.path
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn builtin_shortcut_ids_and_defaults_are_unique() {
+        for tabs_enabled in [true, false] {
+            let mut ids = HashSet::new();
+            let mut keys = HashSet::new();
+            for (id, default) in builtin_shortcut_defaults(tabs_enabled) {
+                assert!(ids.insert(id), "duplicate shortcut id {id:?}");
+                assert!(
+                    keys.insert(normalize_shortcut(default)),
+                    "default {default:?} of {id:?} is already bound (tabs_enabled={tabs_enabled})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn builtin_defaults_parse_and_are_reserved_from_plugins() {
+        // Plugins may not take a built-in default; RESERVED_SHORTCUTS must
+        // cover every one of them in both tab modes.
+        for tabs_enabled in [true, false] {
+            for (id, default) in builtin_shortcut_defaults(tabs_enabled) {
+                assert!(
+                    is_valid_shortcut(default),
+                    "{id:?} default {default:?} does not parse"
+                );
+                let normalized = normalize_shortcut(default);
+                assert!(
+                    RESERVED_SHORTCUTS.contains(&normalized.as_str()),
+                    "{id:?} default {default:?} is not in RESERVED_SHORTCUTS"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tab_mode_rules_for_builtin_defaults() {
+        let with_tabs: Vec<_> = builtin_shortcut_defaults(true).collect();
+        let without_tabs: Vec<_> = builtin_shortcut_defaults(false).collect();
+
+        assert_eq!(with_tabs.len(), BUILTIN_SHORTCUTS.len());
+        assert!(with_tabs.contains(&("File/New", "Ctrl+T")));
+        assert!(with_tabs.contains(&("File/Close Tab", "Ctrl+W")));
+
+        assert!(without_tabs.contains(&("File/New", "Ctrl+N")));
+        for id in TAB_ONLY_COMMANDS {
+            assert!(
+                without_tabs.iter().all(|(i, _)| i != id),
+                "{id:?} kept without tabs"
+            );
+            assert!(
+                entries(false).iter().all(|e| e.path != *id),
+                "{id:?} in menu without tabs"
+            );
+        }
+    }
+
+    #[test]
+    fn run_all_checks_default_matches_settings_default() {
+        // `AppState` mirrors this shortcut into `run_all_checks_shortcut`;
+        // the table and the settings default must agree.
+        let default = builtin_shortcut_defaults(true)
+            .find(|&(id, _)| id == "Plugins/General/Run All Checks")
+            .map(|(_, d)| d);
+        assert_eq!(
+            default,
+            Some(AppSettings::default().run_all_checks_shortcut.as_str())
+        );
+    }
+
+    #[test]
+    fn registry_override_applies_to_a_builtin_menu_id() {
+        // The registry keys built-ins by menu path; an override stored under a
+        // table id must win over the table default.
+        let mut registry = ShortcutRegistry::default();
+        registry.set_override(
+            "File/Save".to_string(),
+            crate::app::domain::settings::ShortcutOverride {
+                shortcut: "Ctrl+Shift+P".to_string(),
+                enabled: true,
+            },
+        );
+        assert_eq!(
+            resolve_shortcut(&registry, "File/Save", "Ctrl+S"),
+            Shortcut::Ctrl | Shortcut::Shift | 'p'
+        );
+        assert_eq!(
+            resolve_shortcut(&registry, "File/Open...", "Ctrl+O"),
+            Shortcut::Ctrl | 'o'
+        );
+    }
+
+    #[test]
+    fn toggle_entries_reflect_settings() {
+        let settings = AppSettings {
+            line_numbers_enabled: true,
+            word_wrap_enabled: false,
+            ..AppSettings::default()
+        };
+        let entries = builtin_menu_entries(&settings, true, true);
+        let flag = |path: &str| entries.iter().find(|e| e.path == path).map(|e| e.flag);
+        assert_eq!(
+            flag("View/Toggle Line Numbers"),
+            Some(MenuFlag::Toggle | MenuFlag::Value)
+        );
+        assert_eq!(flag("View/Toggle Word Wrap"), Some(MenuFlag::Toggle));
+        assert_eq!(
+            flag("View/Toggle Dark Mode"),
+            Some(MenuFlag::Toggle | MenuFlag::Value)
+        );
+        assert_eq!(flag("File/Save"), Some(MenuFlag::Normal));
     }
 
     #[test]
