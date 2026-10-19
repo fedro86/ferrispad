@@ -18,9 +18,85 @@ use crate::app::services::text_ops::{
 
 use super::{DialogTheme, show_themed_message};
 
+/// Search state shared by one dialog's buttons; clones share the same cells.
+#[derive(Clone)]
 struct FindState {
     search_text: Rc<RefCell<String>>,
     search_pos: Rc<RefCell<usize>>,
+}
+
+/// Which way Find Next / Find Prev walks through the document.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Direction {
+    Forward,
+    Backward,
+}
+
+/// The dialog's "Match case" / "Use regex" checkboxes.
+#[derive(Clone, Copy, Debug)]
+struct SearchOptions {
+    case_sensitive: bool,
+    use_regex: bool,
+}
+
+impl Direction {
+    /// One search pass from `from`, without wrap-around. Forward finds the
+    /// first match starting at or after `from`; backward finds the last match
+    /// ending at or before `from`.
+    fn search_once(
+        self,
+        text: &str,
+        query: &str,
+        from: usize,
+        opts: SearchOptions,
+    ) -> Result<Option<(usize, usize)>, String> {
+        let cs = opts.case_sensitive;
+        match (self, opts.use_regex) {
+            (Direction::Forward, true) => find_in_text_regex(text, query, from, cs),
+            (Direction::Backward, true) => find_in_text_regex_backward(text, query, from, cs),
+            (Direction::Forward, false) => Ok(find_in_text(text, query, from, cs)),
+            (Direction::Backward, false) => Ok(find_in_text_backward(text, query, from, cs)),
+        }
+    }
+
+    /// Where the wrap-around retry starts (the far end of the document), or
+    /// `None` when the first pass already covered the whole document.
+    fn wrap_start(self, text_len: usize, from: usize) -> Option<usize> {
+        match self {
+            Direction::Forward => (from > 0).then_some(0),
+            Direction::Backward => (from < text_len).then_some(text_len),
+        }
+    }
+
+    /// The cursor position after selecting `found`, which is also where the
+    /// next search in this direction continues from.
+    fn resume_pos(self, (start, end): (usize, usize)) -> usize {
+        match self {
+            Direction::Forward => end,
+            Direction::Backward => start,
+        }
+    }
+}
+
+/// Search `text` for `query` from `from` in `dir`, wrapping around once to
+/// the other end of the document when the first pass finds nothing.
+///
+/// Returns `(start, end)` byte offsets into `text`, or `Err` with the message
+/// of an invalid regex.
+fn search_wrapping(
+    text: &str,
+    query: &str,
+    from: usize,
+    dir: Direction,
+    opts: SearchOptions,
+) -> Result<Option<(usize, usize)>, String> {
+    if let Some(found) = dir.search_once(text, query, from, opts)? {
+        return Ok(Some(found));
+    }
+    match dir.wrap_start(text.len(), from) {
+        Some(wrap) => dir.search_once(text, query, wrap, opts),
+        None => Ok(None),
+    }
 }
 
 impl FindState {
@@ -31,121 +107,60 @@ impl FindState {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn find_next(
-        st: Rc<RefCell<String>>,
-        sp: Rc<RefCell<usize>>,
-        query: &str,
-        buf: &mut TextBuffer,
-        ed: &mut TextEditor,
-        case_sensitive: bool,
-        use_regex: bool,
-        theme_bg: (u8, u8, u8),
-    ) {
-        let text = buffer_text_no_leak(buf);
-
-        let start_pos = if *st.borrow() != query {
-            *st.borrow_mut() = query.to_string();
-            let cursor = ed.insert_position() as usize;
-            *sp.borrow_mut() = cursor;
+    /// Where this search starts: from the editor cursor when the query
+    /// changed since the last search, otherwise from where the last one ended.
+    fn start_pos(&self, query: &str, cursor: usize) -> usize {
+        let query_changed = *self.search_text.borrow() != query;
+        if query_changed {
+            *self.search_text.borrow_mut() = query.to_string();
+            *self.search_pos.borrow_mut() = cursor;
             cursor
         } else {
-            *sp.borrow()
-        };
-
-        let found: Option<(usize, usize)> = if use_regex {
-            match find_in_text_regex(&text, query, start_pos, case_sensitive) {
-                Err(e) => {
-                    show_themed_message(theme_bg, "Invalid regex", &e);
-                    return;
-                }
-                Ok(None) if start_pos > 0 => {
-                    match find_in_text_regex(&text, query, 0, case_sensitive) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            show_themed_message(theme_bg, "Invalid regex", &e);
-                            return;
-                        }
-                    }
-                }
-                Ok(v) => v,
-            }
-        } else {
-            find_in_text(&text, query, start_pos, case_sensitive).or_else(|| {
-                if start_pos > 0 {
-                    find_in_text(&text, query, 0, case_sensitive)
-                } else {
-                    None
-                }
-            })
-        };
-
-        if let Some((match_start, match_end)) = found {
-            buf.select(match_start as i32, match_end as i32);
-            ed.set_insert_position(match_end as i32);
-            ed.show_insert_position();
-            *sp.borrow_mut() = match_end;
-        } else {
-            show_themed_message(theme_bg, "Find", &format!("Cannot find '{}'", query));
+            *self.search_pos.borrow()
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn find_prev(
-        st: Rc<RefCell<String>>,
-        sp: Rc<RefCell<usize>>,
+    /// The UI-free core of Find Next / Find Prev: pick the start position,
+    /// search with wrap-around, and remember where the next search resumes.
+    fn locate(
+        &self,
+        dir: Direction,
+        text: &str,
+        query: &str,
+        cursor: usize,
+        opts: SearchOptions,
+    ) -> Result<Option<(usize, usize)>, String> {
+        let start_pos = self.start_pos(query, cursor);
+        let found = search_wrapping(text, query, start_pos, dir, opts)?;
+        if let Some(m) = found {
+            *self.search_pos.borrow_mut() = dir.resume_pos(m);
+        }
+        Ok(found)
+    }
+
+    /// Find Next / Find Prev: select the match in the editor, or explain
+    /// why there is none.
+    fn find(
+        &self,
+        dir: Direction,
         query: &str,
         buf: &mut TextBuffer,
         ed: &mut TextEditor,
-        case_sensitive: bool,
-        use_regex: bool,
+        opts: SearchOptions,
         theme_bg: (u8, u8, u8),
     ) {
         let text = buffer_text_no_leak(buf);
-
-        let start_pos = if *st.borrow() != query {
-            *st.borrow_mut() = query.to_string();
-            let cursor = ed.insert_position() as usize;
-            *sp.borrow_mut() = cursor;
-            cursor
-        } else {
-            *sp.borrow()
-        };
-
-        let found: Option<(usize, usize)> = if use_regex {
-            match find_in_text_regex_backward(&text, query, start_pos, case_sensitive) {
-                Err(e) => {
-                    show_themed_message(theme_bg, "Invalid regex", &e);
-                    return;
-                }
-                Ok(None) if start_pos < text.len() => {
-                    match find_in_text_regex_backward(&text, query, text.len(), case_sensitive) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            show_themed_message(theme_bg, "Invalid regex", &e);
-                            return;
-                        }
-                    }
-                }
-                Ok(v) => v,
+        let cursor = ed.insert_position() as usize;
+        match self.locate(dir, &text, query, cursor, opts) {
+            Ok(Some(m @ (match_start, match_end))) => {
+                buf.select(match_start as i32, match_end as i32);
+                ed.set_insert_position(dir.resume_pos(m) as i32);
+                ed.show_insert_position();
             }
-        } else {
-            find_in_text_backward(&text, query, start_pos, case_sensitive).or_else(|| {
-                if start_pos < text.len() {
-                    find_in_text_backward(&text, query, text.len(), case_sensitive)
-                } else {
-                    None
-                }
-            })
-        };
-
-        if let Some((match_start, match_end)) = found {
-            buf.select(match_start as i32, match_end as i32);
-            ed.set_insert_position(match_start as i32);
-            ed.show_insert_position();
-            *sp.borrow_mut() = match_start;
-        } else {
-            show_themed_message(theme_bg, "Find", &format!("Cannot find '{}'", query));
+            Ok(None) => {
+                show_themed_message(theme_bg, "Find", &format!("Cannot find '{}'", query));
+            }
+            Err(e) => show_themed_message(theme_bg, "Invalid regex", &e),
         }
     }
 }
@@ -237,8 +252,7 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
     let text_ed = editor.clone();
 
     // Find Next button
-    let st = state.search_text.clone();
-    let sp = state.search_pos.clone();
+    let state1 = state.clone();
     let mut tb1 = text_buf.clone();
     let mut te1 = text_ed.clone();
     let find_input1 = find_input.clone();
@@ -251,21 +265,22 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
             show_themed_message(theme_bg, "Find", "Please enter text to find");
             return;
         }
-        FindState::find_next(
-            st.clone(),
-            sp.clone(),
+        let opts = SearchOptions {
+            case_sensitive: case_check1.is_checked(),
+            use_regex: regex_check1.is_checked(),
+        };
+        state1.find(
+            Direction::Forward,
             &query,
             &mut tb1,
             &mut te1,
-            case_check1.is_checked(),
-            regex_check1.is_checked(),
+            opts,
             theme_bg,
         );
     });
 
     // Find Previous button
-    let st_prev = state.search_text.clone();
-    let sp_prev = state.search_pos.clone();
+    let state_prev = state.clone();
     let mut tb_prev = text_buf.clone();
     let mut te_prev = text_ed.clone();
     let find_input_prev = find_input.clone();
@@ -278,14 +293,16 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
             show_themed_message(theme_bg, "Find", "Please enter text to find");
             return;
         }
-        FindState::find_prev(
-            st_prev.clone(),
-            sp_prev.clone(),
+        let opts = SearchOptions {
+            case_sensitive: case_check_prev.is_checked(),
+            use_regex: regex_check_prev.is_checked(),
+        };
+        state_prev.find(
+            Direction::Backward,
             &query,
             &mut tb_prev,
             &mut te_prev,
-            case_check_prev.is_checked(),
-            regex_check_prev.is_checked(),
+            opts,
             theme_bg,
         );
     });
@@ -486,8 +503,7 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: 
     let state = FindState::new();
 
     // Find Next button (simple dialog)
-    let st = state.search_text.clone();
-    let sp = state.search_pos.clone();
+    let state1 = state.clone();
     let mut tb1 = buffer.clone();
     let mut te1 = editor.clone();
     let find_input1 = find_input.clone();
@@ -500,21 +516,22 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: 
             show_themed_message(theme_bg, "Find", "Please enter text to find");
             return;
         }
-        FindState::find_next(
-            st.clone(),
-            sp.clone(),
+        let opts = SearchOptions {
+            case_sensitive: case_check1.is_checked(),
+            use_regex: regex_check1.is_checked(),
+        };
+        state1.find(
+            Direction::Forward,
             &query,
             &mut tb1,
             &mut te1,
-            case_check1.is_checked(),
-            regex_check1.is_checked(),
+            opts,
             theme_bg,
         );
     });
 
     // Find Previous button (simple dialog)
-    let st2 = state.search_text.clone();
-    let sp2 = state.search_pos.clone();
+    let state2 = state;
     let mut tb2 = buffer.clone();
     let mut te2 = editor.clone();
     let find_input2 = find_input.clone();
@@ -527,14 +544,16 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: 
             show_themed_message(theme_bg, "Find", "Please enter text to find");
             return;
         }
-        FindState::find_prev(
-            st2.clone(),
-            sp2.clone(),
+        let opts = SearchOptions {
+            case_sensitive: case_check2.is_checked(),
+            use_regex: regex_check2.is_checked(),
+        };
+        state2.find(
+            Direction::Backward,
             &query,
             &mut tb2,
             &mut te2,
-            case_check2.is_checked(),
-            regex_check2.is_checked(),
+            opts,
             theme_bg,
         );
     });
@@ -558,4 +577,253 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: 
     });
 
     super::run_dialog(&dialog_win);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use Direction::{Backward, Forward};
+
+    const PLAIN: SearchOptions = SearchOptions {
+        case_sensitive: true,
+        use_regex: false,
+    };
+    const PLAIN_CI: SearchOptions = SearchOptions {
+        case_sensitive: false,
+        use_regex: false,
+    };
+    const REGEX: SearchOptions = SearchOptions {
+        case_sensitive: true,
+        use_regex: true,
+    };
+    const REGEX_CI: SearchOptions = SearchOptions {
+        case_sensitive: false,
+        use_regex: true,
+    };
+
+    fn search(
+        dir: Direction,
+        text: &str,
+        query: &str,
+        from: usize,
+        opts: SearchOptions,
+    ) -> Option<(usize, usize)> {
+        search_wrapping(text, query, from, dir, opts).expect("valid query")
+    }
+
+    // ---- pure search core: one function, both directions ----
+
+    #[test]
+    fn forward_finds_match_starting_at_cursor() {
+        let text = "foo bar foo";
+        assert_eq!(search(Forward, text, "foo", 0, PLAIN), Some((0, 3)));
+        assert_eq!(search(Forward, text, "foo", 8, PLAIN), Some((8, 11)));
+    }
+
+    #[test]
+    fn forward_skips_match_that_starts_before_cursor() {
+        assert_eq!(
+            search(Forward, "foo bar foo", "foo", 1, PLAIN),
+            Some((8, 11))
+        );
+    }
+
+    #[test]
+    fn forward_wraps_to_start_of_document() {
+        let text = "foo bar foo";
+        assert_eq!(search(Forward, text, "foo", 9, PLAIN), Some((0, 3)));
+        assert_eq!(
+            search(Forward, text, "foo", text.len(), PLAIN),
+            Some((0, 3))
+        );
+        // A stale position past the end (the buffer shrank) also wraps.
+        assert_eq!(search(Forward, text, "foo", 50, PLAIN), Some((0, 3)));
+    }
+
+    #[test]
+    fn forward_without_any_match_is_none() {
+        assert_eq!(search(Forward, "abc", "x", 0, PLAIN), None);
+        assert_eq!(search(Forward, "abc", "x", 2, PLAIN), None);
+    }
+
+    #[test]
+    fn backward_finds_match_ending_at_cursor() {
+        let text = "foo bar foo";
+        assert_eq!(search(Backward, text, "foo", 11, PLAIN), Some((8, 11)));
+        assert_eq!(search(Backward, text, "foo", 3, PLAIN), Some((0, 3)));
+    }
+
+    #[test]
+    fn backward_skips_match_that_ends_after_cursor() {
+        assert_eq!(
+            search(Backward, "foo bar foo", "foo", 10, PLAIN),
+            Some((0, 3))
+        );
+    }
+
+    #[test]
+    fn backward_wraps_to_end_of_document() {
+        let text = "foo bar foo";
+        assert_eq!(search(Backward, text, "foo", 2, PLAIN), Some((8, 11)));
+        assert_eq!(search(Backward, text, "foo", 0, PLAIN), Some((8, 11)));
+    }
+
+    #[test]
+    fn backward_without_any_match_is_none() {
+        assert_eq!(search(Backward, "abc", "x", 3, PLAIN), None);
+        assert_eq!(search(Backward, "abc", "x", 1, PLAIN), None);
+    }
+
+    #[test]
+    fn case_insensitive_matching_in_both_directions() {
+        let text = "Foo FOO foo";
+        assert_eq!(search(Forward, text, "foo", 1, PLAIN_CI), Some((4, 7)));
+        assert_eq!(search(Forward, text, "foo", 1, PLAIN), Some((8, 11)));
+        assert_eq!(search(Backward, text, "foo", 8, PLAIN_CI), Some((4, 7)));
+        // Case-sensitive: nothing ends before 8, so it wraps to the only exact match.
+        assert_eq!(search(Backward, text, "foo", 8, PLAIN), Some((8, 11)));
+    }
+
+    #[test]
+    fn non_ascii_offsets_index_the_original_text() {
+        // 'İ' (U+0130) is 2 bytes and lowercases to 3 bytes; offsets must
+        // still point into the original text.
+        let text = "İ foo FOO";
+        assert_eq!(search(Forward, text, "FOO", 0, PLAIN_CI), Some((3, 6)));
+        assert_eq!(
+            search(Backward, text, "foo", text.len(), PLAIN_CI),
+            Some((7, 10))
+        );
+        assert_eq!(&text[7..10], "FOO");
+
+        let text = "café CAFÉ café"; // 'é' is 2 bytes: matches at 0..5, 6..11, 12..17
+        assert_eq!(search(Forward, text, "café", 1, PLAIN_CI), Some((6, 11)));
+        assert_eq!(search(Backward, text, "CAFÉ", 12, PLAIN_CI), Some((6, 11)));
+        assert_eq!(&text[6..11], "CAFÉ");
+    }
+
+    #[test]
+    fn cursor_off_a_char_boundary_does_not_panic() {
+        let text = "café CAFÉ café"; // byte 4 is inside the first 'é'
+        assert_eq!(search(Forward, text, "café", 4, PLAIN_CI), Some((6, 11)));
+        assert_eq!(search(Forward, text, "CAFÉ", 4, REGEX), Some((6, 11)));
+        // Byte 16 is inside the last 'é': that match does not end before it.
+        assert_eq!(search(Backward, text, "café", 16, PLAIN_CI), Some((6, 11)));
+        assert_eq!(search(Backward, text, "CAFÉ", 16, REGEX), Some((6, 11)));
+    }
+
+    #[test]
+    fn regex_in_both_directions_with_wrap() {
+        let text = "a1 b22 c333";
+        assert_eq!(search(Forward, text, r"\d+", 0, REGEX), Some((1, 2)));
+        assert_eq!(search(Forward, text, r"\d+", 3, REGEX), Some((4, 6)));
+        assert_eq!(search(Forward, text, r"\d+", 11, REGEX), Some((1, 2)));
+        assert_eq!(search(Backward, text, r"\d+", 11, REGEX), Some((8, 11)));
+        assert_eq!(search(Backward, text, r"\d+", 4, REGEX), Some((1, 2)));
+        assert_eq!(search(Backward, text, r"\d+", 1, REGEX), Some((8, 11)));
+    }
+
+    #[test]
+    fn regex_case_sensitivity_follows_the_option() {
+        assert_eq!(search(Forward, "Foo", "foo", 0, REGEX_CI), Some((0, 3)));
+        assert_eq!(search(Forward, "Foo", "foo", 0, REGEX), None);
+        assert_eq!(search(Backward, "Foo", "foo", 3, REGEX_CI), Some((0, 3)));
+        assert_eq!(search(Backward, "Foo", "foo", 3, REGEX), None);
+    }
+
+    #[test]
+    fn invalid_regex_is_an_error_in_both_directions() {
+        for dir in [Forward, Backward] {
+            assert!(search_wrapping("abc", "(", 1, dir, REGEX).is_err());
+        }
+    }
+
+    // ---- search state: where repeated Find Next / Find Prev resume ----
+
+    #[test]
+    fn repeated_find_next_cycles_and_wraps() {
+        let state = FindState::new();
+        let text = "x a x a x";
+        let hits: Vec<_> = (0..4)
+            .map(|_| state.locate(Forward, text, "x", 0, PLAIN))
+            .collect();
+        assert_eq!(
+            hits,
+            [
+                Ok(Some((0, 1))),
+                Ok(Some((4, 5))),
+                Ok(Some((8, 9))),
+                Ok(Some((0, 1)))
+            ]
+        );
+        assert_eq!(*state.search_pos.borrow(), 1);
+    }
+
+    #[test]
+    fn repeated_find_prev_cycles_and_wraps() {
+        let state = FindState::new();
+        let text = "x a x a x";
+        let hits: Vec<_> = (0..4)
+            .map(|_| state.locate(Backward, text, "x", text.len(), PLAIN))
+            .collect();
+        assert_eq!(
+            hits,
+            [
+                Ok(Some((8, 9))),
+                Ok(Some((4, 5))),
+                Ok(Some((0, 1))),
+                Ok(Some((8, 9)))
+            ]
+        );
+        assert_eq!(*state.search_pos.borrow(), 8);
+    }
+
+    #[test]
+    fn same_query_resumes_from_last_match_not_cursor() {
+        let state = FindState::new();
+        let text = "x a x a x";
+        assert_eq!(state.locate(Forward, text, "x", 0, PLAIN), Ok(Some((0, 1))));
+        // The cursor argument is ignored while the query is unchanged.
+        assert_eq!(state.locate(Forward, text, "x", 9, PLAIN), Ok(Some((4, 5))));
+    }
+
+    #[test]
+    fn changed_query_restarts_from_cursor() {
+        let state = FindState::new();
+        let text = "x a x a x";
+        assert_eq!(state.locate(Forward, text, "x", 0, PLAIN), Ok(Some((0, 1))));
+        assert_eq!(state.locate(Forward, text, "a", 4, PLAIN), Ok(Some((6, 7))));
+        assert_eq!(*state.search_text.borrow(), "a");
+    }
+
+    #[test]
+    fn switching_direction_reselects_the_current_match() {
+        // Current behaviour, pinned (see the T0031 ticket notes): Find Next
+        // resumes from the match end and Find Prev from the match start, so the
+        // first search in the other direction selects the same match again.
+        let state = FindState::new();
+        let text = "x a x a x";
+        assert_eq!(state.locate(Forward, text, "x", 3, PLAIN), Ok(Some((4, 5))));
+        assert_eq!(
+            state.locate(Backward, text, "x", 5, PLAIN),
+            Ok(Some((4, 5)))
+        );
+        assert_eq!(
+            state.locate(Backward, text, "x", 4, PLAIN),
+            Ok(Some((0, 1)))
+        );
+        assert_eq!(state.locate(Forward, text, "x", 0, PLAIN), Ok(Some((0, 1))));
+    }
+
+    #[test]
+    fn miss_or_regex_error_keeps_resume_point() {
+        let state = FindState::new();
+        assert_eq!(state.locate(Forward, "abc", "zz", 2, PLAIN), Ok(None));
+        assert_eq!(*state.search_pos.borrow(), 2);
+        assert_eq!(state.locate(Backward, "abc", "zz", 0, PLAIN), Ok(None));
+        assert_eq!(*state.search_pos.borrow(), 2);
+        // A new query still resets the resume point to the cursor first.
+        assert!(state.locate(Forward, "abc", "(", 1, REGEX).is_err());
+        assert_eq!(*state.search_pos.borrow(), 1);
+    }
 }
