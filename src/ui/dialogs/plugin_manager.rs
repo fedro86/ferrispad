@@ -275,10 +275,21 @@ pub fn show_plugin_manager_dialog(
 
     // Add installed plugins
     let plugin_list = plugins.list_plugins();
-    // Track the empty label so we can hide it when a plugin is installed from Available tab
-    let empty_label_for_tracking: Rc<RefCell<Option<Frame>>> = Rc::new(RefCell::new(None));
-    // Store row_width for use in callbacks
-    let row_width_for_callback = row_width;
+
+    // State shared by the rows of all three tabs. The empty label is tracked so
+    // it can be hidden when a plugin is installed from another tab.
+    let row_ctx = PluginRowContext {
+        theme,
+        row_width,
+        toggles: toggles.clone(),
+        installed: installed.clone(),
+        uninstalled: uninstalled.clone(),
+        available_buttons,
+        community_buttons,
+        installed_rows,
+        pack_installed: Rc::new(RefCell::new(pack_installed_inner.clone())),
+        empty_installed_label: Rc::new(RefCell::new(None)),
+    };
 
     // Track installed data for search: (Group, name, description)
     type InstalledRow = (Group, String, String);
@@ -289,30 +300,24 @@ pub fn show_plugin_manager_dialog(
             .with_size(row_width, 40)
             .with_label("No plugins installed");
         empty_label.set_label_color(theme.text_dim);
-        *empty_label_for_tracking.borrow_mut() = Some(empty_label);
+        *row_ctx.empty_installed_label.borrow_mut() = Some(empty_label);
     } else {
         for plugin in plugin_list {
             let dir_name = plugin.name.to_lowercase().replace(' ', "-");
             let tier = determine_plugin_tier(&dir_name);
-            let row = create_installed_plugin_row(
-                &plugin.name,
-                &plugin.version,
-                &plugin.description,
-                plugin.enabled,
-                &theme,
-                row_width,
-                toggles.clone(),
-                installed.clone(),
-                uninstalled.clone(),
-                available_buttons.clone(),
-                community_buttons.clone(),
-                installed_rows.clone(),
-                tier,
-                Rc::new(RefCell::new(pack_installed_inner.clone())),
-                row_width,
+            let row = create_plugin_row(
+                RowKind::Installed(InstalledPlugin {
+                    name: &plugin.name,
+                    version: &plugin.version,
+                    description: &plugin.description,
+                    enabled: plugin.enabled,
+                    tier,
+                }),
+                &row_ctx,
             );
             // Track installed row for cross-tab sync (hide on update)
-            installed_rows
+            row_ctx
+                .installed_rows
                 .borrow_mut()
                 .insert(plugin.name.clone(), row.clone());
             installed_search_data.borrow_mut().push((
@@ -329,14 +334,11 @@ pub fn show_plugin_manager_dialog(
     scroll_installed.end();
     installed_group.end();
 
-    // Wrap pack_installed for cross-tab sharing
-    let pack_installed: Rc<RefCell<Pack>> = Rc::new(RefCell::new(pack_installed_inner));
-
     // Installed tab search callback
     {
         search_installed_input.set_trigger(CallbackTrigger::Changed);
         let installed_data_search = installed_search_data.clone();
-        let pack_installed_search = pack_installed.clone();
+        let pack_installed_search = row_ctx.pack_installed.clone();
         let rw = row_width;
         search_installed_input.set_callback(move |input| {
             let query = input.value().to_lowercase();
@@ -356,9 +358,6 @@ pub fn show_plugin_manager_dialog(
             pack_installed_search.borrow_mut().redraw();
         });
     }
-
-    // Copy the empty label reference for cross-tab sync
-    let empty_installed_label = empty_label_for_tracking.clone();
 
     // ============ OFFICIAL TAB ============
     let mut available_group = Group::default()
@@ -429,20 +428,13 @@ pub fn show_plugin_manager_dialog(
                             is_update_available(installed_ver, &plugin_info.version)
                         });
 
-                    let row = create_available_plugin_row(
-                        plugin_info,
-                        already_installed,
-                        update_available,
-                        &theme,
-                        row_width_for_callback,
-                        installed.clone(),
-                        toggles.clone(),
-                        uninstalled.clone(),
-                        pack_installed.clone(),
-                        available_buttons.clone(),
-                        community_buttons.clone(),
-                        empty_installed_label.clone(),
-                        installed_rows.clone(),
+                    let row = create_plugin_row(
+                        RowKind::Official {
+                            info: plugin_info,
+                            already_installed,
+                            update_available,
+                        },
+                        &row_ctx,
                     );
                     official_search_data.borrow_mut().push((
                         row.clone(),
@@ -600,16 +592,9 @@ pub fn show_plugin_manager_dialog(
         let community_loaded_cb = community_loaded.clone();
         let pack_community_cb = pack_community.clone();
         let community_data_cb = community_data.clone();
-        let community_buttons_cb = community_buttons.clone();
-        let installed_cb = installed.clone();
-        let toggles_cb = toggles.clone();
-        let uninstalled_cb = uninstalled.clone();
-        let pack_installed_cb = pack_installed.clone();
-        let available_buttons_cb = available_buttons.clone();
-        let empty_installed_label_cb = empty_installed_label.clone();
-        let installed_rows_cb = installed_rows.clone();
+        let row_ctx_cb = row_ctx.clone();
         let theme_cb = theme;
-        let row_width_cb = row_width_for_callback;
+        let row_width_cb = row_width;
         let mut loading_label_cb = loading_label.clone();
 
         tabs.set_callback(move |t| {
@@ -633,19 +618,12 @@ pub fn show_plugin_manager_dialog(
                         } else {
                             for plugin_info in &registry.plugins {
                                 let already_installed = is_plugin_installed(&plugin_info.name);
-                                let row = create_community_plugin_row(
-                                    plugin_info,
-                                    already_installed,
-                                    &theme_cb,
-                                    row_width_cb,
-                                    installed_cb.clone(),
-                                    toggles_cb.clone(),
-                                    uninstalled_cb.clone(),
-                                    pack_installed_cb.clone(),
-                                    available_buttons_cb.clone(),
-                                    community_buttons_cb.clone(),
-                                    empty_installed_label_cb.clone(),
-                                    installed_rows_cb.clone(),
+                                let row = create_plugin_row(
+                                    RowKind::Community {
+                                        info: plugin_info,
+                                        already_installed,
+                                    },
+                                    &row_ctx_cb,
                                 );
                                 community_data_cb.borrow_mut().push((
                                     row.clone(),
@@ -701,15 +679,7 @@ pub fn show_plugin_manager_dialog(
     {
         let url_input_for_cb = url_input.clone();
         let theme_for_url = theme;
-        let row_width_for_url = row_width_for_callback;
-        let installed_rc = installed.clone();
-        let toggles_url = toggles.clone();
-        let uninstalled_url = uninstalled.clone();
-        let pack_installed_url = pack_installed.clone();
-        let available_buttons_url = available_buttons.clone();
-        let community_buttons_url = community_buttons.clone();
-        let empty_installed_label_url = empty_installed_label.clone();
-        let installed_rows_url = installed_rows.clone();
+        let row_ctx_url = row_ctx.clone();
         url_install_btn.set_callback(move |btn| {
             let url = url_input_for_cb.value().trim().to_string();
             if url.is_empty() {
@@ -795,43 +765,19 @@ pub fn show_plugin_manager_dialog(
             ) {
                 Ok(()) => {
                     btn.set_label("Done!");
-                    // Name normalization: remove from uninstalled if present
-                    uninstalled_url.borrow_mut().retain(|n| {
-                        n.to_lowercase().replace(' ', "-") != name.to_lowercase().replace(' ', "-")
-                    });
-                    installed_rc.borrow_mut().push(name.clone());
-
-                    if let Some(ref mut label) = *empty_installed_label_url.borrow_mut() {
-                        label.hide();
-                    }
+                    row_ctx_url.record_install(&name);
 
                     let desc = metadata
                         .as_ref()
                         .map(|m| m.description.clone())
                         .unwrap_or_default();
-                    let new_row = create_installed_plugin_row(
-                        &name,
-                        &version,
-                        &desc,
-                        true,
-                        &theme_for_url,
-                        row_width_for_url,
-                        toggles_url.clone(),
-                        installed_rc.clone(),
-                        uninstalled_url.clone(),
-                        available_buttons_url.clone(),
-                        community_buttons_url.clone(),
-                        installed_rows_url.clone(),
-                        PluginTier::Manual,
-                        pack_installed_url.clone(),
-                        row_width_for_url,
-                    );
-                    installed_rows_url
-                        .borrow_mut()
-                        .insert(name.clone(), new_row.clone());
-                    pack_installed_url.borrow_mut().add(&new_row);
-                    adjust_pack_width(&mut pack_installed_url.borrow_mut(), row_width_for_url);
-                    pack_installed_url.borrow_mut().redraw();
+                    row_ctx_url.add_installed_row(InstalledPlugin {
+                        name: &name,
+                        version: &version,
+                        description: &desc,
+                        enabled: true,
+                        tier: PluginTier::Manual,
+                    });
                 }
                 Err(e) => {
                     btn.set_label("Install");
@@ -920,160 +866,389 @@ pub fn show_plugin_manager_dialog(
     result.borrow().clone()
 }
 
-/// Create a row for an installed plugin (VSCode-style layout)
-#[allow(clippy::too_many_arguments)]
-fn create_installed_plugin_row(
-    name: &str,
-    version: &str,
-    description: &str,
-    enabled: bool,
-    theme: &DialogTheme,
+// ============ PLUGIN ROWS ============
+
+/// Shared dialog state every plugin row needs.
+///
+/// The session lists `installed` and `uninstalled` have the same type, so
+/// passing them (and the other handles) positionally made a swap at a call site
+/// compile silently. Bundling them under named fields makes that impossible.
+#[derive(Clone)]
+struct PluginRowContext {
+    theme: DialogTheme,
+    /// Width of every row (and of the Installed tab's pack).
     row_width: i32,
+    /// Enable/disable toggles made this session.
     toggles: Rc<RefCell<Vec<(String, bool)>>>,
+    /// Plugins installed this session.
     installed: Rc<RefCell<Vec<String>>>,
+    /// Plugins uninstalled this session.
     uninstalled: Rc<RefCell<Vec<String>>>,
+    /// Official tab install buttons by registry name (reset on uninstall).
     available_buttons: Rc<RefCell<HashMap<String, Button>>>,
+    /// Community tab install buttons by registry name (reset on uninstall).
     community_buttons: Rc<RefCell<HashMap<String, Button>>>,
+    /// Installed tab rows by plugin name (hidden on update/uninstall).
     installed_rows: Rc<RefCell<HashMap<String, Group>>>,
-    tier: PluginTier,
+    /// The Installed tab's row container.
     pack_installed: Rc<RefCell<Pack>>,
-    pack_row_width: i32,
-) -> Group {
+    /// The "No plugins installed" label, if the Installed tab started empty.
+    empty_installed_label: Rc<RefCell<Option<Frame>>>,
+}
+
+impl PluginRowContext {
+    /// Session book-keeping after a successful install from any tab.
+    fn record_install(&self, name: &str) {
+        let norm = normalize_plugin_name(name);
+        self.uninstalled
+            .borrow_mut()
+            .retain(|n| normalize_plugin_name(n) != norm);
+        self.installed.borrow_mut().push(name.to_string());
+        if let Some(ref mut label) = *self.empty_installed_label.borrow_mut() {
+            label.hide();
+        }
+    }
+
+    /// Add a freshly installed (enabled) plugin's row to the Installed tab.
+    fn add_installed_row(&self, plugin: InstalledPlugin<'_>) {
+        let name = plugin.name.to_string();
+        let new_row = create_plugin_row(RowKind::Installed(plugin), self);
+        self.installed_rows
+            .borrow_mut()
+            .insert(name, new_row.clone());
+        self.pack_installed.borrow_mut().add(&new_row);
+        adjust_pack_width(&mut self.pack_installed.borrow_mut(), self.row_width);
+        self.pack_installed.borrow_mut().redraw();
+    }
+}
+
+/// Registry names are lowercase-hyphenated ("python-lint") while installed
+/// plugins carry display names ("Python Lint"); compare them in this form.
+fn normalize_plugin_name(name: &str) -> String {
+    name.to_lowercase().replace(' ', "-")
+}
+
+/// An installed plugin as shown on the Installed tab.
+struct InstalledPlugin<'a> {
+    name: &'a str,
+    version: &'a str,
+    description: &'a str,
+    enabled: bool,
+    tier: PluginTier,
+}
+
+/// Which tab a row belongs to, with the data that tab's row shows.
+enum RowKind<'a> {
+    /// Installed tab: Enable/Disable + Uninstall.
+    Installed(InstalledPlugin<'a>),
+    /// Official tab: Install/Update (+ Details when a README is listed).
+    Official {
+        info: &'a AvailablePluginInfo,
+        already_installed: bool,
+        update_available: bool,
+    },
+    /// Community tab: Install (+ Details when a repo is listed).
+    Community {
+        info: &'a CommunityPluginInfo,
+        already_installed: bool,
+    },
+}
+
+/// The three text lines of a row plus the colour of its meta line.
+#[derive(Debug, PartialEq, Eq)]
+struct RowHeader<'a> {
+    name: &'a str,
+    version: &'a str,
+    description: &'a str,
+    meta_text: String,
+    badge: TrustBadge,
+}
+
+impl<'a> RowKind<'a> {
+    fn header(&self) -> RowHeader<'a> {
+        match self {
+            RowKind::Installed(p) => {
+                let badge = TrustBadge::for_tier(&p.tier);
+                RowHeader {
+                    name: p.name,
+                    version: p.version,
+                    description: p.description,
+                    meta_text: installed_meta_text(p.enabled, badge),
+                    badge,
+                }
+            }
+            RowKind::Official { info, .. } => {
+                let badge = if info.is_verified() {
+                    TrustBadge::Verified
+                } else {
+                    TrustBadge::Unverified
+                };
+                RowHeader {
+                    name: &info.name,
+                    version: &info.version,
+                    description: &info.description,
+                    meta_text: official_meta_text(&info.author, &info.tags, badge),
+                    badge,
+                }
+            }
+            RowKind::Community { info, .. } => RowHeader {
+                name: &info.name,
+                version: &info.version,
+                description: &info.description,
+                meta_text: community_meta_text(&info.author),
+                badge: TrustBadge::Community,
+            },
+        }
+    }
+}
+
+/// Trust badge shown on a row's meta line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TrustBadge {
+    Verified,
+    Community,
+    Unverified,
+}
+
+impl TrustBadge {
+    fn for_tier(tier: &PluginTier) -> Self {
+        match tier {
+            PluginTier::Official => TrustBadge::Verified,
+            PluginTier::Community => TrustBadge::Community,
+            PluginTier::Manual => TrustBadge::Unverified,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            TrustBadge::Verified => "\u{2713} Verified",
+            TrustBadge::Community => "\u{2637} Community",
+            TrustBadge::Unverified => "\u{26A0} Unverified",
+        }
+    }
+
+    fn color(self, is_dark: bool) -> Color {
+        let (r, g, b) = match (self, is_dark) {
+            (TrustBadge::Verified, true) => (100, 180, 100),
+            (TrustBadge::Verified, false) => (50, 120, 50),
+            (TrustBadge::Community, true) => (100, 150, 200),
+            (TrustBadge::Community, false) => (50, 100, 160),
+            (TrustBadge::Unverified, true) => (200, 160, 80),
+            (TrustBadge::Unverified, false) => (160, 120, 40),
+        };
+        Color::from_rgb(r, g, b)
+    }
+}
+
+fn installed_meta_text(enabled: bool, badge: TrustBadge) -> String {
+    let status = if enabled { "Enabled" } else { "Disabled" };
+    format!("{} | {}", status, badge.label())
+}
+
+fn official_meta_text(author: &str, tags: &[String], badge: TrustBadge) -> String {
+    if author.is_empty() {
+        format!("{} \u{00B7} {}", tags.join(", "), badge.label())
+    } else {
+        format!(
+            "by {} \u{00B7} {} \u{00B7} {}",
+            author,
+            tags.join(", "),
+            badge.label()
+        )
+    }
+}
+
+fn community_meta_text(author: &str) -> String {
+    let badge = TrustBadge::Community.label();
+    if author.is_empty() {
+        badge.to_string()
+    } else {
+        format!("{} \u{00B7} by {}", badge, author)
+    }
+}
+
+/// Initial state of an Official/Community install button.
+#[derive(Debug, PartialEq, Eq)]
+enum InstallButtonState {
+    Install,
+    Update,
+    Installed,
+}
+
+fn install_button_state(already_installed: bool, update_available: bool) -> InstallButtonState {
+    if update_available {
+        InstallButtonState::Update
+    } else if already_installed {
+        InstallButtonState::Installed
+    } else {
+        InstallButtonState::Install
+    }
+}
+
+// Text block shared by every row: title / description / meta lines.
+const TITLE_LINE_H: i32 = 18;
+const DESC_LINE_H: i32 = 16;
+const META_LINE_H: i32 = 14;
+const META_LINE_GAP: i32 = 2;
+
+// Action buttons on the right of a row.
+const ROW_BTN_WIDTH: i32 = 72;
+const ROW_BTN_HEIGHT: i32 = 22;
+const DETAILS_BTN_WIDTH: i32 = 60;
+const ROW_BTN_GAP: i32 = 8;
+
+/// Y offsets (relative to the row) of the title, description and meta lines.
+#[derive(Debug, PartialEq, Eq)]
+struct RowTextLayout {
+    title_y: i32,
+    desc_y: i32,
+    meta_y: i32,
+}
+
+/// One layout for every tab: the three lines stacked and centred vertically.
+fn row_text_layout(row_height: i32) -> RowTextLayout {
+    let block_h = TITLE_LINE_H + DESC_LINE_H + META_LINE_GAP + META_LINE_H;
+    let title_y = (row_height - block_h) / 2;
+    let desc_y = title_y + TITLE_LINE_H;
+    let meta_y = desc_y + DESC_LINE_H + META_LINE_GAP;
+    RowTextLayout {
+        title_y,
+        desc_y,
+        meta_y,
+    }
+}
+
+fn style_row_button(btn: &mut Button, theme: &DialogTheme) {
+    btn.set_frame(FrameType::RFlatBox);
+    btn.set_color(theme.button_bg);
+    btn.set_label_color(theme.text);
+    btn.set_label_size(11);
+}
+
+/// Create a plugin row (VSCode-style layout) for any of the three tabs.
+fn create_plugin_row(kind: RowKind<'_>, ctx: &PluginRowContext) -> Group {
+    let theme = &ctx.theme;
     let is_dark = theme.is_dark();
+    let row_width = ctx.row_width;
+    let header = kind.header();
 
     let mut row = Group::default().with_size(row_width, PLUGIN_ROW_HEIGHT);
     row.set_frame(FrameType::FlatBox);
     row.set_color(theme.row_bg);
 
-    // Layout: [margin 8] [icon 32] [margin 8] [content...] [buttons 72] [margin 8]
+    // Layout: [margin 8] [icon 32] [margin 8] [content...] [buttons 80] [margin 8]
     let x = ICON_MARGIN;
 
     // Icon with first letter
-    let first_letter = name.chars().next().unwrap_or('?');
-    let icon_color = icon_color_for_letter(first_letter, is_dark);
+    let first_letter = header.name.chars().next().unwrap_or('?');
     let mut icon = Frame::default()
         .with_pos(x, (PLUGIN_ROW_HEIGHT - ICON_SIZE) / 2)
         .with_size(ICON_SIZE, ICON_SIZE)
         .with_label(&first_letter.to_uppercase().to_string());
     icon.set_frame(FrameType::FlatBox);
-    icon.set_color(icon_color);
+    icon.set_color(icon_color_for_letter(first_letter, is_dark));
     icon.set_label_color(Color::White);
     icon.set_label_font(Font::HelveticaBold);
     icon.set_label_size(16);
+
     let content_x = x + ICON_SIZE + ICON_MARGIN;
-
-    // Button dimensions for stacked layout
-    let btn_width = 72;
-    let btn_height = 22;
-    let btn_x = row_width - btn_width - ICON_MARGIN;
-
-    // Content area width (excluding button area)
-    let content_width = btn_x - content_x - ICON_MARGIN;
+    let content_width = row_width - content_x - ACTION_BUTTON_WIDTH - ICON_MARGIN;
+    let layout = row_text_layout(PLUGIN_ROW_HEIGHT);
 
     // Title: name + version (line 1)
     let mut title = Frame::default()
-        .with_pos(content_x, 10)
-        .with_size(content_width, 18)
-        .with_label(&format!("{}  v{}", name, version));
+        .with_pos(content_x, layout.title_y)
+        .with_size(content_width, TITLE_LINE_H)
+        .with_label(&format!("{}  v{}", header.name, header.version));
     title.set_label_color(theme.text);
     title.set_align(Align::Left | Align::Inside);
 
     // Description (line 2) - truncated
-    let desc_text = truncate_text(description, DESC_MAX_CHARS);
     let mut desc = Frame::default()
-        .with_pos(content_x, 28)
-        .with_size(content_width, 16)
-        .with_label(&desc_text);
+        .with_pos(content_x, layout.desc_y)
+        .with_size(content_width, DESC_LINE_H)
+        .with_label(&truncate_text(header.description, DESC_MAX_CHARS));
     desc.set_label_color(theme.text_dim);
     desc.set_align(Align::Left | Align::Inside);
     desc.set_label_size(11);
 
-    // Meta line (line 3) - show enabled/disabled status + trust tier badge
-    let status_label = if enabled { "Enabled" } else { "Disabled" };
-    let (badge_text, meta_color) = match tier {
-        PluginTier::Official => (
-            "\u{2713} Verified",
-            if is_dark {
-                Color::from_rgb(100, 180, 100)
-            } else {
-                Color::from_rgb(50, 120, 50)
-            },
-        ),
-        PluginTier::Community => (
-            "\u{2637} Community",
-            if is_dark {
-                Color::from_rgb(100, 150, 200)
-            } else {
-                Color::from_rgb(50, 100, 160)
-            },
-        ),
-        PluginTier::Manual => (
-            "\u{26A0} Unverified",
-            if is_dark {
-                Color::from_rgb(200, 160, 80)
-            } else {
-                Color::from_rgb(160, 120, 40)
-            },
-        ),
-    };
-    let meta_text = format!("{} | {}", status_label, badge_text);
+    // Meta line (line 3) - status/author/tags + trust badge
     let mut meta = Frame::default()
-        .with_pos(content_x, 46)
-        .with_size(content_width, 14)
-        .with_label(&meta_text);
-    meta.set_label_color(meta_color);
+        .with_pos(content_x, layout.meta_y)
+        .with_size(content_width, META_LINE_H)
+        .with_label(&header.meta_text);
+    meta.set_label_color(header.badge.color(is_dark));
     meta.set_align(Align::Left | Align::Inside);
     meta.set_label_size(10);
 
-    // Disable/Enable button (top, subtle rounded flat style)
-    let toggle_label = if enabled { "Disable" } else { "Enable" };
+    let btn_x = row_width - ROW_BTN_WIDTH - ICON_MARGIN;
+    match kind {
+        RowKind::Installed(plugin) => {
+            add_installed_actions(&row, meta, plugin.name, plugin.enabled, header.badge, ctx);
+        }
+        RowKind::Official {
+            info,
+            already_installed,
+            update_available,
+        } => {
+            add_details_button(info.readme_url.as_deref(), btn_x, theme);
+            let state = install_button_state(already_installed, update_available);
+            add_official_install_button(info, state, btn_x, ctx);
+        }
+        RowKind::Community {
+            info,
+            already_installed,
+        } => {
+            let repo = Some(info.repo.as_str()).filter(|r| !r.is_empty());
+            add_details_button(repo, btn_x, theme);
+            let state = install_button_state(already_installed, false);
+            add_community_install_button(info, state, btn_x, ctx);
+        }
+    }
+
+    row.end();
+    row
+}
+
+/// Installed tab: stacked Disable/Enable and Uninstall buttons.
+fn add_installed_actions(
+    row: &Group,
+    meta: Frame,
+    name: &str,
+    enabled: bool,
+    badge: TrustBadge,
+    ctx: &PluginRowContext,
+) {
+    let btn_x = ctx.row_width - ROW_BTN_WIDTH - ICON_MARGIN;
+
+    // Disable/Enable button (top)
     let mut toggle_btn = Button::default()
         .with_pos(btn_x, 12)
-        .with_size(btn_width, btn_height)
-        .with_label(toggle_label);
-    toggle_btn.set_frame(FrameType::RFlatBox);
-    toggle_btn.set_color(theme.button_bg);
-    toggle_btn.set_label_color(theme.text);
-    toggle_btn.set_label_size(11);
+        .with_size(ROW_BTN_WIDTH, ROW_BTN_HEIGHT)
+        .with_label(if enabled { "Disable" } else { "Enable" });
+    style_row_button(&mut toggle_btn, &ctx.theme);
 
-    // Uninstall button (bottom, subtle rounded flat style, normal theme colors)
+    // Uninstall button (bottom)
     let mut uninstall_btn = Button::default()
-        .with_pos(btn_x, 12 + btn_height + 6)
-        .with_size(btn_width, btn_height)
+        .with_pos(btn_x, 12 + ROW_BTN_HEIGHT + 6)
+        .with_size(ROW_BTN_WIDTH, ROW_BTN_HEIGHT)
         .with_label("Uninstall");
-    uninstall_btn.set_frame(FrameType::RFlatBox);
-    uninstall_btn.set_color(theme.button_bg);
-    uninstall_btn.set_label_color(theme.text);
-    uninstall_btn.set_label_size(11);
+    style_row_button(&mut uninstall_btn, &ctx.theme);
 
     // Toggle callback - switches between Disable/Enable
     let plugin_name = name.to_string();
-    let plugin_name_uninstall = name.to_string();
-    let mut meta_clone = meta.clone();
-    let current_enabled = Rc::new(RefCell::new(enabled));
-    let current_enabled_toggle = current_enabled.clone();
-    let tier_for_toggle = tier.clone();
+    let mut meta_clone = meta;
+    let mut is_enabled = enabled;
+    let toggles = ctx.toggles.clone();
     toggle_btn.set_callback(move |btn| {
-        let mut is_enabled = current_enabled_toggle.borrow_mut();
-        *is_enabled = !*is_enabled;
-        let new_state = *is_enabled;
-
-        // Update button label
-        btn.set_label(if new_state { "Disable" } else { "Enable" });
-
-        // Update status label with tier badge
-        let new_status = if new_state { "Enabled" } else { "Disabled" };
-        let badge = match tier_for_toggle {
-            PluginTier::Official => "\u{2713} Verified",
-            PluginTier::Community => "\u{2637} Community",
-            PluginTier::Manual => "\u{26A0} Unverified",
-        };
-        meta_clone.set_label(&format!("{} | {}", new_status, badge));
+        is_enabled = !is_enabled;
+        btn.set_label(if is_enabled { "Disable" } else { "Enable" });
+        meta_clone.set_label(&installed_meta_text(is_enabled, badge));
 
         // Track the toggle
         let mut t = toggles.borrow_mut();
         t.retain(|(n, _)| n != &plugin_name);
-        t.push((plugin_name.clone(), new_state));
+        t.push((plugin_name.clone(), is_enabled));
 
         btn.redraw();
         meta_clone.redraw();
@@ -1081,8 +1256,8 @@ fn create_installed_plugin_row(
 
     // Uninstall callback - clone row to hide it after confirmation
     let mut row_to_hide = row.clone();
-    let pack_for_uninstall = pack_installed;
-    let rw_for_uninstall = pack_row_width;
+    let plugin_name_uninstall = name.to_string();
+    let ctx = ctx.clone();
     uninstall_btn.set_callback(move |_btn| {
         // Confirmation dialog
         let choice = fltk::dialog::choice2_default(
@@ -1096,210 +1271,111 @@ fn create_installed_plugin_row(
         );
 
         if choice == Some(1) {
-            uninstalled.borrow_mut().push(plugin_name_uninstall.clone());
-            // Remove from installed list (install-then-uninstall in same session)
-            let norm = plugin_name_uninstall.to_lowercase().replace(' ', "-");
-            installed
+            ctx.uninstalled
                 .borrow_mut()
-                .retain(|n| n.to_lowercase().replace(' ', "-") != norm);
+                .push(plugin_name_uninstall.clone());
+            // Remove from installed list (install-then-uninstall in same session)
+            let registry_name = normalize_plugin_name(&plugin_name_uninstall);
+            ctx.installed
+                .borrow_mut()
+                .retain(|n| normalize_plugin_name(n) != registry_name);
             // Hide the entire row immediately
             row_to_hide.hide();
             // Adjust pack width after hiding
-            adjust_pack_width(&mut pack_for_uninstall.borrow_mut(), rw_for_uninstall);
+            adjust_pack_width(&mut ctx.pack_installed.borrow_mut(), ctx.row_width);
             // Trigger parent redraw
             if let Some(mut parent) = row_to_hide.parent() {
                 parent.redraw();
             }
 
             // Remove from installed_rows tracking
-            installed_rows.borrow_mut().remove(&plugin_name_uninstall);
+            ctx.installed_rows
+                .borrow_mut()
+                .remove(&plugin_name_uninstall);
 
-            // Cross-tab sync: reset the Available tab button to "Install"
-            // Note: registry uses lowercase-hyphenated names (e.g., "python-lint")
-            // while installed plugins use display names (e.g., "Python Lint")
-            let registry_name = plugin_name_uninstall.to_lowercase().replace(' ', "-");
-            if let Some(btn) = available_buttons.borrow_mut().get_mut(&registry_name) {
+            // Cross-tab sync: reset the Official/Community tab buttons to "Install"
+            // (registry names are lowercase-hyphenated, see normalize_plugin_name)
+            if let Some(btn) = ctx.available_buttons.borrow_mut().get_mut(&registry_name) {
                 btn.set_label("Install");
                 btn.activate();
             }
-
-            // Also check community_buttons for cross-tab sync
-            if let Some(btn) = community_buttons.borrow_mut().get_mut(&registry_name) {
+            if let Some(btn) = ctx.community_buttons.borrow_mut().get_mut(&registry_name) {
                 btn.set_label("Install");
                 btn.activate();
             }
         }
     });
-
-    row.end();
-    row
 }
 
-/// Create a row for an available plugin (VSCode-style layout)
-#[allow(clippy::too_many_arguments)]
-fn create_available_plugin_row(
-    plugin_info: &AvailablePluginInfo,
-    already_installed: bool,
-    update_available: bool,
-    theme: &DialogTheme,
-    row_width: i32,
-    installed: Rc<RefCell<Vec<String>>>,
-    toggles: Rc<RefCell<Vec<(String, bool)>>>,
-    uninstalled: Rc<RefCell<Vec<String>>>,
-    pack_installed: Rc<RefCell<Pack>>,
-    available_buttons: Rc<RefCell<HashMap<String, Button>>>,
-    community_buttons: Rc<RefCell<HashMap<String, Button>>>,
-    empty_installed_label: Rc<RefCell<Option<Frame>>>,
-    installed_rows: Rc<RefCell<HashMap<String, Group>>>,
-) -> Group {
-    let is_dark = theme.is_dark();
-
-    let mut row = Group::default().with_size(row_width, PLUGIN_ROW_HEIGHT);
-    row.set_frame(FrameType::FlatBox);
-    row.set_color(theme.row_bg);
-
-    // Layout: [margin 8] [icon 32] [margin 8] [content...] [button 80] [margin 8]
-    let mut x = ICON_MARGIN;
-
-    // Icon with first letter
-    let first_letter = plugin_info.name.chars().next().unwrap_or('?');
-    let icon_color = icon_color_for_letter(first_letter, is_dark);
-    let mut icon = Frame::default()
-        .with_pos(x, (PLUGIN_ROW_HEIGHT - ICON_SIZE) / 2)
-        .with_size(ICON_SIZE, ICON_SIZE)
-        .with_label(&first_letter.to_uppercase().to_string());
-    icon.set_frame(FrameType::FlatBox);
-    icon.set_color(icon_color);
-    icon.set_label_color(Color::White);
-    icon.set_label_font(Font::HelveticaBold);
-    icon.set_label_size(16);
-    x += ICON_SIZE + ICON_MARGIN;
-
-    // Content area width (excluding button area)
-    let content_width = row_width - x - ACTION_BUTTON_WIDTH - ICON_MARGIN;
-
-    // Title: name + version (line 1)
-    let mut title = Frame::default()
-        .with_pos(x, 6)
-        .with_size(content_width, 18)
-        .with_label(&format!("{}  v{}", plugin_info.name, plugin_info.version));
-    title.set_label_color(theme.text);
-    title.set_align(Align::Left | Align::Inside);
-
-    // Description (line 2) - truncated
-    let desc_text = truncate_text(&plugin_info.description, DESC_MAX_CHARS);
-    let mut desc = Frame::default()
-        .with_pos(x, 24)
-        .with_size(content_width, 16)
-        .with_label(&desc_text);
-    desc.set_label_color(theme.text_dim);
-    desc.set_align(Align::Left | Align::Inside);
-    desc.set_label_size(11);
-
-    // Meta line (line 3): author + tags + verification badge
-    let is_verified = plugin_info.is_verified();
-    let badge_text = if is_verified {
-        "\u{2713} Verified"
-    } else {
-        "\u{26A0} Unverified"
+/// "Details" button left of the install button; opens `url` after confirmation.
+fn add_details_button(url: Option<&str>, btn_x: i32, theme: &DialogTheme) {
+    let Some(url) = url else {
+        return;
     };
-    let meta_text = if plugin_info.author.is_empty() {
-        format!("{} \u{00B7} {}", plugin_info.tags.join(", "), badge_text)
-    } else {
-        format!(
-            "by {} \u{00B7} {} \u{00B7} {}",
-            plugin_info.author,
-            plugin_info.tags.join(", "),
-            badge_text
+    let mut details_btn = Button::default()
+        .with_pos(
+            btn_x - DETAILS_BTN_WIDTH - ROW_BTN_GAP,
+            (PLUGIN_ROW_HEIGHT - ROW_BTN_HEIGHT) / 2,
         )
-    };
-    let mut meta = Frame::default()
-        .with_pos(x, 40)
-        .with_size(content_width, 14)
-        .with_label(&meta_text);
-    // Color the meta line based on verification
-    let meta_color = if is_verified {
-        if is_dark {
-            Color::from_rgb(100, 180, 100) // Green-ish
-        } else {
-            Color::from_rgb(50, 120, 50)
+        .with_size(DETAILS_BTN_WIDTH, ROW_BTN_HEIGHT)
+        .with_label("Details");
+    style_row_button(&mut details_btn, theme);
+
+    let url = url.to_string();
+    details_btn.set_callback(move |_| {
+        let choice = fltk::dialog::choice2_default(
+            &format!("This will open your browser to:\n\n{}\n\nContinue?", url),
+            "Cancel",
+            "Open in Browser",
+            "",
+        );
+        if choice == Some(1) {
+            let _ = open::that(&url);
         }
-    } else if is_dark {
-        Color::from_rgb(200, 160, 80) // Yellow-ish
-    } else {
-        Color::from_rgb(160, 120, 40)
-    };
-    meta.set_label_color(meta_color);
-    meta.set_align(Align::Left | Align::Inside);
-    meta.set_label_size(10);
+    });
+}
 
-    // Install/Update button (right side, vertically centered, subtle rounded flat style)
-    let btn_width = 72;
-    let btn_height = 22;
-    let btn_x = row_width - btn_width - ICON_MARGIN;
+/// Install/Update button (right side, vertically centred) in its initial state.
+fn create_install_button(state: &InstallButtonState, btn_x: i32, theme: &DialogTheme) -> Button {
     let mut install_btn = Button::default()
-        .with_pos(btn_x, (PLUGIN_ROW_HEIGHT - btn_height) / 2)
-        .with_size(btn_width, btn_height);
-    install_btn.set_frame(FrameType::RFlatBox);
-    install_btn.set_label_size(11);
-    install_btn.set_color(theme.button_bg);
-    install_btn.set_label_color(theme.text);
-
-    // Details button (to the left of Install, only if readme_url is present)
-    if let Some(readme_url) = &plugin_info.readme_url {
-        let details_btn_width = 60;
-        let details_btn_x = btn_x - details_btn_width - 8; // 8px gap between buttons
-        let mut details_btn = Button::default()
-            .with_pos(details_btn_x, (PLUGIN_ROW_HEIGHT - btn_height) / 2)
-            .with_size(details_btn_width, btn_height)
-            .with_label("Details");
-        details_btn.set_frame(FrameType::RFlatBox);
-        details_btn.set_label_size(11);
-        details_btn.set_color(theme.button_bg);
-        details_btn.set_label_color(theme.text);
-
-        let url = readme_url.clone();
-        details_btn.set_callback(move |_| {
-            let choice = fltk::dialog::choice2_default(
-                &format!("This will open your browser to:\n\n{}\n\nContinue?", url),
-                "Cancel",
-                "Open in Browser",
-                "",
-            );
-            if choice == Some(1) {
-                let _ = open::that(&url);
-            }
-        });
+        .with_pos(btn_x, (PLUGIN_ROW_HEIGHT - ROW_BTN_HEIGHT) / 2)
+        .with_size(ROW_BTN_WIDTH, ROW_BTN_HEIGHT);
+    style_row_button(&mut install_btn, theme);
+    match state {
+        InstallButtonState::Installed => {
+            install_btn.set_label("Installed");
+            install_btn.deactivate();
+        }
+        InstallButtonState::Update => {
+            install_btn.set_label("Update");
+            // Green accent for update
+            install_btn.set_label_color(if theme.is_dark() {
+                Color::from_rgb(100, 200, 100)
+            } else {
+                Color::from_rgb(40, 140, 40)
+            });
+        }
+        InstallButtonState::Install => install_btn.set_label("Install"),
     }
+    install_btn
+}
 
-    if already_installed && !update_available {
-        install_btn.set_label("Installed");
-        install_btn.deactivate();
-    } else if update_available {
-        install_btn.set_label("Update");
-        // Green accent for update
-        install_btn.set_label_color(if is_dark {
-            Color::from_rgb(100, 200, 100)
-        } else {
-            Color::from_rgb(40, 140, 40)
-        });
-    } else {
-        install_btn.set_label("Install");
-    }
+/// Official tab: Install/Update button wired to the signed registry install.
+fn add_official_install_button(
+    info: &AvailablePluginInfo,
+    state: InstallButtonState,
+    btn_x: i32,
+    ctx: &PluginRowContext,
+) {
+    let mut install_btn = create_install_button(&state, btn_x, &ctx.theme);
 
     // Store button reference for cross-tab sync (uninstall -> re-enable Install button)
-    available_buttons
+    ctx.available_buttons
         .borrow_mut()
-        .insert(plugin_info.name.clone(), install_btn.clone());
+        .insert(info.name.clone(), install_btn.clone());
 
-    // Capture theme values for callback
-    let theme_clone = *theme;
-    let row_width_clone = row_width;
-
-    // Install callback
-    let info = plugin_info.clone();
-    let installed_rc = installed.clone();
-    let community_buttons_cb = community_buttons.clone();
+    let info = info.clone();
+    let ctx = ctx.clone();
     install_btn.set_callback(move |btn| {
         btn.set_label("...");
         btn.deactivate();
@@ -1311,17 +1387,7 @@ fn create_available_plugin_row(
                 match status {
                     VerificationStatus::Verified | VerificationStatus::Unverified => {
                         btn.set_label("Done!");
-                        // Name normalization: remove from uninstalled if present
-                        uninstalled.borrow_mut().retain(|n| {
-                            n.to_lowercase().replace(' ', "-")
-                                != info.name.to_lowercase().replace(' ', "-")
-                        });
-                        installed_rc.borrow_mut().push(info.name.clone());
-
-                        // Hide "No plugins installed" label if present
-                        if let Some(ref mut label) = *empty_installed_label.borrow_mut() {
-                            label.hide();
-                        }
+                        ctx.record_install(&info.name);
 
                         // Cross-tab sync: hide old row if this is an update
                         // Try multiple key formats: registry name uses "python-lint",
@@ -1331,7 +1397,7 @@ fn create_available_plugin_row(
                         // Try display name first, then registry name
                         // Must split borrows to avoid RefCell double-borrow panic
                         let old_row = {
-                            let mut rows = installed_rows.borrow_mut();
+                            let mut rows = ctx.installed_rows.borrow_mut();
                             rows.remove(&display_name)
                                 .or_else(|| rows.remove(&info.name))
                         };
@@ -1344,30 +1410,13 @@ fn create_available_plugin_row(
                         }
 
                         // Cross-tab sync: add row to Installed tab
-                        let new_row = create_installed_plugin_row(
-                            &info.name,
-                            &info.version,
-                            &info.description,
-                            true, // enabled by default
-                            &theme_clone,
-                            row_width_clone,
-                            toggles.clone(),
-                            installed_rc.clone(),
-                            uninstalled.clone(),
-                            available_buttons.clone(),
-                            community_buttons_cb.clone(),
-                            installed_rows.clone(),
-                            PluginTier::Official,
-                            pack_installed.clone(),
-                            row_width_clone,
-                        );
-                        // Track the new row for future updates
-                        installed_rows
-                            .borrow_mut()
-                            .insert(info.name.clone(), new_row.clone());
-                        pack_installed.borrow_mut().add(&new_row);
-                        adjust_pack_width(&mut pack_installed.borrow_mut(), row_width_clone);
-                        pack_installed.borrow_mut().redraw();
+                        ctx.add_installed_row(InstalledPlugin {
+                            name: &info.name,
+                            version: &info.version,
+                            description: &info.description,
+                            enabled: true,
+                            tier: PluginTier::Official,
+                        });
                     }
                     VerificationStatus::Invalid(reason) => {
                         btn.set_label("Failed");
@@ -1387,147 +1436,24 @@ fn create_available_plugin_row(
             }
         }
     });
-
-    row.end();
-    row
 }
 
-/// Create a row for a community plugin
-#[allow(clippy::too_many_arguments)]
-fn create_community_plugin_row(
-    plugin_info: &CommunityPluginInfo,
-    already_installed: bool,
-    theme: &DialogTheme,
-    row_width: i32,
-    installed: Rc<RefCell<Vec<String>>>,
-    toggles: Rc<RefCell<Vec<(String, bool)>>>,
-    uninstalled: Rc<RefCell<Vec<String>>>,
-    pack_installed: Rc<RefCell<Pack>>,
-    available_buttons: Rc<RefCell<HashMap<String, Button>>>,
-    community_buttons: Rc<RefCell<HashMap<String, Button>>>,
-    empty_installed_label: Rc<RefCell<Option<Frame>>>,
-    installed_rows: Rc<RefCell<HashMap<String, Group>>>,
-) -> Group {
-    let is_dark = theme.is_dark();
-
-    let mut row = Group::default().with_size(row_width, PLUGIN_ROW_HEIGHT);
-    row.set_frame(FrameType::FlatBox);
-    row.set_color(theme.row_bg);
-
-    // Layout: [margin 8] [icon 32] [margin 8] [content...] [button 80] [margin 8]
-    let mut x = ICON_MARGIN;
-
-    // Icon with first letter
-    let first_letter = plugin_info.name.chars().next().unwrap_or('?');
-    let icon_color = icon_color_for_letter(first_letter, is_dark);
-    let mut icon = Frame::default()
-        .with_pos(x, (PLUGIN_ROW_HEIGHT - ICON_SIZE) / 2)
-        .with_size(ICON_SIZE, ICON_SIZE)
-        .with_label(&first_letter.to_uppercase().to_string());
-    icon.set_frame(FrameType::FlatBox);
-    icon.set_color(icon_color);
-    icon.set_label_color(Color::White);
-    icon.set_label_font(Font::HelveticaBold);
-    icon.set_label_size(16);
-    x += ICON_SIZE + ICON_MARGIN;
-
-    // Content area width (excluding button area)
-    let content_width = row_width - x - ACTION_BUTTON_WIDTH - ICON_MARGIN;
-
-    // Title: name + version (line 1)
-    let mut title = Frame::default()
-        .with_pos(x, 6)
-        .with_size(content_width, 18)
-        .with_label(&format!("{}  v{}", plugin_info.name, plugin_info.version));
-    title.set_label_color(theme.text);
-    title.set_align(Align::Left | Align::Inside);
-
-    // Description (line 2) - truncated
-    let desc_text = truncate_text(&plugin_info.description, DESC_MAX_CHARS);
-    let mut desc = Frame::default()
-        .with_pos(x, 24)
-        .with_size(content_width, 16)
-        .with_label(&desc_text);
-    desc.set_label_color(theme.text_dim);
-    desc.set_align(Align::Left | Align::Inside);
-    desc.set_label_size(11);
-
-    // Meta line (line 3): badge + author
-    let badge_text = "\u{2637} Community";
-    let meta_color = if is_dark {
-        Color::from_rgb(100, 150, 200)
-    } else {
-        Color::from_rgb(50, 100, 160)
-    };
-    let meta_text = if plugin_info.author.is_empty() {
-        badge_text.to_string()
-    } else {
-        format!("{} \u{00B7} by {}", badge_text, plugin_info.author)
-    };
-    let mut meta = Frame::default()
-        .with_pos(x, 40)
-        .with_size(content_width, 14)
-        .with_label(&meta_text);
-    meta.set_label_color(meta_color);
-    meta.set_align(Align::Left | Align::Inside);
-    meta.set_label_size(10);
-
-    // Install button (right side, vertically centered)
-    let btn_width = 72;
-    let btn_height = 22;
-    let btn_x = row_width - btn_width - ICON_MARGIN;
-    let mut install_btn = Button::default()
-        .with_pos(btn_x, (PLUGIN_ROW_HEIGHT - btn_height) / 2)
-        .with_size(btn_width, btn_height);
-    install_btn.set_frame(FrameType::RFlatBox);
-    install_btn.set_label_size(11);
-    install_btn.set_color(theme.button_bg);
-    install_btn.set_label_color(theme.text);
-
-    // Details button (to the left of Install, only if repo URL is present)
-    if !plugin_info.repo.is_empty() {
-        let details_btn_width = 60;
-        let details_btn_x = btn_x - details_btn_width - 8;
-        let mut details_btn = Button::default()
-            .with_pos(details_btn_x, (PLUGIN_ROW_HEIGHT - btn_height) / 2)
-            .with_size(details_btn_width, btn_height)
-            .with_label("Details");
-        details_btn.set_frame(FrameType::RFlatBox);
-        details_btn.set_label_size(11);
-        details_btn.set_color(theme.button_bg);
-        details_btn.set_label_color(theme.text);
-
-        let url = plugin_info.repo.clone();
-        details_btn.set_callback(move |_| {
-            let choice = fltk::dialog::choice2_default(
-                &format!("This will open your browser to:\n\n{}\n\nContinue?", url),
-                "Cancel",
-                "Open in Browser",
-                "",
-            );
-            if choice == Some(1) {
-                let _ = open::that(&url);
-            }
-        });
-    }
-
-    if already_installed {
-        install_btn.set_label("Installed");
-        install_btn.deactivate();
-    } else {
-        install_btn.set_label("Install");
-    }
+/// Community tab: Install button wired to the review-then-install flow.
+fn add_community_install_button(
+    info: &CommunityPluginInfo,
+    state: InstallButtonState,
+    btn_x: i32,
+    ctx: &PluginRowContext,
+) {
+    let mut install_btn = create_install_button(&state, btn_x, &ctx.theme);
 
     // Store button reference for cross-tab sync
-    community_buttons
+    ctx.community_buttons
         .borrow_mut()
-        .insert(plugin_info.name.clone(), install_btn.clone());
+        .insert(info.name.clone(), install_btn.clone());
 
-    // Capture values for callback
-    let theme_clone = *theme;
-    let row_width_clone = row_width;
-    let info = plugin_info.clone();
-    let installed_rc = installed.clone();
+    let info = info.clone();
+    let ctx = ctx.clone();
     install_btn.set_callback(move |btn| {
         btn.set_label("...");
         btn.deactivate();
@@ -1572,7 +1498,7 @@ fn create_community_plugin_row(
             scan_warnings,
         };
 
-        if !show_community_install_dialog(&review, &theme_clone) {
+        if !show_community_install_dialog(&review, &ctx.theme) {
             btn.set_label("Install");
             btn.activate();
             return;
@@ -1589,45 +1515,20 @@ fn create_community_plugin_row(
         ) {
             Ok(()) => {
                 btn.set_label("Done!");
-                // Name normalization: remove from uninstalled if present
-                uninstalled.borrow_mut().retain(|n| {
-                    n.to_lowercase().replace(' ', "-") != info.name.to_lowercase().replace(' ', "-")
-                });
-                installed_rc.borrow_mut().push(info.name.clone());
-
-                // Hide "No plugins installed" label
-                if let Some(ref mut label) = *empty_installed_label.borrow_mut() {
-                    label.hide();
-                }
+                ctx.record_install(&info.name);
 
                 // Add row to Installed tab
                 let desc = metadata
                     .as_ref()
                     .map(|m| m.description.clone())
                     .unwrap_or_default();
-                let new_row = create_installed_plugin_row(
-                    &info.name,
-                    &info.version,
-                    &desc,
-                    true,
-                    &theme_clone,
-                    row_width_clone,
-                    toggles.clone(),
-                    installed_rc.clone(),
-                    uninstalled.clone(),
-                    available_buttons.clone(),
-                    community_buttons.clone(),
-                    installed_rows.clone(),
-                    PluginTier::Community,
-                    pack_installed.clone(),
-                    row_width_clone,
-                );
-                installed_rows
-                    .borrow_mut()
-                    .insert(info.name.clone(), new_row.clone());
-                pack_installed.borrow_mut().add(&new_row);
-                adjust_pack_width(&mut pack_installed.borrow_mut(), row_width_clone);
-                pack_installed.borrow_mut().redraw();
+                ctx.add_installed_row(InstalledPlugin {
+                    name: &info.name,
+                    version: &info.version,
+                    description: &desc,
+                    enabled: true,
+                    tier: PluginTier::Community,
+                });
             }
             Err(e) => {
                 btn.set_label("Error");
@@ -1636,7 +1537,113 @@ fn create_community_plugin_row(
             }
         }
     });
+}
 
-    row.end();
-    row
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn row_text_layout_is_centred_and_non_overlapping() {
+        let layout = row_text_layout(PLUGIN_ROW_HEIGHT);
+        // The Installed tab's original offsets, now shared by all three tabs.
+        assert_eq!(
+            layout,
+            RowTextLayout {
+                title_y: 10,
+                desc_y: 28,
+                meta_y: 46,
+            }
+        );
+        assert!(layout.desc_y >= layout.title_y + TITLE_LINE_H);
+        assert!(layout.meta_y >= layout.desc_y + DESC_LINE_H);
+        let bottom_margin = PLUGIN_ROW_HEIGHT - (layout.meta_y + META_LINE_H);
+        assert_eq!(layout.title_y, bottom_margin);
+    }
+
+    #[test]
+    fn trust_badge_follows_tier() {
+        assert_eq!(
+            TrustBadge::for_tier(&PluginTier::Official),
+            TrustBadge::Verified
+        );
+        assert_eq!(
+            TrustBadge::for_tier(&PluginTier::Community),
+            TrustBadge::Community
+        );
+        assert_eq!(
+            TrustBadge::for_tier(&PluginTier::Manual),
+            TrustBadge::Unverified
+        );
+    }
+
+    #[test]
+    fn installed_meta_text_shows_status_and_badge() {
+        assert_eq!(
+            installed_meta_text(true, TrustBadge::Verified),
+            "Enabled | \u{2713} Verified"
+        );
+        assert_eq!(
+            installed_meta_text(false, TrustBadge::Unverified),
+            "Disabled | \u{26A0} Unverified"
+        );
+    }
+
+    #[test]
+    fn official_meta_text_with_and_without_author() {
+        let tags = vec!["lint".to_string(), "python".to_string()];
+        assert_eq!(
+            official_meta_text("", &tags, TrustBadge::Verified),
+            "lint, python \u{00B7} \u{2713} Verified"
+        );
+        assert_eq!(
+            official_meta_text("ann", &tags, TrustBadge::Unverified),
+            "by ann \u{00B7} lint, python \u{00B7} \u{26A0} Unverified"
+        );
+    }
+
+    #[test]
+    fn community_meta_text_with_and_without_author() {
+        assert_eq!(community_meta_text(""), "\u{2637} Community");
+        assert_eq!(
+            community_meta_text("bob"),
+            "\u{2637} Community \u{00B7} by bob"
+        );
+    }
+
+    #[test]
+    fn install_button_state_prefers_update_over_installed() {
+        assert_eq!(
+            install_button_state(false, false),
+            InstallButtonState::Install
+        );
+        assert_eq!(
+            install_button_state(true, false),
+            InstallButtonState::Installed
+        );
+        assert_eq!(install_button_state(true, true), InstallButtonState::Update);
+    }
+
+    #[test]
+    fn installed_header_keeps_name_version_description_apart() {
+        let kind = RowKind::Installed(InstalledPlugin {
+            name: "Python Lint",
+            version: "1.2.0",
+            description: "Lints Python",
+            enabled: false,
+            tier: PluginTier::Community,
+        });
+        let header = kind.header();
+        assert_eq!(header.name, "Python Lint");
+        assert_eq!(header.version, "1.2.0");
+        assert_eq!(header.description, "Lints Python");
+        assert_eq!(header.meta_text, "Disabled | \u{2637} Community");
+        assert_eq!(header.badge, TrustBadge::Community);
+    }
+
+    #[test]
+    fn normalize_plugin_name_matches_registry_form() {
+        assert_eq!(normalize_plugin_name("Python Lint"), "python-lint");
+        assert_eq!(normalize_plugin_name("python-lint"), "python-lint");
+    }
 }
