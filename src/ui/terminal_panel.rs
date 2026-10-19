@@ -11,13 +11,14 @@ use std::thread::JoinHandle;
 use fltk::{
     app::Sender,
     button::Button,
-    enums::{Align, Color, Cursor, Event, Font, FrameType, Key},
+    enums::{Align, Color, Event, Font, FrameType, Key},
     frame::Frame,
     group::Flex,
     prelude::*,
 };
 
 use super::dialogs::DialogTheme;
+use super::divider::{self, DragAxis};
 use crate::app::Message;
 use crate::app::plugins::widgets::TerminalViewRequest;
 use crate::app::services::terminal::grid::{Cell, TerminalGrid};
@@ -221,53 +222,7 @@ impl TerminalPanel {
 
     /// Create a draggable divider frame (call before `new()` in layout).
     pub fn new_divider(sender: Sender<Message>) -> Frame {
-        let mut div = Frame::default();
-        div.set_frame(FrameType::FlatBox);
-        div.hide();
-
-        // Mirror the split/tree divider handlers: guard cursor/drag on an actual
-        // drag, and never `.unwrap()` `window()` — it is `None` during teardown
-        // or before `show()`, which would panic (T0018).
-        // Fully qualified: `Cell` in this module is the terminal grid cell.
-        let dragging = Rc::new(std::cell::Cell::new(false));
-        let drag_flag = dragging.clone();
-        div.handle(move |f, ev| match ev {
-            Event::Enter => {
-                if let Some(mut win) = f.window() {
-                    win.set_cursor(Cursor::WE);
-                }
-                true
-            }
-            Event::Leave => {
-                if !drag_flag.get()
-                    && let Some(mut win) = f.window()
-                {
-                    win.set_cursor(Cursor::Default);
-                }
-                true
-            }
-            Event::Push => {
-                drag_flag.set(true);
-                true
-            }
-            Event::Drag => {
-                if drag_flag.get() {
-                    let mouse_x = fltk::app::event_x();
-                    sender.send(Message::TerminalViewResize(mouse_x));
-                }
-                true
-            }
-            Event::Released => {
-                drag_flag.set(false);
-                if let Some(mut win) = f.window() {
-                    win.set_cursor(Cursor::Default);
-                }
-                true
-            }
-            _ => false,
-        });
-
-        div
+        divider::new_divider(sender, DragAxis::X, Message::TerminalViewResize)
     }
 
     /// Show a terminal from a plugin request. Lazy-initializes PTY on first call.

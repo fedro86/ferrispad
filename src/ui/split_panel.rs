@@ -12,7 +12,7 @@ use fltk::{
     app::Sender,
     button::Button,
     dialog,
-    enums::{Align, Color, Cursor, Event, Font, FrameType},
+    enums::{Align, Color, Event, Font, FrameType},
     frame::Frame,
     group::Flex,
     prelude::*,
@@ -21,6 +21,7 @@ use fltk::{
 
 use super::color::ThemeRgb;
 use super::dialogs::{DialogTheme, SCROLLBAR_SIZE};
+use super::divider::{self, DockEdge, DragAxis};
 use super::scrollbar::{style_scrollbars, text_display_vscroll_value};
 use crate::app::Message;
 use crate::app::plugins::widgets::{
@@ -391,8 +392,14 @@ impl DockedHeight {
     /// panel takes at most half the column, but never less than
     /// [`MIN_DOCKED_HEIGHT`] (the minimum wins in a very short column).
     fn drag_to(&mut self, mouse_y: i32, col_y: i32, col_h: i32) -> i32 {
-        let max = (col_h / 2).max(MIN_DOCKED_HEIGHT);
-        self.height = (col_y + col_h - mouse_y).clamp(MIN_DOCKED_HEIGHT, max);
+        self.height = divider::dragged_size(
+            mouse_y,
+            col_y,
+            col_h,
+            DockEdge::End,
+            MIN_DOCKED_HEIGHT,
+            col_h / 2,
+        );
         self.height
     }
 }
@@ -722,49 +729,7 @@ impl SplitPanel {
     /// so the divider appears above the split panel in the column layout.
     /// Assign the returned Frame to `split_panel.divider` after construction.
     pub fn new_divider(sender: Sender<Message>) -> Frame {
-        let mut divider = Frame::default();
-        divider.set_frame(FrameType::FlatBox);
-        divider.hide();
-
-        let dragging = Rc::new(Cell::new(false));
-        let drag_flag = dragging.clone();
-        divider.handle(move |div, ev| match ev {
-            Event::Enter => {
-                if let Some(mut win) = div.window() {
-                    win.set_cursor(Cursor::NS);
-                }
-                true
-            }
-            Event::Leave => {
-                if !drag_flag.get()
-                    && let Some(mut win) = div.window()
-                {
-                    win.set_cursor(Cursor::Default);
-                }
-                true
-            }
-            Event::Push => {
-                drag_flag.set(true);
-                true
-            }
-            Event::Drag => {
-                if drag_flag.get() {
-                    let mouse_y = fltk::app::event_y();
-                    sender.send(Message::SplitViewResize(mouse_y));
-                }
-                true
-            }
-            Event::Released => {
-                drag_flag.set(false);
-                if let Some(mut win) = div.window() {
-                    win.set_cursor(Cursor::Default);
-                }
-                true
-            }
-            _ => false,
-        });
-
-        divider
+        divider::new_divider(sender, DragAxis::Y, Message::SplitViewResize)
     }
 
     /// Show split view with syntax highlighting overlaid on diff backgrounds.
