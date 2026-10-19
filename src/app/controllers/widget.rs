@@ -13,6 +13,7 @@ use crate::app::infrastructure::buffer::buffer_text_no_leak;
 use crate::app::infrastructure::defer::defer_send;
 use crate::app::plugins::{HookResult, PluginHook, PluginManager, WidgetActionData, WidgetManager};
 use crate::ui::split_panel::SplitPanel;
+use crate::ui::theme::{PanelTheme, Themeable};
 use crate::ui::tree_panel::TreePanel;
 
 /// Look up a plugin's approved commands by name.
@@ -57,7 +58,10 @@ impl WidgetController {
     ) {
         let theme_bg = highlight.highlighter().theme_background();
         let theme_fg = highlight.highlighter().theme_foreground();
-        split_panel.apply_theme(view.dark_mode, theme_bg);
+        split_panel.apply_theme(PanelTheme {
+            is_dark: view.dark_mode,
+            bg: theme_bg,
+        });
 
         // Get syntax name from active document
         let syntax_name = tab_manager.active_doc().and_then(|d| d.syntax_name.clone());
@@ -156,7 +160,10 @@ impl WidgetController {
         tab_manager: &mut TabManager,
     ) {
         let theme_bg = highlight.highlighter().theme_background();
-        tree_panel.apply_theme(view.dark_mode, theme_bg);
+        tree_panel.apply_theme(PanelTheme {
+            is_dark: view.dark_mode,
+            bg: theme_bg,
+        });
 
         // If YAML content is provided, parse it into a tree
         let final_request = if let (Some(yaml_content), None) =
