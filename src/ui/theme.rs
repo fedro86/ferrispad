@@ -231,6 +231,24 @@ pub(crate) fn menu_colors_from_bg(theme_bg: (u8, u8, u8)) -> MenuColors {
     }
 }
 
+/// FLTK foreground (`app::foreground`) for menu text: light on a dark menu
+/// background, black on a light one. The single rule for startup and every
+/// theme change (via `dispatch::retheme_panels`).
+///
+/// It deliberately ignores `theme.is_dark`: the text is drawn on the menu
+/// background, and that is derived from the syntax theme background alone
+/// (`menu_colors_from_bg`). Following the dark-mode flag instead would put
+/// light text on a light menu whenever a light syntax theme is used in dark
+/// mode (and black on a dark menu in the reverse case).
+pub fn menu_foreground(theme: PanelTheme) -> (u8, u8, u8) {
+    let menu_bg = ThemeRgb::from_fltk(menu_colors_from_bg(theme.bg).color);
+    if menu_bg.brightness() < 128 {
+        (230, 230, 230)
+    } else {
+        (0, 0, 0)
+    }
+}
+
 /// NSRect — written-only (passed to setFrame:, never read back).
 /// Avoids the x86_64 `objc_msgSend_stret` requirement for NSRect returns.
 #[cfg(target_os = "macos")]
@@ -540,5 +558,40 @@ mod tests {
             (251, 244, 227)
         );
         assert_eq!(diff_tab_tint_from_bg((1, 0, 9), false).to_rgb(), (0, 0, 9));
+    }
+
+    /// Startup and every theme change (dark-mode toggle, Settings, live
+    /// preview) pick the menu text colour through `menu_foreground`. For every
+    /// (syntax theme, dark flag) pair the colour must not depend on the flag —
+    /// so toggling dark mode twice cannot change it — and must be readable on
+    /// the menu background it is drawn on.
+    #[test]
+    fn menu_foreground_is_the_same_at_startup_and_on_toggle() {
+        use crate::app::domain::settings::SyntaxTheme;
+        let mut failures = Vec::new();
+        for &syntax in SyntaxTheme::all() {
+            let bg = syntax.background();
+            let menu_bg = ThemeRgb::from_fltk(menu_colors_from_bg(bg).color);
+            let light_text = menu_bg.brightness() < 128;
+            for is_dark in [false, true] {
+                let fg = menu_foreground(PanelTheme { is_dark, bg });
+                let toggled = menu_foreground(PanelTheme {
+                    is_dark: !is_dark,
+                    bg,
+                });
+                if fg != toggled {
+                    failures.push(format!(
+                        "{syntax:?} (dark mode {is_dark}): menu text {fg:?} becomes {toggled:?} when the flag flips"
+                    ));
+                }
+                if (ThemeRgb::from_tuple(fg).brightness() >= 128) != light_text {
+                    failures.push(format!(
+                        "{syntax:?} (dark mode {is_dark}): menu text {fg:?} unreadable on menu background {:?}",
+                        menu_bg.to_tuple()
+                    ));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 }

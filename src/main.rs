@@ -455,21 +455,9 @@ fn main() {
         editor_col: w.editor_col,
     };
 
-    // Apply the initial theme to every panel
+    // Apply the initial theme to every panel (and the menu text colour, with
+    // the same rule every later theme change uses)
     dispatch::retheme_panels(&state, &mut lw);
-
-    // Set FLTK foreground for menu popups — light on dark themes, black on light.
-    // At startup this follows the theme background's luminance rather than the
-    // dark-mode flag `retheme_panels` uses (pre-existing difference, kept).
-    {
-        let bg = state.highlight.highlighter().theme_background();
-        let is_dark = (bg.0 as u32 + bg.1 as u32 + bg.2 as u32) / 3 < 128;
-        if is_dark {
-            fltk::app::foreground(230, 230, 230);
-        } else {
-            fltk::app::foreground(0, 0, 0);
-        }
-    }
 
     // Check plugin permissions now that UI is ready (dialog needs event loop)
     sender.send(Message::CheckPluginPermissions);
@@ -587,7 +575,8 @@ fn main() {
                 Message::OpenSettings
                 | Message::CheckForUpdates
                 | Message::ShowAbout
-                | Message::ShowKeyShortcuts => {
+                | Message::ShowKeyShortcuts
+                | Message::PreviewSyntaxTheme(_) => {
                     dispatch::handle_settings(msg, &mut state, &mut lw);
                     dispatch::DispatchResult::Continue
                 }
@@ -606,8 +595,7 @@ fn main() {
                 // Background updates
                 Message::BackgroundUpdateResult(_)
                 | Message::ShowBannerUpdate
-                | Message::DismissBanner
-                | Message::PreviewSyntaxTheme(_) => {
+                | Message::DismissBanner => {
                     dispatch::handle_update(msg, &mut state);
                     dispatch::DispatchResult::Continue
                 }

@@ -907,10 +907,14 @@ impl AppState {
 
     // --- Settings ---
 
-    pub fn open_settings(&mut self) {
+    /// Show the Settings dialog and apply the result on Save. `on_preview`
+    /// runs while the dialog is open, for each live syntax-theme preview and
+    /// for the revert to the original theme on Cancel/close.
+    pub fn open_settings(&mut self, mut on_preview: impl FnMut(&mut AppState, SyntaxTheme)) {
         let current = self.settings.borrow().clone();
         let theme_bg = self.highlight.highlighter().theme_background();
-        if let Some(new_settings) = show_settings_dialog(&current, &self.sender, theme_bg) {
+        let result = show_settings_dialog(&current, theme_bg, |theme| on_preview(self, theme));
+        if let Some(new_settings) = result {
             if let Err(e) = new_settings.save() {
                 show_themed_message(
                     theme_bg,
@@ -969,14 +973,12 @@ impl AppState {
         }
     }
 
-    /// Preview a syntax theme (called from settings dialog for live preview)
+    /// Preview a syntax theme (called from settings dialog for live preview).
+    /// Re-themes the widgets `AppState` owns; the caller re-themes the panels
+    /// in `LayoutWidgets` through `dispatch::retheme_panels`.
     pub fn preview_syntax_theme(&mut self, theme: SyntaxTheme) {
         self.highlight.set_theme(theme);
-
-        // Apply theme background/foreground colors to editor
-        let bg = self.highlight.highlighter().theme_background();
-        let fg = self.highlight.highlighter().theme_foreground();
-        apply_syntax_theme_colors(&mut self.editor, bg, fg);
+        self.apply_theme_to_owned_widgets();
 
         self.highlight
             .rehighlight_all_documents(&mut self.tab_manager, &self.sender);

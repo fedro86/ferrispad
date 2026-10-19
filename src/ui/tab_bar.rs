@@ -108,17 +108,6 @@ enum HitResult {
     None,
 }
 
-impl HitResult {
-    /// True when the hit names a tab index or group id, which a rebuild of
-    /// the tab list can invalidate.
-    fn refers_to_tab_or_group(&self) -> bool {
-        matches!(
-            self,
-            HitResult::Tab { .. } | HitResult::GroupLabel(_) | HitResult::CollapsedChip(_)
-        )
-    }
-}
-
 /// Replace the hover state with `hit`. Returns true when it changed, i.e. the
 /// tab bar needs a redraw.
 fn update_hover(hover: &mut HitResult, hit: HitResult) -> bool {
@@ -151,6 +140,10 @@ struct TabBarState {
     theme_bg: ThemeRgb,
     /// Item under the pointer (`HitResult::None` when nothing is hovered)
     hover: HitResult,
+    /// Last pointer position over the bar, relative to the widget's top-left
+    /// corner, as seen by the last Move/Drag/Push. `None` once the pointer has
+    /// left the bar. Lets a relayout recompute `hover` without a new event.
+    pointer: Option<(i32, i32)>,
     diff_tab: Option<DiffTabInfo>,
     drag_source: Option<DragSource>,
     drag_target: Option<DragTarget>,
@@ -187,6 +180,7 @@ impl TabBar {
             is_dark: false,
             theme_bg: ThemeRgb::new(255, 255, 255), // Default to white
             hover: HitResult::None,
+            pointer: None,
             diff_tab: None,
             drag_source: None,
             drag_target: None,
@@ -245,13 +239,22 @@ impl TabBar {
                 collapsed: g.collapsed,
             });
         }
-        if st.hover.refers_to_tab_or_group() {
-            st.hover = HitResult::None;
-        }
-        compute_layout(&mut st);
+        relayout(&mut st);
         drop(st);
         self.widget.redraw();
     }
+}
+
+/// Recompute the layout and the hover state that depends on it: the hover is
+/// re-hit-tested at the last known pointer position against the new layout,
+/// so it always names what is under the pointer now, never what was there
+/// before (T0051). A pointer outside the bar means no hover.
+fn relayout(st: &mut TabBarState) {
+    compute_layout(st);
+    let hit = st.pointer.map_or(HitResult::None, |(mx, my)| {
+        hit_test_layout(&st.layout, 0, mx, my)
+    });
+    update_hover(&mut st.hover, hit);
 }
 
 impl Themeable for TabBar {
@@ -319,7 +322,7 @@ impl TabBar {
                         {
                             st.scroll_offset = scrollable_idx.saturating_sub(st.visible_items - 1);
                         }
-                        compute_layout(&mut st);
+                        relayout(&mut st);
                         drop(st);
                         self.widget.redraw();
                         return;
@@ -340,7 +343,7 @@ impl TabBar {
                 {
                     st.scroll_offset = scrollable_idx.saturating_sub(st.visible_items - 1);
                 }
-                compute_layout(&mut st);
+                relayout(&mut st);
                 drop(st);
                 self.widget.redraw();
                 return;
@@ -362,7 +365,7 @@ impl TabBar {
             if st.scroll_offset > max_offset {
                 st.scroll_offset = max_offset;
             }
-            compute_layout(&mut st);
+            relayout(&mut st);
             drop(st);
             self.widget.redraw();
         }
@@ -382,7 +385,7 @@ impl TabBar {
                 tab.is_active = false;
             }
         }
-        compute_layout(&mut st);
+        relayout(&mut st);
         drop(st);
         self.widget.redraw();
     }
@@ -392,10 +395,7 @@ impl TabBar {
         let mut st = self.state.borrow_mut();
         if st.diff_tab.is_some() {
             st.diff_tab = None;
-            if matches!(st.hover, HitResult::DiffTab { .. }) {
-                st.hover = HitResult::None;
-            }
-            compute_layout(&mut st);
+            relayout(&mut st);
             drop(st);
             self.widget.redraw();
         }
@@ -1507,9 +1507,12 @@ fn build_context_menu(
 fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState>>) -> bool {
     match event {
         Event::Push => {
-            let st = state.borrow();
             let mx = fltk::app::event_x() - wid.x();
             let my = fltk::app::event_y();
+            if let Ok(mut st) = state.try_borrow_mut() {
+                st.pointer = Some((mx, my - wid.y()));
+            }
+            let st = state.borrow();
             let button = fltk::app::event_button();
 
             let hit = hit_test_layout(&st.layout, wid.y(), mx, my);
@@ -1612,7 +1615,7 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                     let mut st_mut = state.borrow_mut();
                     if st_mut.scroll_offset > 0 {
                         st_mut.scroll_offset -= 1;
-                        compute_layout(&mut st_mut);
+                        relayout(&mut st_mut);
                         drop(st_mut);
                         wid.redraw();
                     }
@@ -1624,7 +1627,7 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
                     let max_offset = st_mut.total_items.saturating_sub(st_mut.visible_items);
                     if st_mut.scroll_offset < max_offset {
                         st_mut.scroll_offset += 1;
-                        compute_layout(&mut st_mut);
+                        relayout(&mut st_mut);
                         drop(st_mut);
                         wid.redraw();
                     }
@@ -1641,6 +1644,7 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
             };
             let mx = fltk::app::event_x() - wid.x();
             let my = fltk::app::event_y();
+            st.pointer = Some((mx, my - wid.y()));
 
             let new_target = match source {
                 DragSource::Tab(src_idx) => {
@@ -1856,6 +1860,7 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
             let mut st = state.borrow_mut();
             let mx = fltk::app::event_x() - wid.x();
             let my = fltk::app::event_y();
+            st.pointer = Some((mx, my - wid.y()));
 
             let hit = hit_test_layout(&st.layout, wid.y(), mx, my);
             if update_hover(&mut st.hover, hit) {
@@ -1868,9 +1873,19 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
             let mut st = state.borrow_mut();
             st.drag_source = None;
             st.drag_target = None;
+            st.pointer = None;
             if update_hover(&mut st.hover, HitResult::None) {
                 drop(st);
                 wid.redraw();
+            }
+            false
+        }
+        Event::Hide => {
+            // Hidden (e.g. the start page after the last tab closes), the bar
+            // gets no Move/Leave, so the pointer position would go stale.
+            if let Ok(mut st) = state.try_borrow_mut() {
+                st.pointer = None;
+                st.hover = HitResult::None;
             }
             false
         }
@@ -1881,6 +1896,153 @@ fn handle_tab_bar(wid: &mut Widget, event: Event, state: &Rc<RefCell<TabBarState
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A tab bar state with `n` ungrouped tabs, 800px wide, nothing hovered.
+    /// (No groups and no diff tab, so the layout needs no font measuring.)
+    fn state_with_tabs(n: u64) -> TabBarState {
+        let (sender, _receiver) = fltk::app::channel::<Message>();
+        let mut st = TabBarState {
+            tabs: Vec::new(),
+            groups: Vec::new(),
+            layout: Vec::new(),
+            is_dark: false,
+            theme_bg: ThemeRgb::new(255, 255, 255),
+            hover: HitResult::None,
+            pointer: None,
+            diff_tab: None,
+            drag_source: None,
+            drag_target: None,
+            sender,
+            widget_w: 800,
+            scroll_offset: 0,
+            total_items: 0,
+            visible_items: 0,
+            ctx_menu_ptr: std::ptr::null_mut(),
+        };
+        for i in 0..n {
+            push_tab(&mut st, i);
+        }
+        compute_layout(&mut st);
+        st
+    }
+
+    fn push_tab(st: &mut TabBarState, id: u64) {
+        st.tabs.push(TabInfo {
+            id: DocumentId(id),
+            display_name: format!("Untitled {id}"),
+            is_dirty: false,
+            is_active: false,
+            group_id: None,
+        });
+    }
+
+    /// Centre of the `+` button in the current layout, widget-relative.
+    fn plus_centre(st: &TabBarState) -> (i32, i32) {
+        let x = st
+            .layout
+            .iter()
+            .find_map(|it| match it {
+                LayoutItem::PlusButton { x } => Some(*x),
+                _ => None,
+            })
+            .expect("layout always has a + button");
+        (x + PLUS_BTN_WIDTH / 2, TAB_BAR_HEIGHT / 2)
+    }
+
+    #[test]
+    fn hover_is_recomputed_after_rebuild() {
+        // `+` is drawn hovered, but after the rebuild the pointer (unmoved)
+        // is over the bar's empty space between the last tab and `+`.
+        let mut st = state_with_tabs(1);
+        st.hover = HitResult::PlusButton;
+        st.pointer = Some((700, TAB_BAR_HEIGHT / 2));
+        push_tab(&mut st, 1);
+        relayout(&mut st);
+        assert_eq!(
+            hit_test_layout(&st.layout, 0, 700, TAB_BAR_HEIGHT / 2),
+            HitResult::None,
+            "test setup: the pointer must be over empty space"
+        );
+        assert_eq!(st.hover, HitResult::None);
+    }
+
+    #[test]
+    fn plus_click_hovers_the_new_tab_under_the_pointer() {
+        // With no tabs, `+` sits at the left edge; the pointer rests on it.
+        let mut st = state_with_tabs(0);
+        let old_plus = plus_centre(&st);
+        st.pointer = Some(old_plus);
+        update_hover(
+            &mut st.hover,
+            hit_test_layout(&st.layout, 0, old_plus.0, old_plus.1),
+        );
+        assert_eq!(st.hover, HitResult::PlusButton);
+
+        // Clicking it opens a tab: `+` jumps to the right edge and the new
+        // tab takes its old place, under the unmoved pointer.
+        push_tab(&mut st, 0);
+        relayout(&mut st);
+        assert_ne!(plus_centre(&st), old_plus, "test setup: `+` must move");
+        assert_eq!(
+            st.hover,
+            HitResult::Tab {
+                index: 0,
+                is_close: false
+            }
+        );
+    }
+
+    #[test]
+    fn closing_a_tab_hovers_the_tab_that_slides_under_the_pointer() {
+        // Pointer on the middle of the second of three equal-width tabs.
+        let mut st = state_with_tabs(3);
+        let Some((x, width)) = st.layout.iter().find_map(|it| match it {
+            LayoutItem::Tab { index: 1, x, width } => Some((*x, *width)),
+            _ => None,
+        }) else {
+            panic!("second tab is laid out");
+        };
+        st.pointer = Some((x + width / 2, TAB_BAR_HEIGHT / 2));
+        st.hover = HitResult::Tab {
+            index: 1,
+            is_close: false,
+        };
+
+        // Closing the first tab slides the third one under the pointer.
+        st.tabs.remove(0);
+        relayout(&mut st);
+        assert_eq!(
+            st.hover,
+            HitResult::Tab {
+                index: 1,
+                is_close: false
+            }
+        );
+        assert_eq!(st.tabs[1].id, DocumentId(2));
+    }
+
+    #[test]
+    fn pointer_outside_the_bar_means_no_hover_after_rebuild() {
+        // Every kind of stale hover is dropped, not only tab/group ones.
+        for stale in [
+            HitResult::Tab {
+                index: 0,
+                is_close: true,
+            },
+            HitResult::GroupLabel(GroupId(1)),
+            HitResult::CollapsedChip(GroupId(1)),
+            HitResult::DiffTab { is_close: false },
+            HitResult::PlusButton,
+            HitResult::ScrollLeft,
+            HitResult::ScrollRight,
+        ] {
+            let mut st = state_with_tabs(1);
+            st.hover = stale;
+            st.pointer = None;
+            relayout(&mut st);
+            assert_eq!(st.hover, HitResult::None, "stale hover {stale:?} kept");
+        }
+    }
 
     #[test]
     fn hover_change_requests_redraw() {
@@ -1941,23 +2103,5 @@ mod tests {
         assert_eq!(hover, HitResult::None);
         // A second Leave (nothing hovered) does not redraw
         assert!(!update_hover(&mut hover, HitResult::None));
-    }
-
-    #[test]
-    fn only_tab_and_group_hovers_are_invalidated_by_rebuild() {
-        assert!(
-            HitResult::Tab {
-                index: 0,
-                is_close: true
-            }
-            .refers_to_tab_or_group()
-        );
-        assert!(HitResult::GroupLabel(GroupId(1)).refers_to_tab_or_group());
-        assert!(HitResult::CollapsedChip(GroupId(1)).refers_to_tab_or_group());
-        assert!(!HitResult::PlusButton.refers_to_tab_or_group());
-        assert!(!HitResult::ScrollLeft.refers_to_tab_or_group());
-        assert!(!HitResult::ScrollRight.refers_to_tab_or_group());
-        assert!(!HitResult::DiffTab { is_close: false }.refers_to_tab_or_group());
-        assert!(!HitResult::None.refers_to_tab_or_group());
     }
 }
