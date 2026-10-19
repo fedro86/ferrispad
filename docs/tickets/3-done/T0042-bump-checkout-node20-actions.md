@@ -1,7 +1,7 @@
 ---
 id: T0042
 title: Bump actions/checkout off the deprecated Node 20 runtime (and sweep other actions)
-status: review
+status: done
 created: 2026-08-26
 severity: minor
 area: process
