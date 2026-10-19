@@ -1,7 +1,7 @@
 ---
 id: T0046
 title: Make the fallback file chooser legible and drop its path-segment buttons
-status: review
+status: done
 created: 2026-10-19
 severity: moderate
 area: ui
