@@ -1,7 +1,7 @@
 ---
 id: T0022
 title: Fix tree_panel "none" icon drift when filtering
-status: review
+status: done
 created: 2026-08-24
 severity: minor
 area: ui
