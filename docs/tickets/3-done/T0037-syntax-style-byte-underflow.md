@@ -1,7 +1,7 @@
 ---
 id: T0037
 title: Guard the u8 underflow on the syntax style byte path
-status: review
+status: done
 created: 2026-08-24
 severity: minor
 area: robustness
