@@ -1,7 +1,7 @@
 ---
 id: T0049
 title: Case-insensitive regex find matches non-ASCII letters
-status: review
+status: done
 created: 2026-10-19
 severity: minor
 area: robustness
