@@ -244,7 +244,12 @@ pub(crate) fn floor_char_boundary(text: &str, mut idx: usize) -> usize {
     idx
 }
 
-/// Find next regex match in text, returns (match_start, match_end) byte positions
+/// Find the first regex match starting at or after `start_pos`, returns
+/// (match_start, match_end) byte positions.
+///
+/// The regex runs over the whole text from `start_pos`, so `^`, `$` and `\b`
+/// see the characters around the cursor instead of treating it as the start
+/// of the text.
 pub fn find_in_text_regex(
     text: &str,
     pattern: &str,
@@ -259,13 +264,15 @@ pub fn find_in_text_regex(
         .multi_line(true)
         .build()
         .map_err(|e| e.to_string())?;
-    let slice_start = floor_char_boundary(text, start_pos);
-    Ok(re
-        .find(&text[slice_start..])
-        .map(|m| (slice_start + m.start(), slice_start + m.end())))
+    let start = floor_char_boundary(text, start_pos);
+    Ok(re.find_at(text, start).map(|m| (m.start(), m.end())))
 }
 
-/// Find last regex match before end_pos (backward search), returns (match_start, match_end)
+/// Find the last regex match ending at or before `end_pos` (backward search),
+/// returns (match_start, match_end).
+///
+/// Matches come from a scan of the whole text, so `$` and `\b` do not match
+/// at `end_pos` just because the search stops there.
 pub fn find_in_text_regex_backward(
     text: &str,
     pattern: &str,
@@ -280,8 +287,14 @@ pub fn find_in_text_regex_backward(
         .multi_line(true)
         .build()
         .map_err(|e| e.to_string())?;
-    let slice = &text[..floor_char_boundary(text, end_pos)];
-    Ok(re.find_iter(slice).last().map(|m| (m.start(), m.end())))
+    let end = floor_char_boundary(text, end_pos);
+    // Successive matches never overlap, so their ends only grow: stop at the
+    // first one that ends past `end`.
+    Ok(re
+        .find_iter(text)
+        .take_while(|m| m.end() <= end)
+        .last()
+        .map(|m| (m.start(), m.end())))
 }
 
 /// Replace all regex matches; replacement may reference capture groups as $1, $2, etc.
@@ -790,6 +803,30 @@ mod tests {
         // ^ matches before each line, so every line gets the prefix.
         assert_eq!(result, "> a\n> b\n> c");
         assert_eq!(count, 3);
+    }
+
+    // Anchors and word boundaries see the whole text, not a slice cut at the
+    // cursor (T0048).
+
+    #[test]
+    fn regex_caret_does_not_match_mid_line_at_cursor() {
+        // Byte 1 is after the `x`, mid-line: `^foo` must skip to line two.
+        let result = find_in_text_regex("xfoo\nfoo", "^foo", 1, true).unwrap();
+        assert_eq!(result, Some((5, 8)));
+    }
+
+    #[test]
+    fn regex_dollar_backward_does_not_match_at_cut() {
+        // Byte 2 is mid-line: the only `o$` is (2,3), which ends after it.
+        let result = find_in_text_regex_backward("foo\nbar", "o$", 2, true).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn regex_word_boundary_sees_text_before_cursor() {
+        // Byte 1 is inside "foo": `\bo` must not treat the cursor as a boundary.
+        let result = find_in_text_regex("foo oo", r"\bo", 1, true).unwrap();
+        assert_eq!(result, Some((4, 5)));
     }
 
     // replace_at_position_regex — anchor-aware "replace current selection"
