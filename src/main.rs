@@ -412,6 +412,10 @@ fn main() {
     w.wind.end();
     w.wind.show();
 
+    // Ctrl+letter shortcuts follow the typed letter when the keyboard layouts
+    // disagree (a non-first xkb layout active): see ui::layout_shortcut.
+    ui::layout_shortcut::install(sender, &w.wind, &state.editor);
+
     #[cfg(target_os = "windows")]
     set_windows_titlebar_theme(
         &w.wind,
@@ -573,6 +577,7 @@ fn main() {
                 | Message::CheckForUpdates
                 | Message::ShowAbout
                 | Message::ShowKeyShortcuts
+                | Message::RunShortcut(_)
                 | Message::PreviewSyntaxTheme(_) => {
                     dispatch::handle_settings(msg, &mut state, &mut lw);
                     dispatch::DispatchResult::Continue

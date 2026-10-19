@@ -10,6 +10,7 @@ dependencies = [
  "dirs",
  "ed25519-dalek",
  "fltk",
+ "fltk-sys",
  "hex",
  "memmap2",
  "mlua",

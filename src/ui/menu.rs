@@ -7,7 +7,7 @@ use fltk::{
     prelude::*,
 };
 
-use crate::app::plugins::{PluginManager, plugin_display_name};
+use crate::app::plugins::{PluginManager, PluginMenuItem, plugin_display_name};
 use crate::app::services::shortcut_registry::{ShortcutRegistry, normalize_shortcut};
 use crate::app::{AppSettings, Message};
 
@@ -158,6 +158,97 @@ pub fn apply_shortcut_overrides(
             && let Some(mut item) = menu.at(idx)
         {
             item.set_shortcut(shortcut);
+        }
+    }
+}
+
+/// The menu path of the command bound to `normalized` (a `normalize_shortcut`
+/// string), or `None` when nothing is bound to it.
+///
+/// Resolves exactly as the menu binds its shortcuts: the built-in table with
+/// the user's overrides, then the plugin menu items (`plugins` in menu order:
+/// plugin name and its menu items) through the same [`PluginShortcutBinder`]
+/// the Plugins menu uses.
+pub fn command_for_shortcut<'a>(
+    normalized: &str,
+    registry: &ShortcutRegistry,
+    tabs_enabled: bool,
+    plugins: impl IntoIterator<Item = (&'a str, &'a [PluginMenuItem])>,
+) -> Option<String> {
+    let builtin = builtin_shortcut_defaults(tabs_enabled).find(|&(id, default)| {
+        let effective = registry.effective_shortcut(id, default);
+        parse_shortcut(effective).is_some() && normalize_shortcut(effective) == normalized
+    });
+    if let Some((id, _)) = builtin {
+        return Some(id.to_string());
+    }
+
+    let mut binder = PluginShortcutBinder::new();
+    for (plugin_name, items) in plugins {
+        for item in items {
+            if let PluginItemShortcut::Bound(_, bound) = binder.bind(registry, plugin_name, item)
+                && bound == normalized
+            {
+                return Some(plugin_item_path(plugin_name, &item.label));
+            }
+        }
+    }
+    None
+}
+
+/// Menu path of a plugin's menu item: `Plugins/<Display Name>/<label>`.
+fn plugin_item_path(plugin_name: &str, label: &str) -> String {
+    format!("Plugins/{}/{}", plugin_display_name(plugin_name), label)
+}
+
+/// What a plugin menu item's shortcut resolves to.
+enum PluginItemShortcut {
+    /// No shortcut: none declared, or unbound by the user.
+    Unbound,
+    /// Bound: the FLTK shortcut and its normalized string.
+    Bound(Shortcut, String),
+    /// Declared, but reserved or taken by an earlier plugin item.
+    Conflict(String),
+    /// Declared, but not a valid shortcut.
+    Invalid(String),
+}
+
+/// Binds plugin menu-item shortcuts in menu order: the user's override, else
+/// the manifest default, and never a reserved shortcut or one an earlier item
+/// took. Shared by the Plugins menu build and `command_for_shortcut`, so a
+/// shortcut resolves to the item the menu really holds.
+struct PluginShortcutBinder {
+    used: HashSet<String>,
+}
+
+impl PluginShortcutBinder {
+    fn new() -> Self {
+        Self {
+            used: RESERVED_SHORTCUTS.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    fn bind(
+        &mut self,
+        registry: &ShortcutRegistry,
+        plugin_name: &str,
+        item: &PluginMenuItem,
+    ) -> PluginItemShortcut {
+        let cmd_id = plugin_command_id(plugin_name, &item.action);
+        let manifest_default = item.shortcut.as_deref().unwrap_or("");
+        // An enabled override wins, even an empty one (explicitly unbound).
+        let sc_str = registry.effective_shortcut(&cmd_id, manifest_default);
+        if sc_str.is_empty() {
+            return PluginItemShortcut::Unbound;
+        }
+        let normalized = normalize_shortcut(sc_str);
+        if self.used.contains(&normalized) {
+            PluginItemShortcut::Conflict(sc_str.to_string())
+        } else if let Some(sc) = parse_shortcut(sc_str) {
+            self.used.insert(normalized.clone());
+            PluginItemShortcut::Bound(sc, normalized)
+        } else {
+            PluginItemShortcut::Invalid(sc_str.to_string())
         }
     }
 }
@@ -527,9 +618,8 @@ pub fn rebuild_plugins_menu_with_orphans(
     orphaned_names: &[String],
     registry: &ShortcutRegistry,
 ) {
-    // Build set of reserved shortcuts
-    let mut used_shortcuts: HashSet<String> =
-        RESERVED_SHORTCUTS.iter().map(|s| s.to_string()).collect();
+    // Plugin shortcuts may not take a reserved or already-bound one
+    let mut binder = PluginShortcutBinder::new();
 
     // Find and remove old plugin entries (except Enable Plugins, Reload All, Run Checks)
     // This is a bit hacky but FLTK doesn't have great dynamic menu support
@@ -630,46 +720,25 @@ pub fn rebuild_plugins_menu_with_orphans(
 
                     // Add each menu item
                     for item in &plugin.menu_items {
-                        let item_label = format!("{}/{}", submenu_base, item.label);
+                        let item_label = plugin_item_path(&plugin.name, &item.label);
 
-                        // Shortcut resolution: registry override > manifest default
-                        let cmd_id = plugin_command_id(&plugin.name, &item.action);
-                        let manifest_default = item.shortcut.as_deref().unwrap_or("");
-
-                        let shortcut_str: Option<&str> =
-                            if let Some(ovr) = registry.get_override(&cmd_id) {
-                                if ovr.enabled && !ovr.shortcut.is_empty() {
-                                    Some(&ovr.shortcut)
-                                } else if ovr.enabled {
-                                    None // explicitly unbound
-                                } else {
-                                    Some(manifest_default).filter(|s| !s.is_empty())
-                                }
-                            } else {
-                                Some(manifest_default).filter(|s| !s.is_empty())
-                            };
-
-                        // Parse and validate shortcut
-                        let shortcut = if let Some(sc_str) = shortcut_str {
-                            let normalized = normalize_shortcut(sc_str);
-                            if used_shortcuts.contains(&normalized) {
+                        let shortcut = match binder.bind(registry, &plugin.name, item) {
+                            PluginItemShortcut::Unbound => Shortcut::None,
+                            PluginItemShortcut::Bound(sc, _) => sc,
+                            PluginItemShortcut::Conflict(sc_str) => {
                                 eprintln!(
                                     "[plugins] Warning: shortcut '{}' for {}/{} conflicts with existing shortcut, skipping",
                                     sc_str, plugin.name, item.label
                                 );
                                 Shortcut::None
-                            } else if let Some(sc) = parse_shortcut(sc_str) {
-                                used_shortcuts.insert(normalized);
-                                sc
-                            } else {
+                            }
+                            PluginItemShortcut::Invalid(sc_str) => {
                                 eprintln!(
                                     "[plugins] Warning: invalid shortcut '{}' for {}/{}",
                                     sc_str, plugin.name, item.label
                                 );
                                 Shortcut::None
                             }
-                        } else {
-                            Shortcut::None
                         };
 
                         let plugin_name = plugin.name.clone();
@@ -984,6 +1053,121 @@ mod tests {
             Some(MenuFlag::Toggle | MenuFlag::Value)
         );
         assert_eq!(flag("File/Save"), Some(MenuFlag::Normal));
+    }
+
+    fn no_plugins() -> Vec<(&'static str, &'static [PluginMenuItem])> {
+        Vec::new()
+    }
+
+    fn command(normalized: &str, registry: &ShortcutRegistry, tabs: bool) -> Option<String> {
+        command_for_shortcut(normalized, registry, tabs, no_plugins())
+    }
+
+    #[test]
+    fn command_for_shortcut_finds_builtin_defaults() {
+        let reg = ShortcutRegistry::default();
+        assert_eq!(
+            command("ctrl+m", &reg, true).as_deref(),
+            Some("View/Preview in Browser")
+        );
+        assert_eq!(command("ctrl+z", &reg, true).as_deref(), Some("Edit/Undo"));
+        assert_eq!(
+            command("ctrl+shift+z", &reg, true).as_deref(),
+            Some("Edit/Redo")
+        );
+        assert_eq!(
+            command("ctrl+a", &reg, true).as_deref(),
+            Some("Edit/Select All")
+        );
+        assert_eq!(
+            command("ctrl+shift+l", &reg, true).as_deref(),
+            Some("Plugins/General/Run All Checks")
+        );
+        assert_eq!(command("ctrl+e", &reg, true), None);
+    }
+
+    #[test]
+    fn command_for_shortcut_follows_tab_mode() {
+        let reg = ShortcutRegistry::default();
+        assert_eq!(
+            command("ctrl+w", &reg, true).as_deref(),
+            Some("File/Close Tab")
+        );
+        assert_eq!(command("ctrl+w", &reg, false), None);
+        assert_eq!(command("ctrl+t", &reg, true).as_deref(), Some("File/New"));
+        assert_eq!(command("ctrl+n", &reg, false).as_deref(), Some("File/New"));
+        assert_eq!(command("ctrl+t", &reg, false), None);
+    }
+
+    #[test]
+    fn command_for_shortcut_follows_user_overrides() {
+        use crate::app::domain::settings::ShortcutOverride;
+        let mut reg = ShortcutRegistry::default();
+        reg.set_override(
+            "Edit/Undo".to_string(),
+            ShortcutOverride {
+                shortcut: "Ctrl+U".to_string(),
+                enabled: true,
+            },
+        );
+        reg.set_override(
+            "View/Preview in Browser".to_string(),
+            ShortcutOverride {
+                shortcut: String::new(), // unbound
+                enabled: true,
+            },
+        );
+        assert_eq!(command("ctrl+u", &reg, true).as_deref(), Some("Edit/Undo"));
+        assert_eq!(command("ctrl+z", &reg, true), None);
+        assert_eq!(command("ctrl+m", &reg, true), None);
+    }
+
+    #[test]
+    fn command_for_shortcut_finds_plugin_menu_items() {
+        let item = |label: &str, action: &str, shortcut: &str| PluginMenuItem {
+            label: label.to_string(),
+            action: action.to_string(),
+            shortcut: Some(shortcut.to_string()),
+        };
+        let lint = vec![
+            item("Run Lint", "lint", "Ctrl+Shift+P"),
+            // Reserved for a built-in: the plugins menu does not bind it.
+            item("Steal Undo", "steal", "Ctrl+Z"),
+        ];
+        let other = vec![item("Also P", "p", "Ctrl+Shift+P")]; // taken by lint
+        let plugins = vec![
+            ("python-lint", lint.as_slice()),
+            ("other-tool", other.as_slice()),
+        ];
+        let reg = ShortcutRegistry::default();
+
+        assert_eq!(
+            command_for_shortcut("ctrl+shift+p", &reg, true, plugins.clone()).as_deref(),
+            Some("Plugins/Python Lint/Run Lint")
+        );
+        assert_eq!(
+            command_for_shortcut("ctrl+z", &reg, true, plugins.clone()).as_deref(),
+            Some("Edit/Undo")
+        );
+
+        // A user override on the plugin command moves it.
+        let mut reg = ShortcutRegistry::default();
+        reg.set_override(
+            plugin_command_id("python-lint", "lint"),
+            crate::app::domain::settings::ShortcutOverride {
+                shortcut: "Ctrl+Shift+K".to_string(),
+                enabled: true,
+            },
+        );
+        assert_eq!(
+            command_for_shortcut("ctrl+shift+k", &reg, true, plugins.clone()).as_deref(),
+            Some("Plugins/Python Lint/Run Lint")
+        );
+        // ...which frees Ctrl+Shift+P for the next plugin, as in the menu.
+        assert_eq!(
+            command_for_shortcut("ctrl+shift+p", &reg, true, plugins).as_deref(),
+            Some("Plugins/Other Tool/Also P")
+        );
     }
 
     #[test]
