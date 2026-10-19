@@ -1,7 +1,7 @@
 ---
 id: T0044
 title: Make the scrollback-trim test measure complexity, not wall-clock seconds
-status: review
+status: done
 created: 2026-09-16
 severity: minor
 area: process
