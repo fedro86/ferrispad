@@ -1,7 +1,7 @@
 ---
 id: T0019
 title: Re-theme all panels on a settings-driven theme change
-status: review
+status: done
 created: 2026-08-24
 severity: moderate
 area: ui
