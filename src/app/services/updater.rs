@@ -4,6 +4,10 @@ use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::app::infrastructure::error::AppError;
+use crate::app::services::http;
+
+/// Largest release binary the updater will download.
+const MAX_BINARY_BYTES: u64 = 256 * 1024 * 1024;
 
 /// FerrisPad's official signing public key (same key used for plugin signing).
 /// This key verifies both plugin signatures and release binary signatures.
@@ -99,28 +103,32 @@ pub fn fetch_latest_release(
         }
     };
 
-    let response = minreq::get(&url)
-        .with_header("User-Agent", "FerrisPad")
-        .with_timeout(10)
-        .send()
+    let mut response = http::get(&url, 10)
+        .call()
         .map_err(|e| AppError::Update(format!("Failed to connect to update server: {}", e)))?;
 
-    if response.status_code < 200 || response.status_code >= 300 {
+    let status = response.status().as_u16();
+    if !(200..300).contains(&status) {
         return Err(AppError::Update(format!(
             "Update server returned error: {}",
-            response.status_code
+            status
         )));
     }
 
+    let body = response
+        .body_mut()
+        .read_to_vec()
+        .map_err(|e| AppError::Update(format!("Failed to read update information: {}", e)))?;
+
     match channel {
         UpdateChannel::Stable => {
-            let release: ReleaseInfo = response.json().map_err(|e| {
+            let release: ReleaseInfo = serde_json::from_slice(&body).map_err(|e| {
                 AppError::Update(format!("Failed to parse update information: {}", e))
             })?;
             Ok(release)
         }
         UpdateChannel::Beta => {
-            let releases: Vec<ReleaseInfo> = response.json().map_err(|e| {
+            let releases: Vec<ReleaseInfo> = serde_json::from_slice(&body).map_err(|e| {
                 AppError::Update(format!("Failed to parse update information: {}", e))
             })?;
 
@@ -238,22 +246,22 @@ fn fetch_signature(release: &ReleaseInfo, asset_name: &str) -> Result<String, Ap
             ))
         })?;
 
-    let response = minreq::get(&sig_asset.browser_download_url)
-        .with_header("User-Agent", "FerrisPad")
-        .with_timeout(10)
-        .send()
+    let mut response = http::get(&sig_asset.browser_download_url, 10)
+        .call()
         .map_err(|e| AppError::Update(format!("Failed to download signature: {}", e)))?;
 
-    if response.status_code < 200 || response.status_code >= 300 {
+    let status = response.status().as_u16();
+    if !(200..300).contains(&status) {
         return Err(AppError::Update(format!(
             "Failed to download signature: HTTP {}",
-            response.status_code
+            status
         )));
     }
 
     // Signature file contains just the base64 signature (trimmed)
     let signature = response
-        .as_str()
+        .body_mut()
+        .read_to_string()
         .map_err(|e| AppError::Update(format!("Invalid signature file: {}", e)))?
         .trim()
         .to_string();
@@ -297,20 +305,26 @@ where
     progress_cb(0.0);
 
     // Download binary
-    let response = minreq::get(&binary_asset.browser_download_url)
-        .with_header("User-Agent", "FerrisPad")
-        .with_timeout(120) // Longer timeout for large binaries
-        .send()
+    let mut response = http::get(&binary_asset.browser_download_url, 120) // Longer timeout for large binaries
+        .call()
         .map_err(|e| AppError::Update(format!("Failed to download update: {}", e)))?;
 
-    if response.status_code < 200 || response.status_code >= 300 {
+    let status = response.status().as_u16();
+    if !(200..300).contains(&status) {
         return Err(AppError::Update(format!(
             "Download failed with status: {}",
-            response.status_code
+            status
         )));
     }
 
-    let binary_data = response.as_bytes();
+    // ureq caps `read_to_vec` at 10 MB by default; release binaries are larger.
+    let binary_data = response
+        .body_mut()
+        .with_config()
+        .limit(MAX_BINARY_BYTES)
+        .read_to_vec()
+        .map_err(|e| AppError::Update(format!("Failed to download update: {}", e)))?;
+    let binary_data = binary_data.as_slice();
     eprintln!("[update] Downloaded {} bytes", binary_data.len());
     progress_cb(0.5);
 

@@ -10,6 +10,7 @@
 pub mod editor_context;
 pub mod file_size;
 pub mod font_catalog;
+pub mod http;
 pub mod plugin_registry;
 pub mod plugin_update_checker;
 pub mod plugin_verify;
