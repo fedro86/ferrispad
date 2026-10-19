@@ -13,6 +13,12 @@ use super::dialogs::{SCROLLBAR_SIZE, scrollbar_colors};
 use super::scrollbar::style_scrollbars;
 use super::tab_bar::theme_colors_from_bg;
 
+/// FLTK's CIELAB contrast threshold, lowered from its default 39 at startup
+/// (`main.rs`). The default overrides our custom tree label colors (git status
+/// amber/green/red) when selected in light mode. Level 10 preserves them while
+/// still protecting against truly unreadable combinations (e.g. white-on-white).
+pub const FLTK_CONTRAST_LEVEL: i32 = 10;
+
 /// Width of all draggable panel dividers (tree, split, terminal).
 pub const DIVIDER_WIDTH: i32 = 2;
 

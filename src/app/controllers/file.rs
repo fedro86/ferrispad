@@ -247,13 +247,13 @@ impl FileController {
     ) -> Vec<FileAction> {
         let dir = self.last_open_directory.as_deref();
         if tabs_enabled {
-            let paths = native_open_multi_dialog(dir);
+            let paths = native_open_multi_dialog(dir, theme_bg);
             let mut actions = Vec::new();
             for path in paths {
                 actions.extend(self.open_file(path, tab_manager, settings, theme_bg, tabs_enabled));
             }
             actions
-        } else if let Some(path) = native_open_dialog(dir) {
+        } else if let Some(path) = native_open_dialog(dir, theme_bg) {
             self.open_file(path, tab_manager, settings, theme_bg, tabs_enabled)
         } else {
             vec![]
@@ -264,6 +264,7 @@ impl FileController {
         &mut self,
         tab_manager: &mut TabManager,
         plugins: &PluginManager,
+        theme_bg: (u8, u8, u8),
         tabs_enabled: bool,
     ) -> Vec<FileAction> {
         let (file_path, text, doc_id, partial_info) = {
@@ -338,7 +339,7 @@ impl FileController {
                 }
             }
         } else {
-            self.file_save_as(tab_manager, plugins, tabs_enabled)
+            self.file_save_as(tab_manager, plugins, theme_bg, tabs_enabled)
         }
     }
 
@@ -346,6 +347,7 @@ impl FileController {
         &mut self,
         tab_manager: &mut TabManager,
         plugins: &PluginManager,
+        theme_bg: (u8, u8, u8),
         _tabs_enabled: bool,
     ) -> Vec<FileAction> {
         let text = {
@@ -356,7 +358,7 @@ impl FileController {
             }
         };
 
-        if let Some(path) = native_save_dialog(self.last_open_directory.as_deref()) {
+        if let Some(path) = native_save_dialog(self.last_open_directory.as_deref(), theme_bg) {
             if let Some(parent) = std::path::Path::new(&path).parent() {
                 self.last_open_directory = Some(parent.to_string_lossy().to_string());
             }
