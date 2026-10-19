@@ -1,7 +1,7 @@
 ---
 id: T0033
 title: Guard syntax theme lookup against a missing key
-status: review
+status: done
 created: 2026-08-24
 severity: minor
 area: robustness
