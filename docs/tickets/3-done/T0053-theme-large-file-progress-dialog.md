@@ -1,7 +1,7 @@
 ---
 id: T0053
 title: Theme the large-file loading progress dialog
-status: review
+status: done
 created: 2026-10-19
 severity: minor
 area: ui
