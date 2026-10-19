@@ -420,9 +420,13 @@ impl AppState {
     }
 
     pub fn file_save(&mut self) {
-        let actions = self
-            .file
-            .file_save(&mut self.tab_manager, &self.plugins, self.tabs_enabled);
+        let theme_bg = self.highlight.highlighter().theme_background();
+        let actions = self.file.file_save(
+            &mut self.tab_manager,
+            &self.plugins,
+            theme_bg,
+            self.tabs_enabled,
+        );
         self.dispatch_file_actions(actions);
     }
 
