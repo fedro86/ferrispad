@@ -240,16 +240,27 @@ enum ChunkMessage {
 ///
 /// Memory usage: ~1x file size (TextBuffer) + 1MB chunk buffer
 /// vs. old method: ~2x file size (String + TextBuffer copy)
-pub fn load_to_buffer_with_progress(path: &Path, size: u64) -> StreamLoadResult {
+///
+/// The dialog is themed like every other popup (T0053), but it keeps its own
+/// event loop instead of `run_dialog`, because it must drain the reader
+/// thread's chunks between FLTK events.
+pub fn load_to_buffer_with_progress(
+    path: &Path,
+    size: u64,
+    theme_bg: (u8, u8, u8),
+) -> StreamLoadResult {
     let filename = path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("file")
         .to_string();
 
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
     // Create progress dialog
     let mut dialog = Window::new(100, 100, 400, 155, "Loading File");
     dialog.make_modal(true);
+    dialog.set_color(theme.bg);
 
     let mut flex = Flex::new(10, 10, 380, 135, None);
     flex.set_type(fltk::group::FlexType::Column);
@@ -258,17 +269,23 @@ pub fn load_to_buffer_with_progress(path: &Path, size: u64) -> StreamLoadResult 
     let label_text = format!("Loading \"{}\"...", filename);
     let mut status = Frame::default().with_label(&label_text);
     status.set_label_size(14);
+    status.set_label_color(theme.text);
     flex.fixed(&status, 25);
 
     let mut progress = Progress::default();
     progress.set_minimum(0.0);
     progress.set_maximum(size as f64);
     progress.set_value(0.0);
+    progress.set_frame(FrameType::FlatBox);
+    progress.set_color(theme.input_bg);
+    progress.set_selection_color(theme.button_bg);
+    progress.set_label_color(theme.text);
     flex.fixed(&progress, 25);
 
     let size_text = format!("0 / {}", format_size(size));
     let mut size_label = Frame::default().with_label(&size_text);
     size_label.set_label_size(11);
+    size_label.set_label_color(theme.text_dim);
     flex.fixed(&size_label, 20);
 
     // Cancel button, right-aligned (T0039). It only hides the dialog, exactly
@@ -279,6 +296,9 @@ pub fn load_to_buffer_with_progress(path: &Path, size: u64) -> StreamLoadResult 
     button_row.set_type(fltk::group::FlexType::Row);
     Frame::default(); // Spacer
     let mut cancel_btn = Button::default().with_label("Cancel");
+    cancel_btn.set_frame(FrameType::RFlatBox);
+    cancel_btn.set_color(theme.secondary_button_bg);
+    cancel_btn.set_label_color(theme.text_dim);
     button_row.fixed(&cancel_btn, 90);
     button_row.end();
     flex.fixed(&button_row, 28);
@@ -286,6 +306,7 @@ pub fn load_to_buffer_with_progress(path: &Path, size: u64) -> StreamLoadResult 
     flex.end();
     dialog.end();
     dialog.show();
+    theme.apply_titlebar(&dialog);
 
     let mut dialog_cancel = dialog.clone();
     cancel_btn.set_callback(move |_| dialog_cancel.hide());
