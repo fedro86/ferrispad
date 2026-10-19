@@ -1,7 +1,7 @@
 ---
 id: T0028
 title: Collapse tab_bar hover fields into a single hover: HitResult
-status: review
+status: done
 created: 2026-08-24
 severity: minor
 area: ui
