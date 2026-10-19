@@ -25,7 +25,7 @@ use std::rc::Rc;
 
 use crate::app::plugins::PluginManager;
 use crate::app::services::shortcut_registry::{ShortcutRegistry, normalize_shortcut};
-use crate::ui::menu::{BUILTIN_SHORTCUTS, is_valid_shortcut, plugin_command_id};
+use crate::ui::menu::{builtin_shortcut_defaults, is_valid_shortcut, plugin_command_id};
 
 use super::{DialogTheme, SCROLLBAR_SIZE};
 
@@ -93,13 +93,7 @@ pub fn show_shortcut_dialog(
     let scroll_w = DIALOG_WIDTH - PADDING * 2 - 10;
 
     // Dynamic row width: count visible rows to decide if scrollbar will appear
-    let builtin_count = BUILTIN_SHORTCUTS
-        .iter()
-        .filter(|&&(id, _)| {
-            tabs_enabled || !matches!(id, "File/Close Tab" | "File/Next Tab" | "File/Previous Tab")
-        })
-        .count()
-        + 1; // +1 for header
+    let builtin_count = builtin_shortcut_defaults(tabs_enabled).count() + 1; // +1 for header
     let builtin_total_h = builtin_count as i32 * (ROW_HEIGHT + 2); // 2 = pack spacing
     let row_w_builtin = if builtin_total_h > content_h - 10 {
         scroll_w - SCROLLBAR_SIZE
@@ -153,17 +147,7 @@ pub fn show_shortcut_dialog(
     }
 
     // Add built-in shortcut rows
-    for &(id, default) in BUILTIN_SHORTCUTS {
-        // Skip tab-only shortcuts when tabs disabled
-        if !tabs_enabled && matches!(id, "File/Close Tab" | "File/Next Tab" | "File/Previous Tab") {
-            continue;
-        }
-
-        let actual_default = if id == "File/New" && !tabs_enabled {
-            "Ctrl+N"
-        } else {
-            default
-        };
+    for (id, actual_default) in builtin_shortcut_defaults(tabs_enabled) {
         let effective = registry.effective_shortcut(id, actual_default);
 
         let row = create_shortcut_row(
