@@ -19,6 +19,7 @@ use fltk::{
     text::{StyleTableEntryExt, TextAttr, TextBuffer, TextDisplay, TextEditor},
 };
 
+use super::color::ThemeRgb;
 use super::dialogs::{DialogTheme, SCROLLBAR_SIZE};
 use crate::app::Message;
 use crate::app::plugins::widgets::{
@@ -1095,15 +1096,7 @@ impl SplitPanel {
         self.header.set_label_color(theme.text);
 
         // Labels row uses the diff tab tint color with dark text
-        let label_bg = if theme.is_dark() {
-            Color::from_rgb(
-                r.saturating_add(8),
-                g.saturating_add(4),
-                b.saturating_add(15),
-            )
-        } else {
-            Color::from_rgb(r.saturating_sub(2), g.saturating_sub(2), b)
-        };
+        let label_bg = super::theme::diff_tab_tint_from_bg(theme_bg, theme.is_dark());
         let label_text = if theme.is_dark() {
             Color::from_rgb(200, 200, 210)
         } else {
@@ -1122,16 +1115,16 @@ impl SplitPanel {
         self.right_editor.set_color(editor_bg);
         self.right_editor.set_text_color(theme.text);
 
-        let (ln_r, ln_g, ln_b) = if theme.is_dark() {
-            super::dialogs::darken(r, g, b, 0.80)
+        let editor_rgb = ThemeRgb::from_tuple(theme_bg);
+        let ln_bg = if theme.is_dark() {
+            editor_rgb.darken(0.80)
         } else {
-            super::dialogs::darken(r, g, b, 0.95)
-        };
-        self.left_display
-            .set_linenumber_bgcolor(Color::from_rgb(ln_r, ln_g, ln_b));
+            editor_rgb.darken(0.95)
+        }
+        .to_fltk();
+        self.left_display.set_linenumber_bgcolor(ln_bg);
         self.left_display.set_linenumber_fgcolor(theme.text_dim);
-        self.right_editor
-            .set_linenumber_bgcolor(Color::from_rgb(ln_r, ln_g, ln_b));
+        self.right_editor.set_linenumber_bgcolor(ln_bg);
         self.right_editor.set_linenumber_fgcolor(theme.text_dim);
 
         self.action_bar.set_color(theme.bg);
@@ -1214,17 +1207,8 @@ impl SplitPanel {
     /// Update header and action bar colors based on tab mode.
     /// In tab mode, uses the diff tab's tinted background; otherwise uses dialog theme bg.
     fn update_tab_mode_colors(&mut self) {
-        let (r, g, b) = self.theme_bg;
         if self.is_tab_mode {
-            let tinted = if self.is_dark {
-                Color::from_rgb(
-                    r.saturating_add(8),
-                    g.saturating_add(4),
-                    b.saturating_add(15),
-                )
-            } else {
-                Color::from_rgb(r.saturating_sub(2), g.saturating_sub(2), b)
-            };
+            let tinted = super::theme::diff_tab_tint_from_bg(self.theme_bg, self.is_dark);
             self.header.set_color(tinted);
             self.action_bar.set_color(tinted);
         } else {

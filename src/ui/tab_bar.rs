@@ -10,6 +10,8 @@ use fltk::{
     widget::Widget,
 };
 
+use super::color::ThemeRgb;
+use super::theme::diff_tab_tint_from_bg;
 use crate::app::{Document, DocumentId, GroupColor, GroupId, Message, TabGroup};
 
 pub const TAB_BAR_HEIGHT: i32 = 32;
@@ -114,64 +116,6 @@ enum DragTarget {
     OnTab(usize),              // center zone → will group
     InsertAt(usize),           // edge zone → will reorder (index = insertion point)
     OnCollapsedGroup(GroupId), // dropping onto a collapsed group chip → join that group
-}
-
-/// RGB color tuple for theme colors
-#[derive(Clone, Copy)]
-pub struct ThemeRgb {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-}
-
-impl ThemeRgb {
-    pub fn new(r: u8, g: u8, b: u8) -> Self {
-        Self { r, g, b }
-    }
-
-    pub fn from_tuple(rgb: (u8, u8, u8)) -> Self {
-        Self {
-            r: rgb.0,
-            g: rgb.1,
-            b: rgb.2,
-        }
-    }
-
-    /// Calculate brightness (0-255)
-    pub fn brightness(&self) -> u8 {
-        ((self.r as u32 + self.g as u32 + self.b as u32) / 3) as u8
-    }
-
-    /// Darken color by a factor (0.0 = black, 1.0 = unchanged)
-    pub fn darken(&self, factor: f32) -> Self {
-        Self {
-            r: (self.r as f32 * factor) as u8,
-            g: (self.g as f32 * factor) as u8,
-            b: (self.b as f32 * factor) as u8,
-        }
-    }
-
-    /// Lighten color towards white by a factor (0.0 = unchanged, 1.0 = white)
-    pub fn lighten(&self, factor: f32) -> Self {
-        Self {
-            r: self.r + ((255 - self.r) as f32 * factor) as u8,
-            g: self.g + ((255 - self.g) as f32 * factor) as u8,
-            b: self.b + ((255 - self.b) as f32 * factor) as u8,
-        }
-    }
-
-    /// Blend towards another color
-    pub fn blend(&self, other: &Self, factor: f32) -> Self {
-        Self {
-            r: (self.r as f32 + (other.r as f32 - self.r as f32) * factor) as u8,
-            g: (self.g as f32 + (other.g as f32 - self.g as f32) * factor) as u8,
-            b: (self.b as f32 + (other.b as f32 - self.b as f32) * factor) as u8,
-        }
-    }
-
-    pub fn to_fltk(self) -> Color {
-        Color::from_rgb(self.r, self.g, self.b)
-    }
 }
 
 struct TabBarState {
@@ -1215,19 +1159,7 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                     // Tab background with a subtle accent tint
                     if dt.is_active {
                         // Active: match editor background with slight tint
-                        let tinted = if st.is_dark {
-                            Color::from_rgb(
-                                st.theme_bg.r.saturating_add(8),
-                                st.theme_bg.g.saturating_add(4),
-                                st.theme_bg.b.saturating_add(15),
-                            )
-                        } else {
-                            Color::from_rgb(
-                                st.theme_bg.r.saturating_sub(2),
-                                st.theme_bg.g.saturating_sub(2),
-                                st.theme_bg.b,
-                            )
-                        };
+                        let tinted = diff_tab_tint_from_bg(st.theme_bg.to_tuple(), st.is_dark);
                         draw_rounded_top_rect(tx, wy + 2, tab_width, wh - 2, CORNER_RADIUS, tinted);
                     } else {
                         let inactive_h = wh - 4;
