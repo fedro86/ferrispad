@@ -1,7 +1,7 @@
 ---
 id: T0024
 title: Route message/alert dialogs through the themed helper + one modal loop
-status: review
+status: done
 created: 2026-08-24
 severity: minor
 area: ui
