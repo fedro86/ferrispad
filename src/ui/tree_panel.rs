@@ -19,7 +19,8 @@ use fltk::{
     tree::{Tree, TreeItem, TreeReason},
 };
 
-use super::dialogs::{DialogTheme, SCROLLBAR_SIZE, darken, lighten};
+use super::color::ThemeRgb;
+use super::dialogs::{DialogTheme, SCROLLBAR_SIZE};
 use super::scrollbar::style_scrollbars;
 use super::theme::divider_color_from_bg;
 use crate::app::Message;
@@ -1005,16 +1006,16 @@ impl TreePanel {
     pub fn apply_theme(&mut self, is_dark: bool, theme_bg: (u8, u8, u8)) {
         self.is_dark = is_dark;
         let theme = DialogTheme::from_theme_bg(theme_bg);
-        let (r, g, b) = theme_bg;
+        let editor = ThemeRgb::from_tuple(theme_bg);
 
         if let Some(ref mut div) = self.divider {
             div.set_color(divider_color_from_bg(theme_bg));
         }
 
         // Tree background matches the editor background
-        self.tree.set_color(Color::from_rgb(r, g, b));
+        self.tree.set_color(editor.to_fltk());
 
-        // Header uses the dialog/tab-bar background (darker/lighter than editor)
+        // Header uses the dialog background (a slightly muted editor background)
         self.header.set_color(theme.bg);
         self.header.set_label_color(theme.text);
         self.refresh_btn.set_color(theme.bg);
@@ -1027,12 +1028,11 @@ impl TreePanel {
 
         // Search input styling
         let search_bg = if theme.is_dark() {
-            let (sr, sg, sb) = lighten(r, g, b, 0.05);
-            Color::from_rgb(sr, sg, sb)
+            editor.lighten(0.05)
         } else {
-            let (sr, sg, sb) = darken(r, g, b, 0.95);
-            Color::from_rgb(sr, sg, sb)
-        };
+            editor.darken(0.95)
+        }
+        .to_fltk();
         self.search_input.set_color(search_bg);
         self.search_input.set_frame(FrameType::FlatBox);
         // Update text color: dim for placeholder, normal for active search
@@ -1043,12 +1043,11 @@ impl TreePanel {
         }
 
         let selection = if theme.is_dark() {
-            let (sr, sg, sb) = lighten(r, g, b, 0.10);
-            Color::from_rgb(sr, sg, sb)
+            editor.lighten(0.10)
         } else {
-            let (sr, sg, sb) = darken(r, g, b, 0.90);
-            Color::from_rgb(sr, sg, sb)
-        };
+            editor.darken(0.90)
+        }
+        .to_fltk();
         self.tree.set_selection_color(selection);
         self.tree.set_select_frame(FrameType::FlatBox);
 

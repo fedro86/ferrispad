@@ -1,3 +1,4 @@
+pub mod color;
 pub mod diagnostic_panel;
 pub mod dialogs;
 pub mod editor_container;
