@@ -829,6 +829,45 @@ mod tests {
         assert_eq!(result, Some((4, 5)));
     }
 
+    // Regex search folds case for ASCII letters only (T0049). The `regex`
+    // crate would fold `é`/`É` too, but grows the release binary by ~1.4 MB,
+    // so the Find dialog says "case folding: ASCII only" instead. These tests
+    // pin that documented behaviour: if the engine changes, the hint in
+    // `ui/dialogs/find.rs` must change with it.
+
+    #[test]
+    fn regex_case_insensitive_is_ascii_only() {
+        // `é` and `É` do not fold onto each other...
+        assert_eq!(find_in_text_regex("CAFÉ", "café", 0, false).unwrap(), None);
+        // ...while the ASCII letters around them do. `É` is 2 bytes.
+        assert_eq!(
+            find_in_text_regex("CAFÉ", "cafÉ", 0, false).unwrap(),
+            Some((0, 5))
+        );
+    }
+
+    #[test]
+    fn regex_case_insensitive_is_ascii_only_backward_and_replace() {
+        let text = "café CAFÉ";
+        let back = find_in_text_regex_backward(text, "CAFé", text.len(), false).unwrap();
+        assert_eq!(back, Some((0, 5)));
+        let (out, count) = replace_all_in_text_regex(text, "Café", "tea", false).unwrap();
+        assert_eq!((out.as_str(), count), ("tea CAFÉ", 1));
+    }
+
+    #[test]
+    fn regex_case_sensitive_distinguishes_non_ascii() {
+        let result = find_in_text_regex("CAFÉ", "café", 0, true).unwrap();
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn regex_word_class_is_ascii_only() {
+        // `\w` is `[0-9A-Za-z_]`, consistent with ASCII-only case folding.
+        let result = find_in_text_regex("CAFÉ!", r"\w+", 0, true).unwrap();
+        assert_eq!(result, Some((0, 3)));
+    }
+
     // replace_at_position_regex — anchor-aware "replace current selection"
 
     #[test]
