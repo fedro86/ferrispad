@@ -22,7 +22,7 @@ use std::fs::File;
 use std::path::Path;
 use std::rc::Rc;
 
-use super::{DialogTheme, SCROLLBAR_SIZE, darken, lighten};
+use super::{DialogTheme, SCROLLBAR_SIZE};
 use crate::app::services::file_size::format_size;
 use crate::ui::scrollbar::style_scrollbars;
 
@@ -542,23 +542,8 @@ pub fn show_readonly_viewer(
     spacer_right.set_color(theme.bg);
 
     let mut close_btn = Button::default().with_label("Close");
-    let (r, g, b) = theme_bg;
-    let brightness = (r as u32 + g as u32 + b as u32) / 3;
-    let is_dark = brightness < 128;
-    let (bg_r, bg_g, bg_b) = if is_dark {
-        darken(r, g, b, 0.65)
-    } else {
-        darken(r, g, b, 0.85)
-    };
-    let close_bg = if is_dark {
-        let (cr, cg, cb) = lighten(bg_r, bg_g, bg_b, 0.10);
-        fltk::enums::Color::from_rgb(cr, cg, cb)
-    } else {
-        let (cr, cg, cb) = darken(bg_r, bg_g, bg_b, 0.90);
-        fltk::enums::Color::from_rgb(cr, cg, cb)
-    };
     close_btn.set_frame(FrameType::RFlatBox);
-    close_btn.set_color(close_bg);
+    close_btn.set_color(theme.secondary_button_bg);
     close_btn.set_label_color(theme.text_dim);
     btn_row.fixed(&close_btn, 100);
 
