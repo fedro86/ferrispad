@@ -31,7 +31,10 @@ impl Default for Cell {
     }
 }
 
-/// Terminal screen buffer
+/// Terminal screen buffer.
+///
+/// Invariant: `rows >= 1 && cols >= 1`. `new` and `resize` clamp a zero
+/// dimension to 1, so methods may assume row 0 and column 0 exist.
 pub struct TerminalGrid {
     /// Visible grid: rows × cols
     pub cells: Vec<Vec<Cell>>,
@@ -67,8 +70,9 @@ pub struct TerminalGrid {
 }
 
 impl TerminalGrid {
-    /// Create a new terminal grid with the given dimensions
+    /// Create a new terminal grid with the given dimensions (each at least 1).
     pub fn new(cols: usize, rows: usize) -> Self {
+        let (cols, rows) = (cols.max(1), rows.max(1));
         let cells = vec![vec![Cell::default(); cols]; rows];
         Self {
             cells,
@@ -345,6 +349,7 @@ impl TerminalGrid {
 
     /// Resize the grid to new dimensions
     pub fn resize(&mut self, new_cols: usize, new_rows: usize) {
+        let (new_cols, new_rows) = (new_cols.max(1), new_rows.max(1));
         // Adjust rows
         while self.cells.len() < new_rows {
             self.cells.push(vec![Cell::default(); new_cols]);
@@ -540,10 +545,10 @@ mod tests {
 
     // --- T0032: grid row/col math must not underflow on a degenerate size ---
 
-    // `newline` compared the cursor against a raw `rows - 1`: on a 0-row grid
-    // that is `attempt to subtract with overflow` in debug. The cursor sits off
-    // `scroll_bottom` so the non-scrolling branch (where the subtraction lived)
-    // is the one taken.
+    // `newline` compared the cursor against a raw `rows - 1`, which
+    // underflowed on a 0-row grid. Since T0045 such a grid cannot exist
+    // (`new` clamps to 1x1); a cursor pushed past the last row must still
+    // leave `newline` a no-op rather than panic.
     #[test]
     fn newline_on_zero_row_grid_does_not_underflow() {
         let mut grid = TerminalGrid::new(0, 0);
@@ -552,13 +557,16 @@ mod tests {
         assert_eq!(grid.cursor_row, 1);
     }
 
-    // `clear_line_to_cursor` bounded its loop with a raw `cols - 1`: on a 0-col
-    // grid that underflow-panics in debug. It must be a no-op instead.
+    // `clear_line_to_cursor` bounded its loop with a raw `cols - 1`, which
+    // underflowed on a 0-col grid. Since T0045 the grid is clamped to one
+    // column; clearing must work on it and not panic.
     #[test]
     fn clear_line_to_cursor_on_zero_col_grid_does_not_underflow() {
         let mut grid = TerminalGrid::new(0, 1);
+        assert_eq!(grid.cols, 1);
+        grid.put_char('x');
         grid.clear_line_to_cursor();
-        assert!(grid.cells[0].is_empty());
+        assert_eq!(grid.cells[0][0].ch, ' ');
     }
 
     // Pins the normal behaviour across the T0032 change: columns 0..=cursor are
@@ -573,5 +581,27 @@ mod tests {
         grid.clear_line_to_cursor();
         let line: String = grid.cells[0].iter().map(|c| c.ch).collect();
         assert_eq!(line, "   DE");
+    }
+
+    // --- T0045: a grid is never smaller than 1x1 ---
+
+    // A fresh 0x0 grid starts with `cursor_row == scroll_bottom == 0`, so the
+    // first `newline()` scrolls and `scroll_up` indexes `cells[0]` on an empty
+    // Vec: index out of bounds. `new` must clamp the size instead.
+    #[test]
+    fn newline_on_fresh_zero_size_grid_does_not_panic() {
+        let mut grid = TerminalGrid::new(0, 0);
+        grid.newline();
+        assert_eq!((grid.cols, grid.rows), (1, 1));
+    }
+
+    // Same invariant through `resize`.
+    #[test]
+    fn resize_to_zero_clamps_to_one() {
+        let mut grid = TerminalGrid::new(80, 24);
+        grid.resize(0, 0);
+        grid.put_char('x');
+        grid.newline();
+        assert_eq!((grid.cols, grid.rows), (1, 1));
     }
 }
