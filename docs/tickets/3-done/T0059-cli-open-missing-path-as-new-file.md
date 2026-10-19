@@ -1,7 +1,7 @@
 ---
 id: T0059
 title: Opening a missing path from the command line starts a new file with that name
-status: review
+status: done
 created: 2026-10-19
 severity: moderate
 area: ui
