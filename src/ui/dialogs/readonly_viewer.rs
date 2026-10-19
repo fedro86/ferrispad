@@ -398,6 +398,8 @@ pub fn show_readonly_viewer(
     let theme = DialogTheme::from_theme_bg(theme_bg);
 
     let title = format!("{} (Read-Only Viewer)", filename);
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut window = Window::new(100, 100, 900, 700, None);
     window.set_label(&title);
     window.make_modal(true);
@@ -566,6 +568,7 @@ pub fn show_readonly_viewer(
 
     main_flex.end();
     window.end();
+    drop(top_level);
     window.show();
     theme.apply_titlebar(&window);
 

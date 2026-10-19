@@ -94,6 +94,8 @@ pub fn show_update_available_dialog(
     // first invocation maps the surface before the decoration + modal-hint round-trip
     // completes, yielding an undecorated, ungrabbed window with no input (and the
     // parent window also stops receiving input). See session_picker.rs for the same fix.
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut dialog = Window::default()
         .with_size(DW, DH)
         .with_label("Update Available")
@@ -201,6 +203,7 @@ pub fn show_update_available_dialog(
 
     flex.end();
     dialog.end();
+    drop(top_level);
 
     // Install Now button
     if direct_asset.is_some() {

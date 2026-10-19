@@ -71,6 +71,8 @@ pub fn show_permission_dialog(
         + BUTTON_HEIGHT
         + MARGIN;
 
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut dialog = Window::default()
         .with_size(DIALOG_WIDTH, dialog_height.max(200))
         .with_label("Plugin Permission Request")
@@ -163,6 +165,7 @@ pub fn show_permission_dialog(
     allow_btn.set_label_color(theme.text);
 
     dialog.end();
+    drop(top_level);
     dialog.show();
     theme.apply_titlebar(&dialog);
 

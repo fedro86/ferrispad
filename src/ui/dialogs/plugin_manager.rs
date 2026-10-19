@@ -188,6 +188,8 @@ pub fn show_plugin_manager_dialog(
 ) -> PluginManagerResult {
     let theme = DialogTheme::from_theme_bg(theme_bg);
 
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut dialog = Window::default()
         .with_size(DIALOG_WIDTH, DIALOG_HEIGHT)
         .with_label("Plugin Manager")
@@ -820,6 +822,7 @@ pub fn show_plugin_manager_dialog(
     close_btn.set_label_color(theme.text);
 
     dialog.end();
+    drop(top_level);
 
     // Set up callbacks
     let result_reload = result.clone();

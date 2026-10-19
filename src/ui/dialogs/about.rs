@@ -17,6 +17,8 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
     // Use original editor background for dialog (not derived/darkened)
     let dialog_bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
 
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut dialog = Window::default()
         .with_size(450, 400)
         .with_label("About FerrisPad")
@@ -106,6 +108,7 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
 
     flex.end();
     dialog.end();
+    drop(top_level);
 
     let mut dialog_close = dialog.clone();
     close_btn.set_callback(move |_| {

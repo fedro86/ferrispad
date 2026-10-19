@@ -351,7 +351,7 @@ fn main() {
                 .unwrap_or_else(|_| path.clone())
         };
         let delay = 0.01 + (file_count as f64 * 0.01);
-        defer_send(sender, delay, Message::DeferredOpenFile(resolved));
+        defer_send(sender, delay, Message::DeferredOpenCliFile(resolved));
         file_count += 1;
     }
 
@@ -642,6 +642,7 @@ fn main() {
                 | Message::DeferredTreeRefresh { .. }
                 | Message::DeferredSessionRestore
                 | Message::DeferredOpenFile(_)
+                | Message::DeferredOpenCliFile(_)
                 | Message::DeferredGotoLine(_) => {
                     dispatch::handle_deferred(msg, &mut state, &mut lw, tabs_enabled);
                     dispatch::DispatchResult::Continue

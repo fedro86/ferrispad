@@ -46,6 +46,8 @@ pub fn show_session_picker(
     // first invocation maps the surface before the decoration + modal-hint round-trip
     // completes, yielding an undecorated, ungrabbed window with no input.
     // Modality is enforced manually below by deactivating the parent while the dialog runs.
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut dialog_win = Window::default()
         .with_size(DW, DH)
         .with_label("Sessions")
@@ -137,6 +139,7 @@ pub fn show_session_picker(
     status.set_label_color(theme.error_color());
 
     dialog_win.end();
+    drop(top_level);
     dialog_win.make_resizable(false);
     dialog_win.show();
     theme.apply_titlebar(&dialog_win);
@@ -288,6 +291,8 @@ pub fn show_new_session_dialog(parent: &Window, theme_bg: (u8, u8, u8)) -> Optio
     const DW: i32 = 300;
     const DH: i32 = 120;
     // Regular xdg_toplevel (not modal) — see show_session_picker for rationale.
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut dialog_win = Window::default()
         .with_size(DW, DH)
         .with_label("New Session")
@@ -326,6 +331,7 @@ pub fn show_new_session_dialog(parent: &Window, theme_bg: (u8, u8, u8)) -> Optio
     cancel_btn.set_label_color(theme.text);
 
     dialog_win.end();
+    drop(top_level);
     dialog_win.make_resizable(false);
     dialog_win.show();
     theme.apply_titlebar(&dialog_win);

@@ -225,6 +225,8 @@ fn regex_case_folding_hint(x: i32, y: i32, theme: &DialogTheme) -> Frame {
 pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: (u8, u8, u8)) {
     let theme = DialogTheme::from_theme_bg(theme_bg);
 
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut dialog_win = Window::default()
         .with_size(400, 245)
         .with_label("Find & Replace")
@@ -300,6 +302,7 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
     close_btn.set_label_color(theme.text);
 
     dialog_win.end();
+    drop(top_level);
     dialog_win.make_resizable(false);
     dialog_win.show();
     theme.apply_titlebar(&dialog_win);
@@ -503,6 +506,8 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
 pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: (u8, u8, u8)) {
     let theme = DialogTheme::from_theme_bg(theme_bg);
 
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut dialog_win = Window::default()
         .with_size(400, 175)
         .with_label("Find")
@@ -556,6 +561,7 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: 
     close_btn.set_label_color(theme.text);
 
     dialog_win.end();
+    drop(top_level);
     dialog_win.make_resizable(false);
     dialog_win.show();
     theme.apply_titlebar(&dialog_win);

@@ -153,6 +153,8 @@ pub fn show_plugin_config_dialog(
     let dialog_height = MIN_DIALOG_HEIGHT
         .max(60 + (content_rows as i32 * (ROW_HEIGHT + SPACING)) + ERROR_ROW_HEIGHT + 50);
 
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut dialog = window::Window::default()
         .with_size(DIALOG_WIDTH, dialog_height)
         .with_label(&format!("{} Settings", plugin_name));
@@ -318,6 +320,7 @@ pub fn show_plugin_config_dialog(
     cancel_btn.set_label_color(text_color);
 
     dialog.end();
+    drop(top_level);
 
     // Callbacks
     let param_widgets_save = param_widgets.clone();
