@@ -1,7 +1,7 @@
 ---
 id: T0035
 title: Enforce registry download size limits before buffering and on official install
-status: review
+status: done
 created: 2026-08-24
 severity: minor
 area: robustness
