@@ -136,7 +136,7 @@ exit 2 and `FAILED in .../worktrees/agent-a2a4fbe61619a7b72`, with the
 `/tmp/ferrispad-precommit-gates-agent-a2a4fbe61619a7b72-<cksum>.log`. The file
 was then restored.
 
-### Not done: `.claude/settings.json` `if` filter (needs the user)
+### `.claude/settings.json` `if` filter — applied by the user (2026-10-19)
 
 The hook is wired with `"if": "Bash(git commit*)"`. That is a permission-rule
 prefix match, so Claude Code **never starts the hook** for
@@ -190,14 +190,14 @@ process change):
 
 - [x] Cases 1–4 behave as expected; 1 and 2 fail on today's script.
 - [x] Rust gates unaffected.
-- [ ] `git -C <dir> commit` gated end to end: needs the `settings.json` `if`
-      change above (user decision).
+- [x] `git -C <dir> commit` gated end to end: the user applied the `settings.json` `if`
+      change below by hand on 2026-10-19; this branch carries their exact diff.
 
 ## Affected files
 
 - `.claude/hooks/pre-commit-gates.sh`
 - `.claude/hooks/test-pre-commit-gates.sh` (new)
-- `.claude/settings.json` (proposed one-line change, not applied, see above)
+- `.claude/settings.json`: `"if": "Bash(git commit*)"` → `"Bash(git *)"` (made by the user)
 
 ## Notes
 
