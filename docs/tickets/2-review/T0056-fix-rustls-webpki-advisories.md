@@ -47,41 +47,77 @@ build (T0047).
   plugin runtime API.
 - Any change to what gets downloaded, or when.
 
+## Decision: ureq 3 + rustls on ring (option 2)
+
+Option 1 was implemented first (commit `1f284a3` on this branch). It worked:
+`minreq 3.0.0` resolves to `rustls 0.23.46` and `rustls-webpki 0.103.15` with no
+code change. But minreq turns on rustls's default features, so the crypto
+provider becomes **aws-lc-rs** (a C library built with `cc`, plus
+NASM/prebuilt-NASM on Windows), and FerrisPad cannot choose `ring` instead.
+The release binary grew by **+2,853,592 bytes (+23.2 %)**.
+
+**The user chose option 2:** `ureq 3.4` with `default-features = false,
+features = ["rustls"]`. That is rustls 0.23 on the **`ring`** provider with the
+bundled webpki roots, and no gzip, no aws-lc, no OpenSSL/native-tls, no platform
+verifier. It costs **+1,096,592 bytes (+8.9 %)**, and it reuses `ring 0.17.14`,
+which master already compiled (via rustls 0.21) on every CI platform, so the
+release jobs need no new toolchain.
+
 ## What was done
 
-Option 1 worked: **`minreq` 2.14.1 → 3.0.0** (published 2026-06-15). With the
-same features (`json-using-serde`, `https-rustls`) it depends on `rustls ^0.23.35`,
-`rustls-webpki ^0.103.8` and `webpki-roots ^1`. The resolved lock is
-`rustls 0.23.46`, `rustls-webpki 0.103.15`, `webpki-roots 1.0.9`. No client swap.
+- `Cargo.toml`: `minreq = { version = "2", features = ["json-using-serde",
+  "https-rustls"] }` → `ureq = { version = "3.4", default-features = false,
+  features = ["rustls"] }`. Resolved: `ureq 3.4.2`, `ureq-proto 0.6.5`,
+  `rustls 0.23.46`, `rustls-webpki 0.103.15`, `webpki-roots 1.0.9`, `ring 0.17.14`
+  (unchanged). New small crates: `http`, `httparse`, `bytes`, `base64 0.23`,
+  `percent-encoding`, `utf8-zero`, `rustls-pki-types`. Gone: `minreq`, `sct`,
+  `webpki-roots 0.25`.
+- New `src/app/services/http.rs`: one shared `http::get(url, timeout_secs)`.
+  It sets `https_only(true)`, `http_status_as_error(false)` (callers keep their
+  own status → message mapping, including the 403/429 rate-limit message),
+  a whole-request `timeout_global`, and the `User-Agent: FerrisPad` header. A
+  `#[cfg(test)]` `get_allow_http` exists only for the loopback servers in the
+  T0035 tests.
+- `plugin_registry.rs`: every request goes through `http::get` with the same
+  timeouts (10 s registry/API, 30 s plugin files). In `fetch_limited`, the T0035 cap
+  is unchanged in shape: `response.into_body().into_reader()` (ureq's
+  unlimited reader, see below) wrapped in `Read::take(max_bytes + 1)`, then the
+  same `> max_bytes` check. The head is capped with
+  `max_response_header_size(64 KiB)`. In ureq that limit covers the status line plus
+  all headers, which replaces minreq's separate 1 KiB status-line and 64 KiB
+  header limits.
+- `updater.rs`: release JSON and the `.sig` are read with `read_to_vec` /
+  `read_to_string` (ureq's 10 MB default body limit) and parsed with
+  `serde_json`. The binary download sets an explicit
+  `.with_config().limit(MAX_BINARY_BYTES)` (256 MiB), because the 0.9.5 Linux
+  binary is 12,370,120 bytes, above the 10 MB default. Timeouts unchanged
+  (10 s / 10 s / 120 s). The ed25519 signature check and the
+  "write to disk only after verification" order are untouched.
+- The port came from a measurement spike. I ported it by hand and checked it
+  against the ureq 3.4.2 source:
+  - `Body::into_reader` is documented as "not limited by default", so the only
+    limit is our `take`.
+  - `https_only` is checked in `call_run` on every redirect hop.
+  - The `rustls` feature = `rustls-no-provider` + `_ring` + `rustls-webpki-roots`.
+  - `max_response_header_size` covers "the status, including all headers".
+  - Defaults are `max_redirects: 10`, `max_redirects_will_error: true` and
+    `proxy: Proxy::try_from_env()`.
+  The regenerated `Cargo.lock` has exactly the same package set as the spike's.
 
-- `Cargo.toml`: `minreq = { version = "3", ... }`. `Cargo.lock` updated with
-  `cargo update -p minreq` only.
-- No call site had to change. The minreq 3 API changes that touch FerrisPad are
-  all source-compatible here: `status_code` is now `u16` (comparisons against
-  literals still compile), `ResponseLazy` drops its `Iterator` impl but keeps
-  `Read` (T0035's cap already uses `Read::take`), and `with_timeout`,
-  `with_max_headers_size`, `with_max_status_line_length`, `send_lazy`, `json`,
-  `as_str` and `as_bytes` are unchanged. The one edit in
-  `plugin_registry.rs` is a stale comment ("both an `Iterator` and a `Read`").
-- Security properties are unchanged: the T0035 streaming cap (and the explicit
-  status-line/header limits), every timeout (10 s / 30 s / 60 s / 120 s), the
-  hard-coded `https://` URLs, webpki-roots as the trust store (no platform
-  verifier, no native-tls/OpenSSL) and the updater's ed25519 signature check.
+### Behaviour differences against minreq (all intentional or harmless)
 
-### Side effects in the lock
-
-- rustls 0.23's default crypto provider is **aws-lc-rs** (`aws-lc-rs 1.18.2`,
-  `aws-lc-sys 0.46.0`, a statically linked C library built with `cc`), in place of
-  `ring`, which is no longer compiled in. minreq turns on rustls's default
-  features, so FerrisPad cannot pick `ring` instead without a client swap (or a
-  process-wide `CryptoProvider` install, which is a code change).
-- Build-only crates pulled along: `cc 1.2.38 → 1.9.0`, `find-msvc-tools
-  0.1.2 → 0.1.15`, `shlex 1.3.0 → 2.0.1`, plus new `jobserver`, `dunce`,
-  `fs_extra`. `sct` and `webpki-roots 0.25` are gone; `rustls-pki-types` is new.
-- Windows: aws-lc-sys needs NASM for x86-64, but rustls enables
-  `aws-lc-rs/prebuilt-nasm`, so the `windows-latest` release job uses the
-  prebuilt objects when NASM isn't installed. This was **not** built on Windows or
-  macOS locally. The first tag build (or a manual `release.yml` dry run) confirms it.
+- **https-only is now enforced by the client:** an `http://` URL, and any
+  `https → http` redirect, is refused (`RequireHttpsOnly`). Before, only the
+  hard-coded `https://` URLs gave TLS, and a redirect to plain HTTP was followed.
+- **At most 10 redirects** (minreq allowed 100). GitHub asset downloads need 1.
+- **Proxy environment variables are honoured** (`ALL_PROXY` / `HTTPS_PROXY` /
+  `HTTP_PROXY` / `NO_PROXY`, via `Proxy::try_from_env`). minreq ignored them.
+  TLS still runs end to end to the real host and is verified against webpki-roots.
+- **Updater JSON and `.sig` reads are capped at 10 MB** (ureq default). They had
+  no cap before. The binary is capped at 256 MiB.
+- **Inner error wording changes**, e.g. `Failed to connect to update server:
+  <ureq error>`. The FerrisPad-level prefixes and the rate-limit / HTTP-status
+  messages are the same.
 
 ### Evidence (dependency advisory, so the "red" run is the lock itself)
 
@@ -101,10 +137,20 @@ After:
 ```
 $ nix develop -c cargo tree -i rustls-webpki
 rustls-webpki v0.103.15
-├── minreq v3.0.0
-│   └── FerrisPad v0.9.5
 └── rustls v0.23.46
-    └── minreq v3.0.0 (*)
+    └── ureq v3.4.2
+        └── FerrisPad v0.9.5
+
+$ nix develop -c cargo tree -i aws-lc-sys
+error: package ID specification `aws-lc-sys` did not match any packages
+
+$ nix develop -c cargo tree -i ring -e normal
+ring v0.17.14
+├── rustls v0.23.46
+│   └── ureq v3.4.2
+│       └── FerrisPad v0.9.5
+└── rustls-webpki v0.103.15
+    └── rustls v0.23.46 (*)
 ```
 
 `nix run nixpkgs#cargo-audit -- audit` (cargo-audit 0.22.2, 1338 advisories):
@@ -121,38 +167,39 @@ unsafe-libyaml, yaml-rust, anyhow, memmap2) are the same before and after.
 
 ### Release-binary size (`nix develop -c cargo build --release`, Linux x86-64)
 
-| | `stat -c %s target/release/FerrisPad` |
-|---|---|
-| Before (minreq 2.14.1, rustls 0.21 + ring) | 12,292,144 bytes |
-| After (minreq 3.0.0, rustls 0.23 + aws-lc-rs) | 15,145,736 bytes |
-| Delta | **+2,853,592 bytes (+23.2 %)** |
-
-Nearly all of it is aws-lc. This is the price of option 1. If it is too much,
-the alternative is option 2 (a client that builds rustls with `ring`, e.g. `ureq`)
-in a follow-up ticket.
+| | `stat -c %s target/release/FerrisPad` | Delta vs master |
+|---|---|---|
+| master (minreq 2.14.1, rustls 0.21 + ring) | 12,292,144 bytes | — |
+| minreq 3.0.0 (rustls 0.23 + aws-lc-rs), rejected | 15,145,736 bytes | +2,853,592 (+23.2 %) |
+| **ureq 3.4.2 (rustls 0.23 + ring), chosen** | **13,388,736 bytes** | **+1,096,592 (+8.9 %)** |
 
 ### Tests run
 
+- Gates: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D
+  warnings` and the full `cargo test` all green (lib: 469 passed, 1 ignored;
+  every integration-test binary green).
 - `cargo test --lib plugin_registry::tests`: 19 passed, 1 ignored, including
   `oversized_download_aborts_mid_stream` and `download_within_limit_is_returned`
-  (T0035 cap guard).
+  (T0035 cap guard, now through ureq's reader).
 - `cargo test --lib updater`: 11 passed.
-- Network (reachable): `cargo test --lib plugin_registry -- --ignored` →
-  `fetch_limited_reads_real_registry_and_plugin_files ... ok` (real HTTPS
-  through the streaming path, no cache). `cargo test --test plugin_registry_fetch
-  -- --ignored` → `test_fetch_official_registry ... ok`,
-  `test_fetch_community_registry ... ok`.
+- Network (reachable):
+  - `cargo test --lib plugin_registry -- --ignored` →
+    `fetch_limited_reads_real_registry_and_plugin_files ... ok` (real HTTPS
+    through the streaming path, no disk cache).
+  - `cargo test --test plugin_registry_fetch -- --ignored` →
+    `test_fetch_official_registry ... ok`, `test_fetch_community_registry ... ok`.
+    These two go through the 1-hour disk cache, so they may not touch the network.
 - One-off updater check (a scratch integration test, not committed): the real
-  `fetch_latest_release` + `download_and_verify` against GitHub fetched 0.9.5,
-  followed the asset redirect, downloaded 12,370,120 bytes, fetched the `.sig` and
-  reported "Signature verified successfully".
-- Gates: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D
-  warnings` and `cargo test` all green.
+  `fetch_latest_release` on both the Beta and Stable channels returned 0.9.5.
+  `download_and_verify` followed GitHub's asset redirect, downloaded
+  12,370,120 bytes (above ureq's 10 MB default, so the explicit limit is what
+  makes it pass), fetched the `.sig` and reported "Signature verified successfully".
 
 ## How to test
 
 ```bash
 nix develop -c cargo tree -i rustls-webpki    # every version >= 0.103.13
+nix develop -c cargo tree -i aws-lc-sys       # no match: ring is the only provider
 nix develop -c cargo test --lib plugin_registry::tests
 nix develop -c cargo test --lib updater
 nix develop -c cargo test --lib plugin_registry -- --ignored      # real network
@@ -181,15 +228,17 @@ nix run nixpkgs#cargo-audit -- audit         # only the 2 quick-xml advisories r
 
 - [x] `cargo tree -i rustls-webpki` shows no version below 0.103.13 (0.103.15).
 - [x] Size cap, timeouts and signature checks unchanged, and their tests green.
-- [x] Binary size delta recorded (+2,853,592 bytes, +23.2 %).
+- [x] Binary size delta recorded (+1,096,592 bytes, +8.9 %).
 - [x] Gates green.
 
 ## Affected files
 
 - `Cargo.toml`, `Cargo.lock`
-- `src/app/services/plugin_registry.rs` (one stale comment). `updater.rs` was
-  not changed: the minreq 3 API is source-compatible with every call.
+- `src/app/services/http.rs` (new), `src/app/services/mod.rs`
+- `src/app/services/updater.rs`, `src/app/services/plugin_registry.rs`
 
 ## Notes
 
 - Origin: Dependabot alerts #1–#3, planned for 0.9.6 since 2026-08-24.
+- Windows/macOS release builds were not run locally. `ring` was already built
+  there for rustls 0.21, so no new toolchain requirement is expected.

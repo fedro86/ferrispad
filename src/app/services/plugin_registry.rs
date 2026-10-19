@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::infrastructure::error::AppError;
 use crate::app::plugins::get_plugin_dir;
+use crate::app::services::http;
 use crate::app::services::plugin_verify::{VerificationStatus, verify_checksum, verify_plugin};
 
 /// URL to the official plugin registry
@@ -243,9 +244,7 @@ fn today_date_string() -> String {
 
 /// Fetch the official plugin registry from GitHub
 fn fetch_plugin_registry() -> Result<PluginRegistry, AppError> {
-    let request = minreq::get(REGISTRY_URL)
-        .with_header("User-Agent", "FerrisPad")
-        .with_timeout(10);
+    let request = http::get(REGISTRY_URL, 10);
     let data = fetch_limited(request, REGISTRY_URL, MAX_REGISTRY_BYTES, "plugin registry")?;
     serde_json::from_slice(&data)
         .map_err(|e| AppError::Network(format!("Invalid JSON in registry: {}", e)))
@@ -253,9 +252,7 @@ fn fetch_plugin_registry() -> Result<PluginRegistry, AppError> {
 
 /// Fetch the community plugin registry from GitHub
 fn fetch_community_registry() -> Result<CommunityRegistry, AppError> {
-    let request = minreq::get(COMMUNITY_REGISTRY_URL)
-        .with_header("User-Agent", "FerrisPad")
-        .with_timeout(10);
+    let request = http::get(COMMUNITY_REGISTRY_URL, 10);
     let data = fetch_limited(
         request,
         COMMUNITY_REGISTRY_URL,
@@ -380,39 +377,45 @@ const MAX_HEADERS_BYTES: usize = 64 * 1024;
 /// so an oversized or endless response never gets buffered in full. Every
 /// download in this module goes through here, so none is unbounded.
 fn fetch_limited(
-    request: minreq::Request,
+    request: ureq::RequestBuilder<ureq::typestate::WithoutBody>,
     url: &str,
     max_bytes: usize,
     file_name: &str,
 ) -> Result<Vec<u8>, AppError> {
     use std::io::Read;
 
-    // Bound the response head too: minreq reads headers without a limit by
-    // default, so a hostile server could stream them forever.
+    // Bound the response head too, so a hostile server cannot stream
+    // headers forever.
     let response = request
-        .with_max_status_line_length(Some(1024))
-        .with_max_headers_size(Some(MAX_HEADERS_BYTES))
-        .send_lazy()
+        .config()
+        .max_response_header_size(MAX_HEADERS_BYTES)
+        .build()
+        .call()
         .map_err(|e| AppError::Network(format!("Download failed: {}", e)))?;
 
-    if response.status_code == 403 || response.status_code == 429 {
+    let status = response.status().as_u16();
+    if status == 403 || status == 429 {
         return Err(AppError::Network(
             "GitHub rate limit reached. Try again in a few minutes.".to_string(),
         ));
     }
 
-    if response.status_code != 200 {
+    if status != 200 {
         return Err(AppError::Network(format!(
             "HTTP {} downloading {}",
-            response.status_code, url
+            status, url
         )));
     }
 
     let mut data = Vec::new();
-    // `ResponseLazy` implements `Read`; the byte cap is `Read::take`.
-    Read::take(response, (max_bytes as u64).saturating_add(1))
-        .read_to_end(&mut data)
-        .map_err(|e| AppError::Network(format!("Download failed: {}", e)))?;
+    // `into_reader` streams the body without ureq's own limit; the byte cap is
+    // `Read::take`, one byte past `max_bytes` so an oversized body is detected.
+    Read::take(
+        response.into_body().into_reader(),
+        (max_bytes as u64).saturating_add(1),
+    )
+    .read_to_end(&mut data)
+    .map_err(|e| AppError::Network(format!("Download failed: {}", e)))?;
     if data.len() > max_bytes {
         return Err(AppError::Network(format!(
             "{} exceeds size limit (more than {} bytes)",
@@ -424,9 +427,7 @@ fn fetch_limited(
 
 /// Download a plugin file (30 s timeout) as UTF-8 text, capped at `max_bytes`.
 fn fetch_text(url: &str, max_bytes: usize, file_name: &str) -> Result<String, AppError> {
-    let request = minreq::get(url)
-        .with_header("User-Agent", "FerrisPad")
-        .with_timeout(30);
+    let request = http::get(url, 30);
     let data = fetch_limited(request, url, max_bytes, file_name)?;
     String::from_utf8(data)
         .map_err(|e| AppError::Network(format!("{} is not valid UTF-8: {}", file_name, e)))
@@ -473,10 +474,7 @@ pub fn fetch_default_branch(repo_url: &str) -> String {
         return "main".to_string();
     };
     let api_url = format!("https://api.github.com/repos/{}/{}", owner, repo);
-    let request = minreq::get(&api_url)
-        .with_header("User-Agent", "FerrisPad")
-        .with_header("Accept", "application/vnd.github.v3+json")
-        .with_timeout(10);
+    let request = http::get(&api_url, 10).header("Accept", "application/vnd.github.v3+json");
     match fetch_limited(request, &api_url, MAX_REPO_API_BYTES, "repository metadata") {
         Ok(data) => {
             let body = std::str::from_utf8(&data).unwrap_or("");
@@ -864,7 +862,7 @@ mod tests {
     fn fetch_within(url: String, max_bytes: usize, secs: u64) -> Option<Result<Vec<u8>, AppError>> {
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let request = minreq::get(&url).with_timeout(60);
+            let request = http::get_allow_http(&url, 60);
             let _ = tx.send(fetch_limited(request, &url, max_bytes, "init.lua"));
         });
         rx.recv_timeout(std::time::Duration::from_secs(secs)).ok()
@@ -902,9 +900,7 @@ mod tests {
     #[test]
     #[ignore] // requires network access — run with: cargo test --lib plugin_registry -- --ignored
     fn fetch_limited_reads_real_registry_and_plugin_files() {
-        let request = minreq::get(REGISTRY_URL)
-            .with_header("User-Agent", "FerrisPad")
-            .with_timeout(10);
+        let request = http::get(REGISTRY_URL, 10);
         let data = fetch_limited(request, REGISTRY_URL, MAX_REGISTRY_BYTES, "plugin registry")
             .expect("registry download");
         let registry: PluginRegistry = serde_json::from_slice(&data).expect("registry JSON");
