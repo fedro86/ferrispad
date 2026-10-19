@@ -393,12 +393,21 @@ impl DialogTheme {
 /// Run a dialog's event loop, automatically closing the dialog if the app
 /// is quitting (e.g. user clicks X on the main window while a dialog is open).
 pub fn run_dialog(dialog: &Window) {
+    run_dialog_with(dialog, || {});
+}
+
+/// [`run_dialog`], calling `after_event` after every event the loop handles.
+/// A modal dialog blocks the main loop, so a `Message` it sends waits in the
+/// channel until it closes: this hook is how a dialog applies live work (e.g.
+/// a theme preview) to the caller's state while it is still open.
+pub fn run_dialog_with(dialog: &Window, mut after_event: impl FnMut()) {
     while dialog.shown() {
         app::wait();
         if app::should_program_quit() {
             let mut d = dialog.clone();
             d.hide();
         }
+        after_event();
     }
 }
 

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(git commit*)",
+            "if": "Bash(git *)",
             "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-commit-gates.sh",
             "timeout": 600,
             "statusMessage": "Running cargo gates before commit…"

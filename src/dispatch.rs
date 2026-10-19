@@ -320,11 +320,8 @@ pub fn retheme_panels(state: &AppState, lw: &mut LayoutWidgets) {
         }
     }
     // FLTK foreground for menu text
-    if theme.is_dark {
-        fltk::app::foreground(230, 230, 230);
-    } else {
-        fltk::app::foreground(0, 0, 0);
-    }
+    let (r, g, b) = crate::ui::theme::menu_foreground(theme);
+    fltk::app::foreground(r, g, b);
 }
 
 /// Push the current editor font/size to non-editor code-display surfaces
@@ -344,7 +341,12 @@ fn propagate_font_to_panels(state: &AppState, lw: &mut LayoutWidgets) {
 pub fn handle_settings(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) {
     match msg {
         Message::OpenSettings => {
-            state.open_settings();
+            // The dialog is modal and blocks this loop, so its live previews
+            // (and the revert on Cancel) are dispatched from inside it rather
+            // than sent over the channel.
+            state.open_settings(|state, theme| {
+                handle_settings(Message::PreviewSyntaxTheme(theme), state, lw)
+            });
             // Settings may have changed the dark mode or the syntax theme.
             retheme_panels(state, lw);
             // Settings dialog may have changed the editor font/size — propagate.
@@ -359,6 +361,10 @@ pub fn handle_settings(msg: Message, state: &mut AppState, lw: &mut LayoutWidget
             show_about_dialog(theme_bg);
         }
         Message::ShowKeyShortcuts => state.show_key_shortcuts(),
+        Message::PreviewSyntaxTheme(theme) => {
+            state.preview_syntax_theme(theme);
+            retheme_panels(state, lw);
+        }
         _ => {}
     }
 }
@@ -439,7 +445,6 @@ pub fn handle_update(msg: Message, state: &mut AppState) {
                 window: &mut state.window,
             });
         }
-        Message::PreviewSyntaxTheme(theme) => state.preview_syntax_theme(theme),
         _ => {}
     }
 }
@@ -1383,16 +1388,29 @@ mod tests {
     ];
 
     /// The Message arms that change the app theme.
-    const THEME_CHANGE_ARMS: [&str; 2] = ["Message::ToggleDarkMode", "Message::OpenSettings"];
+    const THEME_CHANGE_ARMS: [&str; 3] = [
+        "Message::ToggleDarkMode",
+        "Message::OpenSettings",
+        "Message::PreviewSyntaxTheme",
+    ];
 
     fn without_whitespace(s: &str) -> String {
         s.chars().filter(|c| !c.is_whitespace()).collect()
     }
 
-    /// Body of the match arm starting at `arm`, up to the next sibling arm.
+    /// Body of the match arm starting at `arm` (a unit variant, or a tuple
+    /// variant with its bindings), up to the next sibling arm.
     fn arm_body<'a>(src: &'a str, arm: &str) -> &'a str {
         let start = src
-            .find(&format!("{arm} =>"))
+            .match_indices(arm)
+            .map(|(i, _)| i)
+            .find(|&i| {
+                let after = &src[i + arm.len()..];
+                let after = after
+                    .strip_prefix('(')
+                    .map_or(after, |a| a.find(')').map_or("", |close| &a[close + 1..]));
+                after.starts_with(" =>")
+            })
             .unwrap_or_else(|| panic!("arm {arm} not found in dispatch.rs"));
         let rest = &src[start + arm.len()..];
         let end = ["\n        Message::", "\n        _ =>"]
@@ -1448,5 +1466,44 @@ mod tests {
                 "{arm} changes the theme but does not re-theme {missing:?}"
             );
         }
+    }
+
+    /// The Settings dialog's live previews and its revert on Cancel/close run
+    /// while the modal blocks the main loop, so they must be dispatched from
+    /// the `open_settings` hook through the `PreviewSyntaxTheme` arm (checked
+    /// above) rather than sent over the channel.
+    #[test]
+    fn settings_preview_and_cancel_go_through_the_preview_arm() {
+        let open = without_whitespace(arm_body(dispatch_src(), "Message::OpenSettings"));
+        assert!(
+            open.contains("open_settings(|state,theme|{handle_settings(Message::PreviewSyntaxTheme(theme),state,lw)"),
+            "Message::OpenSettings must route the dialog's previews through Message::PreviewSyntaxTheme"
+        );
+        let dialog = without_whitespace(include_str!("ui/dialogs/settings_dialog.rs"));
+        assert!(
+            !dialog.contains(".send(Message::PreviewSyntaxTheme"),
+            "the modal Settings dialog must not queue previews on the channel"
+        );
+    }
+
+    /// The menu text colour has one rule (`ui::theme::menu_foreground`),
+    /// applied by `retheme_panels`; startup must reach it through
+    /// `retheme_panels` rather than set `app::foreground` with a rule of its own.
+    #[test]
+    fn startup_picks_menu_foreground_through_retheme_panels() {
+        let retheme = fn_body(dispatch_src(), "retheme_panels").map(without_whitespace);
+        assert!(
+            retheme.is_some_and(|f| f.contains("menu_foreground(theme)")),
+            "retheme_panels must pick the menu text colour with menu_foreground"
+        );
+        let main = without_whitespace(include_str!("main.rs"));
+        assert!(
+            main.contains("dispatch::retheme_panels(&state,&mutlw)"),
+            "startup must apply the initial theme through retheme_panels"
+        );
+        assert!(
+            !main.contains("app::foreground("),
+            "startup must not choose the menu text colour with a rule of its own"
+        );
     }
 }
