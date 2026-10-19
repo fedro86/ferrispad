@@ -1,5 +1,11 @@
-use syntect::highlighting::{HighlightIterator, HighlightState, Highlighter, Style, ThemeSet};
+use std::sync::{LazyLock, Once};
+
+use syntect::highlighting::{
+    HighlightIterator, HighlightState, Highlighter, Style, Theme, ThemeSet,
+};
 use syntect::parsing::{ParseState, ScopeStack, SyntaxReference, SyntaxSet};
+
+use crate::app::domain::settings::SyntaxTheme;
 
 use super::checkpoint::{CHECKPOINT_INTERVAL, SparseCheckpoints};
 use super::style_map::StyleMap;
@@ -16,6 +22,29 @@ pub struct IncrementalResult {
     pub style_chars: String,
 }
 
+/// Look up `theme_name`, failing soft instead of panicking like
+/// `theme_set.themes[name]`: an unknown name falls back to the default
+/// `SyntaxTheme`, then to any theme in the set, then to syntect's
+/// built-in default. The fallback is logged once per process: this runs on
+/// every (incremental) highlight, i.e. on every keystroke.
+pub(super) fn resolve_theme<'a>(theme_set: &'a ThemeSet, theme_name: &str) -> &'a Theme {
+    static EMPTY_SET_THEME: LazyLock<Theme> = LazyLock::new(Theme::default);
+    static WARN_ONCE: Once = Once::new();
+
+    if let Some(theme) = theme_set.themes.get(theme_name) {
+        return theme;
+    }
+    let fallback = SyntaxTheme::default().theme_key();
+    WARN_ONCE.call_once(|| {
+        eprintln!("[syntax] theme '{theme_name}' not found, falling back to '{fallback}'");
+    });
+    theme_set
+        .themes
+        .get(fallback)
+        .or_else(|| theme_set.themes.values().next())
+        .unwrap_or(&EMPTY_SET_THEME)
+}
+
 /// Full highlight of the document text.
 pub fn highlight_full(
     text: &str,
@@ -25,7 +54,7 @@ pub fn highlight_full(
     theme_name: &str,
     style_map: &mut StyleMap,
 ) -> FullResult {
-    let theme = &theme_set.themes[theme_name];
+    let theme = resolve_theme(theme_set, theme_name);
     let highlighter = Highlighter::new(theme);
     let mut parse_state = ParseState::new(syntax);
     let mut highlight_state = HighlightState::new(&highlighter, ScopeStack::new());
@@ -69,7 +98,7 @@ pub fn highlight_incremental(
     theme_name: &str,
     style_map: &mut StyleMap,
 ) -> IncrementalResult {
-    let theme = &theme_set.themes[theme_name];
+    let theme = resolve_theme(theme_set, theme_name);
     let highlighter = Highlighter::new(theme);
 
     // Count total lines efficiently
