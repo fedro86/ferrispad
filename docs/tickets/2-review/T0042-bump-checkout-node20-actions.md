@@ -136,7 +136,13 @@ its `.sig` attached).
   `terminal::grid::tests::line_feed_flood_trims_in_bounded_time` failed its 2s
   bound once; it passed on rerun at normal load. Pre-existing and unrelated
   to this ticket.
-- CI on the PR: see below (filled in after the push).
+- Before (`master`, CI run 39250611639): annotation `! Node.js 20 is
+  deprecated. The following actions target Node.js 20 but are being forced to
+  run on Node.js 24: actions/checkout@v4.`
+- After (PR #58): `CI` run 39255778099 and `Build Deps Check` run
+  39255778104 (the `debian:trixie` container job) are both green. The only
+  annotation left is GitHub's unrelated notice that `ubuntu-latest` is
+  migrating to Ubuntu 26. No Node.js 20 deprecation annotation.
 
 ## Acceptance criteria
 
@@ -145,7 +151,7 @@ its `.sig` attached).
 - [x] Other Node-20/EOL actions bumped where a newer major exists
       (`upload-artifact@v7`, `download-artifact@v8`, `cache@v6`,
       `action-gh-release@v3`); `rust-cache@v2` already Node 24.
-- [ ] All workflow YAML still valid; the `ci` run is green with no Node-20
+- [x] All workflow YAML still valid; the `ci` run is green with no Node-20
       deprecation annotation.
 
 ## Affected files
