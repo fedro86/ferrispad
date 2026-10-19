@@ -75,6 +75,8 @@ pub fn show_file_too_large_dialog(
     // Use Rc<RefCell> to store the result from button callbacks
     let result = Rc::new(RefCell::new(TooLargeAction::Cancel));
 
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut dialog = Window::new(100, 100, 450, 280, "File Too Large");
     dialog.make_modal(true);
     dialog.set_color(theme.bg);
@@ -161,6 +163,7 @@ pub fn show_file_too_large_dialog(
 
     main_flex.end();
     dialog.end();
+    drop(top_level);
     dialog.show();
     theme.apply_titlebar(&dialog);
 
@@ -258,6 +261,8 @@ pub fn load_to_buffer_with_progress(
     let theme = DialogTheme::from_theme_bg(theme_bg);
 
     // Create progress dialog
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut dialog = Window::new(100, 100, 400, 155, "Loading File");
     dialog.make_modal(true);
     dialog.set_color(theme.bg);
@@ -305,6 +310,7 @@ pub fn load_to_buffer_with_progress(
 
     flex.end();
     dialog.end();
+    drop(top_level);
     dialog.show();
     theme.apply_titlebar(&dialog);
 

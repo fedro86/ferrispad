@@ -96,6 +96,7 @@ mod tests {
     // is process-global, so building widgets from parallel test threads races.
     #[test]
     fn child_index_invariant_matches_bundled_fltk() {
+        let _fltk = crate::ui::fltk_widget_test_lock();
         let display = TextDisplay::default();
         let editor = TextEditor::default();
         let tree = Tree::default();

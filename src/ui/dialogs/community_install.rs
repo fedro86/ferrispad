@@ -86,6 +86,8 @@ pub fn show_community_install_dialog(review: &CommunityInstallReview, theme: &Di
 
     let result = Rc::new(RefCell::new(false));
 
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut dialog = Window::default()
         .with_size(DIALOG_WIDTH, dialog_height)
         .with_label("Install Plugin")
@@ -284,6 +286,7 @@ pub fn show_community_install_dialog(review: &CommunityInstallReview, theme: &Di
     install_btn.set_label_color(warning_color);
 
     dialog.end();
+    drop(top_level);
 
     // ── Callbacks ──
     let mut dialog_cancel = dialog.clone();

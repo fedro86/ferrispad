@@ -390,6 +390,34 @@ impl DialogTheme {
     }
 }
 
+/// Makes widgets built while it lives top-level: it clears FLTK's current
+/// group on creation and restores the previous one when dropped.
+///
+/// FLTK adds every new widget, windows included, to the current group. A
+/// group's `end()` makes its *parent* current, not the group that was current
+/// before, so at runtime the current group can be some panel inside the main
+/// window (the start page and the split view's action bar both leave it so).
+/// A dialog window built there becomes a child window, clipped by its parent,
+/// and a modal one then freezes the app (T0058). FLTK's own `fl_alert` guards
+/// its dialogs the same way.
+pub(crate) struct TopLevelScope {
+    previous: Option<fltk::group::Group>,
+}
+
+impl TopLevelScope {
+    pub(crate) fn new() -> Self {
+        let previous = fltk::group::Group::try_current();
+        fltk::group::Group::set_current(None::<&fltk::group::Group>);
+        Self { previous }
+    }
+}
+
+impl Drop for TopLevelScope {
+    fn drop(&mut self) {
+        fltk::group::Group::set_current(self.previous.as_ref());
+    }
+}
+
 /// Run a dialog's event loop, automatically closing the dialog if the app
 /// is quitting (e.g. user clicks X on the main window while a dialog is open).
 pub fn run_dialog(dialog: &Window) {
@@ -489,18 +517,27 @@ pub(crate) fn popup_button_width(label: &str) -> i32 {
     (label.chars().count() as i32 * 8 + 24).max(80)
 }
 
-/// The single themed popup behind [`show_themed_message`],
+/// The widgets of a built, not yet shown themed popup (see
+/// [`build_themed_popup`]).
+struct ThemedPopup {
+    dialog: Window,
+    input: Option<fltk::input::Input>,
+    default_btn: Option<fltk::button::Button>,
+    /// Index of the pressed button, set by the button callbacks.
+    result: std::rc::Rc<std::cell::Cell<Option<usize>>>,
+}
+
+/// Build the window of the single themed popup behind [`show_themed_message`],
 /// [`show_themed_choice`] and [`show_themed_input`]: a modal window with the
-/// message, an optional prefilled input and a button row, run by
-/// [`run_dialog`]. Returns the pressed button's index (`None` for Escape, the
-/// window's close button, or an app quit) and the input's final text.
-fn run_themed_popup(
-    theme_bg: (u8, u8, u8),
+/// message, an optional prefilled input and a button row. It is not shown or
+/// positioned yet (that needs a display), see [`run_themed_popup`].
+fn build_themed_popup(
+    theme: &DialogTheme,
     title: &str,
     message: &str,
     input_default: Option<&str>,
     layout: &ChoiceLayout<'_>,
-) -> (Option<usize>, String) {
+) -> ThemedPopup {
     use fltk::{
         button::Button,
         enums::{Align, Event, Key},
@@ -511,13 +548,13 @@ fn run_themed_popup(
     use std::cell::Cell;
     use std::rc::Rc;
 
-    let theme = DialogTheme::from_theme_bg(theme_bg);
     let height = popup_height(message, input_default.is_some());
 
+    // Restored when this returns, after `dialog.end()`.
+    let _top_level = TopLevelScope::new();
     let mut dialog = Window::default()
         .with_size(POPUP_WIDTH, height)
-        .with_label(title)
-        .center_screen();
+        .with_label(title);
     dialog.make_modal(true);
     dialog.set_color(theme.bg);
 
@@ -594,6 +631,33 @@ fn run_themed_popup(
         });
     }
 
+    ThemedPopup {
+        dialog,
+        input,
+        default_btn,
+        result,
+    }
+}
+
+/// Show the themed popup (see [`build_themed_popup`]) and run it with
+/// [`run_dialog`]. Returns the pressed button's index (`None` for Escape, the
+/// window's close button, or an app quit) and the input's final text.
+fn run_themed_popup(
+    theme_bg: (u8, u8, u8),
+    title: &str,
+    message: &str,
+    input_default: Option<&str>,
+    layout: &ChoiceLayout<'_>,
+) -> (Option<usize>, String) {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+    let ThemedPopup {
+        dialog,
+        input,
+        default_btn,
+        result,
+    } = build_themed_popup(&theme, title, message, input_default, layout);
+
+    let mut dialog = dialog.center_screen();
     dialog.show();
     theme.apply_titlebar(&dialog);
     if let Some(input) = &input {
@@ -662,6 +726,57 @@ pub fn show_themed_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fltk::group::Group;
+
+    /// Regression for T0058: a popup built while another window's group is
+    /// current (begun, not ended) must still be a top-level window, must not
+    /// add itself to that group, and must leave that group current.
+    #[test]
+    fn popup_is_top_level() {
+        let _fltk = crate::ui::fltk_widget_test_lock();
+        let theme = DialogTheme::from_theme_bg((40, 44, 52));
+        let previous = Group::try_current();
+
+        let outer = Window::new(0, 0, 600, 400, None); // begun: now current
+        let outer_children = outer.children();
+        let message = build_themed_popup(
+            &theme,
+            "Error",
+            "Error opening file: No such file or directory",
+            None,
+            &choice_layout("Close", "", ""),
+        );
+        let input = build_themed_popup(
+            &theme,
+            "Go To Line",
+            "Line number:",
+            Some("1"),
+            &choice_layout("Cancel", "OK", ""),
+        );
+        let current_after = Group::try_current().map(|g| g.as_widget_ptr());
+        let children_after = outer.children();
+
+        // Restore FLTK's process-global current group before asserting, so a
+        // failure leaves no group begun for later tests.
+        outer.end();
+        Group::set_current(previous.as_ref());
+
+        for popup in [&message, &input] {
+            assert!(
+                popup.dialog.parent().is_none(),
+                "the popup must be a top-level window, not a child of the current group"
+            );
+        }
+        assert_eq!(
+            children_after, outer_children,
+            "outer group gained children"
+        );
+        assert_eq!(
+            current_after,
+            Some(outer.as_widget_ptr()),
+            "the caller's current group must be restored"
+        );
+    }
 
     #[test]
     fn scrollbar_colors_dark_darkens_track_and_lightens_thumb() {

@@ -42,6 +42,8 @@ pub fn show_plugin_settings_dialog(
     let input_bg = theme.input_bg;
     let button_bg = theme.button_bg;
 
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut dialog = window::Window::default()
         .with_size(DIALOG_WIDTH, DIALOG_HEIGHT)
         .with_label("Plugin Settings");
@@ -160,6 +162,7 @@ pub fn show_plugin_settings_dialog(
     cancel_btn.set_label_color(text_color);
 
     dialog.end();
+    drop(top_level);
 
     // Callbacks
     let checkboxes_save = checkboxes.clone();

@@ -46,6 +46,8 @@ pub fn show_font_picker(
     let result: Rc<RefCell<Option<(String, u32)>>> = Rc::new(RefCell::new(None));
     let entries = Rc::new(entries);
 
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut dialog_win = Window::default()
         .with_size(DW, DH)
         .with_label("Choose Font")
@@ -156,6 +158,7 @@ pub fn show_font_picker(
     cancel_btn.set_label_color(theme.text);
 
     dialog_win.end();
+    drop(top_level);
     dialog_win.make_resizable(false);
     // Modal so FLTK manages the focus grab/release relative to the parent
     // (the settings dialog, itself modal). Without this, on Wayland the parent
