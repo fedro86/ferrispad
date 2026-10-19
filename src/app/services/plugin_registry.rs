@@ -409,7 +409,7 @@ fn fetch_limited(
     }
 
     let mut data = Vec::new();
-    // `ResponseLazy` is both an `Iterator` and a `Read`; the byte cap is `Read::take`.
+    // `ResponseLazy` implements `Read`; the byte cap is `Read::take`.
     Read::take(response, (max_bytes as u64).saturating_add(1))
         .read_to_end(&mut data)
         .map_err(|e| AppError::Network(format!("Download failed: {}", e)))?;
