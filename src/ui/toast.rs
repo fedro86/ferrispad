@@ -10,6 +10,7 @@ use fltk::{
     prelude::*,
 };
 
+use super::theme::{PanelTheme, Themeable};
 use crate::app::Message;
 
 /// Toast notification levels with associated colors
@@ -129,13 +130,14 @@ impl Toast {
         self.visible = false;
     }
 
-    /// Apply theme
-    pub fn apply_theme(&mut self, is_dark: bool) {
-        self.is_dark = is_dark;
-    }
-
     /// Get current height (0 if hidden)
     pub fn current_height(&self) -> i32 {
         if self.visible { TOAST_HEIGHT } else { 0 }
+    }
+}
+
+impl Themeable for Toast {
+    fn apply_theme(&mut self, theme: PanelTheme) {
+        self.is_dark = theme.is_dark;
     }
 }

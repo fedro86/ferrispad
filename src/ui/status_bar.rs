@@ -13,6 +13,7 @@ use fltk::{
 };
 
 use super::dialogs::DialogTheme;
+use super::theme::{PanelTheme, Themeable};
 
 /// Height of the status bar in pixels.
 pub const STATUS_BAR_HEIGHT: i32 = 20;
@@ -186,11 +187,13 @@ impl StatusBar {
             }
         }
     }
+}
 
-    /// Apply theme colors derived from syntax theme background (matches tab bar).
-    pub fn apply_theme(&mut self, theme_bg: (u8, u8, u8)) {
-        let theme = DialogTheme::from_theme_bg(theme_bg);
-        self.frame.set_color(theme.bg);
-        self.frame.set_label_color(theme.text_dim);
+impl Themeable for StatusBar {
+    /// Colors derived from the syntax theme background (matches tab bar).
+    fn apply_theme(&mut self, theme: PanelTheme) {
+        let dialog = DialogTheme::from_theme_bg(theme.bg);
+        self.frame.set_color(dialog.bg);
+        self.frame.set_label_color(dialog.text_dim);
     }
 }

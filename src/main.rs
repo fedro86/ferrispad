@@ -455,11 +455,12 @@ fn main() {
         editor_col: w.editor_col,
     };
 
-    // Apply initial theme to status bar
-    lw.status_bar
-        .apply_theme(state.highlight.highlighter().theme_background());
+    // Apply the initial theme to every panel
+    dispatch::retheme_panels(&state, &mut lw);
 
-    // Set FLTK foreground for menu popups — light on dark themes, black on light
+    // Set FLTK foreground for menu popups — light on dark themes, black on light.
+    // At startup this follows the theme background's luminance rather than the
+    // dark-mode flag `retheme_panels` uses (pre-existing difference, kept).
     {
         let bg = state.highlight.highlighter().theme_background();
         let is_dark = (bg.0 as u32 + bg.1 as u32 + bg.2 as u32) / 3 < 128;

@@ -27,7 +27,7 @@ use crate::ui::dialogs::update::check_for_updates_ui;
 use crate::ui::divider::{DockEdge, dragged_size};
 use crate::ui::main_window::LayoutWidgets;
 use crate::ui::tab_bar::TAB_BAR_HEIGHT;
-use crate::ui::theme::DIVIDER_WIDTH;
+use crate::ui::theme::{DIVIDER_WIDTH, Themeable};
 
 /// Result from a dispatch handler that may request quit.
 pub enum DispatchResult {
@@ -269,26 +269,7 @@ pub fn handle_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) {
         Message::ToggleWordWrap => state.view.toggle_word_wrap(),
         Message::ToggleDarkMode => {
             state.toggle_dark_mode();
-            let theme_bg = state.highlight.highlighter().theme_background();
-            if lw.tree_panel.is_visible() {
-                lw.tree_panel.apply_theme(state.view.dark_mode, theme_bg);
-            }
-            if lw.split_panel.is_visible() {
-                lw.split_panel.apply_theme(state.view.dark_mode, theme_bg);
-            }
-            if lw.terminal_panel.is_visible() {
-                lw.terminal_panel
-                    .apply_theme(state.view.dark_mode, theme_bg);
-            }
-            lw.diagnostic_panel.apply_theme(state.view.dark_mode);
-            lw.status_bar.apply_theme(theme_bg);
-            lw.toast.apply_theme(state.view.dark_mode);
-            // Update FLTK foreground for menu text
-            if state.view.dark_mode {
-                fltk::app::foreground(230, 230, 230);
-            } else {
-                fltk::app::foreground(0, 0, 0);
-            }
+            retheme_panels(state, lw);
         }
         Message::ToggleHighlighting => state.toggle_highlighting(),
         Message::TogglePreview => state.preview_in_browser(),
@@ -321,6 +302,25 @@ pub fn handle_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) {
     }
 }
 
+/// The single re-theme entry point for the panels in `LayoutWidgets`: every
+/// theme change (dark-mode toggle, Settings, startup) calls this after
+/// `AppState` has re-themed the widgets it owns, so no panel can be left with
+/// the previous theme's colors.
+pub fn retheme_panels(state: &AppState, lw: &mut LayoutWidgets) {
+    let theme = state.panel_theme();
+    for panel in lw.themeable_panels() {
+        if panel.wants_retheme() {
+            panel.apply_theme(theme);
+        }
+    }
+    // FLTK foreground for menu text
+    if theme.is_dark {
+        fltk::app::foreground(230, 230, 230);
+    } else {
+        fltk::app::foreground(0, 0, 0);
+    }
+}
+
 /// Push the current editor font/size to non-editor code-display surfaces
 /// (terminal panel, diagnostic panel, split panel) so they stay in sync.
 fn propagate_font_to_panels(state: &AppState, lw: &mut LayoutWidgets) {
@@ -339,17 +339,8 @@ pub fn handle_settings(msg: Message, state: &mut AppState, lw: &mut LayoutWidget
     match msg {
         Message::OpenSettings => {
             state.open_settings();
-            let theme_bg = state.highlight.highlighter().theme_background();
-            lw.status_bar.apply_theme(theme_bg);
-            if lw.tree_panel.is_visible() {
-                lw.tree_panel.apply_theme(state.view.dark_mode, theme_bg);
-            }
-            // Update foreground after settings may have changed the theme
-            if state.view.dark_mode {
-                fltk::app::foreground(230, 230, 230);
-            } else {
-                fltk::app::foreground(0, 0, 0);
-            }
+            // Settings may have changed the dark mode or the syntax theme.
+            retheme_panels(state, lw);
             // Settings dialog may have changed the editor font/size — propagate.
             propagate_font_to_panels(state, lw);
         }
@@ -1131,9 +1122,7 @@ pub fn handle_terminal_view(msg: Message, state: &mut AppState, lw: &mut LayoutW
                 }
             }
 
-            let theme_bg = state.highlight.highlighter().theme_background();
-            lw.terminal_panel
-                .apply_theme(state.view.dark_mode, theme_bg);
+            lw.terminal_panel.apply_theme(state.panel_theme());
             lw.terminal_panel.show_request(session_id, &request);
 
             // Expand window to accommodate terminal panel
@@ -1359,5 +1348,99 @@ pub fn sync_start_page(state: &mut AppState, lw: &mut LayoutWidgets) {
         state.update_window_title();
         fltk::app::flush();
         lw.wind.redraw();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Theme-path coverage (T0019). The panels live in `LayoutWidgets`, which
+    //! needs a live FLTK display to build, so this checks the dispatch source
+    //! itself: every Message arm that changes the theme must reach every
+    //! themed panel.
+
+    /// Dispatch source without this test module, so the needles below do not
+    /// match themselves.
+    fn dispatch_src() -> &'static str {
+        let src = include_str!("dispatch.rs");
+        let end = src.find("#[cfg(test)]\nmod tests").unwrap_or(src.len());
+        &src[..end]
+    }
+
+    /// Every `LayoutWidgets` panel whose colors follow the theme.
+    const THEMED_PANELS: [&str; 6] = [
+        "tree_panel",
+        "split_panel",
+        "terminal_panel",
+        "diagnostic_panel",
+        "status_bar",
+        "toast",
+    ];
+
+    /// The Message arms that change the app theme.
+    const THEME_CHANGE_ARMS: [&str; 2] = ["Message::ToggleDarkMode", "Message::OpenSettings"];
+
+    fn without_whitespace(s: &str) -> String {
+        s.chars().filter(|c| !c.is_whitespace()).collect()
+    }
+
+    /// Body of the match arm starting at `arm`, up to the next sibling arm.
+    fn arm_body<'a>(src: &'a str, arm: &str) -> &'a str {
+        let start = src
+            .find(&format!("{arm} =>"))
+            .unwrap_or_else(|| panic!("arm {arm} not found in dispatch.rs"));
+        let rest = &src[start + arm.len()..];
+        let end = ["\n        Message::", "\n        _ =>"]
+            .iter()
+            .filter_map(|n| rest.find(n))
+            .min()
+            .unwrap_or(rest.len());
+        &rest[..end]
+    }
+
+    /// Body of `fn name` in `src`, up to the closing brace at the fn's indent.
+    fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
+        let start = src.find(&format!("fn {name}("))?;
+        let line_start = src[..start].rfind('\n').map_or(0, |i| i + 1);
+        let indent = &src[line_start..start];
+        let indent = &indent[..indent.len() - indent.trim_start().len()];
+        let rest = &src[start..];
+        let end = rest.find(&format!("\n{indent}}}")).unwrap_or(rest.len());
+        Some(&rest[..end])
+    }
+
+    /// Panels a code fragment re-themes: direct `lw.<panel>.apply_theme(`
+    /// calls, plus every panel the shared `retheme_panels` entry point reaches
+    /// through `LayoutWidgets::themeable_panels`.
+    fn panels_reached(body: &str) -> Vec<&'static str> {
+        let flat = without_whitespace(body);
+        let entry_point = fn_body(dispatch_src(), "retheme_panels").map(without_whitespace);
+        let via_entry_point = flat.contains("retheme_panels(")
+            && entry_point.is_some_and(|f| f.contains("lw.themeable_panels()"));
+        let iterated = fn_body(include_str!("ui/main_window.rs"), "themeable_panels")
+            .map(without_whitespace)
+            .unwrap_or_default();
+        THEMED_PANELS
+            .into_iter()
+            .filter(|p| {
+                flat.contains(&format!("lw.{p}.apply_theme("))
+                    || (via_entry_point && iterated.contains(&format!("{p},")))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_theme_change_path_rethemes_every_panel() {
+        let src = dispatch_src();
+        for arm in THEME_CHANGE_ARMS {
+            let reached = panels_reached(arm_body(src, arm));
+            let missing: Vec<_> = THEMED_PANELS
+                .into_iter()
+                .filter(|p| !reached.contains(p))
+                .collect();
+            assert!(
+                missing.is_empty(),
+                "{arm} changes the theme but does not re-theme {missing:?}"
+            );
+        }
     }
 }

@@ -23,7 +23,7 @@ use super::color::ThemeRgb;
 use super::dialogs::{DialogTheme, SCROLLBAR_SIZE};
 use super::divider::{self, DragAxis};
 use super::scrollbar::style_scrollbars;
-use super::theme::divider_color_from_bg;
+use super::theme::{PanelTheme, Themeable, divider_color_from_bg};
 use crate::app::Message;
 use crate::app::plugins::widgets::{
     ContextMenuItem, ContextMenuTarget, TreeClickMode, TreeNode, TreeViewRequest,
@@ -963,10 +963,16 @@ impl TreePanel {
             }
         }
     }
+}
 
+impl Themeable for TreePanel {
     /// Apply theme colors derived from the syntax theme background.
     /// Uses DialogTheme for consistent color derivation across the app.
-    pub fn apply_theme(&mut self, is_dark: bool, theme_bg: (u8, u8, u8)) {
+    fn apply_theme(&mut self, panel_theme: PanelTheme) {
+        let PanelTheme {
+            is_dark,
+            bg: theme_bg,
+        } = panel_theme;
         self.is_dark = is_dark;
         let theme = DialogTheme::from_theme_bg(theme_bg);
         let editor = ThemeRgb::from_tuple(theme_bg);
@@ -1046,5 +1052,10 @@ impl TreePanel {
         // Style scrollbars to match the editor (Tree inherits Fl_Group)
         self.tree.set_scrollbar_size(SCROLLBAR_SIZE);
         style_scrollbars(&self.tree, theme.scroll_track, theme.scroll_thumb);
+    }
+
+    /// Re-themed by its show path, so a hidden panel is skipped.
+    fn wants_retheme(&self) -> bool {
+        self.is_visible()
     }
 }

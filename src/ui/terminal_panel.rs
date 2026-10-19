@@ -19,6 +19,7 @@ use fltk::{
 
 use super::dialogs::DialogTheme;
 use super::divider::{self, DragAxis};
+use super::theme::{PanelTheme, Themeable};
 use crate::app::Message;
 use crate::app::plugins::widgets::TerminalViewRequest;
 use crate::app::services::terminal::grid::{Cell, TerminalGrid};
@@ -618,9 +619,15 @@ impl TerminalPanel {
         }
         self.hide();
     }
+}
 
+impl Themeable for TerminalPanel {
     /// Apply theme colors
-    pub fn apply_theme(&mut self, is_dark: bool, theme_bg: (u8, u8, u8)) {
+    fn apply_theme(&mut self, panel_theme: PanelTheme) {
+        let PanelTheme {
+            is_dark,
+            bg: theme_bg,
+        } = panel_theme;
         self.is_dark = is_dark;
         self.theme_bg = theme_bg;
         let theme = DialogTheme::from_theme_bg(theme_bg);
@@ -642,6 +649,13 @@ impl TerminalPanel {
         }
     }
 
+    /// Re-themed by its show path, so a hidden panel is skipped.
+    fn wants_retheme(&self) -> bool {
+        self.is_visible()
+    }
+}
+
+impl TerminalPanel {
     /// Get the container widget
     pub fn widget(&self) -> &Flex {
         &self.container

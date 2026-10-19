@@ -11,7 +11,7 @@ use fltk::{
 };
 
 use super::color::ThemeRgb;
-use super::theme::diff_tab_tint_from_bg;
+use super::theme::{PanelTheme, Themeable, diff_tab_tint_from_bg};
 use crate::app::{Document, DocumentId, GroupColor, GroupId, Message, TabGroup};
 
 pub const TAB_BAR_HEIGHT: i32 = 32;
@@ -242,8 +242,14 @@ impl TabBar {
         drop(st);
         self.widget.redraw();
     }
+}
 
-    pub fn apply_theme(&mut self, is_dark: bool, theme_bg: (u8, u8, u8)) {
+impl Themeable for TabBar {
+    fn apply_theme(&mut self, panel_theme: PanelTheme) {
+        let PanelTheme {
+            is_dark,
+            bg: theme_bg,
+        } = panel_theme;
         let mut st = self.state.borrow_mut();
         st.is_dark = is_dark;
         st.theme_bg = ThemeRgb::from_tuple(theme_bg);
@@ -262,7 +268,9 @@ impl TabBar {
 
         self.widget.redraw();
     }
+}
 
+impl TabBar {
     /// Ensure the active tab is visible by adjusting scroll offset.
     /// Call this after TabSwitch to auto-scroll to the active tab.
     pub fn ensure_active_visible(&mut self, active_id: Option<DocumentId>) {
