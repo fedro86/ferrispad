@@ -872,7 +872,7 @@ pub fn handle_split_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidg
                 let parent = split_parent!(lw);
                 let col_y = parent.y();
                 let col_h = parent.h();
-                let new_height = (col_y + col_h - mouse_y).clamp(100, col_h / 2);
+                let new_height = lw.split_panel.drag_docked_height(mouse_y, col_y, col_h);
                 parent.fixed(lw.split_panel.widget(), new_height);
                 parent.recalc();
                 lw.wind.redraw();
