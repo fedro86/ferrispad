@@ -22,7 +22,11 @@ use super::{DialogTheme, show_themed_message};
 #[derive(Clone)]
 struct FindState {
     search_text: Rc<RefCell<String>>,
-    search_pos: Rc<RefCell<usize>>,
+    /// Where the next search resumes: the last selected match, or an empty
+    /// span at a cursor position. Each direction continues from its own side
+    /// (see [`Direction::resume_pos`]), so switching between Find Next and
+    /// Find Prev moves to the adjacent match instead of reselecting this one.
+    resume_span: Rc<RefCell<(usize, usize)>>,
 }
 
 /// Which way Find Next / Find Prev walks through the document.
@@ -69,7 +73,8 @@ impl Direction {
     }
 
     /// The cursor position after selecting `found`, which is also where the
-    /// next search in this direction continues from.
+    /// next search in this direction continues from: the match end going
+    /// forward, its start going backward.
     fn resume_pos(self, (start, end): (usize, usize)) -> usize {
         match self {
             Direction::Forward => end,
@@ -133,20 +138,21 @@ impl FindState {
     fn new() -> Self {
         Self {
             search_text: Rc::new(RefCell::new(String::new())),
-            search_pos: Rc::new(RefCell::new(0usize)),
+            resume_span: Rc::new(RefCell::new((0, 0))),
         }
     }
 
     /// Where this search starts: from the editor cursor when the query
-    /// changed since the last search, otherwise from where the last one ended.
-    fn start_pos(&self, query: &str, cursor: usize) -> usize {
+    /// changed since the last search, otherwise from this direction's side
+    /// of the last match.
+    fn start_pos(&self, dir: Direction, query: &str, cursor: usize) -> usize {
         let query_changed = *self.search_text.borrow() != query;
         if query_changed {
             *self.search_text.borrow_mut() = query.to_string();
-            *self.search_pos.borrow_mut() = cursor;
+            *self.resume_span.borrow_mut() = (cursor, cursor);
             cursor
         } else {
-            *self.search_pos.borrow()
+            dir.resume_pos(*self.resume_span.borrow())
         }
     }
 
@@ -160,10 +166,10 @@ impl FindState {
         cursor: usize,
         opts: SearchOptions,
     ) -> Result<Option<(usize, usize)>, String> {
-        let start_pos = self.start_pos(query, cursor);
+        let start_pos = self.start_pos(dir, query, cursor);
         let found = search_wrapping(text, query, start_pos, dir, opts)?;
         if let Some(m) = found {
-            *self.search_pos.borrow_mut() = dir.resume_pos(m);
+            *self.resume_span.borrow_mut() = m;
         }
         Ok(found)
     }
@@ -359,7 +365,7 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
     });
 
     // Replace button
-    let sp2 = state.search_pos.clone();
+    let sp2 = state.resume_span.clone();
     let mut tb2 = text_buf.clone();
     let mut te2 = text_ed.clone();
     let find_input2 = find_input.clone();
@@ -398,7 +404,8 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
                     Ok(Some((replaced, match_len))) if match_len == (end - start) as usize => {
                         tb2.replace_selection(&replaced);
                         te2.set_insert_position(start + replaced.len() as i32);
-                        *sp2.borrow_mut() = start as usize + replaced.len();
+                        let after = start as usize + replaced.len();
+                        *sp2.borrow_mut() = (after, after);
                     }
                     Ok(_) => {}
                     Err(e) => {
@@ -417,7 +424,8 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
                 if matches {
                     tb2.replace_selection(&replacement);
                     te2.set_insert_position(start + replacement.len() as i32);
-                    *sp2.borrow_mut() = start as usize + replacement.len();
+                    let after = start as usize + replacement.len();
+                    *sp2.borrow_mut() = (after, after);
                 }
             }
         }
@@ -808,7 +816,7 @@ mod tests {
                 Ok(Some((0, 1)))
             ]
         );
-        assert_eq!(*state.search_pos.borrow(), 1);
+        assert_eq!(*state.resume_span.borrow(), (0, 1));
     }
 
     #[test]
@@ -827,7 +835,7 @@ mod tests {
                 Ok(Some((8, 9)))
             ]
         );
-        assert_eq!(*state.search_pos.borrow(), 8);
+        assert_eq!(*state.resume_span.borrow(), (8, 9));
     }
 
     #[test]
@@ -849,22 +857,58 @@ mod tests {
     }
 
     #[test]
-    fn switching_direction_reselects_the_current_match() {
-        // Current behaviour, pinned (see the T0031 ticket notes): Find Next
-        // resumes from the match end and Find Prev from the match start, so the
-        // first search in the other direction selects the same match again.
+    fn switching_direction_moves_to_adjacent_match() {
+        // T0050 (replaces T0031's pin `switching_direction_reselects_the_current_match`):
+        // the first search in the other direction resumes from the far side
+        // of the current match, so it selects a different match.
         let state = FindState::new();
-        let text = "x a x a x";
-        assert_eq!(state.locate(Forward, text, "x", 3, PLAIN), Ok(Some((4, 5))));
+        let text = "foo foo foo";
+        let next = |state: &FindState| state.locate(Forward, text, "foo", 0, PLAIN);
+        let prev = |state: &FindState| state.locate(Backward, text, "foo", 0, PLAIN);
+        assert_eq!(next(&state), Ok(Some((0, 3))));
+        assert_eq!(next(&state), Ok(Some((4, 7))));
+        assert_eq!(prev(&state), Ok(Some((0, 3))));
+        // And back the other way: Prev, Prev, then Next.
+        assert_eq!(prev(&state), Ok(Some((8, 11))));
+        assert_eq!(prev(&state), Ok(Some((4, 7))));
+        assert_eq!(next(&state), Ok(Some((8, 11))));
+    }
+
+    #[test]
+    fn switching_direction_moves_past_empty_regex_matches() {
+        // Empty matches have no far side: switching direction steps past the
+        // current one (T0048's rule) to the adjacent line start. The cursor
+        // starts at the end, so the first Find Next wraps to the top.
+        let state = FindState::new();
+        let text = "a\nb\nc";
+        let end = text.len();
+        let next = |state: &FindState| state.locate(Forward, text, "^", end, REGEX);
+        let prev = |state: &FindState| state.locate(Backward, text, "^", end, REGEX);
+        assert_eq!(next(&state), Ok(Some((0, 0))));
+        assert_eq!(next(&state), Ok(Some((2, 2))));
+        assert_eq!(next(&state), Ok(Some((4, 4))));
+        assert_eq!(prev(&state), Ok(Some((2, 2))));
+        assert_eq!(prev(&state), Ok(Some((0, 0))));
+        assert_eq!(next(&state), Ok(Some((2, 2))));
+    }
+
+    #[test]
+    fn switching_direction_with_a_single_match_keeps_it() {
+        // Only one match: both directions wrap back onto it.
+        let state = FindState::new();
+        let text = "a foo b";
         assert_eq!(
-            state.locate(Backward, text, "x", 5, PLAIN),
-            Ok(Some((4, 5)))
+            state.locate(Forward, text, "foo", 0, PLAIN),
+            Ok(Some((2, 5)))
         );
         assert_eq!(
-            state.locate(Backward, text, "x", 4, PLAIN),
-            Ok(Some((0, 1)))
+            state.locate(Backward, text, "foo", 0, PLAIN),
+            Ok(Some((2, 5)))
         );
-        assert_eq!(state.locate(Forward, text, "x", 0, PLAIN), Ok(Some((0, 1))));
+        assert_eq!(
+            state.locate(Forward, text, "foo", 0, PLAIN),
+            Ok(Some((2, 5)))
+        );
     }
 
     #[test]
@@ -923,11 +967,11 @@ mod tests {
     fn miss_or_regex_error_keeps_resume_point() {
         let state = FindState::new();
         assert_eq!(state.locate(Forward, "abc", "zz", 2, PLAIN), Ok(None));
-        assert_eq!(*state.search_pos.borrow(), 2);
+        assert_eq!(*state.resume_span.borrow(), (2, 2));
         assert_eq!(state.locate(Backward, "abc", "zz", 0, PLAIN), Ok(None));
-        assert_eq!(*state.search_pos.borrow(), 2);
+        assert_eq!(*state.resume_span.borrow(), (2, 2));
         // A new query still resets the resume point to the cursor first.
         assert!(state.locate(Forward, "abc", "(", 1, REGEX).is_err());
-        assert_eq!(*state.search_pos.borrow(), 1);
+        assert_eq!(*state.resume_span.borrow(), (1, 1));
     }
 }
