@@ -1,7 +1,7 @@
 ---
 id: T0021
 title: Preserve the split panel's dragged height across a mode toggle
-status: review
+status: done
 created: 2026-08-24
 severity: moderate
 area: ui

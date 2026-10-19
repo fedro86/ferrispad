@@ -1,7 +1,7 @@
 ---
 id: T0029
 title: Consolidate the scrollbar FFI helper and fix contradictory SAFETY docs
-status: review
+status: done
 created: 2026-08-24
 severity: minor
 area: ui

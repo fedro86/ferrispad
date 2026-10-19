@@ -1,7 +1,7 @@
 ---
 id: T0031
 title: Deduplicate find_next/find_prev via a Direction enum
-status: review
+status: done
 created: 2026-08-24
 severity: minor
 area: ui

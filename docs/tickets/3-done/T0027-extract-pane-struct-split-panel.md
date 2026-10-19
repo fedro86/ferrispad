@@ -1,7 +1,7 @@
 ---
 id: T0027
 title: Extract a Pane struct in split_panel.rs
-status: review
+status: done
 created: 2026-08-24
 severity: minor
 area: ui

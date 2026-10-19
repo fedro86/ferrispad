@@ -1,7 +1,7 @@
 ---
 id: T0025
 title: Unify the three plugin-row builders (remove the arg-swap hazard)
-status: review
+status: done
 created: 2026-08-24
 severity: minor
 area: ui

@@ -1,7 +1,7 @@
 ---
 id: T0030
 title: Unify the three color-math APIs and fix the diverged derivation factors
-status: review
+status: done
 created: 2026-08-24
 severity: minor
 area: ui
