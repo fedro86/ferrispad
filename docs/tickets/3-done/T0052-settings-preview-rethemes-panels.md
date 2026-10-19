@@ -1,7 +1,7 @@
 ---
 id: T0052
 title: Live theme preview in Settings re-themes every panel
-status: review
+status: done
 created: 2026-10-19
 severity: minor
 area: ui
