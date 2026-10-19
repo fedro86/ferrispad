@@ -201,8 +201,11 @@ pub enum Message {
     TreeViewLoading,
     /// Deferred session restore (runs after window is shown so UI is visible immediately)
     DeferredSessionRestore,
-    /// Open a file from CLI args (deferred so session restore runs first)
+    /// Open an existing file (plugins, start page; deferred to the next loop turn)
     DeferredOpenFile(String),
+    /// Open a file from CLI args (deferred so session restore runs first).
+    /// A missing file whose folder exists starts a new document bound to it.
+    DeferredOpenCliFile(String),
     /// Jump to a line number from CLI --line flag (deferred after file opens)
     DeferredGotoLine(usize),
     /// User dragged the tree panel divider to resize
