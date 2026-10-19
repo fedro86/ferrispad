@@ -1,7 +1,7 @@
 ---
 id: T0039
 title: Add a visible Cancel button to the large-file loading progress dialog
-status: review
+status: done
 created: 2026-08-25
 severity: minor
 area: ui
