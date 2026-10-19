@@ -1,7 +1,7 @@
 ---
 id: T0045
 title: Clamp TerminalGrid dimensions to at least 1×1
-status: review
+status: done
 created: 2026-09-23
 severity: minor
 area: robustness
