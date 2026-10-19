@@ -17,6 +17,35 @@ fn preview_dir() -> std::path::PathBuf {
     std::env::temp_dir().join("ferrispad_preview")
 }
 
+/// Why a browser preview did not open — shown to the user as a popup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreviewNotice {
+    /// The active document is not a Markdown file (an info notice).
+    NotMarkdown,
+    /// Writing the preview file or launching the browser failed.
+    OpenFailed(String),
+}
+
+impl PreviewNotice {
+    /// Popup title.
+    pub fn title(&self) -> &'static str {
+        match self {
+            Self::NotMarkdown => "Preview",
+            Self::OpenFailed(_) => "Preview Failed",
+        }
+    }
+
+    /// Popup message.
+    pub fn message(&self) -> String {
+        match self {
+            Self::NotMarkdown => {
+                "Preview is only available for Markdown files (.md, .markdown, .mdown)".to_string()
+            }
+            Self::OpenFailed(e) => e.clone(),
+        }
+    }
+}
+
 pub struct PreviewController {
     /// Set of temp file paths created during this session.
     temp_files: HashSet<std::path::PathBuf>,
@@ -75,19 +104,17 @@ impl PreviewController {
     }
 
     /// Render and open a markdown document in the default browser.
-    /// Shows an error dialog if the file is not markdown or browser launch fails.
+    /// Returns the notice to show the user if the file is not markdown or the
+    /// browser launch fails (the caller shows it in a themed popup).
     pub fn preview_in_browser(
         &mut self,
         file_path: Option<&str>,
         doc_id: u64,
         text: &str,
         dark_mode: bool,
-    ) {
+    ) -> Result<(), PreviewNotice> {
         if !Self::is_markdown_file(file_path) {
-            fltk::dialog::message_default(
-                "Preview is only available for Markdown files (.md, .markdown, .mdown)",
-            );
-            return;
+            return Err(PreviewNotice::NotMarkdown);
         }
 
         let raw_html = Self::render_markdown(text);
@@ -96,9 +123,8 @@ impl PreviewController {
             .map(|p| p.to_path_buf());
         let wrapped = wrap_html_for_preview(&raw_html, dark_mode, base_dir.as_deref());
 
-        if let Err(e) = self.open_in_browser(file_path, doc_id, &wrapped) {
-            fltk::dialog::alert_default(&e);
-        }
+        self.open_in_browser(file_path, doc_id, &wrapped)
+            .map_err(PreviewNotice::OpenFailed)
     }
 
     /// Open markdown preview in the default browser for a specific document.
@@ -358,6 +384,30 @@ mod tests {
         assert!(PreviewController::is_markdown_file(Some("test.mdown")));
         assert!(!PreviewController::is_markdown_file(Some("test.txt")));
         assert!(!PreviewController::is_markdown_file(None));
+    }
+
+    // T0024: the controller returns the notice instead of opening an unthemed
+    // FLTK popup itself; a non-Markdown file never reaches the browser.
+    #[test]
+    fn preview_of_non_markdown_returns_the_info_notice() {
+        let mut preview = PreviewController::new();
+        assert_eq!(
+            preview.preview_in_browser(Some("notes.txt"), 1, "text", true),
+            Err(PreviewNotice::NotMarkdown)
+        );
+        assert_eq!(
+            preview.preview_in_browser(None, 2, "text", false),
+            Err(PreviewNotice::NotMarkdown)
+        );
+    }
+
+    #[test]
+    fn preview_notice_titles_and_messages() {
+        assert_eq!(PreviewNotice::NotMarkdown.title(), "Preview");
+        assert!(PreviewNotice::NotMarkdown.message().contains(".md"));
+        let failed = PreviewNotice::OpenFailed("no browser".to_string());
+        assert_eq!(failed.title(), "Preview Failed");
+        assert_eq!(failed.message(), "no browser");
     }
 
     #[test]

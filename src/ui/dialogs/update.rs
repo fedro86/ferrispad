@@ -1,7 +1,6 @@
 use fltk::{
     app,
     button::Button,
-    dialog,
     enums::{Color, Font, FrameType},
     frame::Frame,
     group::Flex,
@@ -252,7 +251,7 @@ pub fn show_update_available_dialog(
                         match updater::install_update(&temp_file) {
                             Ok(_) => {
                                 app::awake_callback(move || {
-                                    dialog::message_default("Update installed successfully!\n\nFerrisPad will now restart.");
+                                    super::show_themed_message(theme_bg, "Update Installed", "Update installed successfully!\n\nFerrisPad will now restart.");
                                     if let Ok(current_exe) = std::env::current_exe() {
                                         let _ = std::process::Command::new(current_exe).spawn();
                                     }
@@ -264,7 +263,7 @@ pub fn show_update_available_dialog(
                                 let mut s_err = s_frame_install.clone();
                                 app::awake_callback(move || {
                                     s_err.set_label("Installation failed");
-                                    dialog::alert_default(&format!("Failed to install update: {}", e));
+                                    super::show_themed_message(theme_bg, "Update Failed", &format!("Failed to install update: {}", e));
                                     br.activate();
                                 });
                             }
@@ -275,7 +274,7 @@ pub fn show_update_available_dialog(
                         let mut s_err = s_frame_download.clone();
                         app::awake_callback(move || {
                             s_err.set_label("Download/verification failed");
-                            dialog::alert_default(&format!("Failed to download update: {}", e));
+                            super::show_themed_message(theme_bg, "Update Failed", &format!("Failed to download update: {}", e));
                             br.activate();
                         });
                     }
@@ -288,7 +287,11 @@ pub fn show_update_available_dialog(
     let release_url = release.html_url.clone();
     download_btn.set_callback(move |_| {
         if let Err(e) = open::that(&release_url) {
-            dialog::alert_default(&format!("Failed to open browser: {}", e));
+            super::show_themed_message(
+                theme_bg,
+                "Updates",
+                &format!("Failed to open browser: {}", e),
+            );
         }
     });
 

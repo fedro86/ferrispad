@@ -1,6 +1,5 @@
 use fltk::{
     button::Button,
-    dialog,
     enums::CallbackTrigger,
     frame::Frame,
     input::IntInput,
@@ -61,7 +60,11 @@ pub fn show_goto_line_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme
         let line_num: usize = match input_val.trim().parse() {
             Ok(n) => n,
             Err(_) => {
-                dialog::message_default("Please enter a valid line number");
+                super::show_themed_message(
+                    theme_bg,
+                    "Go To Line",
+                    "Please enter a valid line number",
+                );
                 return;
             }
         };
@@ -75,10 +78,11 @@ pub fn show_goto_line_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme
             te.show_insert_position();
             dialog_go.clone().hide();
         } else {
-            dialog::message_default(&format!(
-                "Line number must be between 1 and {}",
-                total_lines
-            ));
+            super::show_themed_message(
+                theme_bg,
+                "Go To Line",
+                &format!("Line number must be between 1 and {}", total_lines),
+            );
         }
     });
 

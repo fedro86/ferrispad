@@ -11,7 +11,6 @@ use fltk::{
     app,
     app::Sender,
     button::Button,
-    dialog,
     enums::{Align, Color, Event, Font, FrameType},
     frame::Frame,
     group::Flex,
@@ -20,7 +19,7 @@ use fltk::{
 };
 
 use super::color::ThemeRgb;
-use super::dialogs::{DialogTheme, SCROLLBAR_SIZE};
+use super::dialogs::{DialogTheme, SCROLLBAR_SIZE, show_themed_choice};
 use super::divider::{self, DockEdge, DragAxis};
 use super::scrollbar::{style_scrollbars, text_display_vscroll_value};
 use super::theme::{PanelTheme, Themeable};
@@ -955,6 +954,7 @@ impl SplitPanel {
             let sender = self.sender;
             let action_name = action_def.action.clone();
             let action_label = action_def.label.clone();
+            let theme_bg = self.theme_bg;
 
             btn.set_callback(move |_| {
                 if action_name == "accept" {
@@ -963,7 +963,8 @@ impl SplitPanel {
                         "Are you sure you want to \"{}\"?\n\nThis will replace the current editor content and cannot be undone.",
                         action_label
                     );
-                    if dialog::choice2_default(&msg, "Cancel", &action_label, "") == Some(1) {
+                    let choice = show_themed_choice(theme_bg, &action_label, &msg, "Cancel", &action_label, "");
+                    if choice == Some(1) {
                         sender.send(Message::SplitViewAccept(session_id));
                     }
                 } else if action_name == "reject" {

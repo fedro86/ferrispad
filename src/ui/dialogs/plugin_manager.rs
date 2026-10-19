@@ -32,7 +32,7 @@ use crate::app::services::plugin_verify::{
 };
 
 use super::community_install::{CommunityInstallReview, show_community_install_dialog};
-use super::{DialogTheme, SCROLLBAR_SIZE};
+use super::{DialogTheme, SCROLLBAR_SIZE, show_themed_choice, show_themed_message};
 
 // Layout constants
 const DIALOG_WIDTH: i32 = 550;
@@ -694,7 +694,11 @@ pub fn show_plugin_manager_dialog(
             if let Err(e) = parse_github_url(&url) {
                 btn.set_label("Install");
                 btn.activate();
-                fltk::dialog::alert_default(&format!("Invalid URL:\n{}", e));
+                show_themed_message(
+                    theme_for_url.theme_bg(),
+                    "Plugin Manager",
+                    &format!("Invalid URL:\n{}", e),
+                );
                 return;
             }
 
@@ -704,7 +708,11 @@ pub fn show_plugin_manager_dialog(
                 Err(e) => {
                     btn.set_label("Install");
                     btn.activate();
-                    fltk::dialog::alert_default(&format!("Failed to fetch plugin.toml:\n{}", e));
+                    show_themed_message(
+                        theme_for_url.theme_bg(),
+                        "Plugin Manager",
+                        &format!("Failed to fetch plugin.toml:\n{}", e),
+                    );
                     return;
                 }
             };
@@ -782,7 +790,11 @@ pub fn show_plugin_manager_dialog(
                 Err(e) => {
                     btn.set_label("Install");
                     btn.activate();
-                    fltk::dialog::alert_default(&format!("Failed to install:\n{}", e));
+                    show_themed_message(
+                        theme_for_url.theme_bg(),
+                        "Plugin Manager",
+                        &format!("Failed to install:\n{}", e),
+                    );
                 }
             }
         });
@@ -1260,7 +1272,9 @@ fn add_installed_actions(
     let ctx = ctx.clone();
     uninstall_btn.set_callback(move |_btn| {
         // Confirmation dialog
-        let choice = fltk::dialog::choice2_default(
+        let choice = show_themed_choice(
+            ctx.theme.theme_bg(),
+            "Uninstall Plugin",
             &format!(
                 "Uninstall \"{}\"?\n\nThis will delete the plugin files.",
                 plugin_name_uninstall
@@ -1322,8 +1336,11 @@ fn add_details_button(url: Option<&str>, btn_x: i32, theme: &DialogTheme) {
     style_row_button(&mut details_btn, theme);
 
     let url = url.to_string();
+    let theme_bg = theme.theme_bg();
     details_btn.set_callback(move |_| {
-        let choice = fltk::dialog::choice2_default(
+        let choice = show_themed_choice(
+            theme_bg,
+            "Open in Browser",
             &format!("This will open your browser to:\n\n{}\n\nContinue?", url),
             "Cancel",
             "Open in Browser",
@@ -1421,10 +1438,14 @@ fn add_official_install_button(
                     VerificationStatus::Invalid(reason) => {
                         btn.set_label("Failed");
                         btn.activate();
-                        fltk::dialog::alert_default(&format!(
-                            "Signature verification failed for {}:\n{}",
-                            info.name, reason
-                        ));
+                        show_themed_message(
+                            ctx.theme.theme_bg(),
+                            "Plugin Manager",
+                            &format!(
+                                "Signature verification failed for {}:\n{}",
+                                info.name, reason
+                            ),
+                        );
                     }
                 }
             }
@@ -1432,7 +1453,11 @@ fn add_official_install_button(
                 btn.set_label("Error");
                 btn.activate();
                 eprintln!("[plugins] Install error: {}", e);
-                fltk::dialog::alert_default(&format!("Failed to install {}:\n{}", info.name, e));
+                show_themed_message(
+                    ctx.theme.theme_bg(),
+                    "Plugin Manager",
+                    &format!("Failed to install {}:\n{}", info.name, e),
+                );
             }
         }
     });
@@ -1465,7 +1490,11 @@ fn add_community_install_button(
             Err(e) => {
                 btn.set_label("Error");
                 btn.activate();
-                fltk::dialog::alert_default(&format!("Failed to fetch plugin.toml:\n{}", e));
+                show_themed_message(
+                    ctx.theme.theme_bg(),
+                    "Plugin Manager",
+                    &format!("Failed to fetch plugin.toml:\n{}", e),
+                );
                 return;
             }
         };
@@ -1533,7 +1562,11 @@ fn add_community_install_button(
             Err(e) => {
                 btn.set_label("Error");
                 btn.activate();
-                fltk::dialog::alert_default(&format!("Failed to install {}:\n{}", info.name, e));
+                show_themed_message(
+                    ctx.theme.theme_bg(),
+                    "Plugin Manager",
+                    &format!("Failed to install {}:\n{}", info.name, e),
+                );
             }
         }
     });

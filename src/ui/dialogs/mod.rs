@@ -67,8 +67,8 @@ pub struct DialogTheme {
     pub scroll_thumb: Color,
     /// Whether the theme is dark mode
     is_dark: bool,
-    /// Original syntax theme background (needed for titlebar theming on Windows)
-    #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+    /// Original syntax theme background (titlebar theming on Windows, and the
+    /// themed popups opened from a dialog that only holds a `DialogTheme`)
     theme_bg: (u8, u8, u8),
 }
 
@@ -328,6 +328,12 @@ impl DialogTheme {
         }
     }
 
+    /// The syntax theme background this theme was derived from — what the
+    /// themed popups ([`show_themed_message`] & co.) take.
+    pub fn theme_bg(&self) -> (u8, u8, u8) {
+        self.theme_bg
+    }
+
     /// Check if the theme is dark mode
     pub fn is_dark(&self) -> bool {
         self.is_dark
@@ -396,54 +402,252 @@ pub fn run_dialog(dialog: &Window) {
     }
 }
 
-/// Themed info/error dialog replacing FLTK's unthemed `dialog::message_default`
-/// and `dialog::alert_default`. Use this from any callback that needs to surface
-/// a quick notice; pass the current theme background so the popup matches.
-pub fn show_themed_message(theme_bg: (u8, u8, u8), title: &str, message: &str) {
-    use fltk::{button::Button, frame::Frame, group::Flex};
+/// Button row of a themed popup, following FLTK's `dialog::choice2_default`
+/// contract so call sites keep their meaning when they migrate: `b0` is the
+/// rightmost button, `b1` the middle one and the Enter default, `b2` the
+/// leftmost; an empty label means "no such button".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ChoiceLayout<'a> {
+    /// Buttons left to right, as `(returned index, label)`.
+    pub buttons: Vec<(usize, &'a str)>,
+    /// Returned index of the button that Enter triggers.
+    pub default: usize,
+}
+
+/// Lay out the `b0`/`b1`/`b2` buttons of a themed popup (see [`ChoiceLayout`]).
+/// Enter picks `b1` when present (FLTK's return button), else `b0`, else `b2`. With no
+/// label at all the popup still gets a single "Close" button at index 0, so
+/// it always has a button besides Escape and the window's close button.
+pub(crate) fn choice_layout<'a>(b0: &'a str, b1: &'a str, b2: &'a str) -> ChoiceLayout<'a> {
+    let b0 = if b0.is_empty() && b1.is_empty() && b2.is_empty() {
+        "Close"
+    } else {
+        b0
+    };
+    let buttons: Vec<(usize, &str)> = [(2, b2), (1, b1), (0, b0)]
+        .into_iter()
+        .filter(|(_, label)| !label.is_empty())
+        .collect();
+    let default = [1, 0, 2]
+        .into_iter()
+        .find(|i| buttons.iter().any(|(index, _)| index == i))
+        .unwrap_or(0);
+    ChoiceLayout { buttons, default }
+}
+
+/// Width of a themed popup window.
+const POPUP_WIDTH: i32 = 420;
+/// Outer padding of a themed popup.
+const POPUP_PADDING: i32 = 15;
+/// Approximate characters that fit on one line of the message (13px font).
+const POPUP_CHARS_PER_LINE: usize = 52;
+/// Height of one message line.
+const POPUP_LINE_HEIGHT: i32 = 18;
+/// Message lines shown before the text is clipped (keeps the popup on screen).
+const POPUP_MAX_LINES: usize = 24;
+/// Height of the input field and of the button row.
+const POPUP_ROW_HEIGHT: i32 = 30;
+/// Vertical gap between the message, the input and the buttons.
+const POPUP_SPACING: i32 = 10;
+
+/// Number of display lines `message` takes once wrapped at `chars_per_line`
+/// (at least one, so an empty message still gets a line).
+pub(crate) fn wrapped_line_count(message: &str, chars_per_line: usize) -> usize {
+    let per_line = chars_per_line.max(1);
+    message
+        .split('\n')
+        .map(|line| line.chars().count().div_ceil(per_line).max(1))
+        .sum::<usize>()
+        .max(1)
+}
+
+/// Window height of a themed popup showing `message` (plus an input field
+/// when `has_input`), sized so the text is not clipped up to
+/// [`POPUP_MAX_LINES`] lines.
+pub(crate) fn popup_height(message: &str, has_input: bool) -> i32 {
+    let lines = wrapped_line_count(message, POPUP_CHARS_PER_LINE).min(POPUP_MAX_LINES);
+    let message_h = (lines as i32 * POPUP_LINE_HEIGHT).max(2 * POPUP_LINE_HEIGHT);
+    let input_h = if has_input {
+        POPUP_ROW_HEIGHT + POPUP_SPACING
+    } else {
+        0
+    };
+    2 * POPUP_PADDING + message_h + POPUP_SPACING + input_h + POPUP_ROW_HEIGHT
+}
+
+/// Width of a popup button wide enough for `label`.
+pub(crate) fn popup_button_width(label: &str) -> i32 {
+    (label.chars().count() as i32 * 8 + 24).max(80)
+}
+
+/// The single themed popup behind [`show_themed_message`],
+/// [`show_themed_choice`] and [`show_themed_input`]: a modal window with the
+/// message, an optional prefilled input and a button row, run by
+/// [`run_dialog`]. Returns the pressed button's index (`None` for Escape, the
+/// window's close button, or an app quit) and the input's final text.
+fn run_themed_popup(
+    theme_bg: (u8, u8, u8),
+    title: &str,
+    message: &str,
+    input_default: Option<&str>,
+    layout: &ChoiceLayout<'_>,
+) -> (Option<usize>, String) {
+    use fltk::{
+        button::Button,
+        enums::{Align, Event, Key},
+        frame::Frame,
+        group::{Flex, FlexType},
+        input::Input,
+    };
+    use std::cell::Cell;
+    use std::rc::Rc;
 
     let theme = DialogTheme::from_theme_bg(theme_bg);
-    let dialog_bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
+    let height = popup_height(message, input_default.is_some());
 
     let mut dialog = Window::default()
-        .with_size(380, 180)
+        .with_size(POPUP_WIDTH, height)
         .with_label(title)
         .center_screen();
     dialog.make_modal(true);
-    dialog.set_color(dialog_bg);
+    dialog.set_color(theme.bg);
 
-    let mut flex = Flex::new(15, 15, 350, 150, None);
-    flex.set_type(fltk::group::FlexType::Column);
-    flex.set_spacing(10);
-    flex.set_color(dialog_bg);
+    let mut column = Flex::new(
+        POPUP_PADDING,
+        POPUP_PADDING,
+        POPUP_WIDTH - 2 * POPUP_PADDING,
+        height - 2 * POPUP_PADDING,
+        None,
+    );
+    column.set_type(FlexType::Column);
+    column.set_spacing(POPUP_SPACING);
 
     let mut msg_frame = Frame::default();
     msg_frame.set_label(message);
     msg_frame.set_label_size(13);
     msg_frame.set_label_color(theme.text);
-    msg_frame.set_frame(FrameType::FlatBox);
-    msg_frame.set_color(dialog_bg);
-    msg_frame.set_align(
-        fltk::enums::Align::Center | fltk::enums::Align::Inside | fltk::enums::Align::Wrap,
-    );
+    msg_frame.set_align(Align::Left | Align::Inside | Align::Wrap | Align::Clip);
 
-    let mut close_btn = Button::default().with_label("Close");
-    close_btn.set_frame(FrameType::RFlatBox);
-    close_btn.set_color(theme.button_bg);
-    close_btn.set_label_color(theme.text);
-    flex.fixed(&close_btn, 35);
+    let input = input_default.map(|text| {
+        let mut input = Input::default();
+        input.set_value(text);
+        input.set_color(theme.input_bg);
+        input.set_text_color(theme.text);
+        input.set_cursor_color(theme.text);
+        input.set_selection_color(theme.button_bg);
+        input.set_frame(FrameType::FlatBox);
+        column.fixed(&input, POPUP_ROW_HEIGHT);
+        input
+    });
 
-    flex.end();
+    let result: Rc<Cell<Option<usize>>> = Rc::new(Cell::new(None));
+
+    let mut row = Flex::default();
+    row.set_type(FlexType::Row);
+    row.set_spacing(POPUP_SPACING);
+    Frame::default(); // spacer: the buttons sit on the right, as in FLTK
+    let mut default_btn = None;
+    for &(index, label) in &layout.buttons {
+        let mut btn = Button::default().with_label(label);
+        btn.set_frame(FrameType::RFlatBox);
+        btn.set_label_color(theme.text);
+        btn.set_color(if index == layout.default {
+            theme.button_bg
+        } else {
+            theme.secondary_button_bg
+        });
+        row.fixed(&btn, popup_button_width(label));
+        let result_btn = result.clone();
+        let mut dialog_btn = dialog.clone();
+        btn.set_callback(move |_| {
+            result_btn.set(Some(index));
+            dialog_btn.hide();
+        });
+        if index == layout.default {
+            default_btn = Some(btn);
+        }
+    }
+    row.end();
+    column.fixed(&row, POPUP_ROW_HEIGHT);
+    column.end();
     dialog.end();
 
-    let mut dialog_close = dialog.clone();
-    close_btn.set_callback(move |_| {
-        dialog_close.hide();
-    });
+    // Escape and the window's close button dismiss with no choice.
+    dialog.set_callback(|w| w.hide());
+    // Enter (main or keypad) presses the default button, even from the input.
+    if let Some(btn) = default_btn.clone() {
+        dialog.handle(move |_, ev| {
+            if ev == Event::Shortcut && matches!(app::event_key(), Key::Enter | Key::KPEnter) {
+                btn.clone().do_callback();
+                return true;
+            }
+            false
+        });
+    }
 
     dialog.show();
     theme.apply_titlebar(&dialog);
+    if let Some(input) = &input {
+        // Focus the input with its text selected, so typing replaces it.
+        let mut input = input.clone();
+        let _ = input.take_focus();
+        let end = input.value().len() as i32;
+        let _ = input.set_position(end);
+        let _ = input.set_mark(0);
+    } else if let Some(mut btn) = default_btn {
+        let _ = btn.take_focus();
+    }
     run_dialog(&dialog);
+
+    let text = input.map(|i| i.value()).unwrap_or_default();
+    (result.get(), text)
+}
+
+/// Themed info/error notice replacing FLTK's unthemed `dialog::message_default`
+/// and `dialog::alert_default`: the message and a "Close" button (Enter,
+/// Escape and the window's close button all dismiss it). Pass the current
+/// theme background so the popup matches the app.
+pub fn show_themed_message(theme_bg: (u8, u8, u8), title: &str, message: &str) {
+    run_themed_popup(
+        theme_bg,
+        title,
+        message,
+        None,
+        &choice_layout("Close", "", ""),
+    );
+}
+
+/// Themed question replacing FLTK's unthemed `dialog::choice2_default`, with
+/// the same button contract (see [`ChoiceLayout`]): returns the index of the
+/// pressed button (`0` for `b0`, `1` for `b1`, `2` for `b2`), or `None` when
+/// the popup is dismissed with Escape or its close button.
+pub fn show_themed_choice(
+    theme_bg: (u8, u8, u8),
+    title: &str,
+    message: &str,
+    b0: &str,
+    b1: &str,
+    b2: &str,
+) -> Option<usize> {
+    run_themed_popup(theme_bg, title, message, None, &choice_layout(b0, b1, b2)).0
+}
+
+/// Themed text prompt replacing FLTK's unthemed `dialog::input_default`:
+/// the prompt, an input prefilled with `default` (selected, so typing
+/// replaces it), and OK / Cancel. Returns the text on OK or Enter, `None` on
+/// Cancel, Escape or the close button.
+pub fn show_themed_input(
+    theme_bg: (u8, u8, u8),
+    title: &str,
+    prompt: &str,
+    default: &str,
+) -> Option<String> {
+    // FLTK's own input dialog layout: b0 = Cancel (rightmost), b1 = OK (Enter).
+    let layout = choice_layout("Cancel", "OK", "");
+    match run_themed_popup(theme_bg, title, prompt, Some(default), &layout) {
+        (Some(1), text) => Some(text),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -494,5 +698,95 @@ mod tests {
                 "theme_bg {theme_bg:?}"
             );
         }
+    }
+
+    #[test]
+    fn dialog_theme_remembers_its_theme_bg() {
+        assert_eq!(
+            DialogTheme::from_theme_bg((40, 44, 52)).theme_bg(),
+            (40, 44, 52)
+        );
+    }
+
+    // --- Themed popups (T0024): FLTK `choice2_default` button contract ---
+
+    #[test]
+    fn choice_layout_puts_b0_rightmost_and_b1_as_default() {
+        let layout = choice_layout("Save", "Discard", "Cancel");
+        assert_eq!(
+            layout.buttons,
+            vec![(2, "Cancel"), (1, "Discard"), (0, "Save")]
+        );
+        assert_eq!(layout.default, 1);
+    }
+
+    #[test]
+    fn choice_layout_skips_empty_labels() {
+        let layout = choice_layout("Reload", "Keep Mine", "");
+        assert_eq!(layout.buttons, vec![(1, "Keep Mine"), (0, "Reload")]);
+        assert_eq!(layout.default, 1);
+    }
+
+    #[test]
+    fn choice_layout_single_button_is_the_default() {
+        let layout = choice_layout("Close", "", "");
+        assert_eq!(layout.buttons, vec![(0, "Close")]);
+        assert_eq!(layout.default, 0);
+    }
+
+    #[test]
+    fn choice_layout_default_falls_back_to_b2() {
+        let layout = choice_layout("", "", "Only");
+        assert_eq!(layout.buttons, vec![(2, "Only")]);
+        assert_eq!(layout.default, 2);
+    }
+
+    #[test]
+    fn choice_layout_never_has_no_button() {
+        let layout = choice_layout("", "", "");
+        assert_eq!(layout.buttons, vec![(0, "Close")]);
+        assert_eq!(layout.default, 0);
+    }
+
+    #[test]
+    fn wrapped_line_count_counts_newlines_and_wraps() {
+        assert_eq!(wrapped_line_count("", 10), 1);
+        assert_eq!(wrapped_line_count("short", 10), 1);
+        assert_eq!(wrapped_line_count("a\n\nb", 10), 3);
+        assert_eq!(wrapped_line_count(&"x".repeat(25), 10), 3);
+        // Counted in chars, not bytes.
+        assert_eq!(wrapped_line_count(&"é".repeat(10), 10), 1);
+        // A zero width cannot divide by zero.
+        assert_eq!(wrapped_line_count("abc", 0), 3);
+    }
+
+    #[test]
+    fn popup_height_grows_with_the_message_and_is_capped() {
+        let one = popup_height("one line", false);
+        let five = popup_height("1\n2\n3\n4\n5", false);
+        assert!(five > one);
+        assert_eq!(five - one, 3 * POPUP_LINE_HEIGHT); // short messages get 2 lines
+        assert_eq!(
+            popup_height("x", true) - popup_height("x", false),
+            POPUP_ROW_HEIGHT + POPUP_SPACING
+        );
+        let huge = "line\n".repeat(500);
+        assert_eq!(
+            popup_height(&huge, false),
+            popup_height(&"line\n".repeat(POPUP_MAX_LINES - 1), false)
+        );
+    }
+
+    #[test]
+    fn popup_button_width_fits_long_labels() {
+        assert_eq!(popup_button_width("OK"), 80);
+        assert!(popup_button_width("Quit Without Saving") > 80);
+        assert!(
+            popup_button_width("Save All")
+                + popup_button_width("Quit Without Saving")
+                + popup_button_width("Cancel")
+                + 3 * POPUP_SPACING
+                <= POPUP_WIDTH - 2 * POPUP_PADDING
+        );
     }
 }

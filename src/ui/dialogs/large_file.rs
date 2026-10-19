@@ -7,7 +7,6 @@ use super::DialogTheme;
 use fltk::{
     app,
     button::Button,
-    dialog,
     enums::{Align, FrameType},
     frame::Frame,
     group::Flex,
@@ -30,20 +29,19 @@ use std::sync::{
 use crate::app::services::file_size::format_size;
 
 /// Show warning for large file, return true if user wants to proceed
-pub fn show_large_file_warning(path: &Path, size: u64) -> bool {
+pub fn show_large_file_warning(path: &Path, size: u64, theme_bg: (u8, u8, u8)) -> bool {
     let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
 
     let msg = format!(
-        "Large File Warning\n\n\
-        \"{}\" is {} which may take a while to load \
+        "\"{}\" is {} which may take a while to load \
         and use significant memory.\n\n\
         Do you want to continue?",
         filename,
         format_size(size)
     );
 
-    // choice2_default returns Some(0) for first button, Some(1) for second
-    dialog::choice2_default(&msg, "Open", "Cancel", "") == Some(0)
+    // b0 = "Open" (rightmost), b1 = "Cancel" (the Enter default, as before)
+    super::show_themed_choice(theme_bg, "Large File Warning", &msg, "Open", "Cancel", "") == Some(0)
 }
 
 /// Result of the "file too large" dialog

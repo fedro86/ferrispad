@@ -2,8 +2,6 @@ use std::cell::RefCell;
 use std::fs;
 use std::rc::Rc;
 
-use fltk::dialog;
-
 use super::preview::{PreviewController, wrap_html_for_preview};
 use super::tabs::TabManager;
 use crate::app::domain::document::DocumentId;
@@ -53,6 +51,8 @@ pub enum FileAction {
         path: String,
         text: String,
     },
+    /// Tell the user a file operation failed (themed error popup).
+    ShowError(String),
 }
 
 /// Kind of external change detected for an open document.
@@ -144,8 +144,10 @@ impl FileController {
                                 );
                             }
                             Err(e) => {
-                                dialog::alert_default(&format!("Failed to read file tail: {}", e));
-                                return vec![];
+                                return vec![FileAction::ShowError(format!(
+                                    "Failed to read file tail: {}",
+                                    e
+                                ))];
                             }
                         }
                     }
@@ -170,15 +172,17 @@ impl FileController {
                                 );
                             }
                             Err(e) => {
-                                dialog::alert_default(&format!("Failed to read file chunk: {}", e));
-                                return vec![];
+                                return vec![FileAction::ShowError(format!(
+                                    "Failed to read file chunk: {}",
+                                    e
+                                ))];
                             }
                         }
                     }
                 }
             }
             Ok(FileSizeCheck::Large(size)) => {
-                if !show_large_file_warning(path_ref, size) {
+                if !show_large_file_warning(path_ref, size, theme_bg) {
                     return vec![]; // User cancelled
                 }
                 // Stream directly to TextBuffer to avoid ~2x memory
@@ -193,8 +197,7 @@ impl FileController {
                     }
                     StreamLoadResult::Cancelled => return vec![],
                     StreamLoadResult::Error(e) => {
-                        dialog::alert_default(&format!("Error opening file: {}", e));
-                        return vec![];
+                        return vec![FileAction::ShowError(format!("Error opening file: {}", e))];
                     }
                 }
             }
@@ -209,8 +212,7 @@ impl FileController {
         match fs::read_to_string(&path) {
             Ok(content) => self.open_file_content(path, content, tab_manager, tabs_enabled),
             Err(e) => {
-                dialog::alert_default(&format!("Error opening file: {}", e));
-                vec![]
+                vec![FileAction::ShowError(format!("Error opening file: {}", e))]
             }
         }
     }
@@ -332,8 +334,7 @@ impl FileController {
                     ]
                 }
                 Err(e) => {
-                    dialog::alert_default(&format!("Error saving file: {}", e));
-                    vec![]
+                    vec![FileAction::ShowError(format!("Error saving file: {}", e))]
                 }
             }
         } else {
@@ -398,8 +399,7 @@ impl FileController {
                     actions
                 }
                 Err(e) => {
-                    dialog::alert_default(&format!("Error saving file: {}", e));
-                    vec![]
+                    vec![FileAction::ShowError(format!("Error saving file: {}", e))]
                 }
             }
         } else {
@@ -430,8 +430,10 @@ impl FileController {
         let content = match fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => {
-                dialog::alert_default(&format!("Error reloading file: {}", e));
-                return vec![];
+                return vec![FileAction::ShowError(format!(
+                    "Error reloading file: {}",
+                    e
+                ))];
             }
         };
         let new_mtime = fs::metadata(&path).ok().and_then(|m| m.modified().ok());
