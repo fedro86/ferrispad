@@ -1,7 +1,7 @@
 ---
 id: T0048
 title: Regex find respects line anchors at the cursor and steps past empty matches
-status: review
+status: done
 created: 2026-10-19
 severity: moderate
 area: robustness
