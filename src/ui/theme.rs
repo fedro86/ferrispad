@@ -16,6 +16,29 @@ use super::tab_bar::theme_colors_from_bg;
 /// Width of all draggable panel dividers (tree, split, terminal).
 pub const DIVIDER_WIDTH: i32 = 2;
 
+/// The theme inputs every panel derives its colors from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PanelTheme {
+    /// The app's dark-mode flag.
+    pub is_dark: bool,
+    /// The syntax theme's editor background.
+    pub bg: (u8, u8, u8),
+}
+
+/// A panel whose colors follow the app theme. One signature for every panel,
+/// so a theme change can iterate them all (see `LayoutWidgets::themeable_panels`).
+pub trait Themeable {
+    /// Re-derive this panel's colors from `theme`.
+    fn apply_theme(&mut self, theme: PanelTheme);
+
+    /// Whether a theme change should reach this panel now. Panels that
+    /// re-theme themselves when shown (and are costly to restyle) return
+    /// `false` while hidden.
+    fn wants_retheme(&self) -> bool {
+        true
+    }
+}
+
 /// Derive divider color from the syntax theme background.
 /// It *is* the tab bar background, so dividers and the tab bar never drift apart.
 pub fn divider_color_from_bg(theme_bg: (u8, u8, u8)) -> Color {

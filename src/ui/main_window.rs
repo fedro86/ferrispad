@@ -11,6 +11,7 @@ use super::start_page::StartPage;
 use super::status_bar::{STATUS_BAR_HEIGHT, StatusBar};
 use super::tab_bar::{TAB_BAR_HEIGHT, TabBar};
 use super::terminal_panel::TerminalPanel;
+use super::theme::Themeable;
 use super::toast::Toast;
 use super::tree_panel::TreePanel;
 use crate::app::Message;
@@ -34,6 +35,39 @@ pub struct LayoutWidgets {
     /// Column flex holding tab_bar + editor (Left/Right tree positions).
     /// None for Bottom position (editor is in content_row directly).
     pub editor_col: Option<Flex>,
+}
+
+impl LayoutWidgets {
+    /// Every panel whose colors follow the app theme, for a theme change to
+    /// iterate. The destructure is exhaustive on purpose: a new field fails to
+    /// compile here until it is either listed or marked as not themed.
+    pub fn themeable_panels(&mut self) -> [&mut dyn Themeable; 6] {
+        let LayoutWidgets {
+            split_panel,
+            diagnostic_panel,
+            tree_panel,
+            terminal_panel,
+            toast,
+            status_bar,
+            // Not themed by a theme change: layout containers, plus the start
+            // page, which `sync_start_page` rebuilds when the theme bg moves.
+            wind: _,
+            flex: _,
+            content_row: _,
+            right_col: _,
+            tree_position: _,
+            start_page: _,
+            editor_col: _,
+        } = self;
+        [
+            tree_panel,
+            split_panel,
+            terminal_panel,
+            diagnostic_panel,
+            status_bar,
+            toast,
+        ]
+    }
 }
 
 /// Resolve the parent Flex that owns the split panel.

@@ -23,6 +23,7 @@ use super::color::ThemeRgb;
 use super::dialogs::{DialogTheme, SCROLLBAR_SIZE};
 use super::divider::{self, DockEdge, DragAxis};
 use super::scrollbar::{style_scrollbars, text_display_vscroll_value};
+use super::theme::{PanelTheme, Themeable};
 use crate::app::Message;
 use crate::app::plugins::widgets::{
     HighlightColor, LineHighlight, SplitDisplayMode, SplitPane, SplitViewAction, SplitViewRequest,
@@ -1053,9 +1054,12 @@ impl SplitPanel {
     pub fn drag_docked_height(&mut self, mouse_y: i32, col_y: i32, col_h: i32) -> i32 {
         self.docked_height.drag_to(mouse_y, col_y, col_h)
     }
+}
 
+impl Themeable for SplitPanel {
     /// Apply theme colors derived from the syntax theme background.
-    pub fn apply_theme(&mut self, _is_dark: bool, theme_bg: (u8, u8, u8)) {
+    fn apply_theme(&mut self, panel_theme: PanelTheme) {
+        let theme_bg = panel_theme.bg;
         let theme = DialogTheme::from_theme_bg(theme_bg);
         let (r, g, b) = theme_bg;
         self.is_dark = theme.is_dark();
@@ -1160,6 +1164,13 @@ impl SplitPanel {
         }
     }
 
+    /// Re-themed by its show path, so a hidden panel is skipped.
+    fn wants_retheme(&self) -> bool {
+        self.is_visible()
+    }
+}
+
+impl SplitPanel {
     /// Update header and action bar colors based on tab mode.
     /// In tab mode, uses the diff tab's tinted background; otherwise uses dialog theme bg.
     fn update_tab_mode_colors(&mut self) {

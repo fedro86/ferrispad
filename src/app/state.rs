@@ -39,7 +39,7 @@ use crate::ui::editor_container::EditorContainer;
 use crate::ui::tab_bar::TabBar;
 #[cfg(target_os = "windows")]
 use crate::ui::theme::set_windows_titlebar_theme;
-use crate::ui::theme::{apply_syntax_theme_colors, apply_theme};
+use crate::ui::theme::{PanelTheme, Themeable, apply_syntax_theme_colors, apply_theme};
 #[cfg(target_os = "macos")]
 use crate::ui::theme::{set_macos_titlebar_color, update_macos_title_label};
 
@@ -793,9 +793,33 @@ impl AppState {
             .borrow()
             .current_syntax_theme(self.view.dark_mode);
         self.highlight.set_theme(theme);
+        self.apply_theme_to_owned_widgets();
 
-        // Get syntax theme colors
-        let bg = self.highlight.highlighter().theme_background();
+        self.highlight
+            .rehighlight_all_documents(&mut self.tab_manager, &self.sender);
+        self.bind_active_buffer();
+
+        // Call plugin hook
+        self.plugins.call_hook(PluginHook::OnThemeChanged {
+            is_dark: self.view.dark_mode,
+        });
+    }
+
+    /// The theme inputs panels derive their colors from: the dark-mode flag
+    /// and the current syntax theme's background.
+    pub fn panel_theme(&self) -> PanelTheme {
+        PanelTheme {
+            is_dark: self.view.dark_mode,
+            bg: self.highlight.highlighter().theme_background(),
+        }
+    }
+
+    /// Re-theme the widgets `AppState` owns (editor, window, menu bar, title
+    /// bar, tab bar) from the current dark-mode flag and syntax theme. The
+    /// panels in `LayoutWidgets` are re-themed by `dispatch::retheme_panels`.
+    fn apply_theme_to_owned_widgets(&mut self) {
+        let theme = self.panel_theme();
+        let bg = theme.bg;
         let fg = self.highlight.highlighter().theme_foreground();
 
         // Apply theme with syntax background for menu bar color
@@ -804,7 +828,7 @@ impl AppState {
             &mut self.window,
             &mut self.menu,
             Some(&mut self.update_banner_frame),
-            self.view.dark_mode,
+            theme.is_dark,
             bg,
         );
         #[cfg(target_os = "windows")]
@@ -817,19 +841,8 @@ impl AppState {
 
         // Apply theme to tab bar with editor background color
         if let Some(ref mut tab_bar) = self.tab_bar {
-            tab_bar.apply_theme(self.view.dark_mode, bg);
+            tab_bar.apply_theme(theme);
         }
-
-        // Split panel theme is applied via Message::SplitViewShow (panel lives in MainWidgets)
-
-        self.highlight
-            .rehighlight_all_documents(&mut self.tab_manager, &self.sender);
-        self.bind_active_buffer();
-
-        // Call plugin hook
-        self.plugins.call_hook(PluginHook::OnThemeChanged {
-            is_dark: self.view.dark_mode,
-        });
     }
 
     pub fn toggle_highlighting(&mut self) {
@@ -985,35 +998,8 @@ impl AppState {
         let syntax_theme = new_settings.current_syntax_theme(is_dark);
         self.highlight.set_theme(syntax_theme);
         self.highlight.set_font(font, new_font_size);
-
-        // Get syntax theme colors
-        let bg = self.highlight.highlighter().theme_background();
-        let fg = self.highlight.highlighter().theme_foreground();
-
-        // Apply theme with syntax background for menu bar color
-        apply_theme(
-            &mut self.editor,
-            &mut self.window,
-            &mut self.menu,
-            Some(&mut self.update_banner_frame),
-            is_dark,
-            bg,
-        );
-        #[cfg(target_os = "windows")]
-        set_windows_titlebar_theme(&self.window, bg, fg);
-        #[cfg(target_os = "macos")]
-        set_macos_titlebar_color(&self.window, bg, fg);
+        self.apply_theme_to_owned_widgets();
         self.update_menu_checkbox("View/Toggle Dark Mode", is_dark);
-
-        // Apply syntax theme colors to editor
-        apply_syntax_theme_colors(&mut self.editor, bg, fg);
-
-        // Apply theme to tab bar with editor background color
-        if let Some(ref mut tab_bar) = self.tab_bar {
-            tab_bar.apply_theme(is_dark, bg);
-        }
-
-        // Split panel theme is applied via show_split_view (panel lives in MainWidgets)
 
         self.view.show_linenumbers = new_settings.line_numbers_enabled;
         self.update_linenumber_width();
