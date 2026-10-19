@@ -295,10 +295,11 @@ impl PluginController {
                     apply_plugin_uninstalls(&plugins_dir, &installed, &uninstalled);
 
                 if !errors.is_empty() {
-                    fltk::dialog::alert_default(&format!(
-                        "Failed to uninstall some plugins:\n{}",
-                        errors.join("\n")
-                    ));
+                    crate::ui::dialogs::show_themed_message(
+                        theme_bg,
+                        "Plugin Manager",
+                        &format!("Failed to uninstall some plugins:\n{}", errors.join("\n")),
+                    );
                 }
 
                 // 2. Handle installs (reload picks them up)

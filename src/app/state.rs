@@ -4,7 +4,6 @@ use std::rc::Rc;
 
 use fltk::{
     app::Sender,
-    dialog,
     frame::Frame,
     group::Flex,
     menu::MenuBar,
@@ -35,6 +34,7 @@ use super::plugins::{PluginHook, PluginManager, get_plugin_dir};
 use super::services::session;
 use super::services::shortcut_registry::ShortcutRegistry;
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
+use crate::ui::dialogs::{show_themed_choice, show_themed_message};
 use crate::ui::editor_container::EditorContainer;
 use crate::ui::tab_bar::TabBar;
 #[cfg(target_os = "windows")]
@@ -356,7 +356,9 @@ impl AppState {
             && doc.is_dirty()
         {
             let name = doc.display_name.clone();
-            let choice = dialog::choice2_default(
+            let choice = show_themed_choice(
+                self.highlight.highlighter().theme_background(),
+                "Unsaved Changes",
                 &format!("\"{}\" has unsaved changes.", name),
                 "Save",
                 "Discard",
@@ -477,6 +479,10 @@ impl AppState {
                         &text,
                     );
                 }
+                FileAction::ShowError(message) => {
+                    let theme_bg = self.highlight.highlighter().theme_background();
+                    show_themed_message(theme_bg, "Error", &message);
+                }
             }
         }
     }
@@ -531,7 +537,16 @@ impl AppState {
                          Reload from disk? (Your unsaved changes will be lost.)",
                         filename
                     );
-                    if fltk::dialog::choice2_default(&msg, "Reload", "Keep Mine", "") == Some(0) {
+                    let theme_bg = self.highlight.highlighter().theme_background();
+                    let choice = show_themed_choice(
+                        theme_bg,
+                        "File Changed on Disk",
+                        &msg,
+                        "Reload",
+                        "Keep Mine",
+                        "",
+                    );
+                    if choice == Some(0) {
                         all_actions.extend(self.file.reload_file(doc_id, &mut self.tab_manager));
                     } else {
                         // User chose to keep their version — update mtime to avoid re-prompting
@@ -700,7 +715,9 @@ impl AppState {
             if dirty_docs.is_empty() {
                 true
             } else {
-                let choice = dialog::choice2_default(
+                let choice = show_themed_choice(
+                    self.highlight.highlighter().theme_background(),
+                    "Unsaved Changes",
                     "You have unsaved changes in one or more tabs.",
                     "Save All",
                     "Quit Without Saving",
@@ -728,7 +745,9 @@ impl AppState {
             let is_dirty = self.tab_manager.active_doc().is_some_and(|d| d.is_dirty());
 
             if is_dirty {
-                let choice = dialog::choice2_default(
+                let choice = show_themed_choice(
+                    self.highlight.highlighter().theme_background(),
+                    "Unsaved Changes",
                     "You have unsaved changes.",
                     "Save",
                     "Quit Without Saving",
@@ -874,12 +893,15 @@ impl AppState {
             let text = buffer_text_no_leak(&doc.buffer);
             let file_path = doc.file_path.clone();
             let doc_id = doc.id.0;
-            self.preview.preview_in_browser(
+            if let Err(notice) = self.preview.preview_in_browser(
                 file_path.as_deref(),
                 doc_id,
                 &text,
                 self.view.dark_mode,
-            );
+            ) {
+                let theme_bg = self.highlight.highlighter().theme_background();
+                show_themed_message(theme_bg, notice.title(), &notice.message());
+            }
         }
     }
 
@@ -890,7 +912,11 @@ impl AppState {
         let theme_bg = self.highlight.highlighter().theme_background();
         if let Some(new_settings) = show_settings_dialog(&current, &self.sender, theme_bg) {
             if let Err(e) = new_settings.save() {
-                dialog::alert_default(&format!("Failed to save settings: {}", e));
+                show_themed_message(
+                    theme_bg,
+                    "Settings",
+                    &format!("Failed to save settings: {}", e),
+                );
                 return;
             }
             self.apply_settings(new_settings);

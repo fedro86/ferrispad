@@ -20,7 +20,7 @@ use fltk::{
 };
 
 use super::color::ThemeRgb;
-use super::dialogs::{DialogTheme, SCROLLBAR_SIZE};
+use super::dialogs::{DialogTheme, SCROLLBAR_SIZE, show_themed_choice, show_themed_input};
 use super::divider::{self, DragAxis};
 use super::scrollbar::style_scrollbars;
 use super::theme::{PanelTheme, Themeable, divider_color_from_bg};
@@ -87,6 +87,9 @@ pub struct TreePanel {
     current_expand_depth: i32,
     /// Whether the current theme is dark (for resolving semantic label colors)
     is_dark: bool,
+    /// Current syntax theme background, shared with the context-menu callback
+    /// so its input/confirm popups match the theme at click time.
+    theme_bg: Rc<Cell<(u8, u8, u8)>>,
     /// Map of FLTK tree item paths to their resolved custom colors.
     /// Used to re-apply per-item colors after selection (FLTK's fl_contrast
     /// can override per-item labelfgcolor for selected items).
@@ -238,6 +241,7 @@ impl TreePanel {
             current_nodes: None,
             current_expand_depth: 2,
             is_dark: true,
+            theme_bg: Rc::new(Cell::new((30, 30, 30))),
             colored_items: Rc::new(RefCell::new(Vec::new())),
             drag_source_path: Rc::new(RefCell::new(None)),
             dragging: Rc::new(Cell::new(false)),
@@ -535,6 +539,7 @@ impl TreePanel {
         let colored_items = self.colored_items.clone();
         let drag_source = self.drag_source_path.clone();
         let dragging = self.dragging.clone();
+        let theme_bg = self.theme_bg.clone();
         self.tree.handle(move |tree, ev| {
             match ev {
                 // Left-click: record potential drag source BEFORE FLTK processes
@@ -575,6 +580,7 @@ impl TreePanel {
                         &context_path,
                         &context_menu,
                         ctx_menu_ptr,
+                        theme_bg.get(),
                     );
                     true
                 }
@@ -669,6 +675,7 @@ impl TreePanel {
         context_path: &Option<String>,
         context_menu: &[ContextMenuItem],
         ctx_menu_ptr: fltk::app::WidgetPtr,
+        theme_bg: (u8, u8, u8),
     ) {
         // No menu items defined by plugin — do nothing
         if context_menu.is_empty() {
@@ -760,7 +767,9 @@ impl TreePanel {
                     } else {
                         ""
                     };
-                    if let Some(input) = fltk::dialog::input_default(prompt, prefill) {
+                    if let Some(input) =
+                        show_themed_input(theme_bg, &item_def.label, prompt, prefill)
+                    {
                         let input = input.trim().to_string();
                         if !input.is_empty() {
                             sender.send(Message::TreeViewContextAction {
@@ -773,7 +782,8 @@ impl TreePanel {
                         }
                     }
                 } else if let Some(ref prompt) = item_def.confirm_prompt {
-                    let choice = fltk::dialog::choice2_default(prompt, "Cancel", "OK", "");
+                    let choice =
+                        show_themed_choice(theme_bg, &item_def.label, prompt, "Cancel", "OK", "");
                     if choice == Some(1) {
                         sender.send(Message::TreeViewContextAction {
                             session_id,
@@ -938,6 +948,7 @@ impl Themeable for TreePanel {
             bg: theme_bg,
         } = panel_theme;
         self.is_dark = is_dark;
+        self.theme_bg.set(theme_bg);
         let theme = DialogTheme::from_theme_bg(theme_bg);
         let editor = ThemeRgb::from_tuple(theme_bg);
 

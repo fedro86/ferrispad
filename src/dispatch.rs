@@ -162,7 +162,13 @@ pub fn handle_tab(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) ->
                 .group_by_id(group_id)
                 .map(|g| g.name.clone())
                 .unwrap_or_default();
-            if let Some(new_name) = fltk::dialog::input_default("Group name:", &current_name) {
+            let theme_bg = state.highlight.highlighter().theme_background();
+            if let Some(new_name) = crate::ui::dialogs::show_themed_input(
+                theme_bg,
+                "Rename Group",
+                "Group name:",
+                &current_name,
+            ) {
                 state.tab_manager.rename_group(group_id, new_name);
                 state.rebuild_tab_bar();
             }

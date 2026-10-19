@@ -7,7 +7,6 @@
 use fltk::{
     app,
     button::Button,
-    dialog,
     enums::{Align, Event, Font, FrameType, Key},
     frame::Frame,
     group::Flex,
@@ -22,7 +21,7 @@ use std::fs::File;
 use std::path::Path;
 use std::rc::Rc;
 
-use super::{DialogTheme, SCROLLBAR_SIZE};
+use super::{DialogTheme, SCROLLBAR_SIZE, show_themed_message};
 use crate::app::services::file_size::format_size;
 use crate::ui::scrollbar::style_scrollbars;
 
@@ -348,7 +347,11 @@ pub fn show_readonly_viewer(
     let file = match File::open(path) {
         Ok(f) => f,
         Err(e) => {
-            dialog::alert_default(&format!("Failed to open file: {}", e));
+            show_themed_message(
+                theme_bg,
+                "Read-Only Viewer",
+                &format!("Failed to open file: {}", e),
+            );
             return None;
         }
     };
@@ -356,14 +359,18 @@ pub fn show_readonly_viewer(
     let metadata = match file.metadata() {
         Ok(m) => m,
         Err(e) => {
-            dialog::alert_default(&format!("Failed to read file metadata: {}", e));
+            show_themed_message(
+                theme_bg,
+                "Read-Only Viewer",
+                &format!("Failed to read file metadata: {}", e),
+            );
             return None;
         }
     };
 
     let file_size = metadata.len() as usize;
     if file_size == 0 {
-        dialog::alert_default("File is empty.");
+        show_themed_message(theme_bg, "Read-Only Viewer", "File is empty.");
         return None;
     }
 
@@ -373,7 +380,11 @@ pub fn show_readonly_viewer(
     let mmap = match unsafe { Mmap::map(&file) } {
         Ok(m) => m,
         Err(e) => {
-            dialog::alert_default(&format!("Failed to memory-map file: {}", e));
+            show_themed_message(
+                theme_bg,
+                "Read-Only Viewer",
+                &format!("Failed to memory-map file: {}", e),
+            );
             return None;
         }
     };
@@ -653,7 +664,7 @@ pub fn show_readonly_viewer(
             &mut display_search,
         );
         if !found {
-            dialog::message_default("Text not found.");
+            show_themed_message(theme_bg, "Search", "Text not found.");
         }
     });
 
@@ -673,7 +684,7 @@ pub fn show_readonly_viewer(
             &mut display_search_next,
         );
         if !found {
-            dialog::message_default("No more matches found.");
+            show_themed_message(theme_bg, "Search", "No more matches found.");
             state_search_next.borrow_mut().search_pos = 0;
         }
     });
@@ -693,7 +704,7 @@ pub fn show_readonly_viewer(
             &mut display_search_prev,
         );
         if !found {
-            dialog::message_default("No previous matches found.");
+            show_themed_message(theme_bg, "Search", "No previous matches found.");
         }
     });
 
