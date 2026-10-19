@@ -225,7 +225,6 @@ pub enum StreamLoadResult {
 }
 
 /// Message sent from reader thread to main thread
-/// Message sent from reader thread to main thread
 enum ChunkMessage {
     /// A chunk of text data
     Chunk(String),
@@ -251,10 +250,10 @@ pub fn load_to_buffer_with_progress(path: &Path, size: u64) -> StreamLoadResult 
         .to_string();
 
     // Create progress dialog
-    let mut dialog = Window::new(100, 100, 400, 120, "Loading File");
+    let mut dialog = Window::new(100, 100, 400, 155, "Loading File");
     dialog.make_modal(true);
 
-    let mut flex = Flex::new(10, 10, 380, 100, None);
+    let mut flex = Flex::new(10, 10, 380, 135, None);
     flex.set_type(fltk::group::FlexType::Column);
     flex.set_spacing(10);
 
@@ -274,9 +273,24 @@ pub fn load_to_buffer_with_progress(path: &Path, size: u64) -> StreamLoadResult 
     size_label.set_label_size(11);
     flex.fixed(&size_label, 20);
 
+    // Cancel button, right-aligned (T0039). It only hides the dialog, exactly
+    // like FLTK's default window callback does for the title-bar X (and
+    // Escape), so all three leave the loop below by the same path and end in
+    // `cancel_stream`.
+    let mut button_row = Flex::default();
+    button_row.set_type(fltk::group::FlexType::Row);
+    Frame::default(); // Spacer
+    let mut cancel_btn = Button::default().with_label("Cancel");
+    button_row.fixed(&cancel_btn, 90);
+    button_row.end();
+    flex.fixed(&button_row, 28);
+
     flex.end();
     dialog.end();
     dialog.show();
+
+    let mut dialog_cancel = dialog.clone();
+    cancel_btn.set_callback(move |_| dialog_cancel.hide());
 
     app::flush();
     app::awake();
@@ -343,7 +357,14 @@ pub fn load_to_buffer_with_progress(path: &Path, size: u64) -> StreamLoadResult 
         }
     }
 
-    // Dialog was closed - signal cancellation
+    // Dialog was closed (Cancel button, title-bar X or Escape)
+    cancel_stream(&cancelled)
+}
+
+/// Cancel a streaming load: tell the reader thread to stop and report the load
+/// as cancelled. The single exit for every way the user closes the progress
+/// dialog (T0039).
+fn cancel_stream(cancelled: &AtomicBool) -> StreamLoadResult {
     cancelled.store(true, Ordering::Relaxed);
     StreamLoadResult::Cancelled
 }
@@ -390,5 +411,67 @@ fn read_file_in_chunks(path: &Path, cancelled: &AtomicBool, tx: mpsc::Sender<Chu
             // Receiver dropped, likely cancelled
             return;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // T0039: closing the progress dialog (Cancel / X / Escape) ends in
+    // `cancel_stream`, which must flag the reader thread and report Cancelled.
+    #[test]
+    fn cancel_stream_flags_reader_and_reports_cancelled() {
+        let cancelled = AtomicBool::new(false);
+        let result = cancel_stream(&cancelled);
+        assert!(
+            cancelled.load(Ordering::Relaxed),
+            "reader must be told to stop"
+        );
+        assert!(matches!(result, StreamLoadResult::Cancelled));
+    }
+
+    // T0039: once `cancelled` is set the reader thread must stop before
+    // reading anything more, not stream the rest of the file.
+    #[test]
+    fn reader_stops_without_reading_when_cancelled() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("big.txt");
+        std::fs::write(&path, vec![b'x'; 3 * 1024 * 1024]).expect("write");
+
+        let cancelled = AtomicBool::new(true);
+        let (tx, rx) = mpsc::channel();
+        read_file_in_chunks(&path, &cancelled, tx);
+
+        let messages: Vec<ChunkMessage> = rx.iter().collect();
+        assert_eq!(messages.len(), 1, "expected only the cancellation message");
+        assert!(
+            matches!(&messages[0], ChunkMessage::Error(e) if e.kind() == io::ErrorKind::Interrupted),
+            "expected an Interrupted error"
+        );
+    }
+
+    // Pin: without cancellation the whole file arrives, in 1 MB chunks, then Done.
+    #[test]
+    fn reader_streams_whole_file_when_not_cancelled() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("big.txt");
+        std::fs::write(&path, vec![b'x'; 3 * 1024 * 1024 + 7]).expect("write");
+
+        let cancelled = AtomicBool::new(false);
+        let (tx, rx) = mpsc::channel();
+        read_file_in_chunks(&path, &cancelled, tx);
+
+        let mut total = 0;
+        let mut done = false;
+        for msg in rx.iter() {
+            match msg {
+                ChunkMessage::Chunk(text) => total += text.len(),
+                ChunkMessage::Done => done = true,
+                ChunkMessage::Error(e) => panic!("unexpected error: {e}"),
+            }
+        }
+        assert!(done);
+        assert_eq!(total, 3 * 1024 * 1024 + 7);
     }
 }
