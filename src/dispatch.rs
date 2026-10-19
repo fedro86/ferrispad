@@ -24,6 +24,7 @@ use crate::ui::dialogs::session_picker::{
     SessionPickerResult, show_new_session_dialog, show_session_picker,
 };
 use crate::ui::dialogs::update::check_for_updates_ui;
+use crate::ui::divider::{DockEdge, dragged_size};
 use crate::ui::main_window::LayoutWidgets;
 use crate::ui::tab_bar::TAB_BAR_HEIGHT;
 use crate::ui::theme::DIVIDER_WIDTH;
@@ -1047,15 +1048,13 @@ pub fn handle_tree_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidge
             ) {
                 let content_x = lw.content_row.x();
                 let content_w = lw.content_row.w();
-                let max_width = content_w / 2;
-
-                let new_width = match lw.tree_position {
-                    TreePanelPosition::Left => (mouse_x - content_x).clamp(100, max_width),
-                    TreePanelPosition::Right => {
-                        (content_x + content_w - mouse_x).clamp(100, max_width)
-                    }
-                    _ => unreachable!(),
+                let edge = if lw.tree_position == TreePanelPosition::Left {
+                    DockEdge::Start
+                } else {
+                    DockEdge::End
                 };
+                let new_width =
+                    dragged_size(mouse_x, content_x, content_w, edge, 100, content_w / 2);
                 lw.content_row.fixed(lw.tree_panel.widget(), new_width);
                 lw.content_row.recalc();
                 if let Some(ref mut tb) = state.tab_bar {
@@ -1192,8 +1191,14 @@ pub fn handle_terminal_view(msg: Message, state: &mut AppState, lw: &mut LayoutW
         Message::TerminalViewResize(mouse_x) => {
             let content_x = lw.content_row.x();
             let content_w = lw.content_row.w();
-            let max_width = content_w * 4 / 5;
-            let new_width = (content_x + content_w - mouse_x).clamp(200, max_width);
+            let new_width = dragged_size(
+                mouse_x,
+                content_x,
+                content_w,
+                DockEdge::End,
+                200,
+                content_w * 4 / 5,
+            );
             lw.content_row.fixed(lw.terminal_panel.widget(), new_width);
             lw.content_row.recalc();
             lw.terminal_panel.handle_resize();

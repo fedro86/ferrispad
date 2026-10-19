@@ -10,7 +10,7 @@ use std::rc::Rc;
 use fltk::{
     app::Sender,
     button::Button,
-    enums::{Align, Color, Cursor, Event, Font, FrameType, Key, Shortcut},
+    enums::{Align, Color, Event, Font, FrameType, Key, Shortcut},
     frame::Frame,
     group::Flex,
     input::Input,
@@ -21,6 +21,7 @@ use fltk::{
 
 use super::color::ThemeRgb;
 use super::dialogs::{DialogTheme, SCROLLBAR_SIZE};
+use super::divider::{self, DragAxis};
 use super::scrollbar::style_scrollbars;
 use super::theme::divider_color_from_bg;
 use crate::app::Message;
@@ -248,49 +249,11 @@ impl TreePanel {
     /// Flex group (content_row) so the divider is properly parented.
     /// Call this after inserting the tree panel container into the layout.
     pub fn create_divider(&mut self, sender: Sender<Message>) {
-        let mut divider = Frame::default();
-        divider.set_frame(FrameType::FlatBox);
-        divider.hide();
-
-        let dragging = Rc::new(Cell::new(false));
-        let drag_flag = dragging.clone();
-        divider.handle(move |div, ev| match ev {
-            Event::Enter => {
-                if let Some(mut win) = div.window() {
-                    win.set_cursor(Cursor::WE);
-                }
-                true
-            }
-            Event::Leave => {
-                if !drag_flag.get()
-                    && let Some(mut win) = div.window()
-                {
-                    win.set_cursor(Cursor::Default);
-                }
-                true
-            }
-            Event::Push => {
-                drag_flag.set(true);
-                true
-            }
-            Event::Drag => {
-                if drag_flag.get() {
-                    let mouse_x = fltk::app::event_x();
-                    sender.send(Message::TreeViewResize(mouse_x));
-                }
-                true
-            }
-            Event::Released => {
-                drag_flag.set(false);
-                if let Some(mut win) = div.window() {
-                    win.set_cursor(Cursor::Default);
-                }
-                true
-            }
-            _ => false,
-        });
-
-        self.divider = Some(divider);
+        self.divider = Some(divider::new_divider(
+            sender,
+            DragAxis::X,
+            Message::TreeViewResize,
+        ));
     }
 
     /// Get a reference to the container widget for layout
