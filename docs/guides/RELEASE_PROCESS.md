@@ -29,10 +29,12 @@ Use the automated version bump script to update all files:
 
 This script automatically updates:
 - `Cargo.toml` - version field
-- `docs/js/main.js` - download URLs
-- `docs/index.html` - version display and download URLs
 - `README.md` - installation instructions and download URLs
 - `scripts/build-releases.sh` - VERSION variable
+
+The website (www.ferrispad.com) is not in this repo: it is the separate
+`fedro86/fedro-websites` app, which reads the latest version from the GitHub
+tags API. It picks up a new tag by itself, so a release needs no website edit.
 
 The script automatically commits the changes after updating all files. Use `-y` to skip the confirmation prompt.
 
@@ -332,8 +334,8 @@ git push --delete origin v0.1.1
 Before creating a new release, update:
 
 - [ ] `CHANGELOG.md` - Add new version section with changes (do this FIRST!)
-- [ ] Run `./scripts/bump-version.sh X.Y.Z` (updates Cargo.toml, docs, README, build script — auto-commits)
-- [ ] Run `./scripts/release.sh` (pushes, creates tag, syncs website)
+- [ ] Run `./scripts/bump-version.sh X.Y.Z` (updates Cargo.toml, README, build script — auto-commits)
+- [ ] Run `./scripts/release.sh` (pushes, creates and pushes the tag)
 - [ ] Wait for GitHub Actions to build binaries
 - [ ] **Verify `.sig` files** are attached to the release (automated by CI)
 - [ ] Auto-populate release notes from CHANGELOG.md (use `gh` one-liner)
@@ -392,32 +394,22 @@ For cross-platform testing, use the GitHub Actions workflow instead of local cro
 # 2. Bump version, update all files, and commit
 ./scripts/bump-version.sh X.Y.Z
 
-# 3. Tag, push, and sync website (automated script)
+# 3. Tag and push (automated script)
 ./scripts/release.sh
 ```
 
 That's it! `bump-version.sh` updates all files and commits. `release.sh` handles:
+- Pushing the commits
 - Creating and pushing the annotated tag
-- **Syncing website files to master** (if releasing from a feature branch — see below)
 
 Then GitHub Actions will automatically:
 - Build binaries for all platforms (5-10 minutes)
 - Create GitHub release (marked as pre-release for `-rc`, `-beta`, `-alpha` tags)
 - Auto-populate release notes from CHANGELOG.md
 
-### Releasing from a Feature Branch
-
-The website is served from `docs/` on the `master` branch. When you release from a different branch (e.g., `enhancement/some-feature`), the website won't reflect the new version automatically.
-
-`release.sh` detects this and offers to sync `docs/js/main.js` to `master`, so the "Feeling brave?" unstable download button appears on the live website immediately.
-
-The sync process:
-1. Switches to `master` and pulls latest
-2. Copies `docs/js/main.js` from the release branch
-3. Commits and pushes to `master`
-4. Switches back to the release branch
-
-You can skip this step if you plan to merge the branch into master soon.
+The website (www.ferrispad.com, the separate `fedro86/fedro-websites` app)
+reads the latest tag from the GitHub API, so it shows the new version without
+any step here, whichever branch the tag was cut from.
 
 **Manual alternative (after bump-version.sh has committed):**
 ```bash

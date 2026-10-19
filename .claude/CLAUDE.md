@@ -61,11 +61,13 @@ Releases are **fully automated via GitHub Actions** (`.github/workflows/release.
 
 ```bash
 # 1. Edit CHANGELOG.md FIRST — add a new ## [X.Y.Z] section (CI extracts release notes from it)
-# 2. Bump version everywhere + auto-commit (updates Cargo.toml, docs/, README, build script)
+# 2. Bump version everywhere + auto-commit (updates Cargo.toml, README, build script)
 ./scripts/bump-version.sh X.Y.Z        # add -y to skip the prompt
-# 3. Tag, push, and sync the website
+# 3. Push, then create and push the tag
 ./scripts/release.sh
 ```
+
+The website (www.ferrispad.com) is **not** in this repo: it is the separate `fedro86/fedro-websites` app, which reads the latest version from the GitHub tags API, so a release needs no website step. `docs/` holds only `assets/` (used by `release.yml` and the Flatpak metainfo screenshots), `guides/` and `tickets/`.
 
 Tag/version conventions:
 - **Tags have NO `v` prefix** (e.g. `0.9.5`, not `v0.9.5`) — matches the existing tagging convention.
