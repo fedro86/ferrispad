@@ -36,7 +36,7 @@ jobs:
         # pipe (e.g. the rustup download) fails the step.
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Extract documented package lists
         run: |

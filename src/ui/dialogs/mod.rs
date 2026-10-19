@@ -23,6 +23,7 @@ use fltk::{
 };
 
 use super::color::ThemeRgb;
+use super::scrollbar::style_scrollbar;
 
 /// Global scrollbar width used across all dialogs.
 pub const SCROLLBAR_SIZE: i32 = 12;
@@ -192,6 +193,19 @@ pub(crate) fn intensify_dominant(r: u8, g: u8, b: u8, amount: f32) -> (u8, u8, u
     }
 }
 
+/// Scrollbar `(track, thumb)` colors for a surface with background `base`.
+/// Dark: the track is darker than `base` and the thumb lighter. Light: both
+/// are darker, the thumb more so. Shared by the dialogs (`DialogTheme`, on the
+/// dialog background) and the main editor (on the editor background).
+pub(crate) fn scrollbar_colors(base: ThemeRgb, is_dark: bool) -> (Color, Color) {
+    let (track, thumb) = if is_dark {
+        (base.darken(0.70), base.lighten(0.20))
+    } else {
+        (base.darken(0.95), base.darken(0.75))
+    };
+    (track.to_fltk(), thumb.to_fltk())
+}
+
 impl DialogTheme {
     /// Create theme colors based on the syntax theme background.
     ///
@@ -284,15 +298,7 @@ impl DialogTheme {
             (Color::from_rgb(0, 0, 0), Color::from_rgb(80, 80, 80))
         };
 
-        // Scrollbar colors
-        let (scroll_track, scroll_thumb) = if is_dark {
-            (
-                bg_rgb.darken(0.70).to_fltk(),
-                bg_rgb.lighten(0.20).to_fltk(),
-            )
-        } else {
-            (bg_rgb.darken(0.95).to_fltk(), bg_rgb.darken(0.75).to_fltk())
-        };
+        let (scroll_track, scroll_thumb) = scrollbar_colors(bg_rgb, is_dark);
 
         // Accent color: complementary hue from theme bg
         let accent_rgb = ThemeRgb::from_tuple(accent_from_bg(r, g, b, is_dark));
@@ -372,16 +378,9 @@ impl DialogTheme {
     /// Apply flat themed scrollbar styling to a Scroll widget.
     pub fn style_scroll(&self, scroll: &mut Scroll) {
         scroll.set_scrollbar_size(SCROLLBAR_SIZE);
-        let mut vsb = scroll.scrollbar();
-        vsb.set_frame(FrameType::FlatBox);
-        vsb.set_color(self.scroll_track);
-        vsb.set_slider_frame(FrameType::FlatBox);
-        vsb.set_selection_color(self.scroll_thumb);
-        let mut hsb = scroll.hscrollbar();
-        hsb.set_frame(FrameType::FlatBox);
-        hsb.set_color(self.scroll_track);
-        hsb.set_slider_frame(FrameType::FlatBox);
-        hsb.set_selection_color(self.scroll_thumb);
+        for mut sb in [scroll.scrollbar(), scroll.hscrollbar()] {
+            style_scrollbar(&mut sb, self.scroll_track, self.scroll_thumb);
+        }
     }
 }
 
@@ -450,6 +449,31 @@ pub fn show_themed_message(theme_bg: (u8, u8, u8), title: &str, message: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scrollbar_colors_dark_darkens_track_and_lightens_thumb() {
+        let (track, thumb) = scrollbar_colors(ThemeRgb::new(40, 44, 52), true);
+        // track = base * 0.70; thumb = base + (255 - base) * 0.20
+        assert_eq!(track, Color::from_rgb(28, 30, 36));
+        assert_eq!(thumb, Color::from_rgb(83, 86, 92));
+    }
+
+    #[test]
+    fn scrollbar_colors_light_darkens_both() {
+        let (track, thumb) = scrollbar_colors(ThemeRgb::new(250, 250, 250), false);
+        // track = base * 0.95; thumb = base * 0.75
+        assert_eq!(track, Color::from_rgb(237, 237, 237));
+        assert_eq!(thumb, Color::from_rgb(187, 187, 187));
+    }
+
+    #[test]
+    fn dialog_theme_scrollbar_colors_derive_from_dialog_bg() {
+        let theme = DialogTheme::from_theme_bg((40, 44, 52));
+        assert_eq!(
+            (theme.scroll_track, theme.scroll_thumb),
+            scrollbar_colors(ThemeRgb::from_fltk(theme.bg), true)
+        );
+    }
 
     /// The Cancel/Close buttons of the large-file and read-only-viewer dialogs
     /// sit on the dialog background, so they must be derived from it — not from
