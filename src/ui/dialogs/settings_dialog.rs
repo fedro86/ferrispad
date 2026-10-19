@@ -41,6 +41,8 @@ pub fn show_settings_dialog(
     let (tr, tg, tb) = theme.text_rgb();
     fltk::app::foreground(tr, tg, tb);
 
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut dialog = Window::default()
         .with_size(DIALOG_WIDTH, DIALOG_HEIGHT)
         .with_label("Settings")
@@ -493,6 +495,7 @@ pub fn show_settings_dialog(
     cancel_btn.set_label_color(theme.text);
 
     dialog.end();
+    drop(top_level);
     dialog.show();
     theme.apply_titlebar(&dialog);
 

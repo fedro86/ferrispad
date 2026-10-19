@@ -66,6 +66,8 @@ pub fn show_shortcut_dialog(
     let theme = DialogTheme::from_theme_bg(theme_bg);
     let error_color = theme.error_color();
 
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut dialog = Window::default()
         .with_size(DIALOG_WIDTH, DIALOG_HEIGHT)
         .with_label("Key Shortcuts")
@@ -287,6 +289,7 @@ pub fn show_shortcut_dialog(
     cancel_btn.set_label_color(theme.text);
 
     dialog.end();
+    drop(top_level);
 
     // Save callback
     let entries_save = all_entries.clone();

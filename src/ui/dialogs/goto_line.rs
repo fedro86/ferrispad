@@ -17,6 +17,8 @@ use super::DialogTheme;
 pub fn show_goto_line_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: (u8, u8, u8)) {
     let theme = DialogTheme::from_theme_bg(theme_bg);
 
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
     let mut dialog_win = Window::default()
         .with_size(250, 120)
         .with_label("Go To Line")
@@ -46,6 +48,7 @@ pub fn show_goto_line_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme
     cancel_btn.set_label_color(theme.text);
 
     dialog_win.end();
+    drop(top_level);
     dialog_win.make_resizable(false);
     dialog_win.show();
     theme.apply_titlebar(&dialog_win);
