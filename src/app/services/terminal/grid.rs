@@ -407,7 +407,6 @@ impl TerminalGrid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Duration, Instant};
 
     #[test]
     fn test_new_grid() {
@@ -523,23 +522,53 @@ mod tests {
         );
     }
 
-    // Timing. A flood of single-line scrolls (1M line-feeds) must trim the
-    // scrollback in O(1) per line. `rows == 1` isolates the trim from the
-    // region-shift cost. The old `Vec::remove(0)` made this O(n·cap) — 4.4s in a
-    // debug build for a crafted file; a real ring buffer keeps it well under the
-    // 2s bound (measured ~0.5s).
+    // Deterministic, no clock (T0044). A flood of line-feeds must trim the
+    // scrollback in O(1) per line. The old `Vec::remove(0)` trim was O(cap): on
+    // every line-feed it shifted all ~10 000 surviving lines down one slot.
+    // Instead of timing that (a wall-clock bound fails on a loaded machine),
+    // assert what makes the trim O(1): once the scrollback is full, dropping
+    // the oldest line moves *none* of the surviving lines in memory. Any O(n)
+    // trim (shift-down, rebuild, re-collect) has to move them, so it fails here
+    // at any machine speed or load. `rows == 1` routes every scroll into the trim.
     #[test]
-    fn line_feed_flood_trims_in_bounded_time() {
+    fn line_feed_flood_trims_without_moving_lines() {
+        // Per scrollback line, oldest first: its identity (the line's own heap
+        // buffer, stable while the line lives) and the slot holding it.
+        fn layout(grid: &TerminalGrid) -> Vec<(*const Cell, *const Vec<Cell>)> {
+            grid.scrollback
+                .iter()
+                .map(|line| (line.as_ptr(), std::ptr::from_ref(line)))
+                .collect()
+        }
+
         let mut grid = TerminalGrid::new(80, 1);
-        let start = Instant::now();
-        for _ in 0..1_000_000 {
+        // Fill past the cap, so the buffer has reached its steady-state size.
+        for _ in 0..=MAX_SCROLLBACK {
             grid.scroll_up(1);
         }
-        let elapsed = start.elapsed();
+        let before = layout(&grid);
+
+        // Trim half the history; the newer half survives every trim.
+        let trims = MAX_SCROLLBACK / 2;
+        for _ in 0..trims {
+            grid.scroll_up(1);
+        }
         assert_eq!(grid.scrollback_len(), MAX_SCROLLBACK);
-        assert!(
-            elapsed < Duration::from_secs(2),
-            "scrollback trimming is not O(1): 1M line-feeds took {elapsed:?}"
+        let after = layout(&grid);
+
+        let mut moved = 0;
+        for (old_idx, &(line, slot)) in before.iter().enumerate().skip(trims) {
+            let (now_line, now_slot) = after[old_idx - trims];
+            assert_eq!(line, now_line, "scrollback lost its oldest-first order");
+            if slot != now_slot {
+                moved += 1;
+            }
+        }
+        assert_eq!(
+            moved,
+            0,
+            "scrollback trimming is not O(1): {trims} trims moved {moved} of {} surviving lines",
+            MAX_SCROLLBACK - trims
         );
     }
 

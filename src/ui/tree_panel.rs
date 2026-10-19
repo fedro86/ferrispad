@@ -354,24 +354,7 @@ impl TreePanel {
         expand_depth: i32,
         current_depth: i32,
     ) {
-        // Determine icon based on node properties
-        let icon = if let Some(ref icon_hint) = node.icon {
-            match icon_hint.as_str() {
-                "folder" => "\u{1F4C1} ", // Folder emoji
-                "file" => "\u{1F4C4} ",   // File emoji
-                "error" => "\u{274C} ",   // Red X
-                "warning" => "\u{26A0} ", // Warning
-                "info" => "\u{2139} ",    // Info
-                "none" => "",             // No icon (e.g., YAML/JSON structured data)
-                _ => "",
-            }
-        } else if node.has_children() {
-            "\u{1F4C1} " // Folder for nodes with children
-        } else {
-            "\u{1F4C4} " // File for leaf nodes
-        };
-
-        let label = format!("{}{}", icon, node.label);
+        let label = format!("{}{}", icon_prefix(node), node.label);
 
         // Build full FLTK tree path from root to this node
         let item_path = if let Some(pp) = parent_path {
@@ -477,19 +460,16 @@ impl TreePanel {
 
     /// Strip icon emoji prefixes from a tree item label
     fn strip_icon(label: &str) -> String {
-        label
-            .trim_start_matches("\u{1F4C1} ")
-            .trim_start_matches("\u{1F4C4} ")
-            .trim_start_matches("\u{274C} ")
-            .trim_start_matches("\u{26A0} ")
-            .trim_start_matches("\u{2139} ")
+        ICON_PREFIXES
+            .iter()
+            .fold(label, |l, (_, prefix)| l.trim_start_matches(prefix))
             .to_string()
     }
 
     /// Check if a tree item represents a folder/container (has folder icon or has children)
     fn is_folder_item(item: &TreeItem) -> bool {
         item.label()
-            .map(|l| l.starts_with("\u{1F4C1}"))
+            .map(|l| l.starts_with(FOLDER_ICON.trim_end()))
             .unwrap_or(false)
             || item.children() > 0
     }
@@ -914,23 +894,7 @@ impl TreePanel {
             return;
         }
 
-        // Determine icon
-        let icon = if let Some(ref icon_hint) = node.icon {
-            match icon_hint.as_str() {
-                "folder" => "\u{1F4C1} ",
-                "file" => "\u{1F4C4} ",
-                "error" => "\u{274C} ",
-                "warning" => "\u{26A0} ",
-                "info" => "\u{2139} ",
-                _ => "",
-            }
-        } else if node.has_children() {
-            "\u{1F4C1} "
-        } else {
-            "\u{1F4C4} "
-        };
-
-        let label = format!("{}{}", icon, node.label);
+        let label = format!("{}{}", icon_prefix(node), node.label);
         let item_path = if let Some(pp) = parent_path {
             format!("{}/{}", pp, label)
         } else {
@@ -1046,5 +1010,92 @@ impl TreePanel {
         // Style scrollbars to match the editor (Tree inherits Fl_Group)
         self.tree.set_scrollbar_size(SCROLLBAR_SIZE);
         style_scrollbars(&self.tree, theme.scroll_track, theme.scroll_thumb);
+    }
+}
+
+/// Label prefix for a folder (or any node with children and no icon hint).
+const FOLDER_ICON: &str = "\u{1F4C1} ";
+/// Label prefix for a leaf node with no icon hint.
+const FILE_ICON: &str = "\u{1F4C4} ";
+
+/// Icon hint (`TreeNode::icon`) → label prefix. The single source of truth for
+/// the icons both tree builders draw and for `TreePanel::strip_icon`.
+const ICON_PREFIXES: [(&str, &str); 5] = [
+    ("folder", FOLDER_ICON),
+    ("file", FILE_ICON),
+    ("error", "\u{274C} "),   // Red X
+    ("warning", "\u{26A0} "), // Warning
+    ("info", "\u{2139} "),    // Info
+];
+
+/// Label prefix for a tree node, shared by the normal and the filtered tree
+/// builders so the two views can never disagree on a node's icon.
+///
+/// - A known hint maps through `ICON_PREFIXES`.
+/// - Any other hint, notably `"none"` (YAML/JSON structured data), gets no icon.
+/// - No hint: folder if the node has children, file otherwise.
+fn icon_prefix(node: &TreeNode) -> &'static str {
+    match node.icon.as_deref() {
+        Some(hint) => ICON_PREFIXES
+            .iter()
+            .find(|(name, _)| *name == hint)
+            .map_or("", |(_, prefix)| prefix),
+        None if node.has_children() => FOLDER_ICON,
+        None => FILE_ICON,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node(icon: Option<&str>, with_child: bool) -> TreeNode {
+        TreeNode {
+            label: "n".to_string(),
+            icon: icon.map(str::to_string),
+            children: if with_child {
+                vec![TreeNode::default()]
+            } else {
+                Vec::new()
+            },
+            ..TreeNode::default()
+        }
+    }
+
+    #[test]
+    fn none_hint_has_no_icon_with_or_without_children() {
+        assert_eq!(icon_prefix(&node(Some("none"), false)), "");
+        assert_eq!(icon_prefix(&node(Some("none"), true)), "");
+    }
+
+    #[test]
+    fn unknown_hint_has_no_icon() {
+        assert_eq!(icon_prefix(&node(Some("bogus"), false)), "");
+        assert_eq!(icon_prefix(&node(Some(""), true)), "");
+    }
+
+    #[test]
+    fn known_hints_map_to_their_icon_regardless_of_children() {
+        for with_child in [false, true] {
+            assert_eq!(icon_prefix(&node(Some("folder"), with_child)), FOLDER_ICON);
+            assert_eq!(icon_prefix(&node(Some("file"), with_child)), FILE_ICON);
+            assert_eq!(icon_prefix(&node(Some("error"), with_child)), "\u{274C} ");
+            assert_eq!(icon_prefix(&node(Some("warning"), with_child)), "\u{26A0} ");
+            assert_eq!(icon_prefix(&node(Some("info"), with_child)), "\u{2139} ");
+        }
+    }
+
+    #[test]
+    fn no_hint_falls_back_to_folder_or_file() {
+        assert_eq!(icon_prefix(&node(None, true)), FOLDER_ICON);
+        assert_eq!(icon_prefix(&node(None, false)), FILE_ICON);
+    }
+
+    #[test]
+    fn strip_icon_removes_every_prefix_icon_prefix_can_produce() {
+        for (_, prefix) in ICON_PREFIXES {
+            assert_eq!(TreePanel::strip_icon(&format!("{prefix}label")), "label");
+        }
+        assert_eq!(TreePanel::strip_icon("plain"), "plain");
     }
 }
