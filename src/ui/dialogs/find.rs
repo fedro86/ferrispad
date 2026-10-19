@@ -1,6 +1,6 @@
 use fltk::{
     button::{Button, CheckButton},
-    enums::CallbackTrigger,
+    enums::{Align, CallbackTrigger},
     frame::Frame,
     input::Input,
     prelude::*,
@@ -201,6 +201,26 @@ impl FindState {
     }
 }
 
+/// Width of the "Use regex" checkbox; the case-folding hint sits right of it.
+const REGEX_CHECK_W: i32 = 100;
+
+/// Hint shown next to "Use regex": the regex engine (`regex-lite`) folds case
+/// for ASCII letters only, so `café` does not match `CAFÉ` with "Match case"
+/// off, while plain search does (T0049).
+const REGEX_CASE_FOLDING_HINT: &str = "(case folding: ASCII only)";
+
+/// Draw the dimmed case-folding hint at `(x, y)`, one checkbox row high.
+fn regex_case_folding_hint(x: i32, y: i32, theme: &DialogTheme) -> Frame {
+    let mut hint = Frame::default()
+        .with_pos(x, y)
+        .with_size(380 - x, 25)
+        .with_label(REGEX_CASE_FOLDING_HINT)
+        .with_align(Align::Left | Align::Inside);
+    hint.set_label_size(11);
+    hint.set_label_color(theme.text_dim);
+    hint
+}
+
 /// Show Find & Replace dialog
 pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: (u8, u8, u8)) {
     let theme = DialogTheme::from_theme_bg(theme_bg);
@@ -241,11 +261,12 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
 
     let mut regex_check = CheckButton::default()
         .with_pos(110, 125)
-        .with_size(200, 25)
+        .with_size(REGEX_CHECK_W, 25)
         .with_label("Use regex");
     regex_check.set_label_color(theme.text);
     regex_check.set_color(theme.bg);
     regex_check.set_selection_color(theme.button_bg);
+    regex_case_folding_hint(110 + REGEX_CHECK_W, 125, &theme);
 
     let mut find_prev_btn = Button::default()
         .with_pos(20, 160)
@@ -508,11 +529,12 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: 
 
     let mut regex_check = CheckButton::default()
         .with_pos(110, 87)
-        .with_size(200, 25)
+        .with_size(REGEX_CHECK_W, 25)
         .with_label("Use regex");
     regex_check.set_label_color(theme.text);
     regex_check.set_color(theme.bg);
     regex_check.set_selection_color(theme.button_bg);
+    regex_case_folding_hint(110 + REGEX_CHECK_W, 87, &theme);
 
     let mut find_prev_btn2 = Button::default()
         .with_pos(110, 125)

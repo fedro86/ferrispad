@@ -92,7 +92,8 @@ pub enum Message {
     ShowBannerUpdate,
     DismissBanner,
 
-    // Live preview from settings dialog
+    // Live preview from the Settings dialog. Dispatched from inside the modal
+    // (see `dispatch::handle_settings`), whose loop blocks the channel.
     PreviewSyntaxTheme(SyntaxTheme),
 
     // Plugin system
