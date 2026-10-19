@@ -1,7 +1,7 @@
 ---
 id: T0050
 title: Switching between Find Next and Find Prev moves to the adjacent match
-status: review
+status: done
 created: 2026-10-19
 severity: minor
 area: ui
