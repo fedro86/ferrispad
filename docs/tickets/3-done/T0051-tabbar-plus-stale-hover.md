@@ -1,7 +1,7 @@
 ---
 id: T0051
 title: Clear the tab bar's + button highlight after it moves
-status: review
+status: done
 created: 2026-10-19
 severity: minor
 area: ui
