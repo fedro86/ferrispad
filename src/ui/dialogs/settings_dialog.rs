@@ -1,5 +1,4 @@
 use fltk::{
-    app::Sender,
     button::{Button, CheckButton, RadioRoundButton},
     enums::{CallbackTrigger, FrameType},
     frame::Frame,
@@ -9,10 +8,10 @@ use fltk::{
     prelude::*,
     window::Window,
 };
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use crate::app::{AppSettings, Message, SessionRestore, SyntaxTheme, ThemeMode, UpdateChannel};
+use crate::app::{AppSettings, SessionRestore, SyntaxTheme, ThemeMode, UpdateChannel};
 
 use super::DialogTheme;
 
@@ -27,11 +26,13 @@ const ITEM_HEIGHT: i32 = 22;
 const SECTION_GAP: i32 = 15;
 
 /// Show settings dialog and return updated settings if user clicked Save.
-/// The sender is used to send live preview messages for theme changes.
+/// `preview` is called while the dialog is open, each time the user picks a
+/// syntax theme for the current mode, and once more with the original theme
+/// when the dialog is cancelled or closed after a preview.
 pub fn show_settings_dialog(
     current_settings: &AppSettings,
-    sender: &Sender<Message>,
     theme_bg: (u8, u8, u8),
+    mut preview: impl FnMut(SyntaxTheme),
 ) -> Option<AppSettings> {
     let theme = DialogTheme::from_theme_bg(theme_bg);
     let is_dark = theme.is_dark();
@@ -139,20 +140,26 @@ pub fn show_settings_dialog(
     theme_dark_choice.set_value(theme_index(current_settings.syntax_theme_dark));
     y += 30 + SECTION_GAP;
 
-    // Live preview callbacks for theme changes
-    let sender_light = *sender;
+    // Live preview callbacks for theme changes. The widget callbacks only
+    // record the theme; the dialog loop hands it to `preview` (see the end).
+    let pending_preview: Rc<Cell<Option<SyntaxTheme>>> = Rc::new(Cell::new(None));
+    let previewed = Rc::new(Cell::new(false));
+
+    let (pending_light, previewed_light) = (pending_preview.clone(), previewed.clone());
     let is_dark_for_light = is_dark;
     theme_light_choice.set_callback(move |c| {
         if !is_dark_for_light && let Some(theme) = index_to_theme(c.value()) {
-            sender_light.send(Message::PreviewSyntaxTheme(theme));
+            pending_light.set(Some(theme));
+            previewed_light.set(true);
         }
     });
 
-    let sender_dark = *sender;
+    let (pending_dark, previewed_dark) = (pending_preview.clone(), previewed.clone());
     let is_dark_for_dark = is_dark;
     theme_dark_choice.set_callback(move |c| {
         if is_dark_for_dark && let Some(theme) = index_to_theme(c.value()) {
-            sender_dark.send(Message::PreviewSyntaxTheme(theme));
+            pending_dark.set(Some(theme));
+            previewed_dark.set(true);
         }
     });
 
@@ -495,7 +502,7 @@ pub fn show_settings_dialog(
 
     // Store original theme for reverting on cancel
     let original_theme = current_settings.current_syntax_theme(is_dark);
-    let sender_cancel = *sender;
+    let (pending_cancel, previewed_cancel) = (pending_preview.clone(), previewed.clone());
 
     let dialog_save = dialog.clone();
     let current = current_settings.clone();
@@ -593,21 +600,29 @@ pub fn show_settings_dialog(
     let dialog_cancel = dialog.clone();
     cancel_btn.set_callback(move |_| {
         // Revert to original theme
-        sender_cancel.send(Message::PreviewSyntaxTheme(original_theme));
+        if previewed_cancel.get() {
+            pending_cancel.set(Some(original_theme));
+        }
         *result_cancel.borrow_mut() = None;
         dialog_cancel.clone().hide();
     });
 
     let result_close = result.clone();
-    let sender_close = *sender;
+    let (pending_close, previewed_close) = (pending_preview.clone(), previewed.clone());
     dialog.set_callback(move |w| {
         // Revert to original theme on close (X button)
-        sender_close.send(Message::PreviewSyntaxTheme(original_theme));
+        if previewed_close.get() {
+            pending_close.set(Some(original_theme));
+        }
         *result_close.borrow_mut() = None;
         w.hide();
     });
 
-    super::run_dialog(&dialog);
+    super::run_dialog_with(&dialog, || {
+        if let Some(theme) = pending_preview.take() {
+            preview(theme);
+        }
+    });
 
     result.borrow().clone()
 }

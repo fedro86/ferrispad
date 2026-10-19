@@ -587,7 +587,8 @@ fn main() {
                 Message::OpenSettings
                 | Message::CheckForUpdates
                 | Message::ShowAbout
-                | Message::ShowKeyShortcuts => {
+                | Message::ShowKeyShortcuts
+                | Message::PreviewSyntaxTheme(_) => {
                     dispatch::handle_settings(msg, &mut state, &mut lw);
                     dispatch::DispatchResult::Continue
                 }
@@ -606,8 +607,7 @@ fn main() {
                 // Background updates
                 Message::BackgroundUpdateResult(_)
                 | Message::ShowBannerUpdate
-                | Message::DismissBanner
-                | Message::PreviewSyntaxTheme(_) => {
+                | Message::DismissBanner => {
                     dispatch::handle_update(msg, &mut state);
                     dispatch::DispatchResult::Continue
                 }
