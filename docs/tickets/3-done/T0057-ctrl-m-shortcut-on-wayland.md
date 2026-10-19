@@ -1,7 +1,7 @@
 ---
 id: T0057
 title: Match Ctrl+letter shortcuts by the typed letter, not the first layout's key
-status: review
+status: done
 created: 2026-10-19
 severity: severe
 area: ui
