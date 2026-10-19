@@ -29,7 +29,7 @@ const CHANGELOG_URL: &str = "https://github.com/fedro86/ferrispad/blob/master/CH
 const CHANGELOG_ENTRIES: &[&str] = &[
     "Plugin sandbox & security hardening",
     "Upgraded TLS stack (rustls 0.23)",
-    "Shortcuts work with mixed keyboard layouts",
+    "Shortcuts fixed for mixed layouts",
     "Cancel button for large-file loading",
     "Live theme preview & themed popups",
     "Regex find & Find Next/Prev fixes",

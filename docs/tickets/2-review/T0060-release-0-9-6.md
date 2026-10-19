@@ -50,10 +50,49 @@ separately, after the merge and only with the user's explicit OK.
   ticket branch and draft PR.
 - FlatPark packaging (T0047).
 
+## What was done
+
+- `CHANGELOG.md`: new `## [0.9.6] - 2026-10-19` section (Security / Added /
+  Fixed / Changed), written from the `3-done/` ticket Goals and outcomes, not
+  from commit subjects. The HTTP client entry describes what T0056 actually
+  shipped (`ureq` 3.4, `rustls` 0.23 on `ring`, https-only on every redirect,
+  max 10 redirects, proxy variables honoured), not the squash subject's
+  "upgrade minreq to 3". Internal refactors (T0022–T0031 except their visible
+  side effects), CI and ticket-workflow changes are left out. T0058 is folded
+  into "Themed Popups Everywhere" because its bug was never released.
+  T0012–T0016 (audit findings that are data/crash bugs, not attack surface) are
+  listed under Fixed rather than Security.
+- `src/ui/start_page.rs`: the start page's changelog card is a hard-coded
+  `CHANGELOG_ENTRIES` list (it still showed 0.9.4 items). Replaced with six
+  0.9.6 highlights.
+- `packaging/flatpak/com.ferrispad.FerrisPad.metainfo.xml`: added the 0.9.6
+  `<release>` entry, so AppStream metadata matches the version.
+- `./scripts/bump-version.sh -y 0.9.6`, committed by the script as
+  `chore: bump version to 0.9.6`: `Cargo.toml`, `docs/index.html`
+  (`softwareVersion` + "Latest version"), `docs/js/main.js`
+  (`STABLE_VERSION`/`UNSTABLE_VERSION`), `scripts/build-releases.sh`.
+  `README.md` has no versioned download link, so the script changed nothing there.
+- `Cargo.lock`: FerrisPad's own package version updated to 0.9.6 by the release
+  build (the script does not touch it); committed separately.
+- No tag created; `scripts/release.sh` not run.
+
+Checked on 2026-10-19 under Xvfb (1280x800, fresh `HOME`, release build):
+`FerrisPad --version` prints `FerrisPad 0.9.6`; Help → About shows
+"Version 0.9.6"; the start page shows `v0.9.6` and the new changelog items.
+At the default window size the card shows the first five items (the sixth,
+"Regex find & Find Next/Prev fixes", appears when the window is taller), as
+with the previous list. The CI notes extraction (`release.yml`'s awk) yields
+the 41-line 0.9.6 section.
+
+Not done (outside this ticket): `packaging/flatpak/cargo-sources.json` was
+generated before T0056 (minreq → ureq) and must be regenerated from the
+current `Cargo.lock` for a Flatpak build. That belongs to T0047.
+
 ## How to test
 
 1. `nix develop -c cargo build --release && ./target/release/FerrisPad`: Help →
-   About shows 0.9.6, and the start page changelog shows the new items.
+   About shows 0.9.6, and the start page changelog shows the new items
+   ("Plugin sandbox & security hardening", "Upgraded TLS stack (rustls 0.23)", ...).
 2. `awk '/^## \[0.9.6\]/,/^## \[0.9.5\]/' CHANGELOG.md` prints a complete section.
    This is what CI extracts.
 3. `grep -rn '0\.9\.5' README.md docs/index.html docs/js/main.js scripts/build-releases.sh`
