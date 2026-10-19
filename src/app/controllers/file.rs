@@ -186,7 +186,7 @@ impl FileController {
                     return vec![]; // User cancelled
                 }
                 // Stream directly to TextBuffer to avoid ~2x memory
-                match load_to_buffer_with_progress(path_ref, size) {
+                match load_to_buffer_with_progress(path_ref, size, theme_bg) {
                     StreamLoadResult::Success(buffer) => {
                         return self.open_large_file_buffer(
                             path,
