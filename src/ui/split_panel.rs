@@ -358,6 +358,45 @@ const ACTION_BAR_HEIGHT: i32 = 34;
 /// Default height of the split panel content area
 const DEFAULT_CONTENT_HEIGHT: i32 = 250;
 
+/// Default docked panel height: header + labels + content + action bar.
+const DEFAULT_DOCKED_HEIGHT: i32 =
+    HEADER_HEIGHT + LABEL_HEIGHT + DEFAULT_CONTENT_HEIGHT + ACTION_BAR_HEIGHT;
+
+/// Smallest height the divider can drag the docked panel to.
+const MIN_DOCKED_HEIGHT: i32 = 100;
+
+/// The docked (non-tab) panel height. The panel owns this value so that every
+/// path that re-docks it (show, mode toggle) restores what the user dragged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DockedHeight {
+    height: i32,
+}
+
+impl Default for DockedHeight {
+    fn default() -> Self {
+        Self {
+            height: DEFAULT_DOCKED_HEIGHT,
+        }
+    }
+}
+
+impl DockedHeight {
+    /// The height to give the docked panel.
+    fn get(self) -> i32 {
+        self.height
+    }
+
+    /// A divider drag to `mouse_y` inside a parent column spanning
+    /// `col_y..col_y + col_h`: stores and returns the clamped height. The
+    /// panel takes at most half the column, but never less than
+    /// [`MIN_DOCKED_HEIGHT`] (the minimum wins in a very short column).
+    fn drag_to(&mut self, mouse_y: i32, col_y: i32, col_h: i32) -> i32 {
+        let max = (col_h / 2).max(MIN_DOCKED_HEIGHT);
+        self.height = (col_y + col_h - mouse_y).clamp(MIN_DOCKED_HEIGHT, max);
+        self.height
+    }
+}
+
 /// Width of a pane's line-number gutter when line numbers are shown
 const LINENUMBER_WIDTH: i32 = 40;
 
@@ -530,6 +569,8 @@ pub struct SplitPanel {
     theme_bg: (u8, u8, u8),
     /// Whether the split panel is currently in tab mode (full editor area)
     is_tab_mode: bool,
+    /// Height of the docked (non-tab) panel, as last dragged by the user
+    docked_height: DockedHeight,
     /// Cached diff title for tab bar display
     diff_title: String,
     /// Cached action definitions for rebuilding buttons after toggle
@@ -658,6 +699,7 @@ impl SplitPanel {
             is_dark: true,
             theme_bg: (30, 30, 30),
             is_tab_mode: false,
+            docked_height: DockedHeight::default(),
             diff_title: String::new(),
             cached_actions: Vec::new(),
             cached_session_id: 0,
@@ -1031,13 +1073,20 @@ impl SplitPanel {
         self.right.buffer.text()
     }
 
-    /// Get the current panel height for flex layout
+    /// Get the current docked panel height for flex layout
     pub fn current_height(&self) -> i32 {
         if self.visible {
-            HEADER_HEIGHT + LABEL_HEIGHT + DEFAULT_CONTENT_HEIGHT + ACTION_BAR_HEIGHT
+            self.docked_height.get()
         } else {
             0
         }
+    }
+
+    /// Resize the docked panel for a divider drag to `mouse_y` inside the
+    /// parent column spanning `col_y..col_y + col_h`. Returns the height to
+    /// apply to the parent flex.
+    pub fn drag_docked_height(&mut self, mouse_y: i32, col_y: i32, col_h: i32) -> i32 {
+        self.docked_height.drag_to(mouse_y, col_y, col_h)
     }
 
     /// Apply theme colors derived from the syntax theme background.
@@ -1221,6 +1270,40 @@ impl SplitPanel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- T0021: the docked height survives a mode toggle ---
+
+    #[test]
+    fn docked_height_starts_at_the_default() {
+        assert_eq!(DockedHeight::default().get(), DEFAULT_DOCKED_HEIGHT);
+    }
+
+    #[test]
+    fn dragged_height_is_what_redocking_restores() {
+        let mut docked = DockedHeight::default();
+        // Column spans y = 0..1000; the divider is dragged to y = 600.
+        let applied = docked.drag_to(600, 0, 1000);
+        assert_eq!(applied, 400);
+        // Toggling tab mode off (or re-showing the panel) reads `get()`:
+        // it must restore the dragged height, not the default.
+        assert_eq!(docked.get(), 400);
+    }
+
+    #[test]
+    fn drag_clamps_between_minimum_and_half_the_column() {
+        let mut docked = DockedHeight::default();
+        assert_eq!(docked.drag_to(990, 0, 1000), MIN_DOCKED_HEIGHT);
+        assert_eq!(docked.get(), MIN_DOCKED_HEIGHT);
+        assert_eq!(docked.drag_to(10, 0, 1000), 500);
+        assert_eq!(docked.get(), 500);
+    }
+
+    #[test]
+    fn drag_in_a_column_shorter_than_twice_the_minimum_does_not_panic() {
+        let mut docked = DockedHeight::default();
+        // col_h / 2 = 75 < MIN_DOCKED_HEIGHT: the minimum wins.
+        assert_eq!(docked.drag_to(50, 0, 150), MIN_DOCKED_HEIGHT);
+    }
 
     fn diff_map_for_tests() -> SyntaxDiffMap {
         SyntaxDiffMap::new(true, (0, 0, 0), (255, 255, 255), Font::Courier, 14)
