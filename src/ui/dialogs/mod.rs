@@ -22,14 +22,26 @@ use fltk::{
     window::Window,
 };
 
+use super::color::ThemeRgb;
+use super::scrollbar::style_scrollbar;
+
 /// Global scrollbar width used across all dialogs.
 pub const SCROLLBAR_SIZE: i32 = 12;
 
+/// Dialog background darken factor on dark themes. Lighter than the tab bar's
+/// (`0.65`) on purpose: dialogs stay close to the editor background (cdf5750).
+pub const DIALOG_BG_DARKEN_DARK: f32 = 0.85;
+/// Dialog background darken factor on light themes (tab bar uses `0.85`).
+pub const DIALOG_BG_DARKEN_LIGHT: f32 = 0.93;
+
 /// Theme colors for dialogs, derived from the syntax theme background.
-/// Uses the same derivation logic as tab_bar for visual consistency.
+///
+/// The dialog background is deliberately *closer* to the editor background
+/// than the tab bar's (see [`DIALOG_BG_DARKEN_DARK`]); every other dialog
+/// shade is derived from that background or from the editor background.
 #[derive(Clone, Copy)]
 pub struct DialogTheme {
-    /// Dialog window background (matches tab bar background)
+    /// Dialog window background (a slightly muted editor background)
     pub bg: Color,
     /// Primary text color
     pub text: Color,
@@ -41,6 +53,8 @@ pub struct DialogTheme {
     pub button_bg: Color,
     /// Tab active/selected background (slightly lighter than button_bg)
     pub tab_active_bg: Color,
+    /// Secondary (Cancel/Close) button background: a subtle step off `bg`
+    pub secondary_button_bg: Color,
     /// Row background (for lists/tables)
     pub row_bg: Color,
     /// Accent color — complementary hue from bg, for links/highlights
@@ -136,15 +150,6 @@ fn accent_from_bg(r: u8, g: u8, b: u8, is_dark: bool) -> (u8, u8, u8) {
     hsl_to_rgb(accent_h, accent_s.min(0.65), accent_l)
 }
 
-/// Helper to darken a color (shift toward black)
-pub(crate) fn darken(r: u8, g: u8, b: u8, factor: f32) -> (u8, u8, u8) {
-    (
-        (r as f32 * factor) as u8,
-        (g as f32 * factor) as u8,
-        (b as f32 * factor) as u8,
-    )
-}
-
 /// Intensify the dominant channel of a color.
 ///
 /// Warm themes (R > B): amplify R, reduce B → ochre/gold direction.
@@ -188,89 +193,98 @@ pub(crate) fn intensify_dominant(r: u8, g: u8, b: u8, amount: f32) -> (u8, u8, u
     }
 }
 
-/// Helper to lighten a color (shift toward white)
-pub(crate) fn lighten(r: u8, g: u8, b: u8, factor: f32) -> (u8, u8, u8) {
-    (
-        r + ((255 - r) as f32 * factor) as u8,
-        g + ((255 - g) as f32 * factor) as u8,
-        b + ((255 - b) as f32 * factor) as u8,
-    )
+/// Scrollbar `(track, thumb)` colors for a surface with background `base`.
+/// Dark: the track is darker than `base` and the thumb lighter. Light: both
+/// are darker, the thumb more so. Shared by the dialogs (`DialogTheme`, on the
+/// dialog background) and the main editor (on the editor background).
+pub(crate) fn scrollbar_colors(base: ThemeRgb, is_dark: bool) -> (Color, Color) {
+    let (track, thumb) = if is_dark {
+        (base.darken(0.70), base.lighten(0.20))
+    } else {
+        (base.darken(0.95), base.darken(0.75))
+    };
+    (track.to_fltk(), thumb.to_fltk())
 }
 
 impl DialogTheme {
     /// Create theme colors based on the syntax theme background.
-    /// This ensures dialogs match the tab bar and main window appearance.
     ///
-    /// Color derivation logic (same as tab_bar):
-    /// - Dialog bg: darker than editor (matches tab bar background)
+    /// Color derivation logic:
+    /// - Dialog bg: the editor background darkened by
+    ///   [`DIALOG_BG_DARKEN_DARK`] / [`DIALOG_BG_DARKEN_LIGHT`] — intentionally
+    ///   lighter than the tab bar background, so dialogs stay close to the editor
     /// - Buttons/tabs: contrast with dialog bg (lighter if dark bg, darker if light bg)
+    /// - Secondary buttons, inputs, rows, scrollbars: small steps off the dialog bg
     pub fn from_theme_bg(theme_bg: (u8, u8, u8)) -> Self {
         let (r, g, b) = theme_bg;
-        let brightness = (r as u32 + g as u32 + b as u32) / 3;
-        let is_dark = brightness < 128;
+        let editor = ThemeRgb::from_tuple(theme_bg);
+        let is_dark = editor.brightness() < 128;
 
         // Dialog background: slightly muted version of the editor background.
         // Both modes stay close to the editor bg for a cohesive look.
-        let (bg_r, bg_g, bg_b) = if is_dark {
-            darken(r, g, b, 0.85)
+        let bg_rgb = if is_dark {
+            editor.darken(DIALOG_BG_DARKEN_DARK)
         } else {
-            darken(r, g, b, 0.93)
+            editor.darken(DIALOG_BG_DARKEN_LIGHT)
         };
-        let bg = Color::from_rgb(bg_r, bg_g, bg_b);
+        let bg = bg_rgb.to_fltk();
 
         // Button background: contrast with dialog bg
         // Light bg → buttons darker (toward black)
         // Dark bg → buttons lighter (toward white)
-        let (btn_r, btn_g, btn_b) = if is_dark {
+        let btn_rgb = if is_dark {
             // Dark dialog: lighten buttons for contrast
-            lighten(bg_r, bg_g, bg_b, 0.15)
+            bg_rgb.lighten(0.15)
         } else {
             // Light dialog: intensify dominant channel from original theme bg.
             // For neutral themes (R ≈ B), fall back to simple darken.
             let (ir, ig, ib) = intensify_dominant(r, g, b, 0.75);
-            let (dr, dg, db) = darken(r, g, b, 0.72);
+            let d = editor.darken(0.72);
             // Blend: use intensified if polarized, darkened if neutral
             let warmth = (r as f32 - b as f32).abs();
             let t = (warmth / 30.0).clamp(0.0, 1.0);
-            (
-                (ir as f32 * t + dr as f32 * (1.0 - t)) as u8,
-                (ig as f32 * t + dg as f32 * (1.0 - t)) as u8,
-                (ib as f32 * t + db as f32 * (1.0 - t)) as u8,
+            ThemeRgb::new(
+                (ir as f32 * t + d.r as f32 * (1.0 - t)) as u8,
+                (ig as f32 * t + d.g as f32 * (1.0 - t)) as u8,
+                (ib as f32 * t + d.b as f32 * (1.0 - t)) as u8,
             )
         };
-        let button_bg = Color::from_rgb(btn_r, btn_g, btn_b);
+        let button_bg = btn_rgb.to_fltk();
 
         // Tab active background: slightly lighter than button_bg for selected/active state
         let tab_active_bg = if is_dark {
-            let (tr, tg, tb) = lighten(btn_r, btn_g, btn_b, 0.10);
-            Color::from_rgb(tr, tg, tb)
+            btn_rgb.lighten(0.10).to_fltk()
         } else {
-            let (tr, tg, tb) = lighten(btn_r, btn_g, btn_b, 0.15);
-            Color::from_rgb(tr, tg, tb)
+            btn_rgb.lighten(0.15).to_fltk()
+        };
+
+        // Secondary (Cancel/Close) buttons: a subtle step off the dialog bg
+        let secondary_button_bg = if is_dark {
+            bg_rgb.lighten(0.10).to_fltk()
+        } else {
+            bg_rgb.darken(0.90).to_fltk()
         };
 
         // Input background: closer to editor background (lighter than dialog)
         let input_bg = if is_dark {
-            let (ir, ig, ib) = lighten(bg_r, bg_g, bg_b, 0.25);
-            Color::from_rgb(ir, ig, ib)
+            bg_rgb.lighten(0.25).to_fltk()
         } else {
             // Light mode: same as editor background
-            Color::from_rgb(r, g, b)
+            editor.to_fltk()
         };
 
         // Row backgrounds for lists/cards
         let row_bg = if is_dark {
-            let (rr, rg, rb) = lighten(bg_r, bg_g, bg_b, 0.10);
-            Color::from_rgb(rr, rg, rb)
+            bg_rgb.lighten(0.10).to_fltk()
         } else {
             // Light: subtle intensification for cards, darken fallback for neutral
             let (ir, ig, ib) = intensify_dominant(r, g, b, 0.15);
-            let (dr, dg, db) = darken(r, g, b, 0.95);
+            let d = editor.darken(0.95);
             let warmth = (r as f32 - b as f32).abs();
             let t = (warmth / 30.0).clamp(0.0, 1.0);
-            let rr = (ir as f32 * t + dr as f32 * (1.0 - t)) as u8;
-            let rg = (ig as f32 * t + dg as f32 * (1.0 - t)) as u8;
-            let rb = (ib as f32 * t + db as f32 * (1.0 - t)) as u8;
+            let rr = (ir as f32 * t + d.r as f32 * (1.0 - t)) as u8;
+            let rg = (ig as f32 * t + d.g as f32 * (1.0 - t)) as u8;
+            let rb = (ib as f32 * t + d.b as f32 * (1.0 - t)) as u8;
             Color::from_rgb(rr, rg, rb)
         };
 
@@ -284,27 +298,17 @@ impl DialogTheme {
             (Color::from_rgb(0, 0, 0), Color::from_rgb(80, 80, 80))
         };
 
-        // Scrollbar colors
-        let (scroll_track, scroll_thumb) = if is_dark {
-            let (tr, tg, tb) = darken(bg_r, bg_g, bg_b, 0.70);
-            let (thr, thg, thb) = lighten(bg_r, bg_g, bg_b, 0.20);
-            (Color::from_rgb(tr, tg, tb), Color::from_rgb(thr, thg, thb))
-        } else {
-            let (tr, tg, tb) = darken(bg_r, bg_g, bg_b, 0.95);
-            let (thr, thg, thb) = darken(bg_r, bg_g, bg_b, 0.75);
-            (Color::from_rgb(tr, tg, tb), Color::from_rgb(thr, thg, thb))
-        };
+        let (scroll_track, scroll_thumb) = scrollbar_colors(bg_rgb, is_dark);
 
         // Accent color: complementary hue from theme bg
-        let (ar, ag, ab) = accent_from_bg(r, g, b, is_dark);
-        let accent = Color::from_rgb(ar, ag, ab);
+        let accent_rgb = ThemeRgb::from_tuple(accent_from_bg(r, g, b, is_dark));
+        let accent = accent_rgb.to_fltk();
         // Accent hover: slightly lighter/darker
-        let (ahr, ahg, ahb) = if is_dark {
-            lighten(ar, ag, ab, 0.15)
+        let accent_hover = if is_dark {
+            accent_rgb.lighten(0.15).to_fltk()
         } else {
-            darken(ar, ag, ab, 0.85)
+            accent_rgb.darken(0.85).to_fltk()
         };
-        let accent_hover = Color::from_rgb(ahr, ahg, ahb);
 
         Self {
             bg,
@@ -313,6 +317,7 @@ impl DialogTheme {
             input_bg,
             button_bg,
             tab_active_bg,
+            secondary_button_bg,
             row_bg,
             accent,
             accent_hover,
@@ -373,16 +378,9 @@ impl DialogTheme {
     /// Apply flat themed scrollbar styling to a Scroll widget.
     pub fn style_scroll(&self, scroll: &mut Scroll) {
         scroll.set_scrollbar_size(SCROLLBAR_SIZE);
-        let mut vsb = scroll.scrollbar();
-        vsb.set_frame(FrameType::FlatBox);
-        vsb.set_color(self.scroll_track);
-        vsb.set_slider_frame(FrameType::FlatBox);
-        vsb.set_selection_color(self.scroll_thumb);
-        let mut hsb = scroll.hscrollbar();
-        hsb.set_frame(FrameType::FlatBox);
-        hsb.set_color(self.scroll_track);
-        hsb.set_slider_frame(FrameType::FlatBox);
-        hsb.set_selection_color(self.scroll_thumb);
+        for mut sb in [scroll.scrollbar(), scroll.hscrollbar()] {
+            style_scrollbar(&mut sb, self.scroll_track, self.scroll_thumb);
+        }
     }
 }
 
@@ -446,4 +444,55 @@ pub fn show_themed_message(theme_bg: (u8, u8, u8), title: &str, message: &str) {
     dialog.show();
     theme.apply_titlebar(&dialog);
     run_dialog(&dialog);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scrollbar_colors_dark_darkens_track_and_lightens_thumb() {
+        let (track, thumb) = scrollbar_colors(ThemeRgb::new(40, 44, 52), true);
+        // track = base * 0.70; thumb = base + (255 - base) * 0.20
+        assert_eq!(track, Color::from_rgb(28, 30, 36));
+        assert_eq!(thumb, Color::from_rgb(83, 86, 92));
+    }
+
+    #[test]
+    fn scrollbar_colors_light_darkens_both() {
+        let (track, thumb) = scrollbar_colors(ThemeRgb::new(250, 250, 250), false);
+        // track = base * 0.95; thumb = base * 0.75
+        assert_eq!(track, Color::from_rgb(237, 237, 237));
+        assert_eq!(thumb, Color::from_rgb(187, 187, 187));
+    }
+
+    #[test]
+    fn dialog_theme_scrollbar_colors_derive_from_dialog_bg() {
+        let theme = DialogTheme::from_theme_bg((40, 44, 52));
+        assert_eq!(
+            (theme.scroll_track, theme.scroll_thumb),
+            scrollbar_colors(ThemeRgb::from_fltk(theme.bg), true)
+        );
+    }
+
+    /// The Cancel/Close buttons of the large-file and read-only-viewer dialogs
+    /// sit on the dialog background, so they must be derived from it — not from
+    /// a stale copy of the pre-cdf5750 dialog factors (0.65 / 0.85).
+    #[test]
+    fn secondary_button_bg_derives_from_dialog_bg() {
+        for theme_bg in [(40, 44, 52), (30, 30, 30), (253, 246, 227), (255, 255, 255)] {
+            let theme = DialogTheme::from_theme_bg(theme_bg);
+            let bg = ThemeRgb::from_fltk(theme.bg);
+            let expected = if theme.is_dark() {
+                bg.lighten(0.10)
+            } else {
+                bg.darken(0.90)
+            };
+            assert_eq!(
+                ThemeRgb::from_fltk(theme.secondary_button_bg),
+                expected,
+                "theme_bg {theme_bg:?}"
+            );
+        }
+    }
 }

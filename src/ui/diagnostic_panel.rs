@@ -15,6 +15,7 @@ use fltk::{
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use super::theme::{PanelTheme, Themeable};
 use crate::app::Message;
 use crate::app::plugins::{Diagnostic, DiagnosticLevel};
 
@@ -365,10 +366,11 @@ impl DiagnosticPanel {
             HEADER_HEIGHT
         }
     }
+}
 
-    /// Apply theme colors
-    pub fn apply_theme(&mut self, is_dark: bool) {
-        if is_dark {
+impl Themeable for DiagnosticPanel {
+    fn apply_theme(&mut self, theme: PanelTheme) {
+        if theme.is_dark {
             self.browser.set_color(Color::from_rgb(40, 40, 40));
         } else {
             self.browser.set_color(Color::from_rgb(250, 250, 250));

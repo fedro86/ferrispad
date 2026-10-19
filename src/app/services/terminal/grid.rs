@@ -31,7 +31,10 @@ impl Default for Cell {
     }
 }
 
-/// Terminal screen buffer
+/// Terminal screen buffer.
+///
+/// Invariant: `rows >= 1 && cols >= 1`. `new` and `resize` clamp a zero
+/// dimension to 1, so methods may assume row 0 and column 0 exist.
 pub struct TerminalGrid {
     /// Visible grid: rows × cols
     pub cells: Vec<Vec<Cell>>,
@@ -67,8 +70,9 @@ pub struct TerminalGrid {
 }
 
 impl TerminalGrid {
-    /// Create a new terminal grid with the given dimensions
+    /// Create a new terminal grid with the given dimensions (each at least 1).
     pub fn new(cols: usize, rows: usize) -> Self {
+        let (cols, rows) = (cols.max(1), rows.max(1));
         let cells = vec![vec![Cell::default(); cols]; rows];
         Self {
             cells,
@@ -345,6 +349,7 @@ impl TerminalGrid {
 
     /// Resize the grid to new dimensions
     pub fn resize(&mut self, new_cols: usize, new_rows: usize) {
+        let (new_cols, new_rows) = (new_cols.max(1), new_rows.max(1));
         // Adjust rows
         while self.cells.len() < new_rows {
             self.cells.push(vec![Cell::default(); new_cols]);
@@ -402,7 +407,6 @@ impl TerminalGrid {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Duration, Instant};
 
     #[test]
     fn test_new_grid() {
@@ -518,32 +522,62 @@ mod tests {
         );
     }
 
-    // Timing. A flood of single-line scrolls (1M line-feeds) must trim the
-    // scrollback in O(1) per line. `rows == 1` isolates the trim from the
-    // region-shift cost. The old `Vec::remove(0)` made this O(n·cap) — 4.4s in a
-    // debug build for a crafted file; a real ring buffer keeps it well under the
-    // 2s bound (measured ~0.5s).
+    // Deterministic, no clock (T0044). A flood of line-feeds must trim the
+    // scrollback in O(1) per line. The old `Vec::remove(0)` trim was O(cap): on
+    // every line-feed it shifted all ~10 000 surviving lines down one slot.
+    // Instead of timing that (a wall-clock bound fails on a loaded machine),
+    // assert what makes the trim O(1): once the scrollback is full, dropping
+    // the oldest line moves *none* of the surviving lines in memory. Any O(n)
+    // trim (shift-down, rebuild, re-collect) has to move them, so it fails here
+    // at any machine speed or load. `rows == 1` routes every scroll into the trim.
     #[test]
-    fn line_feed_flood_trims_in_bounded_time() {
+    fn line_feed_flood_trims_without_moving_lines() {
+        // Per scrollback line, oldest first: its identity (the line's own heap
+        // buffer, stable while the line lives) and the slot holding it.
+        fn layout(grid: &TerminalGrid) -> Vec<(*const Cell, *const Vec<Cell>)> {
+            grid.scrollback
+                .iter()
+                .map(|line| (line.as_ptr(), std::ptr::from_ref(line)))
+                .collect()
+        }
+
         let mut grid = TerminalGrid::new(80, 1);
-        let start = Instant::now();
-        for _ in 0..1_000_000 {
+        // Fill past the cap, so the buffer has reached its steady-state size.
+        for _ in 0..=MAX_SCROLLBACK {
             grid.scroll_up(1);
         }
-        let elapsed = start.elapsed();
+        let before = layout(&grid);
+
+        // Trim half the history; the newer half survives every trim.
+        let trims = MAX_SCROLLBACK / 2;
+        for _ in 0..trims {
+            grid.scroll_up(1);
+        }
         assert_eq!(grid.scrollback_len(), MAX_SCROLLBACK);
-        assert!(
-            elapsed < Duration::from_secs(2),
-            "scrollback trimming is not O(1): 1M line-feeds took {elapsed:?}"
+        let after = layout(&grid);
+
+        let mut moved = 0;
+        for (old_idx, &(line, slot)) in before.iter().enumerate().skip(trims) {
+            let (now_line, now_slot) = after[old_idx - trims];
+            assert_eq!(line, now_line, "scrollback lost its oldest-first order");
+            if slot != now_slot {
+                moved += 1;
+            }
+        }
+        assert_eq!(
+            moved,
+            0,
+            "scrollback trimming is not O(1): {trims} trims moved {moved} of {} surviving lines",
+            MAX_SCROLLBACK - trims
         );
     }
 
     // --- T0032: grid row/col math must not underflow on a degenerate size ---
 
-    // `newline` compared the cursor against a raw `rows - 1`: on a 0-row grid
-    // that is `attempt to subtract with overflow` in debug. The cursor sits off
-    // `scroll_bottom` so the non-scrolling branch (where the subtraction lived)
-    // is the one taken.
+    // `newline` compared the cursor against a raw `rows - 1`, which
+    // underflowed on a 0-row grid. Since T0045 such a grid cannot exist
+    // (`new` clamps to 1x1); a cursor pushed past the last row must still
+    // leave `newline` a no-op rather than panic.
     #[test]
     fn newline_on_zero_row_grid_does_not_underflow() {
         let mut grid = TerminalGrid::new(0, 0);
@@ -552,13 +586,16 @@ mod tests {
         assert_eq!(grid.cursor_row, 1);
     }
 
-    // `clear_line_to_cursor` bounded its loop with a raw `cols - 1`: on a 0-col
-    // grid that underflow-panics in debug. It must be a no-op instead.
+    // `clear_line_to_cursor` bounded its loop with a raw `cols - 1`, which
+    // underflowed on a 0-col grid. Since T0045 the grid is clamped to one
+    // column; clearing must work on it and not panic.
     #[test]
     fn clear_line_to_cursor_on_zero_col_grid_does_not_underflow() {
         let mut grid = TerminalGrid::new(0, 1);
+        assert_eq!(grid.cols, 1);
+        grid.put_char('x');
         grid.clear_line_to_cursor();
-        assert!(grid.cells[0].is_empty());
+        assert_eq!(grid.cells[0][0].ch, ' ');
     }
 
     // Pins the normal behaviour across the T0032 change: columns 0..=cursor are
@@ -573,5 +610,27 @@ mod tests {
         grid.clear_line_to_cursor();
         let line: String = grid.cells[0].iter().map(|c| c.ch).collect();
         assert_eq!(line, "   DE");
+    }
+
+    // --- T0045: a grid is never smaller than 1x1 ---
+
+    // A fresh 0x0 grid starts with `cursor_row == scroll_bottom == 0`, so the
+    // first `newline()` scrolls and `scroll_up` indexes `cells[0]` on an empty
+    // Vec: index out of bounds. `new` must clamp the size instead.
+    #[test]
+    fn newline_on_fresh_zero_size_grid_does_not_panic() {
+        let mut grid = TerminalGrid::new(0, 0);
+        grid.newline();
+        assert_eq!((grid.cols, grid.rows), (1, 1));
+    }
+
+    // Same invariant through `resize`.
+    #[test]
+    fn resize_to_zero_clamps_to_one() {
+        let mut grid = TerminalGrid::new(80, 24);
+        grid.resize(0, 0);
+        grid.put_char('x');
+        grid.newline();
+        assert_eq!((grid.cols, grid.rows), (1, 1));
     }
 }

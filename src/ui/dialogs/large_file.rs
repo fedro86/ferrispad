@@ -3,7 +3,7 @@
 //! Provides user-facing dialogs for files that may be too large to load safely.
 //! Also provides progress dialog for loading large files.
 
-use super::{DialogTheme, darken, lighten};
+use super::DialogTheme;
 use fltk::{
     app,
     button::Button,
@@ -155,25 +155,9 @@ pub fn show_file_too_large_dialog(
     Frame::default(); // Spacer
 
     // Cancel button — visually distinct (secondary)
-    // Derive cancel bg from theme_bg the same way DialogTheme derives dialog bg
     let mut cancel_btn = Button::default().with_label("Cancel");
-    let (r, g, b) = theme_bg;
-    let brightness = (r as u32 + g as u32 + b as u32) / 3;
-    let is_dark = brightness < 128;
-    let (bg_r, bg_g, bg_b) = if is_dark {
-        darken(r, g, b, 0.65)
-    } else {
-        darken(r, g, b, 0.85)
-    };
-    let cancel_bg = if is_dark {
-        let (cr, cg, cb) = lighten(bg_r, bg_g, bg_b, 0.10);
-        fltk::enums::Color::from_rgb(cr, cg, cb)
-    } else {
-        let (cr, cg, cb) = darken(bg_r, bg_g, bg_b, 0.90);
-        fltk::enums::Color::from_rgb(cr, cg, cb)
-    };
     cancel_btn.set_frame(FrameType::RFlatBox);
-    cancel_btn.set_color(cancel_bg);
+    cancel_btn.set_color(theme.secondary_button_bg);
     cancel_btn.set_label_color(theme.text_dim);
     main_flex.fixed(&cancel_btn, 30);
 
