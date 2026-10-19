@@ -320,11 +320,8 @@ pub fn retheme_panels(state: &AppState, lw: &mut LayoutWidgets) {
         }
     }
     // FLTK foreground for menu text
-    if theme.is_dark {
-        fltk::app::foreground(230, 230, 230);
-    } else {
-        fltk::app::foreground(0, 0, 0);
-    }
+    let (r, g, b) = crate::ui::theme::menu_foreground(theme);
+    fltk::app::foreground(r, g, b);
 }
 
 /// Push the current editor font/size to non-editor code-display surfaces
@@ -1486,6 +1483,27 @@ mod tests {
         assert!(
             !dialog.contains(".send(Message::PreviewSyntaxTheme"),
             "the modal Settings dialog must not queue previews on the channel"
+        );
+    }
+
+    /// The menu text colour has one rule (`ui::theme::menu_foreground`),
+    /// applied by `retheme_panels`; startup must reach it through
+    /// `retheme_panels` rather than set `app::foreground` with a rule of its own.
+    #[test]
+    fn startup_picks_menu_foreground_through_retheme_panels() {
+        let retheme = fn_body(dispatch_src(), "retheme_panels").map(without_whitespace);
+        assert!(
+            retheme.is_some_and(|f| f.contains("menu_foreground(theme)")),
+            "retheme_panels must pick the menu text colour with menu_foreground"
+        );
+        let main = without_whitespace(include_str!("main.rs"));
+        assert!(
+            main.contains("dispatch::retheme_panels(&state,&mutlw)"),
+            "startup must apply the initial theme through retheme_panels"
+        );
+        assert!(
+            !main.contains("app::foreground("),
+            "startup must not choose the menu text colour with a rule of its own"
         );
     }
 }

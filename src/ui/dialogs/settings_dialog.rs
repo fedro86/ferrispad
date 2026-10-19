@@ -621,6 +621,10 @@ pub fn show_settings_dialog(
     super::run_dialog_with(&dialog, || {
         if let Some(theme) = pending_preview.take() {
             preview(theme);
+            // The preview re-themes the main window, menu text colour
+            // included; this dialog keeps its own colours, so its Choice
+            // popups need its foreground back.
+            fltk::app::foreground(tr, tg, tb);
         }
     });
 
