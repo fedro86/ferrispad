@@ -1,7 +1,7 @@
 ---
 id: T0056
 title: Upgrade the TLS stack past the rustls-webpki advisories
-status: review
+status: done
 created: 2026-10-19
 severity: severe
 area: security
