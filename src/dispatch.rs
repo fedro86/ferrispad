@@ -72,10 +72,13 @@ pub fn handle_file(msg: Message, state: &mut AppState) -> DispatchResult {
             state.session.mark_dirty();
         }
         Message::FileSaveAs => {
-            let actions =
-                state
-                    .file
-                    .file_save_as(&mut state.tab_manager, &state.plugins, state.tabs_enabled);
+            let theme_bg = state.highlight.highlighter().theme_background();
+            let actions = state.file.file_save_as(
+                &mut state.tab_manager,
+                &state.plugins,
+                theme_bg,
+                state.tabs_enabled,
+            );
             state.dispatch_file_actions(actions);
             state.session.mark_dirty();
         }
