@@ -1,7 +1,7 @@
 ---
 id: T0055
 title: Pick the menu text colour the same way at startup as on a theme change
-status: review
+status: done
 created: 2026-10-19
 severity: minor
 area: ui
