@@ -1,7 +1,7 @@
 ---
 id: T0034
 title: Use the semver crate for registry version comparison
-status: review
+status: done
 created: 2026-08-24
 severity: minor
 area: robustness
