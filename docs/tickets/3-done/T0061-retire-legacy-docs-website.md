@@ -1,7 +1,7 @@
 ---
 id: T0061
 title: Retire the legacy GitHub Pages website in docs/
-status: review
+status: done
 created: 2026-10-19
 severity: ~
 area: process
