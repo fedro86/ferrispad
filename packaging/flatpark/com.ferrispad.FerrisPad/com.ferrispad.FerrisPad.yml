@@ -37,9 +37,9 @@ modules:
         filename: FerrisPad-linux-amd64
         only-arches:
           - x86_64
-        url: https://github.com/fedro86/ferrispad/releases/download/0.9.6/FerrisPad-v0.9.6-linux-amd64
-        sha256: 4fb545542d9a84852a17e91ba23d02feca35f47996aac1ed39719fc9dd88e6d8
-        size: 13995984
+        url: https://github.com/fedro86/ferrispad/releases/download/0.9.7/FerrisPad-v0.9.7-linux-amd64
+        sha256: 760fe9fb38888323f80aceba0b33213912545ec86ba0735b0d5680b862254741
+        size: 14000856
       # END MANAGED EXTRA-DATA
       - type: file
         path: apply_extra.sh

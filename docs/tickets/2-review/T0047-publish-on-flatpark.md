@@ -21,7 +21,7 @@ Linux users should be able to install FerrisPad from FlatPark.
 
 - Read FlatPark's packager playbook and listing policy, and record the
   requirements here.
-- Write a FlatPark package that wraps the official 0.9.6 Linux release asset as
+- Write a FlatPark package that wraps the official Linux release asset (0.9.7) as
   `extra-data`.
 - Reuse the desktop file, icon and metainfo; pick the runtime.
 - Re-evaluate the permissions and justify them.
@@ -91,12 +91,14 @@ Sources:
 Package in `packaging/flatpark/com.ferrispad.FerrisPad/`, which becomes
 `registry/com.ferrispad.FerrisPad/` in the FlatPark PR.
 
-- **Download.** The raw `FerrisPad-v0.9.6-linux-amd64` release asset. It is a
+- **Download.** The raw `FerrisPad-v0.9.7-linux-amd64` release asset. It is a
   single self-contained executable, so there is nothing to unpack, and
   `apply_extra.sh` only moves it to `/app/extra/FerrisPad`. The `.deb` would
   need a second unpack for the same binary.
-  - sha256 `4fb545542d9a84852a17e91ba23d02feca35f47996aac1ed39719fc9dd88e6d8`
-  - size 13995984
+  - sha256 `760fe9fb38888323f80aceba0b33213912545ec86ba0735b0d5680b862254741`
+  - size 14000856
+  - First pinned to 0.9.6. Re-pinned to 0.9.7 on 2026-10-20, after 0.9.6
+    turned out to ship the Escape bug (T0062).
 - **Runtime: `org.freedesktop.Platform` 26.08.** `readelf -d` on the binary lists
   wayland-client/cursor, xkbcommon, dbus-1, X11, Xinerama, Xcursor, Xfixes,
   pango, pangocairo, cairo, gobject, libgcc_s, libm, libc. All of them are in
@@ -126,7 +128,7 @@ Package in `packaging/flatpark/com.ferrispad.FerrisPad/`, which becomes
     the official binary unmodified.
   - It notes that the built-in terminal runs inside the sandbox, and that MCP
     agents connect through `flatpak run com.ferrispad.FerrisPad --mcp-server`.
-  - It has one `<release version="0.9.6">`.
+  - It has one `<release version="0.9.7">`.
 - `docs/guides/BUILD_GUIDE.md`:
   - new "Option 4: FlatPark package" (install, layout, how updates work, how to
     check a packaging change);
@@ -142,7 +144,7 @@ All in a clone of flatpark/flatpark@43f67e6, with the package copied to
 | `node scripts/read-descriptor.mjs` / `audit-descriptor.mjs` | OK / exit 0 |
 | `./scripts/check-apply-extra.sh com.ferrispad.FerrisPad` | "apply_extra OK as root with no capabilities" |
 | `./scripts/publish.sh --verify com.ferrispad.FerrisPad` | built, signed, "installed … from local signed repo OK" |
-| `./resolve-update.sh` | `0.9.6`, `2026-10-20`, the exact asset URL |
+| `./resolve-update.sh` | `0.9.7`, `2026-10-20`, the exact asset URL |
 | Starts and draws (Xvfb `:99`, X11) | window drawn, CLI file opened with Rust highlighting |
 | Window class | `WM_CLASS` = `FerrisPad`, equal to `StartupWMClass` |
 | Main feature | Ctrl+O shows the GTK 3 file chooser on `$HOME`; typing + Ctrl+S saved a file in `$HOME` |
@@ -159,8 +161,13 @@ Run notes:
   (the user's own data was there, and was backed up and restored); the Wayland
   socket; aarch64 (no upstream arm build).
 - **Found while testing, but not caused by the package:** Escape in the editor
-  hides FerrisPad's main window. The native 0.9.6 binary does the same, so it
-  is a separate ticket.
+  hid FerrisPad's main window. The native 0.9.6 binary did the same. It was
+  fixed in T0062 and shipped in 0.9.7.
+- **0.9.7 re-run (2026-10-20):**
+  - audit, `check-apply-extra.sh` and `publish.sh --verify` pass again;
+  - the window draws, with `WM_CLASS` = `FerrisPad`;
+  - typing and then Escape leaves the window open;
+  - Ctrl+S saved the file in `$HOME`.
 
 ## How to test
 
@@ -178,7 +185,7 @@ Expect:
 - the editor opens;
 - File → Open shows the GTK file chooser on your home, and you can open and
   save a file there;
-- Help → About shows 0.9.6;
+- Help → About shows 0.9.7;
 - no update banner at startup.
 
 ### 2. Clean up
