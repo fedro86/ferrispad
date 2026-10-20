@@ -425,3 +425,22 @@ jobs:
             artifacts/macos-dmg/*
             artifacts/macos-bin/*
             artifacts/signatures/*
+
+  # Tell FlatPark the release is out so its Flatpak updates within minutes
+  # instead of at the twice-daily check. The release is created here by
+  # GITHUB_TOKEN, which never triggers an `on: release` workflow, hence a job
+  # after create-release. The action only POSTs {app_id, tag, repository} to
+  # FlatPark's webhook, which verifies them against public data: no secret,
+  # no token permissions, pinned to a commit.
+  flatpark:
+    needs: create-release
+    # Stable releases only: a -alpha/-beta/-rc tag must not reach Flatpak users.
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions: {}
+    steps:
+      - uses: flatpark/publish-action@b67fca1b80b095541bc011967e0a35292bed14d8 # v1.0.2
+        with:
+          app-id: com.ferrispad.FerrisPad
+          tag: ${{ github.ref_name }}
