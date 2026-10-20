@@ -1,7 +1,7 @@
 ---
 id: T0066
 title: README install section (deb, FlatPark, binary) and refresh
-status: review
+status: done
 created: 2026-10-20
 severity: ~
 area: docs
