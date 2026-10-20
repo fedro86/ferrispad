@@ -1,7 +1,7 @@
 ---
 id: T0047
 title: Package FerrisPad for FlatPark and prepare the submission
-status: review
+status: done
 created: 2026-10-19
 severity: ~
 area: process
