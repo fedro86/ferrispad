@@ -20,7 +20,7 @@ Download the latest release from the [releases page](https://github.com/fedro86/
 | **Windows** (x86_64) | `FerrisPad-v<version>-windows-x64.zip` (portable) |
 | **macOS** (Intel + Apple Silicon) | `FerrisPad-v<version>-macos.dmg` |
 | **Debian / Ubuntu** (x86_64, ARM64) | `FerrisPad-v<version>-ubuntu-amd64.deb` or `-ubuntu-arm64.deb` → `sudo apt install ./FerrisPad-v<version>-ubuntu-<arch>.deb` |
-| **Other Linux** (Fedora, Arch, openSUSE…) | Flatpak from [FlatPark](https://flatpark.org/apps/com.ferrispad.FerrisPad/) (x86_64), see below |
+| **Other Linux** (Fedora, Arch, openSUSE…; x86_64, ARM64) | Flatpak from [FlatPark](https://flatpark.org/apps/com.ferrispad.FerrisPad/), see below |
 | **Any Linux** (x86_64, ARM64) | `FerrisPad-v<version>-linux-amd64` or `-linux-arm64`: a standalone binary, `chmod +x` and run |
 
 The Linux builds need glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40 and later). On older systems, [build from source](#build-from-source).

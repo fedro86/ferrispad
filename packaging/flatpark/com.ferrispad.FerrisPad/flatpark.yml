@@ -7,8 +7,10 @@ build:
   manifest: com.ferrispad.FerrisPad.yml
   branch: stable
   mode: extra-data
+  arches: [x86_64, aarch64]
 catalog:
   category: Development
+  upstream_approved: true
   tags:
     - Text Editor
     - Rust
