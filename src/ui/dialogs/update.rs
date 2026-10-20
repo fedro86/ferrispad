@@ -85,8 +85,8 @@ pub fn show_update_available_dialog(
     let theme = DialogTheme::from_theme_bg(theme_bg);
     let dialog_bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
     let current_version = env!("CARGO_PKG_VERSION");
-    let asset_name = updater::get_platform_asset_name();
-    let direct_asset = release.assets.iter().find(|a| a.name.contains(asset_name));
+    let direct_asset = updater::get_platform_asset_name()
+        .and_then(|name| release.assets.iter().find(|a| a.name.contains(name)));
 
     const DW: i32 = 500;
     const DH: i32 = 480;
