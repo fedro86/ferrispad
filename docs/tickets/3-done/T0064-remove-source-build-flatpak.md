@@ -1,7 +1,7 @@
 ---
 id: T0064
 title: Remove the source-build Flatpak packaging
-status: review
+status: done
 created: 2026-10-20
 severity: ~
 area: process
