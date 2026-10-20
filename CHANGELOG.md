@@ -5,6 +5,19 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.8] - 2026-10-20
+
+### Added
+- **ARM64 Linux Builds**: Releases now include an ARM64 (aarch64) Linux binary and `.deb`, signed like the other builds, and the in-app updater uses them on ARM64 Linux.
+- **Flatpak on FlatPark**: FerrisPad is available as a Flatpak from [FlatPark](https://flatpark.org/apps/com.ferrispad.FerrisPad/) for Fedora, Arch, openSUSE and other distributions. It installs the official release binary and updates with `flatpak update`.
+
+### Fixed
+- **Updates on Other Architectures**: The in-app updater no longer offers a binary built for a different CPU architecture. Before, FerrisPad built from source on ARM64 Linux was offered the x86_64 binary, which would not start after the update. When no binary is published for your platform, the update dialog links to the release page instead.
+- **Update Dialog in Flatpak**: Inside a Flatpak, the update dialog no longer says updates come from Flathub. It points to `flatpak update` or your software store.
+
+### Changed
+- **Tagline**: The About dialog, `--help`, the desktop entry and the package description now read "A minimalist text editor written in Rust".
+
 ## [0.9.7] - 2026-10-20
 
 ### Fixed
