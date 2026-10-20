@@ -8,10 +8,7 @@ fn main() {
 
         // "Details" tab in file Properties
         res.set("ProductName", "FerrisPad");
-        res.set(
-            "FileDescription",
-            "FerrisPad — A blazingly fast text editor",
-        );
+        res.set("FileDescription", "FerrisPad — A minimalist text editor");
         res.set("CompanyName", "Federico Conticello");
         res.set(
             "LegalCopyright",
