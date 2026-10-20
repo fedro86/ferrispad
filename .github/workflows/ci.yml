@@ -54,3 +54,29 @@ jobs:
 
       - name: cargo test
         run: cargo test --locked
+
+  # Release builds ship an ARM64 Linux binary (T0068): build and test it on a
+  # native ARM runner so an arch-specific break shows up before a tag.
+  test-arm64:
+    name: test (linux arm64)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install FLTK build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libfltk1.3-dev libfontconfig1-dev libxext-dev libxft-dev \
+            libxinerama-dev libxcursor-dev libxrender-dev libxfixes-dev \
+            libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev \
+            libwayland-dev wayland-protocols libdbus-1-dev libxkbcommon-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo test
+        run: cargo test --locked

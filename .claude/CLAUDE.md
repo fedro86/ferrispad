@@ -74,9 +74,9 @@ Tag/version conventions:
 - Tags containing `-alpha`, `-beta`, or `-rc` are auto-marked as GitHub pre-releases.
 - Manual one-liner if not using `release.sh`: `VERSION="X.Y.Z" && git tag -a "$VERSION" -m "Release $VERSION" && git push origin "$VERSION"`.
 
-What CI does on a pushed tag: builds native binaries (Linux `.deb`+raw, Windows `.zip`+`.exe`, macOS universal `.dmg`+raw), **signs each binary**, extracts release notes from `CHANGELOG.md`, and publishes the GitHub Release with all binaries + `.sig` files attached.
+What CI does on a pushed tag: builds native binaries (Linux amd64 and arm64 `.deb`+raw, Windows `.zip`+`.exe`, macOS universal `.dmg`+raw), **signs each binary**, extracts release notes from `CHANGELOG.md`, and publishes the GitHub Release with all binaries + `.sig` files attached.
 
-**Signing:** ed25519 signatures are produced **in CI, not locally**. The `sign-binaries` job checks out the `fedro86/ferrispad-plugins` repo, builds its `tools/signer` (`plugin-signer`), and signs using the base64-encoded `SIGNING_KEY` GitHub Actions secret. The auto-updater refuses unsigned binaries, so verify `.sig` files are attached after a release. Manual signing is only a fallback (see RELEASE_PROCESS.md). Platform identifiers must be exact: `linux-amd64`, `macos-universal`, `windows-x64.exe`.
+**Signing:** ed25519 signatures are produced **in CI, not locally**. The `sign-binaries` job checks out the `fedro86/ferrispad-plugins` repo, builds its `tools/signer` (`plugin-signer`), and signs using the base64-encoded `SIGNING_KEY` GitHub Actions secret. The auto-updater refuses unsigned binaries, so verify `.sig` files are attached after a release. Manual signing is only a fallback (see RELEASE_PROCESS.md). Platform identifiers must be exact: `linux-amd64`, `linux-arm64`, `macos-universal`, `windows-x64.exe`.
 
 ## Architecture
 

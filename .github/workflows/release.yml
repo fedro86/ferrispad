@@ -17,7 +17,15 @@ permissions:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -52,22 +60,22 @@ jobs:
       - name: Rename .deb file
         run: |
           DEB_FILE=$(find target/debian -name "*.deb" -type f | head -n 1)
-          mv "$DEB_FILE" "${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-ubuntu-amd64.deb"
+          mv "$DEB_FILE" "${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-ubuntu-${{ matrix.arch }}.deb"
 
       - name: Prepare raw binary
-        run: cp target/release/${{ env.PROJECT_NAME }} ${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-linux-amd64
+        run: cp target/release/${{ env.PROJECT_NAME }} ${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-linux-${{ matrix.arch }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: linux-bin
-          path: ${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-linux-amd64
+          name: linux-bin-${{ matrix.arch }}
+          path: ${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-linux-${{ matrix.arch }}
 
       - name: Upload artifact (deb)
         uses: actions/upload-artifact@v7
         with:
-          name: linux-deb
-          path: ${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-ubuntu-amd64.deb
+          name: linux-deb-${{ matrix.arch }}
+          path: ${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-ubuntu-${{ matrix.arch }}.deb
 
   build-windows:
     runs-on: windows-latest
@@ -284,11 +292,13 @@ jobs:
           # Create public key from private key (signer only needs private key for signing)
           # The signer derives the public key internally from ed25519 private key
 
-      - name: Download Linux binary
-        if: needs.build-linux.result == 'success'
+      # A failed matrix leg still lets the other architecture be signed.
+      - name: Download Linux binaries
+        continue-on-error: true
         uses: actions/download-artifact@v8
         with:
-          name: linux-bin
+          pattern: linux-bin-*
+          merge-multiple: true
           path: binaries
 
       - name: Download Windows binary
@@ -312,12 +322,14 @@ jobs:
           VERSION="${{ steps.get_version.outputs.version }}"
           SIGNER="ferrispad-plugins/tools/signer/target/release/plugin-signer"
 
-          # Sign Linux binary
-          LINUX_BIN="binaries/${{ env.PROJECT_NAME }}-v${VERSION}-linux-amd64"
-          if [ -f "$LINUX_BIN" ]; then
-            $SIGNER sign-release "$LINUX_BIN" "$VERSION" "linux-amd64"
-            echo "Signed Linux binary"
-          fi
+          # Sign Linux binaries (platform id = asset suffix the updater looks for)
+          for PLATFORM in linux-amd64 linux-arm64; do
+            LINUX_BIN="binaries/${{ env.PROJECT_NAME }}-v${VERSION}-${PLATFORM}"
+            if [ -f "$LINUX_BIN" ]; then
+              $SIGNER sign-release "$LINUX_BIN" "$VERSION" "$PLATFORM"
+              echo "Signed $PLATFORM binary"
+            fi
+          done
 
           # Sign Windows binary
           WINDOWS_BIN="binaries/${{ env.PROJECT_NAME }}-v${VERSION}-windows-x64.exe"
@@ -406,8 +418,8 @@ jobs:
           draft: false
           prerelease: ${{ steps.get_version.outputs.is_prerelease }}
           files: |
-            artifacts/linux-deb/*
-            artifacts/linux-bin/*
+            artifacts/linux-deb-*/*
+            artifacts/linux-bin-*/*
             artifacts/windows-zip/*
             artifacts/windows-bin/*
             artifacts/macos-dmg/*
