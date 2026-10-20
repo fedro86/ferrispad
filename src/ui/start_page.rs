@@ -27,12 +27,12 @@ const CHANGELOG_URL: &str = "https://github.com/fedro86/ferrispad/blob/master/CH
 
 /// Recent changelog entries: (description, version_tag).
 const CHANGELOG_ENTRIES: &[&str] = &[
+    "Escape no longer closes the editor",
     "Plugin sandbox & security hardening",
     "Upgraded TLS stack (rustls 0.23)",
     "Shortcuts fixed for mixed layouts",
     "Cancel button for large-file loading",
     "Live theme preview & themed popups",
-    "Regex find & Find Next/Prev fixes",
 ];
 
 const BTN_W: i32 = 150;
