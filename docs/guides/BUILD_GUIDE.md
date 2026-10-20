@@ -78,42 +78,7 @@ cd target/release
 tar -czf FerrisPad-v0.1.0-linux-x64.tar.gz FerrisPad
 ```
 
-### Option 3: Build Flatpak
-
-The Flatpak packaging lives in `packaging/flatpak/`. It builds against the
-freedesktop 25.08 runtime with the rust-stable SDK extension and works on any
-distro (Fedora, Ubuntu, ...).
-
-```bash
-# One-time setup: flatpak-builder + runtimes
-flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-flatpak install --user flathub org.freedesktop.Sdk//25.08 \
-  org.freedesktop.Platform//25.08 org.freedesktop.Sdk.Extension.rust-stable//25.08
-
-# Build and install locally (user scope)
-flatpak-builder --user --install --force-clean build-dir \
-  packaging/flatpak/com.ferrispad.FerrisPad.yml
-
-# Run it
-flatpak run com.ferrispad.FerrisPad
-```
-
-Flathub builders have no network access, so all crates are vendored via
-`packaging/flatpak/cargo-sources.json`. **Regenerate it whenever `Cargo.lock`
-changes:**
-
-```bash
-uv run packaging/flatpak/flatpak-cargo-generator.py Cargo.lock \
-  -o packaging/flatpak/cargo-sources.json
-```
-
-Notes:
-- Inside Flatpak the built-in updater is disabled (`is_flatpak()` in
-  `services/updater.rs`) — updates are delivered through Flatpak.
-- The manifest uses a `type: dir` source: it is for local builds from the
-  working tree. The distributed Flatpak is the FlatPark package below.
-
-### Option 4: FlatPark package (distributed Flatpak)
+### Option 3: Flatpak (FlatPark)
 
 Linux users install FerrisPad from [FlatPark](https://flatpark.org):
 
@@ -143,8 +108,12 @@ chooser.
   ./scripts/check-apply-extra.sh com.ferrispad.FerrisPad
   ./scripts/publish.sh --verify com.ferrispad.FerrisPad
   ```
-  It installs the `stable` branch next to a local `master` build, and both share
-  `~/.var/app/com.ferrispad.FerrisPad`.
+  If FerrisPad is already installed from FlatPark, `--verify` moves it aside and
+  restores it afterwards. Both installs share `~/.var/app/com.ferrispad.FerrisPad`,
+  so back that up first.
+- **Release builds only.** There is no Flatpak build from source: the package
+  installs released binaries, so Flatpak-specific behaviour is tested on a
+  release.
 
 ### Collect the Binaries
 
