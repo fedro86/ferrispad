@@ -1,7 +1,7 @@
 ---
 id: T0062
 title: Escape in the editor hides the main window
-status: review
+status: done
 created: 2026-10-20
 severity: high
 area: ui
