@@ -1,7 +1,7 @@
 ---
 id: T0063
 title: Prepare the 0.9.7 release (Escape fix)
-status: review
+status: done
 created: 2026-10-20
 severity: ~
 area: process
