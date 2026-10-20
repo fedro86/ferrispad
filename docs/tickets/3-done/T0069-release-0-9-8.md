@@ -1,7 +1,7 @@
 ---
 id: T0069
 title: Prepare the 0.9.8 release (ARM64 builds, updater arch fix)
-status: review
+status: done
 created: 2026-10-20
 severity: ~
 area: process
