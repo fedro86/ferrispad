@@ -1,7 +1,7 @@
 ---
 id: T0060
 title: Prepare the 0.9.6 release (CHANGELOG + version bump)
-status: review
+status: done
 created: 2026-10-19
 severity: ~
 area: process
