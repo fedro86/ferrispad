@@ -1,7 +1,13 @@
 #[cfg(not(target_os = "macos"))]
 use fltk::image::PngImage;
 use fltk::{
-    app::Sender, enums::Color, frame::Frame, group::Flex, menu::MenuBar, prelude::*, window::Window,
+    app::Sender,
+    enums::{CallbackReason, Color},
+    frame::Frame,
+    group::Flex,
+    menu::MenuBar,
+    prelude::*,
+    window::Window,
 };
 
 use super::diagnostic_panel::DiagnosticPanel;
@@ -109,6 +115,12 @@ pub struct MainWidgets {
     pub editor_col: Option<Flex>,
 }
 
+/// Whether the main window's callback may hide it. `Cancelled` is what FLTK
+/// passes for an unhandled Escape key press; that must never close the editor.
+fn callback_hides_main_window(reason: CallbackReason) -> bool {
+    reason != CallbackReason::Cancelled
+}
+
 pub fn build_main_window(
     tabs_enabled: bool,
     sender: &Sender<Message>,
@@ -121,6 +133,14 @@ pub fn build_main_window(
     };
     let mut wind = Window::new(100, 100, 640, 480, title);
     wind.set_xclass("FerrisPad");
+    // FLTK runs a window's callback when an Escape press reaches it unhandled,
+    // and the default callback hides the window: for the main window that hides
+    // or quits the editor. Keep the default for every other reason.
+    wind.set_callback(|w| {
+        if callback_hides_main_window(fltk::app::callback_reason()) {
+            w.hide();
+        }
+    });
 
     // Load and set the crab icon (title bar on Linux/Windows).
     // macOS uses the .app bundle icon instead.
@@ -354,5 +374,22 @@ pub fn build_main_window(
         tree_position,
         start_page,
         editor_col: editor_col_out,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn escape_never_hides_the_main_window() {
+        assert!(!callback_hides_main_window(CallbackReason::Cancelled));
+    }
+
+    #[test]
+    fn other_callback_reasons_keep_fltks_default_hide() {
+        for reason in [CallbackReason::Closed, CallbackReason::Unknown] {
+            assert!(callback_hides_main_window(reason), "{reason:?}");
+        }
     }
 }
