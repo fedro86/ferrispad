@@ -5,6 +5,48 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.6] - 2026-10-19
+
+### Security
+- **Plugin Terminal Commands**: A plugin allowed to run one terminal command can no longer run anything else through that command's arguments or working directory.
+- **Plugin File Sandbox**: Plugins can no longer create or write files outside their project folder.
+- **Plugin Isolation**: Each plugin now runs in its own Lua environment. One plugin can no longer read another plugin's globals or change the `string`, `table` and `math` libraries other plugins use.
+- **Plugin Limits**: The plugin instruction and memory limits can no longer be bypassed. Plugin hooks and commands get a time limit, so a stuck plugin can't freeze the editor. Deeply nested plugin data, very large plugin diffs and symlink loops in plugin folder scans are bounded instead of crashing or hanging the editor.
+- **Plugin Registry**: Install folder names from the plugin registry are sanitised, so a registry entry can't install files outside the plugins folder. Plugin downloads are size-capped while they stream, on both the official and the community install path.
+- **Terminal**: Fixed a memory-safety bug that could crash the editor when input reached the terminal after it was closed. Crafted escape sequences (for example from `cat`-ing a hostile file) can no longer freeze the terminal, and scrollback is now a real ring buffer.
+- **TLS Stack Upgrade**: Update checks and plugin downloads now use `rustls` 0.23 with `rustls-webpki` 0.103.15. This clears the open `rustls-webpki` and `rustls` security advisories.
+- **Editor Context File**: The file that shares your current selection with MCP agents (`editor-context.txt`) is now readable only by your user, and it is also removed when FerrisPad exits after an internal error.
+
+### Added
+- **Cancel Large-File Loading**: The "Loading File" progress dialog has a Cancel button, and it now follows the active theme like every other dialog.
+- **Flatpak Packaging**: A Flatpak manifest and AppStream metadata live in `packaging/flatpak/`. Inside a Flatpak the in-app updater is turned off, because updates come from the software store.
+
+### Fixed
+- **Shortcuts with Mismatched Keyboard Layouts**: When the physical keyboard and the active layout differ (for example an AZERTY keyboard typing in a US layout), Ctrl+letter shortcuts now run the command for the letter you typed. Before, Ctrl+Z could close the tab (Ctrl+W), Ctrl+A could quit (Ctrl+Q), and Ctrl+M did nothing.
+- **Open a Missing File from the Command Line**: `FerrisPad notes.txt` for a file that doesn't exist yet opens an empty tab bound to that path, and the file is created on the first save. Before, it showed an error.
+- **Plugin Dialog Hangs**: Closing the main window while Plugin Settings or Plugin Config is open no longer leaves FerrisPad hung.
+- **Live Theme Preview**: Changing the theme or dark mode in Settings previews the new colors on the whole window (tab bar, status bar, terminal, split view, tree, diagnostics), and Cancel restores everything. After OK, every open panel is re-themed, and the menu text color follows the same rule at startup and on every theme change.
+- **Fallback File Chooser**: When the GTK file dialog isn't available, File → Open/Save uses zenity if it is installed. Otherwise FerrisPad's own fallback chooser now follows the theme, and its selected row is readable.
+- **Regex Find**: `^`, `$` and `\b` now match against the whole document instead of treating the cursor as the start or end of the text. Patterns that can match empty text (`^`, `a*`) move forward on Find Next instead of getting stuck.
+- **Find Next / Find Previous**: Switching direction moves to the adjacent match on the first press, instead of selecting the current match again.
+- **Case-Insensitive Find & Replace**: Matches and replacements land on the right text in documents with characters whose lowercase form has a different length (such as `İ` or `ẞ`). Before, replace could change the wrong text or crash.
+- **Large CRLF Files**: Saving an edited tail of a large file with Windows (CRLF) line endings no longer writes at the wrong position and truncates the file.
+- **Sessions**: A FerrisPad window with only unsaved untitled tabs no longer wipes the saved session of another FerrisPad window. The session lock now also works on macOS and Windows.
+- **Crash Fixes**: No more crashes when a tab closes while you drag tabs, when the terminal divider is dragged while a window closes, or when a long non-ASCII value is shown in the YAML tree view.
+- **Split View Height**: Toggling the split view mode keeps the height you dragged.
+- **Tab Bar**: The `+` button no longer stays highlighted after it moves away from the pointer.
+- **Tree Panel Icons**: A plugin tree item with no icon stays without an icon when you filter the tree.
+- **Plugin Manager**: Rows line up the same way in the Installed, Available and Community tabs.
+- **Plugin Updates**: Update checks compare full semantic versions, so pre-release plugin versions are ordered correctly.
+- **Dialog Buttons**: Cancel/Close buttons in the large-file and read-only viewer dialogs use the same shade as in every other dialog.
+
+### Changed
+- **HTTP Client**: Update checks and plugin downloads now use `ureq` 3.4 with `rustls` on the `ring` crypto provider, replacing `minreq`. Only HTTPS is accepted, also on every redirect: a redirect to plain HTTP is refused. At most 10 redirects are followed, and the standard proxy variables (`HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`) are honoured. The binary is about 1 MB larger.
+- **Regex Case Folding**: With "Match case" off, regex search folds ASCII letters only (`café` does not find `CAFÉ`). The Find and Find & Replace dialogs say so with a "(case folding: ASCII only)" hint. Plain search still folds all letters.
+- **Themed Popups Everywhere**: All message, confirmation and input popups (unsaved changes, errors, rename tab group and more) now use the active theme instead of FLTK's grey defaults.
+- **Plugin Source Check**: The static scan of plugin source code is now an advisory check. It no longer silently blocks legitimate plugins (for example ones with a variable named `MY_GROUP`), and it warns about more risky patterns. Plugin safety is enforced by the runtime sandbox and signature checks.
+- **Building from Source**: The README and build guide list the Wayland development packages needed to build, and a Nix flake provides the full development environment.
+
 ## [0.9.5] - 2026-06-05
 
 ### Added
