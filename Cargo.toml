@@ -2,7 +2,7 @@
 name = "FerrisPad"
 version = "0.9.7"
 edition = "2024"
-description = "A blazingly fast, minimalist notepad written in Rust"
+description = "A minimalist text editor written in Rust"
 license = "MIT"
 authors = ["Federico Conticello <fc@ferrispad.com>"]
 homepage = "www.ferrispad.com"

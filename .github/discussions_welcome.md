@@ -2,7 +2,7 @@
 
 Welcome to the FerrisPad community! We're excited to have you here.
 
-**FerrisPad** is a blazingly fast, minimalist notepad built with Rust 🦀. This is your space to connect, share, and collaborate with fellow users and contributors.
+**FerrisPad** is a minimalist text editor written in Rust 🦀. This is your space to connect, share, and collaborate with fellow users and contributors.
 
 ### What are Discussions for?
 

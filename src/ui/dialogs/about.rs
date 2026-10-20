@@ -52,7 +52,7 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
 
     // Description
     let mut desc_frame = Frame::default();
-    desc_frame.set_label("A blazingly fast, minimalist notepad written in Rust");
+    desc_frame.set_label("A minimalist text editor written in Rust");
     desc_frame.set_label_size(12);
     desc_frame.set_label_color(theme.text_dim);
     desc_frame.set_frame(FrameType::FlatBox);
