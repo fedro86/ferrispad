@@ -119,7 +119,7 @@ fn parse_cli_args() -> CliArgs {
 
 fn print_help() {
     println!(
-        "FerrisPad {} — A blazingly fast, minimalist text editor\n\n\
+        "FerrisPad {} — A minimalist text editor\n\n\
          USAGE:\n    \
              FerrisPad [OPTIONS] [FILE...]\n    \
              fpad [OPTIONS] [FILE...]\n\n\
