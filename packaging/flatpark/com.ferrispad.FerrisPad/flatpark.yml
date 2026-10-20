@@ -1,0 +1,25 @@
+id: com.ferrispad.FerrisPad
+name: FerrisPad
+summary: Fast, minimalist text editor
+website: https://www.ferrispad.com
+source_url: https://github.com/fedro86/ferrispad
+build:
+  manifest: com.ferrispad.FerrisPad.yml
+  branch: stable
+  mode: extra-data
+catalog:
+  category: Development
+  tags:
+    - Text Editor
+    - Rust
+    - Lua
+    - Notepad
+update:
+  command: ./resolve-update.sh
+policy:
+  proprietary: false
+  # A text editor opens and saves files anywhere in the user's home. FLTK's
+  # file chooser does not go through the file chooser portal, so without the
+  # grant it sees only the sandbox. Argued in the PR.
+  dangerous_permissions:
+    - --filesystem=home
