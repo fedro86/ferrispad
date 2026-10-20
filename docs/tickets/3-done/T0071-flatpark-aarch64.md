@@ -1,7 +1,7 @@
 ---
 id: T0071
 title: ARM64 (aarch64) in the FlatPark package
-status: review
+status: done
 created: 2026-10-20
 severity: ~
 area: process
