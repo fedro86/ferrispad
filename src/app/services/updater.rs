@@ -168,14 +168,20 @@ pub fn check_for_updates(
     }
 }
 
-/// Get the expected asset name for the current platform
-pub fn get_platform_asset_name() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "macos-universal"
-    } else if cfg!(target_os = "windows") {
-        "windows-x64.exe"
-    } else {
-        "linux-amd64"
+/// Release asset name for the running platform, or `None` when releases carry
+/// no binary for it (self-update is then not offered).
+pub fn get_platform_asset_name() -> Option<&'static str> {
+    asset_name_for(std::env::consts::OS, std::env::consts::ARCH)
+}
+
+/// Release asset name for an OS/architecture pair (`std::env::consts` values).
+/// A binary is only ever matched to the architecture it was built for.
+fn asset_name_for(os: &str, arch: &str) -> Option<&'static str> {
+    match (os, arch) {
+        ("macos", _) => Some("macos-universal"),
+        ("windows", "x86_64") => Some("windows-x64.exe"),
+        ("linux", "x86_64") => Some("linux-amd64"),
+        _ => None,
     }
 }
 
@@ -286,7 +292,13 @@ pub fn download_and_verify<F>(
 where
     F: FnMut(f32),
 {
-    let platform = get_platform_asset_name();
+    let platform = get_platform_asset_name().ok_or_else(|| {
+        AppError::Update(format!(
+            "No release binary is published for {} {}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ))
+    })?;
     let version = release.version();
 
     // Find the binary asset
@@ -391,6 +403,23 @@ pub fn current_timestamp() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn asset_name_never_offers_another_architectures_binary() {
+        // A from-source build on ARM64 Linux must not be offered the x86_64
+        // binary: it would replace itself with one that cannot run.
+        assert_eq!(asset_name_for("linux", "aarch64"), None);
+        assert_eq!(asset_name_for("windows", "aarch64"), None);
+        assert_eq!(asset_name_for("linux", "riscv64"), None);
+    }
+
+    #[test]
+    fn asset_name_for_published_platforms() {
+        assert_eq!(asset_name_for("linux", "x86_64"), Some("linux-amd64"));
+        assert_eq!(asset_name_for("windows", "x86_64"), Some("windows-x64.exe"));
+        assert_eq!(asset_name_for("macos", "x86_64"), Some("macos-universal"));
+        assert_eq!(asset_name_for("macos", "aarch64"), Some("macos-universal"));
+    }
 
     #[test]
     fn test_version_comparison_newer() {
