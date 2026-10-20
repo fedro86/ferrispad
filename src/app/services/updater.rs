@@ -181,6 +181,7 @@ fn asset_name_for(os: &str, arch: &str) -> Option<&'static str> {
         ("macos", _) => Some("macos-universal"),
         ("windows", "x86_64") => Some("windows-x64.exe"),
         ("linux", "x86_64") => Some("linux-amd64"),
+        ("linux", "aarch64") => Some("linux-arm64"),
         _ => None,
     }
 }
@@ -305,7 +306,7 @@ where
     let binary_asset = release
         .assets
         .iter()
-        .find(|a| a.name.contains(platform))
+        .find(|a| a.name.ends_with(platform))
         .ok_or_else(|| {
             AppError::Update(format!(
                 "No release binary found for platform: {}",
@@ -406,9 +407,9 @@ mod tests {
 
     #[test]
     fn asset_name_never_offers_another_architectures_binary() {
-        // A from-source build on ARM64 Linux must not be offered the x86_64
-        // binary: it would replace itself with one that cannot run.
-        assert_eq!(asset_name_for("linux", "aarch64"), None);
+        // A build on an architecture without a published binary must not be
+        // offered another architecture's: it would replace itself with one
+        // that cannot run.
         assert_eq!(asset_name_for("windows", "aarch64"), None);
         assert_eq!(asset_name_for("linux", "riscv64"), None);
     }
@@ -416,6 +417,7 @@ mod tests {
     #[test]
     fn asset_name_for_published_platforms() {
         assert_eq!(asset_name_for("linux", "x86_64"), Some("linux-amd64"));
+        assert_eq!(asset_name_for("linux", "aarch64"), Some("linux-arm64"));
         assert_eq!(asset_name_for("windows", "x86_64"), Some("windows-x64.exe"));
         assert_eq!(asset_name_for("macos", "x86_64"), Some("macos-universal"));
         assert_eq!(asset_name_for("macos", "aarch64"), Some("macos-universal"));

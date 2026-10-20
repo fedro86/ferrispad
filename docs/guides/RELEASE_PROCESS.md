@@ -5,7 +5,7 @@ This document explains how to create a new release of FerrisPad with automated b
 ## Overview
 
 FerrisPad uses GitHub Actions to automatically build binaries for:
-- **Linux** (Ubuntu/Debian amd64) - `.deb` package
+- **Linux** (amd64 and arm64) - `.deb` package (Debian/Ubuntu) and a raw binary
 - **Windows** (x86_64) - `.zip` archive
 - **macOS** (Intel + Apple Silicon universal binary) - `.dmg` installer
 
@@ -94,7 +94,7 @@ Once the tag is pushed, GitHub Actions will automatically:
 
 1. **Create a GitHub Release** for the tag
 2. **Build on native runners:**
-   - Linux binary on `ubuntu-latest`
+   - Linux binaries on `ubuntu-latest` (amd64) and `ubuntu-24.04-arm` (arm64)
    - Windows binary on `windows-latest`
    - macOS universal binary on `macos-latest`
 3. **Upload artifacts** to the GitHub Release:
@@ -275,7 +275,8 @@ Then upload the `.sig` files to the GitHub release manually.
 **Platform identifiers** (must match exactly):
 | Platform | Identifier |
 |----------|------------|
-| Linux | `linux-amd64` |
+| Linux x86_64 | `linux-amd64` |
+| Linux ARM64 | `linux-arm64` |
 | macOS | `macos-universal` |
 | Windows | `windows-x64.exe` |
 
@@ -285,7 +286,7 @@ Then upload the `.sig` files to the GitHub release manually.
 
 After signing and uploading:
 
-1. Verify all three binaries AND their `.sig` files are attached
+1. Verify all four binaries (`linux-amd64`, `linux-arm64`, `macos-universal`, `windows-x64.exe`) AND their `.sig` files are attached
 2. Download and test each binary on its platform
 3. Test the auto-updater from an older version to verify signature verification works
 4. Check that the release notes render correctly
@@ -344,7 +345,7 @@ Before creating a new release, update:
 
 ✅ **Native builds** - Each platform builds on its native runner (no cross-compilation issues)
 
-✅ **Correct architectures** - Linux amd64, Windows x86_64, macOS universal (Intel + ARM)
+✅ **Correct architectures** - Linux amd64 and arm64, Windows x86_64, macOS universal (Intel + ARM)
 
 ✅ **Automated** - Push a tag and get all binaries automatically
 
