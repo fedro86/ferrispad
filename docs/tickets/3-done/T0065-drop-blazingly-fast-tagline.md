@@ -1,7 +1,7 @@
 ---
 id: T0065
 title: Drop the "blazingly fast" tagline
-status: review
+status: done
 created: 2026-10-20
 severity: ~
 area: ui
