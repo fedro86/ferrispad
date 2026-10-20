@@ -89,33 +89,17 @@ run_sed() {
 echo -e "${YELLOW}→${NC} Updating Cargo.toml..."
 run_sed "s/^version = \".*\"/version = \"$NEW_VERSION\"/" Cargo.toml
 
-# 2. Update docs/js/main.js
-echo -e "${YELLOW}→${NC} Updating docs/js/main.js..."
-# If NEW_VERSION contains a pre-release tag (rc, beta, alpha), update UNSTABLE_VERSION
-if [[ "$NEW_VERSION" == *"-rc"* ]] || [[ "$NEW_VERSION" == *"-beta"* ]] || [[ "$NEW_VERSION" == *"-alpha"* ]]; then
-    run_sed "s/const UNSTABLE_VERSION = \".*\"/const UNSTABLE_VERSION = \"$NEW_VERSION\"/" docs/js/main.js
-else
-    # It's a stable release, update BOTH
-    run_sed "s/const STABLE_VERSION = \".*\"/const STABLE_VERSION = \"$NEW_VERSION\"/" docs/js/main.js
-    run_sed "s/const UNSTABLE_VERSION = \".*\"/const UNSTABLE_VERSION = \"$NEW_VERSION\"/" docs/js/main.js
-fi
+# The website (www.ferrispad.com) lives in the separate fedro86/fedro-websites
+# repo and reads the latest version from the GitHub tags API, so there is no
+# website file to bump here.
 
-# 3. Update docs/index.html
-echo -e "${YELLOW}→${NC} Updating docs/index.html..."
-# Only update the visible "Latest version" text if it's a STABLE release
-if [[ ! "$NEW_VERSION" == *"-rc"* ]] && [[ ! "$NEW_VERSION" == *"-beta"* ]] && [[ ! "$NEW_VERSION" == *"-alpha"* ]]; then
-    run_sed "s/Latest version: v[0-9.a-z-]*/Latest version: v$NEW_VERSION/" docs/index.html
-    # Also update SEO metadata for stable releases
-    run_sed "s/\"softwareVersion\": \"[0-9.a-z-]*\"/\"softwareVersion\": \"$NEW_VERSION\"/" docs/index.html
-fi
-
-# 4. Update README.md (point to website for now or stable version if deep linked)
+# 2. Update README.md download links
 echo -e "${YELLOW}→${NC} Updating README.md..."
 # For README, we stick to the new version as it often describes current development
 run_sed "s|releases/download/[0-9][^/]*|releases/download/$NEW_VERSION|g" README.md
 run_sed "s|FerrisPad-v[0-9][^-]*(-[a-z0-9.]*)?|FerrisPad-v$NEW_VERSION|g" README.md
 
-# 5. Update scripts/build-releases.sh VERSION variable
+# 3. Update scripts/build-releases.sh VERSION variable
 echo -e "${YELLOW}→${NC} Updating scripts/build-releases.sh..."
 run_sed "s/^VERSION=\".*\"/VERSION=\"$NEW_VERSION\"/" scripts/build-releases.sh
 
@@ -125,7 +109,7 @@ echo -e "${GREEN}✓ Files updated${NC}"
 # Auto-commit the version bump
 echo ""
 echo "Committing version bump..."
-git add Cargo.toml docs/js/main.js docs/index.html README.md scripts/build-releases.sh CHANGELOG.md
+git add Cargo.toml README.md scripts/build-releases.sh CHANGELOG.md
 git commit -m "chore: bump version to ${NEW_VERSION}"
 
 echo ""

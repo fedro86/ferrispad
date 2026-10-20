@@ -120,7 +120,7 @@ Notes:
   (without host access FLTK's file chooser cannot see the user's files, as
   the freedesktop runtime has no GTK/portal-backed chooser to fall back on).
 
-### Copy to Website
+### Collect the Binaries
 
 ```bash
 # For .deb
@@ -220,7 +220,7 @@ create-dmg \
   FerrisPad.app/
 ```
 
-### Copy to Website
+### Collect the Binaries
 
 ```bash
 cp FerrisPad-v0.1.0-macos-universal.tar.gz \
@@ -268,7 +268,7 @@ zip FerrisPad-v0.1.0-windows-x64.zip FerrisPad.exe
 
 **Note:** Cross-compiling Windows builds from Linux may have issues with FLTK dependencies. Native Windows builds are recommended.
 
-### Copy to Website
+### Collect the Binaries
 
 ```bash
 cp FerrisPad-v0.1.0-windows-x64.zip \
@@ -393,14 +393,11 @@ jobs:
 
 ## Version Management
 
-When releasing a new version:
-
-1. Update version in `Cargo.toml`
-2. Update version in `docs/index.html`
-3. Build all platform binaries
-4. Create a git tag: `git tag v0.1.0`
-5. Push tag: `git push origin v0.1.0`
-6. Upload binaries to website or GitHub Releases
+Official releases are built, signed and published by CI when a version tag is
+pushed; follow `docs/guides/RELEASE_PROCESS.md` (`./scripts/bump-version.sh X.Y.Z`,
+then `./scripts/release.sh`). The website (www.ferrispad.com) is the separate
+`fedro86/fedro-websites` app and reads the latest tag from the GitHub API, so it
+needs no update here.
 
 ---
 
@@ -484,7 +481,7 @@ Before releasing binaries:
 - [ ] Verify uninstallation works (Linux)
 - [ ] **Verify `.sig` files** are attached to the release (signing is automated by CI; sign manually only as a fallback)
 - [ ] Create checksums (SHA256) - optional, signatures are sufficient
-- [ ] Update website download links
+- [ ] Check the download links in `README.md` (updated by `bump-version.sh`)
 - [ ] Update documentation
 - [ ] Tag release in git
 - [ ] Create release notes
