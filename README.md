@@ -22,6 +22,7 @@ Download the latest release from the [releases page](https://github.com/fedro86/
 | **Debian / Ubuntu** | `FerrisPad-v<version>-ubuntu-amd64.deb` → `sudo apt install ./FerrisPad-v<version>-ubuntu-amd64.deb` |
 | **Other Linux** (Fedora, Arch, openSUSE…) | Flatpak from [FlatPark](https://flatpark.org/apps/com.ferrispad.FerrisPad/), see below |
 | **Any Linux** (x86_64) | `FerrisPad-v<version>-linux-amd64`: a standalone binary, `chmod +x` and run |
+| **Linux on ARM64** (Raspberry Pi, Armbian…) | No prebuilt build yet: [build from source](#build-from-source). The Debian/Ubuntu build dependencies listed there work on arm64 too ([#29](https://github.com/fedro86/ferrispad/issues/29)). |
 
 **Flatpak (FlatPark):**
 ```bash
