@@ -24,7 +24,7 @@ that matches the website, and refresh the parts that are stale since 0.9.5.
     `flatpak` commands), and the standalone Linux binary;
   - Linux on ARM64: no prebuilt build yet, so build from source. The
     Debian/Ubuntu dependency list works on arm64 (issue #29, Armbian
-    trixie). ARM64 CI builds are ticket T0067;
+    trixie). ARM64 CI builds are ticket T0068 (the updater must first stop offering the x86_64 binary on ARM: T0067);
   - how updates work for each: `flatpak update` for the Flatpak; for the
     portable builds, a self-replace that accepts only binaries with a valid
     ed25519 signature; for the `.deb`, installing the new `.deb`.
