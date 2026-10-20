@@ -19,12 +19,16 @@ Download the latest release from the [releases page](https://github.com/fedro86/
 |---|---|
 | **Windows** (x86_64) | `FerrisPad-v<version>-windows-x64.zip` (portable) |
 | **macOS** (Intel + Apple Silicon) | `FerrisPad-v<version>-macos.dmg` |
-| **Debian / Ubuntu** | `FerrisPad-v<version>-ubuntu-amd64.deb` → `sudo apt install ./FerrisPad-v<version>-ubuntu-amd64.deb` |
-| **Other Linux** (Fedora, Arch, openSUSE…) | Flatpak from [FlatPark](https://flatpark.org/apps/com.ferrispad.FerrisPad/), see below |
-| **Any Linux** (x86_64) | `FerrisPad-v<version>-linux-amd64`: a standalone binary, `chmod +x` and run |
-| **Linux on ARM64** (Raspberry Pi, Armbian…) | No prebuilt build yet: [build from source](#build-from-source). The Debian/Ubuntu build dependencies listed there work on arm64 too ([#29](https://github.com/fedro86/ferrispad/issues/29)). |
+| **Debian / Ubuntu** (x86_64, ARM64) | `FerrisPad-v<version>-ubuntu-amd64.deb` or `-ubuntu-arm64.deb` → `sudo apt install ./FerrisPad-v<version>-ubuntu-<arch>.deb` |
+| **Other Linux** (Fedora, Arch, openSUSE…) | Flatpak from [FlatPark](https://flatpark.org/apps/com.ferrispad.FerrisPad/) (x86_64), see below |
+| **Any Linux** (x86_64, ARM64) | `FerrisPad-v<version>-linux-amd64` or `-linux-arm64`: a standalone binary, `chmod +x` and run |
+
+The Linux builds need glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40 and later). On older systems, [build from source](#build-from-source).
 
 **Flatpak (FlatPark):**
+
+[![Get it on FlatPark](https://flatpark.org/badges/get-it-on-flatpark.svg)](https://flatpark.org/apps/com.ferrispad.FerrisPad/)
+
 ```bash
 flatpak remote-add --if-not-exists flatpark https://dl.flatpark.org/flatpark.flatpakrepo
 flatpak install flatpark com.ferrispad.FerrisPad
