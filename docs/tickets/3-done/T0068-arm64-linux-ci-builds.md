@@ -1,7 +1,7 @@
 ---
 id: T0068
 title: Build and sign ARM64 Linux releases in CI
-status: review
+status: done
 created: 2026-10-20
 severity: ~
 area: process
