@@ -5,6 +5,11 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.7] - 2026-10-20
+
+### Fixed
+- **Escape No Longer Closes the Editor**: Pressing Escape in the editor no longer hides the main window. Before, with unsaved changes FerrisPad kept running with no window left to return to. Escape still closes dialogs such as Find.
+
 ## [0.9.6] - 2026-10-19
 
 ### Security
