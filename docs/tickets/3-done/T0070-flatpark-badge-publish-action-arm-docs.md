@@ -1,7 +1,7 @@
 ---
 id: T0070
 title: FlatPark badge in README, publish-action, ARM64 downloads in docs
-status: review
+status: done
 created: 2026-10-20
 severity: ~
 area: process
