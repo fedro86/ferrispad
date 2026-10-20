@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+# FerrisPad is the official release binary, staged by apply_extra at
+# /app/extra/FerrisPad. It links only against libraries in
+# org.freedesktop.Platform. It detects the sandbox itself (/.flatpak-info) and
+# turns its in-app updater off, so updates come only from this package. Its
+# settings, sessions and plugins live in the XDG directories, which Flatpak
+# points into ~/.var/app/com.ferrispad.FerrisPad.
+
+exec /app/extra/FerrisPad "$@"

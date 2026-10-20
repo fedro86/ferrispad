@@ -1,0 +1,53 @@
+id: com.ferrispad.FerrisPad
+runtime: org.freedesktop.Platform
+runtime-version: "26.08"
+sdk: org.freedesktop.Sdk
+command: FerrisPad
+separate-locales: false
+build-options:
+  no-debuginfo: true
+finish-args:
+  # FerrisPad is a single Rust/FLTK binary. FLTK's hybrid backend draws on
+  # Wayland and falls back to X11; it renders with cairo/pango in software, so
+  # no GPU device is needed.
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  # Opening and saving files is the app's main job. FLTK's file chooser (GTK 3
+  # from the runtime, loaded at run time) shows the sandbox's own view of the
+  # filesystem rather than going through the file chooser portal, so the user's
+  # files have to be visible in it. Files outside home are an opt-in override
+  # documented in the metainfo.
+  - --filesystem=home
+  # The plugin manager downloads plugins from the official registry on demand,
+  # and the MCP server listens on a localhost TCP port for AI agents.
+  - --share=network
+modules:
+  - name: ferrispad
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 apply_extra.sh /app/bin/apply_extra
+      - install -Dm755 ferrispad-wrapper /app/bin/FerrisPad
+      - install -Dm644 com.ferrispad.FerrisPad.desktop /app/share/applications/com.ferrispad.FerrisPad.desktop
+      - install -Dm644 com.ferrispad.FerrisPad.metainfo.xml /app/share/metainfo/com.ferrispad.FerrisPad.metainfo.xml
+      - install -Dm644 com.ferrispad.FerrisPad.png /app/share/icons/hicolor/512x512/apps/com.ferrispad.FerrisPad.png
+    sources:
+      # BEGIN MANAGED EXTRA-DATA
+      - type: extra-data
+        filename: FerrisPad-linux-amd64
+        only-arches:
+          - x86_64
+        url: https://github.com/fedro86/ferrispad/releases/download/0.9.6/FerrisPad-v0.9.6-linux-amd64
+        sha256: 4fb545542d9a84852a17e91ba23d02feca35f47996aac1ed39719fc9dd88e6d8
+        size: 13995984
+      # END MANAGED EXTRA-DATA
+      - type: file
+        path: apply_extra.sh
+      - type: file
+        path: ferrispad-wrapper
+      - type: file
+        path: com.ferrispad.FerrisPad.desktop
+      - type: file
+        path: com.ferrispad.FerrisPad.metainfo.xml
+      - type: file
+        path: com.ferrispad.FerrisPad.png

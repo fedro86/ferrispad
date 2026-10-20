@@ -109,16 +109,42 @@ uv run packaging/flatpak/flatpak-cargo-generator.py Cargo.lock \
 
 Notes:
 - Inside Flatpak the built-in updater is disabled (`is_flatpak()` in
-  `services/updater.rs`) — updates are delivered through Flathub.
-- The manifest uses a `type: dir` source for local builds. The Flathub
-  submission (planned for 0.9.6) will use a `type: git` source pinned to a
-  release tag: submit the manifest + `cargo-sources.json` to
-  https://github.com/flathub/flathub via PR.
-- The Flathub linter (`flatpak run --command=flatpak-builder-lint
-  org.flatpak.Builder manifest <manifest>`) flags `--filesystem=host`; text
-  editors routinely get this exception — request it in the submission PR
-  (without host access FLTK's file chooser cannot see the user's files, as
-  the freedesktop runtime has no GTK/portal-backed chooser to fall back on).
+  `services/updater.rs`) — updates are delivered through Flatpak.
+- The manifest uses a `type: dir` source: it is for local builds from the
+  working tree. The distributed Flatpak is the FlatPark package below.
+
+### Option 4: FlatPark package (distributed Flatpak)
+
+Linux users install FerrisPad from [FlatPark](https://flatpark.org):
+
+```bash
+flatpak remote-add --user --if-not-exists flatpark https://dl.flatpark.org/flatpark.flatpakrepo
+flatpak install --user flatpark com.ferrispad.FerrisPad
+```
+
+The package source is kept in `packaging/flatpark/com.ferrispad.FerrisPad/` and
+mirrors `registry/com.ferrispad.FerrisPad/` in
+[flatpark/flatpark](https://github.com/flatpark/flatpark). It does not build
+FerrisPad: it pins the official `FerrisPad-v<ver>-linux-amd64` release asset as
+`extra-data` (URL, sha256, size), and Flatpak downloads that file from GitHub
+releases on the user's machine at install time. It runs on the
+`org.freedesktop.Platform` runtime, whose GTK 3 gives FLTK its native file
+chooser.
+
+- **No manual step per release.** FlatPark's `update-check` runs
+  `resolve-update.sh` twice a day. When the latest GitHub release changes, it
+  re-pins the asset and adds a `<release>` to the metainfo, both in FlatPark's
+  repo. The copy here only needs updating when the packaging itself changes
+  (permissions, wrapper, metainfo text).
+- **Check a packaging change** in a clone of flatpark/flatpark, after copying
+  this directory into `registry/` (see FlatPark's
+  `docs/packagers/submitting.md`):
+  ```bash
+  ./scripts/check-apply-extra.sh com.ferrispad.FerrisPad
+  ./scripts/publish.sh --verify com.ferrispad.FerrisPad
+  ```
+  It installs the `stable` branch next to a local `master` build, and both share
+  `~/.var/app/com.ferrispad.FerrisPad`.
 
 ### Collect the Binaries
 
