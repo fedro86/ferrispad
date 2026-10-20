@@ -1,7 +1,7 @@
 ---
 id: T0067
 title: The updater offers the x86_64 binary on ARM64 Linux
-status: review
+status: done
 created: 2026-10-20
 severity: high
 area: updater
