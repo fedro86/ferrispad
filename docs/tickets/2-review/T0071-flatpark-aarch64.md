@@ -35,11 +35,22 @@ FlatPark builds packages for aarch64 too. Add it.
   - `catalog.upstream_approved: true`, which was only in FlatPark's copy, so
     the mirror stays identical to the registry.
 - The PR on flatpark/flatpark, opened only with the user's OK.
+- README: the FlatPark row lists x86_64 and ARM64, now that the package
+  ships both.
 
 ## Out of scope
 
-- The website and README text saying the Flatpak is x86_64 only. That changes
-  once the FlatPark PR is merged.
+- The website (fedro86/fedro-websites) and the wiki. Their "Flatpak is
+  x86_64 only" text is updated in the same pass, outside this repo.
+
+## Result
+
+- flatpark/flatpark#774 was merged 2026-10-20 10:57 UTC.
+- `publish.yml` passed, and both refs were rebuilt at 10:59 UTC.
+- `flatpak remote-info --show-metadata` shows the extra-data URIs:
+  - x86_64: `…/0.9.8/FerrisPad-v0.9.8-linux-amd64`, `89b5bd4b…`;
+  - aarch64: `…/0.9.8/FerrisPad-v0.9.8-linux-arm64`, `5f68bf09…`.
+- After `flatpak update --appstream`, x86_64 reports Version 0.9.8.
 
 ## How to test
 
@@ -64,9 +75,9 @@ tested natively on ARM by FerrisPad's `test (linux arm64)` CI job.
 
 ## Acceptance criteria
 
-- [ ] Mirror and registry copy identical.
-- [ ] The user decided on opening the FlatPark PR.
-- [ ] After merge: `flatpak remote-ls flatpark` lists FerrisPad for aarch64.
+- [x] Mirror and registry copy identical.
+- [x] The user decided on opening the FlatPark PR (opened as flatpark/flatpark#774, merged).
+- [x] After merge: `flatpak remote-ls flatpark` lists FerrisPad for aarch64.
 
 ## Submission draft
 
