@@ -69,7 +69,7 @@ pub fn is_newer_version(current: &str, remote: &str) -> bool {
 }
 
 /// True when running inside a Flatpak sandbox, where the installed binary
-/// is read-only and updates are delivered through Flathub instead.
+/// is read-only and updates are delivered through Flatpak instead.
 pub fn is_flatpak() -> bool {
     std::path::Path::new("/.flatpak-info").exists()
 }

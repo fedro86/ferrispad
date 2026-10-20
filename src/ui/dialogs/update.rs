@@ -32,7 +32,7 @@ pub fn check_for_updates_ui(
         super::show_themed_message(
             theme_bg,
             "Updates",
-            "FerrisPad was installed as a Flatpak.\n\nUpdates are delivered through your software store (Flathub),\nnot by the built-in updater.",
+            "FerrisPad was installed as a Flatpak.\n\nUpdates are delivered through Flatpak (your software store\nor `flatpak update`), not by the built-in updater.",
         );
         return;
     }
