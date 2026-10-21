@@ -33,7 +33,7 @@ thiserror = "2"
 pulldown-cmark = "0.13"
 regex-lite = "0.1"
 mlua = { version = "0.10", features = ["lua54", "vendored"] }
-toml = "0.8"
+toml = "1.1"
 serde_yaml = "0.9"
 memmap2 = "0.9"
 ed25519-dalek = { version = "2.1", features = ["std"] }
