@@ -68,8 +68,8 @@ data and home dirs (`settings.rs`, `session.rs`, `loader.rs`, `mcp/mod.rs`,
 - [x] `Cargo.lock` resolves `open 5.4.5`, `toml 1.2.1`, `memmap2 0.9.12`,
       `dirs 7.0.0`, `pulldown-cmark 0.13.6` (latest compatible at bump time,
       at or above the Dependabot targets).
-- [ ] Existing settings, session and plugins load unchanged (manual recipe).
-- [ ] Config/data paths are unchanged on Linux.
+- [x] Existing settings, session and plugins load unchanged (manual recipe).
+- [x] Config/data paths are unchanged on Linux.
 - [x] `cargo test`, `cargo clippy --all-targets --all-features`, and
       `cargo fmt --check` all pass with zero warnings.
 - [ ] Dependabot PRs #131–#135 closed as superseded once this lands.
@@ -99,4 +99,29 @@ data and home dirs (`settings.rs`, `session.rs`, `loader.rs`, `mcp/mod.rs`,
 - Release binary size (Linux x86_64, `cargo build --release`):
   13 427 456 → 13 240 496 bytes (**−186 960 B**).
 - Gates green: fmt, clippy `-D warnings`, `cargo test` (all suites pass).
+
+## Manual verification (Claude, 2026-11-07)
+
+Release binary from this branch, run on Xvfb (X11) with an isolated `HOME`
+holding a copy of the real `~/.config/ferrispad/` (6 installed plugins, the
+user's `settings.json`) and `XDG_*` unset, so `dirs` resolved the default
+paths itself:
+
+- Startup: settings applied (line numbers, wrap, Solarized Light, tabs,
+  font 16); all 6 plugins loaded; plugin update check (reads every `.source`
+  via `toml`) reported "All plugins are up to date".
+- Plugin Manager: versions/descriptions from `plugin.toml` shown; trust tier
+  from `.source` correct — 5 `official` plugins "Verified", `claude-code`
+  (`tier = "manual"`) "Unverified", as expected.
+- Settings dialog shows the loaded values; changing Session Restore to
+  "Saved Files Only" and the font size, then Save, wrote both to
+  `$HOME/.config/ferrispad/settings.json`.
+- Quit wrote the session to `$HOME/.local/share/ferrispad/session/default/session.json`
+  (`dirs::data_dir`); relaunch with no arguments restored both tabs with the
+  right active tab and the new font size.
+- No files written outside `$HOME/.config/ferrispad`, `$HOME/.local/share/ferrispad`
+  (plus FLTK prefs and the fontconfig cache). No errors/panics in the logs.
+- Unrelated, pre-existing: Rust Lint's `Ctrl+Shift+R` "Run All Checks"
+  collides with File → Reload All and is skipped (logged warning). Not caused
+  by these bumps.
 
