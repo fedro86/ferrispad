@@ -1,7 +1,7 @@
 ---
 id: T0072
 title: Bump the five pending Dependabot crate updates in one change
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-07
 severity: ~
 area: process
