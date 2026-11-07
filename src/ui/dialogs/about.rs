@@ -20,13 +20,13 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
     let mut dialog = Window::default()
-        .with_size(450, 400)
+        .with_size(450, 330)
         .with_label("About FerrisPad")
         .center_screen();
     dialog.make_modal(true);
     dialog.set_color(dialog_bg);
 
-    let mut flex = Flex::new(10, 10, 430, 380, None);
+    let mut flex = Flex::new(10, 10, 430, 310, None);
     flex.set_type(fltk::group::FlexType::Column);
     flex.set_spacing(10);
     flex.set_color(dialog_bg);
@@ -81,23 +81,6 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
     info_frame.set_frame(FrameType::FlatBox);
     info_frame.set_color(dialog_bg);
     flex.fixed(&info_frame, 120);
-
-    // Spacing
-    let mut _spacer2 = Frame::default();
-    _spacer2.set_frame(FrameType::FlatBox);
-    _spacer2.set_color(dialog_bg);
-    flex.fixed(&_spacer2, 10);
-
-    // Credits
-    let mut credits_frame = Frame::default();
-    credits_frame
-        .set_label("Made with care by developers who believe\nsoftware should be fast and simple");
-    credits_frame.set_label_size(11);
-    credits_frame.set_label_color(theme.text_dim);
-    credits_frame.set_align(fltk::enums::Align::Center | fltk::enums::Align::Inside);
-    credits_frame.set_frame(FrameType::FlatBox);
-    credits_frame.set_color(dialog_bg);
-    flex.fixed(&credits_frame, 40);
 
     // Close button
     let mut close_btn = Button::default().with_label("Close");

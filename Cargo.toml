@@ -69,9 +69,9 @@ tempfile = "3.27.0"
 maintainer = "FerrisPad Contributors <fc@ferrispad.com>"
 copyright = "2025, FerrisPad Contributors"
 extended-description = """
-FerrisPad is a simple, ultra-fast text editor built with Rust and FLTK.
-It's designed for those who want something that just works - no bells and whistles,
-no feature bloat, just a clean, responsive notepad that opens instantly.
+FerrisPad is a minimalist text editor written in Rust with FLTK.
+It is a single binary with syntax highlighting, tabs and sessions, a Markdown
+preview and Lua plugins. It uses no CPU when idle and sends no telemetry.
 """
 depends = "$auto"
 section = "editors"
