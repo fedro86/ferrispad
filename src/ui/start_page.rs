@@ -27,12 +27,12 @@ const CHANGELOG_URL: &str = "https://github.com/fedro86/ferrispad/blob/master/CH
 
 /// Recent changelog entries: (description, version_tag).
 const CHANGELOG_ENTRIES: &[&str] = &[
+    "Updated dependencies, smaller binary",
     "ARM64 Linux builds",
     "Flatpak on FlatPark",
     "Escape no longer closes the editor",
     "Plugin sandbox & security hardening",
     "Upgraded TLS stack (rustls 0.23)",
-    "Shortcuts fixed for mixed layouts",
 ];
 
 const BTN_W: i32 = 150;
