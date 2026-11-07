@@ -1,7 +1,7 @@
 ---
 id: T0075
 title: Show release, CI and license badges at the top of the README
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-07
 severity: ~
 area: process
@@ -50,8 +50,8 @@ without scrolling to the releases page or the Actions tab.
 
 - [x] The three badge URLs render (checked 2026-11-07: `release: v0.9.9`,
       `CI - passing`, `license: MIT`).
-- [ ] The user checked the rendered README on the branch.
-- [ ] The badges update on their own: no version number is hard-coded.
+- [x] The user checked the rendered README (merged #142).
+- [x] The badges update on their own: no version number is hard-coded.
 
 ## Affected files
 
