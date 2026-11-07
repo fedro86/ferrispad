@@ -5,6 +5,14 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.9] - 2026-11-07
+
+### Fixed
+- **Preview in Browser on Windows**: Preview in Browser no longer fails on Windows when a folder in the path to the preview file has square brackets in its name.
+
+### Changed
+- **Dependency Updates**: Updated `toml` (1.x), `dirs` (7), `open` (5.4), `memmap2` and `pulldown-cmark`. Settings, sessions and installed plugins are read as before, and the Linux binary is about 180 KB smaller.
+
 ## [0.9.8] - 2026-10-20
 
 ### Added
