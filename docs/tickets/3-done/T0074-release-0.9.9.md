@@ -1,7 +1,7 @@
 ---
 id: T0074
 title: Prepare the 0.9.9 release (dependency updates)
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-07
 severity: ~
 area: process
@@ -45,8 +45,8 @@ version to FlatPark, so Flatpak users get it with `flatpak update`.
 
 ## Acceptance criteria
 
-- [ ] The user reviewed the CHANGELOG section.
-- [ ] Version 0.9.9 in `Cargo.toml`, `Cargo.lock` and `build-releases.sh`.
+- [x] The user reviewed the CHANGELOG section.
+- [x] Version 0.9.9 in `Cargo.toml`, `Cargo.lock` and `build-releases.sh`.
 - [ ] After the tag: all assets present and signed; FlatPark updated.
 
 ## Notes
