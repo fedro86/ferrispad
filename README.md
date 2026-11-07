@@ -3,6 +3,11 @@
 <div align="center">
   <img src="assets/crab-notepad-emoji-8bit.png" alt="FerrisPad Logo" width="200" style="border-radius: 50%; border: 3px solid #333;"/>
   <p><em>A minimalist text editor written in Rust</em></p>
+  <p>
+    <a href="https://github.com/fedro86/ferrispad/releases/latest"><img src="https://img.shields.io/github/v/release/fedro86/ferrispad?sort=semver" alt="Latest release"></a>
+    <a href="https://github.com/fedro86/ferrispad/actions/workflows/ci.yml"><img src="https://github.com/fedro86/ferrispad/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI status"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/fedro86/ferrispad" alt="License: MIT"></a>
+  </p>
 </div>
 
 ## Overview
