@@ -184,6 +184,10 @@ For Linux, record whether the session was **Wayland or X11**
    on the primary.
 8. Backward compatibility: restore the old `settings.json` from step 1 → loads
    with no error, 640×480, other settings preserved.
+9. X11 only, hidden workspace: with a saved maximized state, launch
+   FerrisPad and switch to another workspace before it appears (e.g.
+   `sleep 3; nix develop -c cargo run`, then switch). Startup must not
+   stall, and when you return the window is maximized.
 
 ## Acceptance criteria
 
@@ -283,10 +287,33 @@ For Linux, record whether the session was **Wayland or X11**
   test result: FAILED. 0 passed; 1 failed
   ```
 - **Maximize at startup on X11.** Found while verifying. With `maximize()`
-  right after `show()`, Mutter (XWayland) received the request before it had
-  framed the window. Un-maximizing then restored y+37 and h−37 (the title-bar
-  height). `wait_for_expose()` before `maximize()` fixes it: re-measured,
-  un-maximize returns exactly to 250,150 1000×700.
+  right after `show()`, Mutter (XWayland) received the `_NET_WM_STATE`
+  request before it had framed the window. Un-maximizing then restored y+37
+  and h−37 (the title-bar height), and that offset would drift on every
+  restart.
+  - A first fix, `wait_for_expose()` before `maximize()`, was **dropped**
+    (review round 2). It blocks startup until the first `Expose`, so a window
+    mapped on an X11 workspace that is not visible would stall the editor
+    until the user switched there.
+  - Final fix, never blocking (`StartupMaximize` / `MaximizeOnMap` in
+    `services::window_geometry`, test
+    `window_geometry_startup_maximize_never_blocks`):
+    - **X11:** a one-shot flag is armed after `show()`. The main window's
+      `draw` callback runs after FLTK's own draw, and `Fl::flush` skips a
+      window until its first `Expose` (`Fl.cxx:817`, `wait_for_expose_value`).
+      So the first draw means the window is mapped and framed. That draw
+      schedules `maximize()` in a 0-delay one-shot timeout, which is not
+      polling.
+    - **Wayland, Windows, macOS:** `maximize()` right after `show()`. Their
+      drivers do not depend on a WM framing the window (libdecor
+      `set_maximized`, `ShowWindow`, Cocoa zoom).
+  - Why not `FL_SHOW`: FLTK sends it synchronously from inside `show()`
+    (`Fl_x.cxx:2810`). The later `MapNotify` → `FL_SHOW` goes through
+    `Fl::handle_` → `Fl_Widget::show()` (`Fl.cxx:1398`), which does not call
+    `handle()` again on an already visible window.
+  - Re-measured on X11 (XWayland): it starts with
+    `_NET_WM_STATE_MAXIMIZED_HORZ/VERT`, and un-maximize returns exactly to
+    250,150 1000×700.
 - Known limitation (review nit 4, not handled): some X11 WMs maximize by
   first moving the window to the work-area origin at its old size, then
   resizing. The history treats that move as a normal move, so the saved
@@ -350,9 +377,14 @@ FLTK_BACKEND=x11 XDG_CONFIG_HOME=/tmp/fp-cfg nix develop -c cargo run   # X11 pa
   4. stored 300,200 900×600; type text (dirty), WM resize to 1000×700, close
      → "Unsaved Changes" prompt; Escape (Cancel) → the window stays; process
      then killed → stored geometry **unchanged** (edge case 9).
-- Steps 4–8 (minimized close, off-screen / malformed edit, two instances,
-  multi-monitor, old file) and native Wayland ×: **pending user
-  verification**.
+- Steps 4–9 (minimized close, off-screen / malformed edit, two instances,
+  multi-monitor, old file, hidden X11 workspace) and native Wayland ×:
+  **pending user verification**. Step 9 was not run here, because switching
+  workspaces would disturb the user's session. The code path has no blocking
+  call.
+- Native Wayland startup with a saved maximized state (the `AfterShow`
+  branch): smoke run of 6 s with no panic and no stderr output. The maximized
+  state itself is pending user verification.
 - Windows 11 (the original report): **pending user verification**.
 - macOS: **pending user verification**.
 

@@ -22,7 +22,8 @@ use crate::app::services::updater::{
     UpdateCheckResult, check_for_updates, is_flatpak, should_check_now,
 };
 use crate::app::services::window_geometry::{
-    TITLE_BAR_ESTIMATE, WindowGeometryTracker, clamp_onto_screens, restore_geometry,
+    MaximizeOnMap, StartupMaximize, TITLE_BAR_ESTIMATE, WindowGeometryTracker, clamp_onto_screens,
+    restore_geometry, startup_maximize,
 };
 use crate::app::state::AppState;
 use crate::app::{AppSettings, Message, ThemeMode, detect_system_dark_mode};
@@ -381,6 +382,21 @@ fn main() {
 
     // Window event handler for resize and focus. A window close does not come
     // through here: see the main window callback in ui::main_window.
+    // X11 only: maximize after the first draw, i.e. once mapped and exposed
+    // (see StartupMaximize). FLTK draws the window itself first; the request
+    // is sent from a one-shot timeout, outside the draw.
+    let maximize_on_map = Rc::new(std::cell::Cell::new(MaximizeOnMap::default()));
+    w.wind.draw({
+        let maximize_on_map = maximize_on_map.clone();
+        move |wind| {
+            let mut on_map = maximize_on_map.get();
+            if on_map.on_draw() {
+                let mut wind = wind.clone();
+                fltk_app::add_timeout3(0.0, move |_| wind.maximize());
+            }
+            maximize_on_map.set(on_map);
+        }
+    });
     w.wind.handle({
         let s = sender;
         move |_wind, event| {
@@ -434,11 +450,17 @@ fn main() {
         }
     }
     // Created at the normal rect, then maximized: un-maximizing returns there.
-    // Wait until the window is mapped first: an X11 WM that gets the request
-    // before it has framed the window restores to a rect off by the title bar.
-    if start_maximized {
-        w.wind.wait_for_expose();
-        w.wind.maximize();
+    // No blocking wait (wait_for_expose would stall startup until an X11
+    // window on a hidden workspace is exposed).
+    let x11 = cfg!(all(unix, not(target_os = "macos"))) && !on_wayland;
+    match startup_maximize(start_maximized, x11) {
+        StartupMaximize::No => {}
+        StartupMaximize::AfterShow => w.wind.maximize(),
+        StartupMaximize::OnFirstMap => {
+            let mut on_map = maximize_on_map.get();
+            on_map.arm();
+            maximize_on_map.set(on_map);
+        }
     }
 
     // Ctrl+letter shortcuts follow the typed letter when the keyboard layouts

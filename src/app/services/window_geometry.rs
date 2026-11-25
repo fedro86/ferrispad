@@ -157,6 +157,52 @@ pub fn restore_geometry(
     (clamp_onto_screens(rect, screens, title_bar_h), maximized)
 }
 
+/// When to apply a restored maximized state at startup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartupMaximize {
+    /// Not maximized.
+    No,
+    /// Call `maximize()` right after `show()` (Wayland, Windows, macOS: the
+    /// request does not depend on the window manager having framed it).
+    AfterShow,
+    /// X11: maximize after the window's first draw. FLTK's `Fl::flush` skips
+    /// a window until its first `Expose` (`wait_for_expose_value`), so the
+    /// first draw means the WM has mapped and framed it. A `_NET_WM_STATE`
+    /// request sent before that is honoured, but some WMs (Mutter under
+    /// XWayland) then remember a restore rect off by the title-bar height,
+    /// which would drift on every restart. Never blocks: if the window is
+    /// exposed later (e.g. on a workspace that is not visible), it is
+    /// maximized then.
+    OnFirstMap,
+}
+
+/// Pick the [`StartupMaximize`] mode. `x11` is true for FLTK's X11 backend.
+pub fn startup_maximize(maximized: bool, x11: bool) -> StartupMaximize {
+    match (maximized, x11) {
+        (false, _) => StartupMaximize::No,
+        (true, false) => StartupMaximize::AfterShow,
+        (true, true) => StartupMaximize::OnFirstMap,
+    }
+}
+
+/// One-shot "maximize once the window is drawn" flag, armed after `show()`
+/// and consumed by the window's first draw.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MaximizeOnMap {
+    pending: bool,
+}
+
+impl MaximizeOnMap {
+    pub fn arm(&mut self) {
+        self.pending = true;
+    }
+
+    /// The window was drawn: true exactly once after `arm()`.
+    pub fn on_draw(&mut self) -> bool {
+        std::mem::take(&mut self.pending)
+    }
+}
+
 /// The window's state at the moment the user asked to close it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CloseSnapshot {
@@ -562,6 +608,23 @@ mod tests {
             t.take_geometry_to_save(),
             Some(geom(-1500, 80, 1100, 750, false))
         );
+    }
+
+    #[test]
+    fn window_geometry_startup_maximize_never_blocks() {
+        assert_eq!(startup_maximize(false, true), StartupMaximize::No);
+        assert_eq!(startup_maximize(false, false), StartupMaximize::No);
+        assert_eq!(startup_maximize(true, false), StartupMaximize::AfterShow);
+        assert_eq!(startup_maximize(true, true), StartupMaximize::OnFirstMap);
+
+        // Not armed (not maximized, or not X11): draws do nothing.
+        let mut on_map = MaximizeOnMap::default();
+        assert!(!on_map.on_draw());
+        // Armed after show(): the first draw (after the first Expose)
+        // maximizes, once; later redraws do not.
+        on_map.arm();
+        assert!(on_map.on_draw());
+        assert!(!on_map.on_draw());
     }
 
     #[test]
