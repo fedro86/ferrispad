@@ -232,11 +232,40 @@ nix develop -c cargo fmt --check
 
 Then the manual check below.
 
-### Manual check — pending user verification
+### Manual check results — Xvfb/X11 (driven by Claude)
 
-Steps 1–8 of *Manual check* above need a display and have **not** been
-performed by the implementer (headless session). Please run them and record
-the result here.
+Debug build of the ticket/T0080 tip (contains this ticket), Xvfb 1280×800,
+`FLTK_BACKEND=x11`, temporary `XDG_CONFIG_HOME`, a Rust sample file, driven
+with `xdotool`, checked on `import` screenshots kept in
+`ferrispad-wt/uitest-T0080/` (not committed).
+
+1. **PASS** — the app starts, the sample file is highlighted (`01-start`).
+2. **PASS** — Light mode, Base16 Ocean Light: mouse selection over 7 lines is
+   an obvious blue band, selected text black and readable
+   (`78-Light-Base16OceanLight`).
+3. **PASS** — Dark mode, Base16 Ocean Dark: lighter blue band, selected text
+   black and readable (`02-sel-dark-ocean`, `78-Dark-Base16OceanDark`).
+4. System default under an OS light/dark switch — **pending user** (Xvfb has
+   no OS appearance setting).
+5. **PASS** — each of the 7 syntax themes in Light *and* Dark mode (14
+   screenshots, `montage-78-Light.png`, `montage-78-Dark.png`), including
+   dark syntax themes in Light mode: the selection is blue and visible on
+   each; the variant follows the background (light blue on dark backgrounds,
+   strong blue on light ones).
+6. **PASS** — Find with the dialog focused, searching "counts", Find Next:
+   the match in the unfocused editor is clearly visible — dark: the 40/60
+   blend with white text (`78-find-dark`); light: lighter blue with black
+   text (`78-find-light`).
+7. **PASS** — selected text is black (or white on the dark unfocused blend)
+   and readable in Light and Dark, plain text and syntax-colored code alike
+   (all screenshots above). Tree panel (file-explorer plugin, Light mode, a
+   git repo with a modified and an untracked file): selecting the rows keeps
+   the amber and green git-status colors (`montage-78-tree.png`).
+8. **PASS** — View → Toggle Dark Mode three times, then select: blue
+   (`78-step7-after-toggles`). Settings → preview Solarized Dark (selection
+   blue, `78-step7-preview-solarized`) → **Cancel**: back to Ocean Dark,
+   selection blue (`78-step7-after-cancel`). The selection never fell back to
+   the old faint color.
 
 ### Review finding — selected text readability (fixed)
 
@@ -298,9 +327,11 @@ scope foreground, focused + unfocused).
       derivation, with the ratios recorded in this ticket.
 - [x] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
       and `cargo fmt --check` pass.
-- [ ] The ticket records the manual check (light, dark, system, all syntax
-      themes, Find-dialog focus, selected-text color, tree git-status colors,
-      Cancel). — **pending user verification**
+- [x] The ticket records the manual check (light, dark, all syntax themes,
+      Find-dialog focus, selected-text color, tree git-status colors, Cancel)
+      — Xvfb/X11, driven by Claude.
+- [ ] System default under a real OS appearance switch, a real Wayland
+      compositor, Windows/macOS — **pending user verification**.
 
 ## Affected files
 
