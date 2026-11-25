@@ -16,14 +16,19 @@ use fltk::{
     window::Window,
 };
 
-use super::DialogTheme;
+use super::{DialogTheme, label_width, max_label_width};
 use crate::app::controllers::theme_manager::{format_hex_color, parse_hex_color};
 
-const DIALOG_WIDTH: i32 = 300;
+// Heights are fixed; widths are measured from the text they show
+// (`label_width`), with these minimums.
+const MIN_DIALOG_WIDTH: i32 = 300;
 const DIALOG_HEIGHT: i32 = 250;
 const PADDING: i32 = 15;
-const BUTTON_WIDTH: i32 = 80;
+const GAP: i32 = 8;
+const MIN_BUTTON_WIDTH: i32 = 80;
 const BUTTON_HEIGHT: i32 = 28;
+const CHOOSER_HEIGHT: i32 = 125;
+const ERROR_SIZE: i32 = 12;
 
 /// The message shown for text that is not a hex color.
 const HEX_ERROR: &str = "Enter a color as #RRGGBB";
@@ -55,16 +60,32 @@ pub fn build_color_picker(
 ) -> (Window, PickResult) {
     let theme = DialogTheme::from_theme_bg(theme_bg);
 
+    // ---- Measured layout ----
+    let size = fltk::app::font_size();
+    let hex_label_w = label_width("Hex:", size);
+    let hex_input_w = max_label_width(&["#888888", "#dddddd", "#bbbbbb"], size) + 2 * GAP;
+    let button_w = max_label_width(&["OK", "Cancel"], size).max(MIN_BUTTON_WIDTH);
+    let dialog_w = (label_width(HEX_ERROR, ERROR_SIZE) + 2 * PADDING)
+        .max(2 * PADDING + hex_label_w + GAP + hex_input_w)
+        .max(3 * PADDING + 2 * button_w)
+        .max(MIN_DIALOG_WIDTH);
+
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
     let mut dialog = Window::default()
-        .with_size(DIALOG_WIDTH, DIALOG_HEIGHT)
+        .with_size(dialog_w, DIALOG_HEIGHT)
         .with_label(title)
         .center_screen();
     dialog.make_modal(true);
     dialog.set_color(theme.bg);
 
-    let mut chooser = ColorChooser::new(PADDING, PADDING, DIALOG_WIDTH - PADDING * 2, 125, None);
+    let mut chooser = ColorChooser::new(
+        PADDING,
+        PADDING,
+        dialog_w - PADDING * 2,
+        CHOOSER_HEIGHT,
+        None,
+    );
     chooser.set_color(theme.bg);
     // The chooser's own parts (mode choice, value fields, hue/value boxes).
     for i in 0..chooser.children() {
@@ -77,16 +98,16 @@ pub fn build_color_picker(
     chooser.end();
     let _ = chooser.set_tuple_rgb(initial);
 
-    let hex_y = PADDING + 125 + 12;
+    let hex_y = PADDING + CHOOSER_HEIGHT + 12;
     let mut hex_label = Frame::default()
         .with_pos(PADDING, hex_y)
-        .with_size(40, 26)
+        .with_size(hex_label_w, 26)
         .with_label("Hex:")
         .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
     hex_label.set_label_color(theme.text);
     let mut hex_input = Input::default()
-        .with_pos(PADDING + 45, hex_y)
-        .with_size(110, 26);
+        .with_pos(PADDING + hex_label_w + GAP, hex_y)
+        .with_size(hex_input_w, 26);
     hex_input.set_color(theme.input_bg);
     hex_input.set_text_color(theme.text);
     hex_input.set_selection_color(theme.button_bg);
@@ -94,22 +115,22 @@ pub fn build_color_picker(
 
     let mut error = Frame::default()
         .with_pos(PADDING, hex_y + 28)
-        .with_size(DIALOG_WIDTH - PADDING * 2, 18)
+        .with_size(dialog_w - PADDING * 2, 18)
         .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
     error.set_label_color(theme.error_color());
-    error.set_label_size(12);
+    error.set_label_size(ERROR_SIZE);
 
     let btn_y = DIALOG_HEIGHT - PADDING - BUTTON_HEIGHT;
     let mut cancel_btn = Button::default()
-        .with_pos(DIALOG_WIDTH - PADDING - BUTTON_WIDTH, btn_y)
-        .with_size(BUTTON_WIDTH, BUTTON_HEIGHT)
+        .with_pos(dialog_w - PADDING - button_w, btn_y)
+        .with_size(button_w, BUTTON_HEIGHT)
         .with_label("Cancel");
     cancel_btn.set_frame(FrameType::RFlatBox);
     cancel_btn.set_color(theme.secondary_button_bg);
     cancel_btn.set_label_color(theme.text_dim);
     let mut ok_btn = Button::default()
-        .with_pos(DIALOG_WIDTH - PADDING * 2 - BUTTON_WIDTH * 2, btn_y)
-        .with_size(BUTTON_WIDTH, BUTTON_HEIGHT)
+        .with_pos(dialog_w - PADDING * 2 - button_w * 2, btn_y)
+        .with_size(button_w, BUTTON_HEIGHT)
         .with_label("OK");
     ok_btn.set_frame(FrameType::RFlatBox);
     ok_btn.set_color(theme.button_bg);
