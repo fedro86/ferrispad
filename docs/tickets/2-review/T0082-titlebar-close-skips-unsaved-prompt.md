@@ -135,8 +135,9 @@ Use default settings (session restore Off: move `settings.json` aside), then
 
 ## Acceptance criteria
 
-- [ ] Every window-manager close of the main window goes through
-      `file_quit()`: prompt when dirty, Cancel keeps the window open.
+- [x] Every window-manager close of the main window goes through
+      `file_quit()`: prompt when dirty, Cancel keeps the window open
+      (X11 with a real WM; Wayland/Windows/macOS pending the user).
 - [x] The dead `Event::Close` arm is gone; the decision is a tested pure
       function.
 - [x] The red test was seen failing on the old code, with the output
@@ -210,10 +211,30 @@ wmctrl -c FerrisPad; sleep 2; wmctrl -l     # expect an "Unsaved Changes" window
     window stays. A second close → the prompt appears again (steps 1–2,
     partly 6).
   - **After, clean buffer:** close → exits at once, exit 0 (step 7).
-- Not run here, **pending user verification**: steps 2 ("Don't Save"
-  closes), 3 (native Wayland ×, Alt+F4; Windows taskbar), 4–5
-  (modal/menu open), 6 (real double-click), 8 (Escape), and Windows / macOS
-  in general.
+- **Xvfb/X11 (driven by Claude)**, debug build of the stacked tip
+  (ticket/T0077 at 92b19f0), Xvfb 1280×800 with the **openbox** WM, so a
+  close is a real `WM_DELETE_WINDOW` (`wmctrl -c`). Driven with `xdotool`,
+  with screenshots and a PASS/FAIL log in
+  `/home/fedro/Code/personal/ferrispad-wt/uitest-T0082/run/` (script
+  `uitest-T0082/t0082.sh`):
+  - step 1: dirty → close → "Unsaved Changes" prompt — **pass**;
+  - step 2: Cancel → prompt gone, the text is still there
+    (`02-after-cancel.png`); a second close prompts again; "Quit Without
+    Saving" closes — **pass**;
+  - step 4: close with Settings (modal) open is ignored: no prompt, and
+    Settings stays open (`04-close-with-settings-open.png`); after closing
+    Settings, close prompts normally — **pass**;
+  - step 5: close with the File menu open is ignored
+    (`06-close-with-menu-open.png`); after closing the menu, close prompts
+    normally — **pass**;
+  - step 6: two closes back to back, then Cancel: no extra prompt, and
+    nothing quits without consent — **pass**;
+  - step 7: an unmodified file closes at once — **pass**;
+  - step 8: Escape in the editor never closes the window — **pass**;
+  - step 9: the prompt is still up 2.5 s after the close — **pass**;
+  - no panic or debug assert in the app log.
+- **Pending user verification:** step 3 on native Wayland (the × and
+  Alt+F4) and the Windows taskbar close; Windows and macOS in general.
 
 ## Notes
 
