@@ -23,7 +23,8 @@ use fltk::{
 
 use super::color_picker::show_color_picker;
 use super::{
-    DialogTheme, SCROLLBAR_SIZE, show_themed_choice, show_themed_input, show_themed_message,
+    DialogTheme, SCROLLBAR_SIZE, label_width, max_label_width, show_themed_choice,
+    show_themed_input, show_themed_message,
 };
 use crate::app::controllers::theme_manager::{
     ThemeEntry, ThemeManagerAction, ThemeManagerModel, format_hex_color,
@@ -33,13 +34,20 @@ use crate::app::services::custom_themes::EditorColorField;
 use crate::ui::file_dialogs::native_open_dialog;
 use crate::ui::scrollbar::style_scrollbars;
 
-const DIALOG_WIDTH: i32 = 660;
+// Heights and gaps are fixed; every width is measured from the text it
+// shows (`label_width`), so the layout follows the installed fonts.
 const DIALOG_HEIGHT: i32 = 480;
 const PADDING: i32 = 15;
-const LIST_WIDTH: i32 = 250;
+const GAP: i32 = 8;
+const MIN_LIST_WIDTH: i32 = 250;
+const MIN_BUTTON_WIDTH: i32 = 85;
 const BUTTON_HEIGHT: i32 = 28;
 const ROW_HEIGHT: i32 = 34;
-const RIGHT_X: i32 = PADDING * 2 + LIST_WIDTH;
+const SWATCH_W: i32 = 36;
+const HEX_SIZE: i32 = 12;
+const HINT_SIZE: i32 = 11;
+/// Hex colors made of the widest hex digits, for measuring.
+const WIDE_HEX: [&str; 3] = ["#888888", "#dddddd", "#bbbbbb"];
 
 const HINT: &str = "Color edits are saved on OK and discarded on Cancel.\n\
                     Duplicate, Rename, Delete and Import are saved at once.";
@@ -273,10 +281,38 @@ pub fn build_theme_manager(
 fn build_window(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Window, Ctx) {
     let theme = DialogTheme::from_theme_bg(theme_bg);
 
+    // ---- Measured layout: every width comes from the text it shows ----
+    let size = app::font_size();
+    let action_w = max_label_width(
+        &["Duplicate…", "Rename…", "Delete", "Import .tmTheme…"],
+        size,
+    );
+    let list_w = (2 * action_w + GAP).max(MIN_LIST_WIDTH);
+    let action_w = (list_w - GAP) / 2;
+    let field_labels: Vec<&str> = EditorColorField::all()
+        .iter()
+        .map(|&f| field_label(f))
+        .collect();
+    let label_col = max_label_width(&field_labels, size);
+    // Hex digits differ in width; measure the widest ones.
+    let hex_col = max_label_width(&WIDE_HEX, HEX_SIZE);
+    let pick_w = label_width("Pick…", size);
+    let reset_w = label_width("Reset", size);
+    let right_w = label_col + SWATCH_W + hex_col + pick_w + reset_w + 4 * GAP;
+    let ok_w = max_label_width(&["OK", "Cancel"], size).max(MIN_BUTTON_WIDTH);
+    let hint_w = HINT
+        .lines()
+        .map(|line| label_width(line, HINT_SIZE))
+        .max()
+        .unwrap_or(0);
+    let right_x = PADDING * 2 + list_w;
+    let dialog_w =
+        (right_x + right_w + PADDING).max(PADDING + hint_w + PADDING + 2 * ok_w + GAP + PADDING);
+
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
     let mut dialog = Window::default()
-        .with_size(DIALOG_WIDTH, DIALOG_HEIGHT)
+        .with_size(dialog_w, DIALOG_HEIGHT)
         .with_label("Manage Themes")
         .center_screen();
     dialog.make_modal(true);
@@ -285,7 +321,7 @@ fn build_window(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Window, Ct
     // ---- Left: theme list and theme-level actions ----
     let mut list_label = Frame::default()
         .with_pos(PADDING, PADDING)
-        .with_size(LIST_WIDTH, 20)
+        .with_size(list_w, 20)
         .with_label("Themes")
         .with_align(Align::Left | Align::Inside);
     list_label.set_label_color(theme.text);
@@ -294,7 +330,7 @@ fn build_window(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Window, Ct
     let list_h = 300;
     let mut browser = HoldBrowser::default()
         .with_pos(PADDING, list_y)
-        .with_size(LIST_WIDTH, list_h);
+        .with_size(list_w, list_h);
     browser.set_color(theme.input_bg);
     browser.set_selection_color(theme.button_bg);
     // Item text uses FLTK's foreground, the dialog text color here.
@@ -302,45 +338,49 @@ fn build_window(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Window, Ct
     browser.set_scrollbar_size(SCROLLBAR_SIZE);
     style_scrollbars(&browser, theme.scroll_track, theme.scroll_thumb);
 
-    let half = (LIST_WIDTH - 10) / 2;
+    let second_x = PADDING + action_w + GAP;
     let row1 = list_y + list_h + 10;
-    let mut duplicate_btn = button(PADDING, row1, half, "Duplicate…", &theme);
-    let mut rename_btn = button(PADDING + half + 10, row1, half, "Rename…", &theme);
+    let mut duplicate_btn = button(PADDING, row1, action_w, "Duplicate…", &theme);
+    let mut rename_btn = button(second_x, row1, action_w, "Rename…", &theme);
     let row2 = row1 + BUTTON_HEIGHT + 8;
-    let mut delete_btn = button(PADDING, row2, half, "Delete", &theme);
-    let mut import_btn = button(PADDING + half + 10, row2, half, "Import .tmTheme…", &theme);
+    let mut delete_btn = button(PADDING, row2, action_w, "Delete", &theme);
+    let mut import_btn = button(second_x, row2, action_w, "Import .tmTheme…", &theme);
+    import_btn.set_tooltip("Import a TextMate .tmTheme file as a custom theme");
 
     // ---- Right: editor colors of the selected theme ----
-    let right_w = DIALOG_WIDTH - RIGHT_X - PADDING;
     let mut title = Frame::default()
-        .with_pos(RIGHT_X, PADDING)
+        .with_pos(right_x, PADDING)
         .with_size(right_w, 20)
         .with_align(Align::Left | Align::Inside | Align::Clip);
     title.set_label_color(theme.text);
 
+    let swatch_x = right_x + label_col + GAP;
+    let hex_x = swatch_x + SWATCH_W + GAP;
+    let pick_x = hex_x + hex_col + GAP;
+    let reset_x = pick_x + pick_w + GAP;
     let mut rows = Vec::new();
     for (i, &field) in EditorColorField::all().iter().enumerate() {
         let y = list_y + i as i32 * ROW_HEIGHT;
         let mut label = Frame::default()
-            .with_pos(RIGHT_X, y)
-            .with_size(110, 26)
+            .with_pos(right_x, y)
+            .with_size(label_col, 26)
             .with_label(field_label(field))
             .with_align(Align::Left | Align::Inside);
         label.set_label_color(theme.text);
         let mut swatch = Frame::default()
-            .with_pos(RIGHT_X + 112, y + 2)
-            .with_size(36, 22);
+            .with_pos(swatch_x, y + 2)
+            .with_size(SWATCH_W, 22);
         swatch.set_frame(FrameType::FlatBox);
         let mut hex = Frame::default()
-            .with_pos(RIGHT_X + 154, y)
-            .with_size(70, 26)
+            .with_pos(hex_x, y)
+            .with_size(hex_col, 26)
             .with_align(Align::Left | Align::Inside);
         hex.set_label_color(theme.text_dim);
-        hex.set_label_size(12);
-        let pick = button(RIGHT_X + 228, y, 60, "Pick…", &theme);
+        hex.set_label_size(HEX_SIZE);
+        let pick = button(pick_x, y, pick_w, "Pick…", &theme);
         let mut reset = Button::default()
-            .with_pos(RIGHT_X + 294, y)
-            .with_size(right_w - 294, BUTTON_HEIGHT)
+            .with_pos(reset_x, y)
+            .with_size(reset_w, BUTTON_HEIGHT)
             .with_label("Reset");
         reset.set_frame(FrameType::RFlatBox);
         reset.set_color(theme.secondary_button_bg);
@@ -357,13 +397,13 @@ fn build_window(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Window, Ct
 
     let below_rows = list_y + EditorColorField::all().len() as i32 * ROW_HEIGHT + 4;
     let mut note = Frame::default()
-        .with_pos(RIGHT_X, below_rows)
+        .with_pos(right_x, below_rows)
         .with_size(right_w, 36)
         .with_align(Align::Left | Align::Top | Align::Inside | Align::Wrap);
     note.set_label_color(theme.text_dim);
     note.set_label_size(12);
     let mut error = Frame::default()
-        .with_pos(RIGHT_X, below_rows + 38)
+        .with_pos(right_x, below_rows + 38)
         .with_size(right_w, 36)
         .with_align(Align::Left | Align::Top | Align::Inside | Align::Wrap);
     error.set_label_color(theme.error_color());
@@ -371,21 +411,23 @@ fn build_window(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Window, Ct
 
     // ---- Bottom: hint, OK / Cancel ----
     let btn_y = DIALOG_HEIGHT - PADDING - BUTTON_HEIGHT;
+    let cancel_x = dialog_w - PADDING - ok_w;
+    let ok_x = cancel_x - GAP - ok_w;
     let mut hint = Frame::default()
         .with_pos(PADDING, btn_y - 4)
-        .with_size(DIALOG_WIDTH - PADDING * 3 - 180, 36)
+        .with_size(ok_x - 2 * PADDING, 36)
         .with_label(HINT)
         .with_align(Align::Left | Align::Inside | Align::Wrap);
     hint.set_label_color(theme.text_dim);
-    hint.set_label_size(11);
+    hint.set_label_size(HINT_SIZE);
     let mut cancel_btn = Button::default()
-        .with_pos(DIALOG_WIDTH - PADDING - 85, btn_y)
-        .with_size(85, BUTTON_HEIGHT)
+        .with_pos(cancel_x, btn_y)
+        .with_size(ok_w, BUTTON_HEIGHT)
         .with_label("Cancel");
     cancel_btn.set_frame(FrameType::RFlatBox);
     cancel_btn.set_color(theme.secondary_button_bg);
     cancel_btn.set_label_color(theme.text_dim);
-    let mut ok_btn = button(DIALOG_WIDTH - PADDING * 2 - 170, btn_y, 85, "OK", &theme);
+    let mut ok_btn = button(ok_x, btn_y, ok_w, "OK", &theme);
 
     dialog.end();
     drop(top_level);
