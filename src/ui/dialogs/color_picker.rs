@@ -35,6 +35,23 @@ pub fn show_color_picker(
     title: &str,
     initial: (u8, u8, u8),
 ) -> Option<(u8, u8, u8)> {
+    let (mut dialog, result) = build_color_picker(theme_bg, title, initial);
+    dialog.show();
+    DialogTheme::from_theme_bg(theme_bg).apply_titlebar(&dialog);
+    super::run_dialog(&dialog);
+    *result.borrow()
+}
+
+/// The chosen color, set by OK.
+type PickResult = Rc<RefCell<Option<(u8, u8, u8)>>>;
+
+/// Build the picker and wire its callbacks, without showing it (so tests can
+/// construct it).
+fn build_color_picker(
+    theme_bg: (u8, u8, u8),
+    title: &str,
+    initial: (u8, u8, u8),
+) -> (Window, PickResult) {
     let theme = DialogTheme::from_theme_bg(theme_bg);
 
     // Built top-level even if another group is current (T0058).
@@ -100,7 +117,7 @@ pub fn show_color_picker(
     dialog.end();
     drop(top_level);
 
-    let result: Rc<RefCell<Option<(u8, u8, u8)>>> = Rc::new(RefCell::new(None));
+    let result: PickResult = Rc::new(RefCell::new(None));
 
     // Chooser → hex field.
     let (mut hex_sync, mut error_sync) = (hex_input.clone(), error.clone());
@@ -139,9 +156,24 @@ pub fn show_color_picker(
     // Escape and the close button: no change.
     dialog.set_callback(|w| w.hide());
 
-    dialog.show();
-    theme.apply_titlebar(&dialog);
-    super::run_dialog(&dialog);
+    (dialog, result)
+}
 
-    *result.borrow()
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build the picker in a debug build, so fltk-rs debug assertions in
+    /// widget setup fail a test rather than the app.
+    #[test]
+    fn color_picker_window_builds() {
+        crate::ui::on_fltk_test_thread(|| {
+            let _fltk = crate::ui::fltk_widget_test_lock();
+            for bg in [(43, 48, 59), (239, 241, 245)] {
+                let (dialog, result) = build_color_picker(bg, "Selection Color", (0, 120, 215));
+                assert!(!dialog.shown());
+                assert_eq!(*result.borrow(), None, "nothing chosen before OK");
+            }
+        });
+    }
 }
