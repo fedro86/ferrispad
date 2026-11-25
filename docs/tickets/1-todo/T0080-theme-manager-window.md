@@ -20,16 +20,34 @@ pattern follows JetBrains "Color Scheme": built-in themes are read-only, you
 ## In scope
 
 - A **"Manage themes…"** button in the Settings dialog, next to the light and
-  dark syntax-theme choices. It opens a modal, themed window that lists the
-  built-in themes (marked read-only) and the custom ones.
+  dark syntax-theme choices. It opens a modal window that lists the built-in
+  themes (marked read-only) and the custom ones. The window **looks like
+  every other FerrisPad dialog**, built the same way as
+  `src/ui/dialogs/plugin_manager.rs` (the closest sibling: a list plus action
+  buttons):
+  - `DialogTheme::from_theme_bg(theme_bg)` for every color: `bg`, `text`,
+    `text_dim`, `input_bg`, `button_bg`, `secondary_button_bg`, `row_bg`,
+    `accent`, scrollbars via `style_scroll`;
+  - `theme.apply_titlebar(&dialog)` for the themed title bar on Windows and
+    macOS, and the shared modal loop `run_dialog_with`;
+  - secondary prompts through the existing themed helpers:
+    `show_themed_choice` (delete confirmation), `show_themed_input` (name for
+    Duplicate/Rename), `show_themed_message` (errors), and
+    `native_open_dialog` (`src/ui/file_dialogs.rs`) for Import;
+  - no hard-coded colors in the new dialog files.
 - **Duplicate** (from any theme), **Rename**, **Delete** (with confirmation)
   and **Import .tmTheme…**, all through the T0079 service.
   - Import uses `ThemeSet::get_theme(path)`, which is already compiled in.
   - The imported theme becomes a custom theme with `based_on: null`.
 - **Color editing** for a custom theme: background, text, caret, selection,
   line-number text, line-number background and current line. Each color has
-  a swatch, a picker button (FLTK `dialog::color_chooser`) and a
-  "Reset to base" button. Reset is disabled when `based_on` is null.
+  a swatch, a picker button and a "Reset to base" button. Reset is disabled
+  when `based_on` is null.
+  - **Not** FLTK's `dialog::color_chooser`: it opens a standalone, unthemed
+    FLTK-grey window, and FerrisPad uses it nowhere today.
+  - Instead, a small themed picker dialog that embeds the
+    `fltk::group::ColorChooser` widget, adds a `#RRGGBB` hex input and
+    OK/Cancel, and is styled with `DialogTheme` like the rest.
 - **Live preview** in the main editor while editing. **OK** saves the changes
   atomically; **Cancel** (or closing the window) discards them and restores
   the previous look.
@@ -63,7 +81,8 @@ pattern follows JetBrains "Color Scheme": built-in themes are read-only, you
    - A clear error dialog, and **nothing is created** on failure.
    - Missing colors use T0079's derived fallbacks.
    - Duplicate names get " (2)".
-5. **Picker cancelled.** `color_chooser` returns `None`, so no change is
+5. **Picker cancelled.** Cancel or closing the picker dialog returns `None`,
+   so no change is
    made.
 6. **Editing the active theme vs. an inactive one.** Preview applies only
    when the edited theme is the one shown in the current mode. Editing an
@@ -72,7 +91,23 @@ pattern follows JetBrains "Color Scheme": built-in themes are read-only, you
    edits of this session. Theme-level actions (Duplicate, Rename, Delete,
    Import) are committed immediately and are not undone by Cancel. The
    window states this in a one-line hint.
-8. **Settings dialog Cancel.** The Settings dialog has its own preview and
+8. **Preview leaks into dialog colors.** `apply_syntax_theme_colors` changes
+   the FLTK globals `app::background` (scrollbar corner) and, through the
+   main-window re-theme, `app::foreground`. Widgets in the open dialogs that
+   rely on those globals (Choice popups, the color-chooser widget) would take
+   on the *previewed* colors.
+   - The manager window, the picker and the parent Settings dialog keep the
+     colors they opened with.
+   - After each preview, restore the globals the way
+     `src/ui/dialogs/settings_dialog.rs:627` already does
+     (`fltk::app::foreground(tr, tg, tb)`), extended to `app::background`.
+   - The dialogs follow the new theme only the next time they are opened,
+     consistent with Settings.
+9. **Hex input is untrusted text.** Accept `#RRGGBB` / `RRGGBB` in any case,
+   with surrounding whitespace trimmed. Reject everything else with an inline
+   error and no change. Never slice the string by byte offsets before
+   checking that it is ASCII: a multi-byte char would panic.
+10. **Settings dialog Cancel.** The Settings dialog has its own preview and
    revert path (`state.open_settings`). Opening the manager from it, then
    cancelling Settings, must not resurrect a deleted theme or point a slot at
    a missing id.
@@ -108,6 +143,12 @@ nix develop -c cargo test theme_manager
 - `theme_manager_import_missing_colors_uses_fallback` —
   `import_no_background.tmTheme` imports, and its effective colors are the
   derived fallbacks (text vs background ≥ 4.5:1).
+- `theme_manager_hex_color_parse` — accepts `#1e1e1e`, `1E1E1E`,
+  `  #AbCdEf  `; rejects `""`, `#`, `#12345`, `#1234567`, `#gggggg`,
+  `rgb(1,2,3)`, `#ééé` and `#12345€` (multi-byte), all without panicking.
+
+The window's appearance is FLTK rendering and cannot be unit-tested without
+driving widgets. It is covered by manual steps 9–11 below.
 
 All pass; the full `nix develop -c cargo test` stays green.
 
@@ -135,12 +176,30 @@ All pass; the full `nix develop -c cargo test` stays green.
 8. Open Settings → Manage themes → delete a theme in use → close the manager
    → **Cancel** in Settings. No slot points at the deleted theme, and
    FerrisPad does not crash on restart.
+9. **Look & feel.** In light and in dark mode, open Settings → Manage themes,
+   and separately Plugins → General → Plugin Manager…. Background, text, buttons
+   (primary and secondary), list rows, scrollbars and title bar match;
+   nothing is FLTK grey. On Windows the title bar is themed; on macOS its
+   color matches.
+10. Open the color picker, the Duplicate/Rename name prompt, the delete
+    confirmation, an import error and the Import file dialog. All of them are
+    themed like the manager. Type `#zzz` in the hex field: an inline error and
+    no change.
+11. **No leak.** In dark mode, edit the background of the active custom theme
+    to a very light color (live preview). The manager, the picker and the
+    Settings dialog behind it keep their dark colors, including the text in
+    the Choice popups. Close and reopen Manage themes: it now follows the new
+    theme.
 
 ## Acceptance criteria
 
 - [ ] Duplicate, rename, delete, import and per-color edit/reset work as
       described, with live preview and a real Cancel for color edits.
 - [ ] Built-ins cannot be modified, both in the UI and in the model.
+- [ ] The manager and all its sub-dialogs (picker, prompts, import) use
+      `DialogTheme` and the shared helpers. They match the Plugin Manager and
+      Settings in light and dark mode, contain no hard-coded colors, and are
+      not repainted by the live preview.
 - [ ] Deleting a theme in use never leaves a dangling reference.
 - [ ] Bad import files produce an error and create nothing.
 - [ ] All tests listed above exist and pass.
@@ -169,5 +228,5 @@ All pass; the full `nix develop -c cargo test` stays green.
 - The window is modal and blocks the main loop, like the Settings dialog, so
   live previews are applied directly from inside it, the way
   `handle_settings` already does.
-- Use the existing themed dialog helpers (`src/ui/dialogs/`), so the window
-  follows the light/dark theme.
+- Consistent look is a requirement, not a preference: see the first In-scope
+  bullet, edge case 8 and manual steps 9–11.
