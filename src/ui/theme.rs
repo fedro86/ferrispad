@@ -119,6 +119,8 @@ pub fn apply_syntax_theme_colors(
     editor.set_color(Color::from_rgb(background.0, background.1, background.2));
     // The selection is set here, next to the background it is drawn on, so
     // every re-theme (toggle, Settings, preview, Cancel) ends consistent.
+    // Editor only — NOT FLTK's global Selection color, which is also used for
+    // checkbox/radio marks.
     editor.set_selection_color(ThemeRgb::from_tuple(editor_selection_color(background)).to_fltk());
 
     // Adjust colors based on background brightness
@@ -197,18 +199,11 @@ pub fn apply_theme(
     menu.set_text_color(mc.text_color);
     menu.set_selection_color(mc.selection_color);
 
-    // Editor selection, chosen from the syntax-theme background's luminance.
-    // Applied only to the editor — NOT globally, because FLTK's global Selection
-    // color is also used for checkbox/radio marks. `apply_syntax_theme_colors`
-    // sets it again alongside the background it paints.
-    let sel_color = ThemeRgb::from_tuple(editor_selection_color(theme_bg)).to_fltk();
-
     if is_dark {
         // Dark mode colors
         editor.set_color(Color::from_rgb(30, 30, 30));
         editor.set_text_color(Color::from_rgb(220, 220, 220));
         editor.set_cursor_color(Color::from_rgb(255, 255, 255));
-        editor.set_selection_color(sel_color);
         editor.set_linenumber_bgcolor(Color::from_rgb(40, 40, 40));
         editor.set_linenumber_fgcolor(Color::from_rgb(150, 150, 150));
         window.set_color(Color::from_rgb(25, 25, 25));
@@ -222,7 +217,6 @@ pub fn apply_theme(
         editor.set_color(Color::White);
         editor.set_text_color(Color::Black);
         editor.set_cursor_color(Color::Black);
-        editor.set_selection_color(sel_color);
         editor.set_linenumber_bgcolor(Color::from_rgb(240, 240, 240));
         editor.set_linenumber_fgcolor(Color::from_rgb(100, 100, 100));
         window.set_color(Color::from_rgb(240, 240, 240));
@@ -649,9 +643,9 @@ mod tests {
 
     /// FLTK draws an unfocused `Fl_Text_Display` selection as
     /// `fl_color_average(color(), selection_color(), 0.4)`: 40 % background,
-    /// 60 % selection per channel.
+    /// 60 % selection per channel, truncated like FLTK's `(uchar)` cast.
     fn fltk_unfocused_selection(bg: (u8, u8, u8), sel: (u8, u8, u8)) -> (u8, u8, u8) {
-        let mix = |b: u8, s: u8| (0.4 * f64::from(b) + 0.6 * f64::from(s)).round() as u8;
+        let mix = |b: u8, s: u8| (0.4 * f64::from(b) + 0.6 * f64::from(s)) as u8;
         (mix(bg.0, sel.0), mix(bg.1, sel.1), mix(bg.2, sel.2))
     }
 

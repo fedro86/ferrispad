@@ -206,6 +206,18 @@ Steps 1–7 of *Manual check* above need a display and have **not** been
 performed by the implementer (headless session). Please run them and record
 the result here.
 
+### Review finding (open) — selected text readability
+
+Reviewer (PR #154): FLTK draws selected text as `fl_contrast(fg, selection)`.
+At contrast level 10 that keeps `fg` whenever ΔL* ≥ 10, so with the new
+colors plain text is drawn fg-on-blue: 1.55:1 on Ocean Light, 1.97:1 on Ocean
+Dark (2.07–2.85 on Eighties/Mocha/InspiredGitHub; only the Solarized themes
+fall back to black/white). `editor_selection_text_readable` checks a fallback
+FLTK does not apply there. With fg kept, the spec's three bars are
+infeasible together (`contrast(fg,bg) = contrast(fg,sel) · contrast(sel,bg)`).
+Escalated to the orchestrator for a design decision; the fix lands on this
+branch.
+
 ### Note on selected-text color
 
 FLTK draws selected text with `fl_contrast(style_color, selection)`
@@ -218,8 +230,11 @@ fallback is readable. Worth a look during manual step 5.
 
 ## Acceptance criteria
 
-- [x] On all seven syntax themes the selection meets the focused (≥ 3:1),
+- [ ] On all seven syntax themes the selection meets the focused (≥ 3:1),
       unfocused (≥ 2:1) and selected-text (≥ 4.5:1) bars, enforced by tests.
+      — **open (review finding)**: focused/unfocused hold, but the
+      selected-text bar as specified is vacuous (see *Review finding* below);
+      awaiting a design decision.
 - [x] The color is chosen from background luminance, not the mode flag.
 - [x] The contrast tests exist; the focused one was seen failing on the old
       derivation, with the ratios recorded in this ticket.
