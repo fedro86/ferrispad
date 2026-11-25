@@ -1,4 +1,5 @@
 pub mod about;
+pub mod color_picker;
 pub mod community_install;
 pub mod find;
 pub mod font_picker;
@@ -12,6 +13,7 @@ pub mod readonly_viewer;
 pub mod session_picker;
 pub mod settings_dialog;
 pub mod shortcut_dialog;
+pub mod theme_manager;
 pub mod update;
 
 use fltk::{

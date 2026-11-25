@@ -19,6 +19,7 @@ use super::controllers::plugin::PluginController;
 use super::controllers::preview::PreviewController;
 use super::controllers::session::SessionController;
 use super::controllers::tabs::{GroupId, TabManager};
+use super::controllers::theme_manager::{ThemeManagerAction, ThemeManagerModel};
 use super::controllers::update::UpdateController;
 use super::controllers::view::ViewController;
 use super::controllers::widget::WidgetController;
@@ -37,7 +38,8 @@ use super::services::current_line::{cursor_line, twin_bytes, untwin_bytes};
 use super::services::custom_themes::{ThemeStore, themes_dir};
 use super::services::session;
 use super::services::shortcut_registry::ShortcutRegistry;
-use crate::ui::dialogs::settings_dialog::show_settings_dialog;
+use crate::ui::dialogs::settings_dialog::{SettingsHook, show_settings_dialog};
+use crate::ui::dialogs::theme_manager::show_theme_manager;
 use crate::ui::dialogs::{show_themed_choice, show_themed_message};
 use crate::ui::editor_container::EditorContainer;
 use crate::ui::tab_bar::TabBar;
@@ -932,15 +934,23 @@ impl AppState {
     pub fn open_settings(&mut self, mut on_preview: impl FnMut(&mut AppState, ThemeRef)) {
         let current = self.settings.borrow().clone();
         let theme_bg = self.highlight.highlighter().theme_background();
-        let custom_themes: Vec<(ThemeRef, String)> = self
-            .highlight
-            .custom_themes()
-            .values()
-            .map(|t| (t.theme_ref(), t.name.clone()))
-            .collect();
-        let result = show_settings_dialog(&current, theme_bg, &custom_themes, |theme| {
-            on_preview(self, theme.clone())
+        let custom_themes = self.custom_theme_choices();
+        let mut managed = false;
+        let result = show_settings_dialog(&current, theme_bg, &custom_themes, |hook| match hook {
+            SettingsHook::Preview(theme) => {
+                on_preview(self, theme);
+                None
+            }
+            SettingsHook::ManageThemes => {
+                managed = true;
+                Some(self.manage_themes(&mut on_preview))
+            }
         });
+        if result.is_none() && managed {
+            // The theme manager kept the dialogs' colors in FLTK's globals
+            // while it previewed; give them back to the main window.
+            self.apply_theme_to_owned_widgets();
+        }
         if let Some(new_settings) = result {
             if let Err(e) = new_settings.save() {
                 show_themed_message(
@@ -952,6 +962,72 @@ impl AppState {
             }
             self.apply_settings(new_settings);
         }
+    }
+
+    /// The loaded custom themes as (reference, name), sorted by name.
+    pub fn custom_theme_choices(&self) -> Vec<(ThemeRef, String)> {
+        let mut themes: Vec<(ThemeRef, String)> = self
+            .highlight
+            .custom_themes()
+            .values()
+            .map(|t| (t.theme_ref(), t.name.clone()))
+            .collect();
+        themes.sort_by_key(|(_, name)| name.to_lowercase());
+        themes
+    }
+
+    /// Run the theme manager (T0080) from the Settings dialog. `retheme`
+    /// shows a theme with its panels, like a Settings preview. Returns the
+    /// custom themes afterwards, for the Settings choices.
+    fn manage_themes(
+        &mut self,
+        retheme: &mut impl FnMut(&mut AppState, ThemeRef),
+    ) -> Vec<(ThemeRef, String)> {
+        // What the editor shows now: a Settings preview included.
+        let shown = self.highlight.active_theme().clone();
+        let (store, warnings) = ThemeStore::load(themes_dir());
+        for warning in warnings {
+            eprintln!("{warning}");
+        }
+        let (light, dark) = {
+            let settings = self.settings.borrow();
+            (
+                settings.syntax_theme_light.clone(),
+                settings.syntax_theme_dark.clone(),
+            )
+        };
+        let model = ThemeManagerModel::new(store, light, dark, self.view.dark_mode, shown);
+        let theme_bg = self.highlight.highlighter().theme_background();
+        show_theme_manager(theme_bg, model, |model, actions| {
+            let mut show_again = false;
+            for action in actions {
+                match action {
+                    ThemeManagerAction::ThemesChanged => {
+                        self.highlight.set_custom_themes(model.custom_themes());
+                    }
+                    ThemeManagerAction::SetSlot { is_dark, theme } => {
+                        let mut settings = self.settings.borrow_mut();
+                        if is_dark {
+                            settings.syntax_theme_dark = theme;
+                        } else {
+                            settings.syntax_theme_light = theme;
+                        }
+                    }
+                    ThemeManagerAction::SaveSettings => {
+                        let saved = self.settings.borrow().save();
+                        if let Err(e) = saved {
+                            eprintln!("[theme] could not save settings: {e}");
+                        }
+                    }
+                    ThemeManagerAction::Retheme => show_again = true,
+                    ThemeManagerAction::Error(_) | ThemeManagerAction::Select(_) => {}
+                }
+            }
+            if show_again {
+                retheme(self, model.shown().clone());
+            }
+        });
+        self.custom_theme_choices()
     }
 
     /// Run the menu command bound to `shortcut` (a normalized shortcut

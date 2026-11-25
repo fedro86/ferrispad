@@ -36,6 +36,8 @@ pub struct HighlightController {
     custom_themes: BTreeMap<String, CustomTheme>,
     /// The editor colors of the active theme.
     editor_colors: EditorColors,
+    /// The theme last asked for (before any fallback).
+    active: ThemeRef,
     pub pending_rehighlight: Option<(DocumentId, i32)>,
     pub rehighlight_timer_active: bool,
     pub highlight_queue: Vec<DocumentId>,
@@ -51,6 +53,7 @@ impl HighlightController {
             highlighter,
             custom_themes: BTreeMap::new(),
             editor_colors,
+            active: theme.into(),
             pending_rehighlight: None,
             rehighlight_timer_active: false,
             highlight_queue: Vec::new(),
@@ -73,6 +76,7 @@ impl HighlightController {
     /// that is not loaded (deleted, or its file unreadable) falls back to
     /// the mode's default built-in; the slot itself is left as is.
     pub fn set_theme(&mut self, theme: &ThemeRef, is_dark: bool) {
+        self.active = theme.clone();
         let builtin = match theme {
             ThemeRef::Builtin(builtin) => *builtin,
             ThemeRef::Custom(id) => match self.custom_themes.get(id) {
@@ -101,6 +105,12 @@ impl HighlightController {
         self.editor_colors = derived_editor_colors(builtin.background(), builtin.foreground());
         self.highlighter
             .set_current_line_bg(self.editor_colors.current_line);
+    }
+
+    /// The theme the editor was last asked to show (a Settings preview
+    /// included), before any fallback for a missing custom theme.
+    pub fn active_theme(&self) -> &ThemeRef {
+        &self.active
     }
 
     /// The editor colors of the active theme.
@@ -721,6 +731,7 @@ mod tests {
             (false, SyntaxTheme::Base16OceanLight),
         ] {
             hc.set_theme(&missing, is_dark);
+            assert_eq!(hc.active_theme(), &missing, "the request is remembered");
             assert_eq!(hc.highlighter().theme_key(), default.theme_key());
             assert_eq!(
                 hc.editor_colors(),
