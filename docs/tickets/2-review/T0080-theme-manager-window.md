@@ -472,6 +472,82 @@ asserted in `tests/ui_dialogs.rs`). Cosmetic, not changed: the
 `ColorChooser`'s "rgb" mode selector keeps FLTK's lighter style; the
 "Import .tmTheme…" label is tight in its button.
 
+## Bug found in user verification (layout)
+
+On native Wayland (GNOME, normal font scaling) the user saw the theme
+manager's layout broken: "Import .tmTheme…" ran past its button's right
+border, and "Line number bg" ran into the color swatch. All widths were
+fixed pixel values tuned on Xvfb's default font; desktop fonts are wider.
+The Xvfb pass had shown the Import label "tight" and it was wrongly filed as
+cosmetic.
+
+**Fix — layout from measured text.** `ui::dialogs::label_width` /
+`max_label_width` measure a label with the fonts actually installed
+(`fltk::draw::measure`), at the label size + `LABEL_SLACK_PT` (2 pt), plus
+`LABEL_PAD` on each side. The theme manager (action buttons, list width,
+field-label column, hex column, Pick…/Reset, OK/Cancel, hint) and the color
+picker ("Hex:", the hex field, OK/Cancel, the dialog width) take every width
+from it; the dialog width follows the content with a minimum. The Import
+button keeps its full label and gained a tooltip. The Settings rows this
+ticket added ("Manage themes…", the theme choices) already fit.
+
+**Automated guard** — `tests/support/ui_layout.rs` (shared, reusable by any
+UI test binary; T0083 uses it for the whole Settings dialog):
+`label_overflows(window, title, bump_pt, only)` walks every visible widget of
+a built window and requires each label drawn inside its widget to fit
+(text + 2×4 px, plus the box of check/radio buttons; wrapped and clipped
+labels skipped); `sibling_overlaps(window, title, only)` requires sibling
+rectangles not to overlap; `layout_failures` runs both, the label check at
++0 and +2 pt. `tests/ui_dialogs.rs` applies it to the theme manager, the
+picker (dark and light), the name prompt, and the Settings rows T0079/T0080
+added (`settings_theme_rows`, asserted to select those 5 widgets). The rest
+of the Settings dialog has pre-existing failures ("Show warning above (MB):"
+at +0, "Change..." with DejaVu at +2) — ticket T0083. To make that test
+possible, `show_settings_dialog` is split into `build_settings_dialog`
+(builds without showing) + run, and `ui::dialogs::build_themed_input` builds
+the name prompt.
+
+Red — the guard against the previous layout (default Xvfb fonts):
+
+```
+theme manager/5:"Import .tmTheme…": label needs 137px at +0pt, widget is 120px
+theme manager/32:"Line number bg": label needs 116px at +0pt, widget is 110px
+theme manager/5:"Import .tmTheme…": label needs 155px at +2pt, widget is 120px
+theme manager/27:"Line numbers": label needs 112px at +2pt, widget is 110px
+theme manager/32:"Line number bg": label needs 128px at +2pt, widget is 110px
+```
+
+Green after the fix with the default fonts and with DejaVu Sans forced for
+every sans family (`FONTCONFIG_FILE`), which is wider.
+
+### Visual pass with a wide desktop font (Xvfb/X11, driven by Claude)
+
+DejaVu Sans forced through fontconfig for sans/sans-serif/Helvetica, font
+size setting 16 and 18, light and dark; screenshots in
+`ferrispad-wt/uitest-T0080/` (not committed): `L-{Dark,Light}-{16,18}-{settings,manager,picker,prompt}.png`,
+montages `montage-L-manager.png`, `montage-L-picker-prompt.png`,
+`montage-L-settings.png`, zooms `L-zoom-buttons.png`, `L-zoom-rows.png`,
+`L-zoom-bottom.png`, `L-zoom-picker.png`, `L-zoom-settings-theme-rows.png`.
+Checked on each:
+
+- **Theme manager** (768×480 with DejaVu): "Duplicate…", "Rename…",
+  "Delete", "Import .tmTheme…" centred with clear margins on both sides;
+  "Themes" and the list rows inside the list; field labels ("Line number
+  bg" the longest) end well before the swatch; hex values inside their
+  column, before "Pick…"; "Pick…" (tightest, ~4 px each side) and "Reset"
+  inside their buttons; the two-line hint ends before OK; OK/Cancel inside.
+- **Color picker** (300×250): "Hex:" ends before the field; the hex value
+  inside the field; OK/Cancel centred with margins; FLTK's own value fields
+  show the full numbers.
+- **Name prompt**: prompt text, the prefilled name in the field, OK/Cancel
+  inside with margins.
+- **Settings** (the rows of this ticket): "Syntax Theme (Light):" /
+  "(Dark):", both theme choices and "Manage themes…" inside their borders.
+
+No text touched or crossed a border in any of the 16 screenshots. The
+font-size setting changes the editor font only; dialog labels use FLTK's
+label size, which the +2 pt check covers.
+
 ## Acceptance criteria
 
 - [x] Duplicate, rename, delete, import and per-color edit/reset work as

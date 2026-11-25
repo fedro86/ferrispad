@@ -515,6 +515,35 @@ pub(crate) fn popup_height(message: &str, has_input: bool) -> i32 {
 }
 
 /// Width of a popup button wide enough for `label`.
+/// Points added to a label's font size when measuring it for layout, so a
+/// desktop font a little wider than the one measured still fits (the UI
+/// tests check labels at +2 pt too).
+pub(crate) const LABEL_SLACK_PT: i32 = 2;
+
+/// Room a label gets on each side inside its widget.
+pub(crate) const LABEL_PAD: i32 = 4;
+
+/// The width a widget needs to show `label` inside it at label size `size`
+/// (FLTK's default label font), measured with the fonts actually installed,
+/// plus [`LABEL_PAD`] on each side and [`LABEL_SLACK_PT`]. Fixed pixel
+/// widths tuned on one machine overflow on desktops with wider fonts.
+pub(crate) fn label_width(label: &str, size: i32) -> i32 {
+    // Measuring needs the display open; this opens it if it is not yet.
+    let _ = app::screen_size();
+    fltk::draw::set_font(fltk::enums::Font::Helvetica, size + LABEL_SLACK_PT);
+    let (width, _) = fltk::draw::measure(label, false);
+    width + 2 * LABEL_PAD
+}
+
+/// The widest [`label_width`] of `labels`.
+pub(crate) fn max_label_width(labels: &[&str], size: i32) -> i32 {
+    labels
+        .iter()
+        .map(|label| label_width(label, size))
+        .max()
+        .unwrap_or(0)
+}
+
 pub(crate) fn popup_button_width(label: &str) -> i32 {
     (label.chars().count() as i32 * 8 + 24).max(80)
 }
@@ -639,6 +668,26 @@ fn build_themed_popup(
         default_btn,
         result,
     }
+}
+
+/// Build, without showing, the themed text prompt [`show_themed_input`]
+/// shows (Duplicate/Rename name prompt). For the UI construction tests
+/// (`tests/ui_dialogs.rs`).
+pub fn build_themed_input(
+    theme_bg: (u8, u8, u8),
+    title: &str,
+    prompt: &str,
+    default: &str,
+) -> Window {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+    build_themed_popup(
+        &theme,
+        title,
+        prompt,
+        Some(default),
+        &choice_layout("Cancel", "OK", ""),
+    )
+    .dialog
 }
 
 /// Show the themed popup (see [`build_themed_popup`]) and run it with
