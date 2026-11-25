@@ -194,15 +194,16 @@ All pass; the full `nix develop -c cargo test` stays green.
 ## Acceptance criteria
 
 - [ ] The current line is highlighted by default, on all supported
-      platforms, and can be toggled off persistently.
+      platforms, and can be toggled off persistently. (Linux X11 and
+      Wayland: yes, persistence verified; Windows/macOS pending the user.)
 - [x] The color comes from the theme (`line_highlight`) or a derived tint,
       and passes the color-sanity test on all built-ins (relative text
       criterion, edge case 11).
 - [x] No orphan highlights after any edit; no per-event O(file) work; long
       lines skipped.
-- [ ] Style chars stay ASCII; annotations and selection keep priority.
-      (ASCII and markers: tested. Selection priority: pending the manual
-      check.)
+- [x] Style chars stay ASCII; annotations and selection keep priority.
+      (ASCII and markers: unit-tested. Selection over the band: Xvfb/X11
+      screenshot.)
 - [x] All tests listed above exist and pass; the spike result is recorded.
 - [ ] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
       and `cargo fmt --check` pass; idle CPU stays at 0%.
@@ -325,8 +326,47 @@ FLTK_BACKEND=x11 XDG_CONFIG_HOME=/tmp/fp-cfg nix develop -c cargo run -- src/mai
   - after Return ×2, typing, and Up (edits that move lines below), only the
     cursor line can carry a band, and no orphan is left. On the new empty
     line there is no band (accepted, step 4).
-- Steps 2, 3 (paste/undo by hand), 5–9, native Wayland, Windows and macOS:
-  **pending user verification**.
+- **Xvfb/X11 (driven by Claude)**, debug build of the stacked tip
+  (ticket/T0077 at 92b19f0), Xvfb 1280×800 + openbox, Ocean Light unless
+  noted. Every check measures the band from the screenshot: a strip near
+  the right edge of the text area, counting rows of one uniform non-background
+  color (`uitest-T0081/bands.py`). Screenshots and logs are in
+  `/home/fedro/Code/personal/ferrispad-wt/uitest-T0081/run*/` (scripts
+  `uitest-T0081/t0081*.sh`).
+  - Step 1: one band at open; arrow keys move it down; a click moves it, and
+    there is still exactly one band — **pass**.
+  - Step 2: Shift+End on the band line; the blue selection is clearly drawn
+    over the band and the text is readable (`run/04-selection-on-band.png`)
+    — **pass** (visual).
+  - Step 3: typing on the line; copying 5 lines and pasting them; deleting
+    2 lines; undo ×3; redo ×2; Return ×2 at line 1, undone again. After
+    every edit there is exactly one band, with no orphan — **pass**.
+  - Step 4: the long word-wrapped line has the band on all 3 display rows
+    (`run/11-wrapped.png`); the empty line has no band, as accepted —
+    **pass**.
+  - Step 5: on a 6000-line `.rs` file (chunked highlighting), Ctrl+End,
+    Page Down and Ctrl+Home while highlighting runs leave one band, and
+    still one after it settles — **pass**. On an 8 MB one-line
+    `minified.js` there is no band (over 64 KiB) — **pass**. Cost of 40
+    cursor moves, feature on vs off: 363 vs 362 CPU ticks, no measurable
+    difference — **pass**. Pre-existing and independent of this ticket:
+    opening that file keeps the debug build busy for about 20 s (syntax off)
+    or longer (syntax on), the same on a master-based build (T0082
+    worktree).
+  - Step 6: tabs on, `code.rs` + `big.rs`. One band on the active tab, and
+    one after each tab switch back and forth — **pass**.
+  - Step 7: View → Toggle Current Line Highlight removes the band and saves
+    `false`; toggling again brings it back; after a restart with it off
+    there is no band — **pass**.
+  - Step 8: all 7 built-ins × theme mode Light/Dark (14 launches): exactly
+    one visible band each, matching the measured table (e.g. Ocean Dark
+    (57,62,72) on (43,48,59), InspiredGitHub (242,242,242) on white) —
+    **pass**.
+  - Step 9: idle for 5 s with a file open: 0 CPU ticks (`top`: 0.0 %) —
+    **pass**.
+  - No panic or debug assert in the app log.
+- **Pending user verification:** native Wayland, Windows and macOS (also
+  the spike, i.e. `BgColorExt` bands there).
 
 ## Affected files
 
