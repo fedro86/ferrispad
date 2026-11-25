@@ -11,7 +11,7 @@ use fltk::{
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use crate::app::{AppSettings, SessionRestore, SyntaxTheme, ThemeMode, UpdateChannel};
+use crate::app::{AppSettings, SessionRestore, SyntaxTheme, ThemeMode, ThemeRef, UpdateChannel};
 
 use super::DialogTheme;
 
@@ -29,11 +29,16 @@ const SECTION_GAP: i32 = 15;
 /// `preview` is called while the dialog is open, each time the user picks a
 /// syntax theme for the current mode, and once more with the original theme
 /// when the dialog is cancelled or closed after a preview.
+/// `custom_themes` lists the loaded custom themes (reference, display name)
+/// offered beside the built-ins.
 pub fn show_settings_dialog(
     current_settings: &AppSettings,
     theme_bg: (u8, u8, u8),
-    mut preview: impl FnMut(SyntaxTheme),
+    custom_themes: &[(ThemeRef, String)],
+    mut preview: impl FnMut(&ThemeRef),
 ) -> Option<AppSettings> {
+    let light_choices = theme_choices(&current_settings.syntax_theme_light, custom_themes);
+    let dark_choices = theme_choices(&current_settings.syntax_theme_dark, custom_themes);
     let theme = DialogTheme::from_theme_bg(theme_bg);
     let is_dark = theme.is_dark();
 
@@ -114,10 +119,13 @@ pub fn show_settings_dialog(
     theme_light_choice.set_text_color(theme.text);
     theme_light_choice.set_label_color(theme.text);
     theme_light_choice.set_selection_color(theme.button_bg);
-    for syntax_theme in SyntaxTheme::all() {
-        theme_light_choice.add_choice(syntax_theme.display_name());
+    for (_, label) in light_choices.iter() {
+        theme_light_choice.add_choice(&choice_label(label));
     }
-    theme_light_choice.set_value(theme_index(current_settings.syntax_theme_light));
+    theme_light_choice.set_value(choice_index(
+        &light_choices,
+        &current_settings.syntax_theme_light,
+    ));
     y += 30;
 
     // Syntax Theme (Dark)
@@ -136,21 +144,25 @@ pub fn show_settings_dialog(
     theme_dark_choice.set_text_color(theme.text);
     theme_dark_choice.set_label_color(theme.text);
     theme_dark_choice.set_selection_color(theme.button_bg);
-    for syntax_theme in SyntaxTheme::all() {
-        theme_dark_choice.add_choice(syntax_theme.display_name());
+    for (_, label) in dark_choices.iter() {
+        theme_dark_choice.add_choice(&choice_label(label));
     }
-    theme_dark_choice.set_value(theme_index(current_settings.syntax_theme_dark));
+    theme_dark_choice.set_value(choice_index(
+        &dark_choices,
+        &current_settings.syntax_theme_dark,
+    ));
     y += 30 + SECTION_GAP;
 
     // Live preview callbacks for theme changes. The widget callbacks only
     // record the theme; the dialog loop hands it to `preview` (see the end).
-    let pending_preview: Rc<Cell<Option<SyntaxTheme>>> = Rc::new(Cell::new(None));
+    let pending_preview: Rc<Cell<Option<ThemeRef>>> = Rc::new(Cell::new(None));
     let previewed = Rc::new(Cell::new(false));
 
     let (pending_light, previewed_light) = (pending_preview.clone(), previewed.clone());
     let is_dark_for_light = is_dark;
+    let light_for_preview = light_choices.clone();
     theme_light_choice.set_callback(move |c| {
-        if !is_dark_for_light && let Some(theme) = index_to_theme(c.value()) {
+        if !is_dark_for_light && let Some(theme) = choice_at(&light_for_preview, c.value()) {
             pending_light.set(Some(theme));
             previewed_light.set(true);
         }
@@ -158,8 +170,9 @@ pub fn show_settings_dialog(
 
     let (pending_dark, previewed_dark) = (pending_preview.clone(), previewed.clone());
     let is_dark_for_dark = is_dark;
+    let dark_for_preview = dark_choices.clone();
     theme_dark_choice.set_callback(move |c| {
-        if is_dark_for_dark && let Some(theme) = index_to_theme(c.value()) {
+        if is_dark_for_dark && let Some(theme) = choice_at(&dark_for_preview, c.value()) {
             pending_dark.set(Some(theme));
             previewed_dark.set(true);
         }
@@ -505,6 +518,7 @@ pub fn show_settings_dialog(
 
     // Store original theme for reverting on cancel
     let original_theme = current_settings.current_syntax_theme(is_dark);
+    let original_theme_cancel = original_theme.clone();
     let (pending_cancel, previewed_cancel) = (pending_preview.clone(), previewed.clone());
 
     let dialog_save = dialog.clone();
@@ -567,10 +581,10 @@ pub fn show_settings_dialog(
                 SessionRestore::Off
             },
             preview_enabled: current.preview_enabled,
-            syntax_theme_light: index_to_theme(theme_light_choice.value())
-                .unwrap_or(current.syntax_theme_light),
-            syntax_theme_dark: index_to_theme(theme_dark_choice.value())
-                .unwrap_or(current.syntax_theme_dark),
+            syntax_theme_light: choice_at(&light_choices, theme_light_choice.value())
+                .unwrap_or_else(|| current.syntax_theme_light.clone()),
+            syntax_theme_dark: choice_at(&dark_choices, theme_dark_choice.value())
+                .unwrap_or_else(|| current.syntax_theme_dark.clone()),
             tab_size: if tab_2.value() {
                 2
             } else if tab_8.value() {
@@ -604,7 +618,7 @@ pub fn show_settings_dialog(
     cancel_btn.set_callback(move |_| {
         // Revert to original theme
         if previewed_cancel.get() {
-            pending_cancel.set(Some(original_theme));
+            pending_cancel.set(Some(original_theme_cancel.clone()));
         }
         *result_cancel.borrow_mut() = None;
         dialog_cancel.clone().hide();
@@ -615,7 +629,7 @@ pub fn show_settings_dialog(
     dialog.set_callback(move |w| {
         // Revert to original theme on close (X button)
         if previewed_close.get() {
-            pending_close.set(Some(original_theme));
+            pending_close.set(Some(original_theme.clone()));
         }
         *result_close.borrow_mut() = None;
         w.hide();
@@ -623,7 +637,7 @@ pub fn show_settings_dialog(
 
     super::run_dialog_with(&dialog, || {
         if let Some(theme) = pending_preview.take() {
-            preview(theme);
+            preview(&theme);
             // The preview re-themes the main window, menu text colour
             // included; this dialog keeps its own colours, so its Choice
             // popups need its foreground back.
@@ -634,19 +648,46 @@ pub fn show_settings_dialog(
     result.borrow().clone()
 }
 
-/// Convert SyntaxTheme to dropdown index
-fn theme_index(theme: SyntaxTheme) -> i32 {
-    SyntaxTheme::all()
+/// The entries of a syntax-theme choice: the built-ins, the custom themes,
+/// and — so Save never silently rewrites it — the slot's current custom
+/// reference when that theme is not loaded.
+fn theme_choices(
+    current: &ThemeRef,
+    custom_themes: &[(ThemeRef, String)],
+) -> Rc<Vec<(ThemeRef, String)>> {
+    let mut choices: Vec<(ThemeRef, String)> = SyntaxTheme::all()
         .iter()
-        .position(|t| *t == theme)
-        .map(|i| i as i32)
+        .map(|t| (ThemeRef::Builtin(*t), t.display_name().to_string()))
+        .chain(custom_themes.iter().cloned())
+        .collect();
+    if let ThemeRef::Custom(id) = current
+        && !choices.iter().any(|(r, _)| r == current)
+    {
+        choices.push((current.clone(), format!("{id} (missing)")));
+    }
+    Rc::new(choices)
+}
+
+/// A theme name as a Choice entry: FLTK reads `/` as a submenu, `\\` as an
+/// escape, `&` as a shortcut marker and `|` as an entry separator.
+fn choice_label(name: &str) -> String {
+    name.replace('\\', "\\\\")
+        .replace('/', "\\/")
+        .replace('&', "&&")
+        .replace('|', " ")
+}
+
+/// Dropdown index of `theme` (0, the first built-in, if absent).
+fn choice_index(choices: &[(ThemeRef, String)], theme: &ThemeRef) -> i32 {
+    choices
+        .iter()
+        .position(|(t, _)| t == theme)
+        .and_then(|i| i32::try_from(i).ok())
         .unwrap_or(0)
 }
 
-/// Convert dropdown index to SyntaxTheme
-fn index_to_theme(index: i32) -> Option<SyntaxTheme> {
-    if index < 0 {
-        return None;
-    }
-    SyntaxTheme::all().get(index as usize).copied()
+/// The theme at dropdown `index`, if any.
+fn choice_at(choices: &[(ThemeRef, String)], index: i32) -> Option<ThemeRef> {
+    let index = usize::try_from(index).ok()?;
+    choices.get(index).map(|(t, _)| t.clone())
 }

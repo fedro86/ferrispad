@@ -6,7 +6,7 @@ use std::path::Path;
 
 use fltk::enums::Font;
 use fltk::text::StyleTableEntryExt;
-use syntect::highlighting::{HighlightIterator, HighlightState, Highlighter, ThemeSet};
+use syntect::highlighting::{HighlightIterator, HighlightState, Highlighter, Theme, ThemeSet};
 use syntect::parsing::{
     ParseState, ScopeStack, SyntaxDefinition, SyntaxReference, SyntaxSet, SyntaxSetBuilder,
 };
@@ -79,7 +79,7 @@ impl SyntaxHighlighterInner {
     }
 }
 
-fn init_inner() -> SyntaxHighlighterInner {
+fn init_inner(custom_themes: &[(String, Theme)]) -> SyntaxHighlighterInner {
     // Load pre-compiled defaults AS-IS (no builder conversion = no regex recompilation)
     let syntax_set = SyntaxSet::load_defaults_newlines();
 
@@ -90,7 +90,10 @@ fn init_inner() -> SyntaxHighlighterInner {
     }
     let toml_syntax_set = toml_builder.build();
 
-    let theme_set = ThemeSet::load_defaults();
+    let mut theme_set = ThemeSet::load_defaults();
+    for (key, theme) in custom_themes {
+        theme_set.themes.insert(key.clone(), theme.clone());
+    }
 
     SyntaxHighlighterInner {
         syntax_set,
@@ -102,8 +105,14 @@ fn init_inner() -> SyntaxHighlighterInner {
 
 pub struct SyntaxHighlighter {
     inner: Option<SyntaxHighlighterInner>,
-    theme: SyntaxTheme,
+    /// Custom themes (T0079), keyed `custom:<id>` like their settings
+    /// reference; inserted into the `ThemeSet` beside the built-ins.
+    custom_themes: Vec<(String, Theme)>,
+    /// The active theme's `ThemeSet` key.
     theme_name: String,
+    /// The active theme's editor background and default text color.
+    background: (u8, u8, u8),
+    foreground: (u8, u8, u8),
     style_map: StyleMap,
     font: Font,
     font_size: i32,
@@ -128,8 +137,10 @@ impl SyntaxHighlighter {
 
         Self {
             inner: None,
-            theme,
+            custom_themes: Vec::new(),
             theme_name,
+            background: theme.background(),
+            foreground: theme.foreground(),
             style_map,
             font,
             font_size,
@@ -138,13 +149,14 @@ impl SyntaxHighlighter {
 
     /// Ensure syntect is loaded, returning a mutable reference.
     fn inner_mut(&mut self) -> &mut SyntaxHighlighterInner {
-        self.inner.get_or_insert_with(init_inner)
+        let custom_themes = &self.custom_themes;
+        self.inner.get_or_insert_with(|| init_inner(custom_themes))
     }
 
     /// Ensure syntect is loaded (called before methods that need split borrows).
     fn ensure_loaded(&mut self) {
         if self.inner.is_none() {
-            self.inner = Some(init_inner());
+            self.inner = Some(init_inner(&self.custom_themes));
         }
     }
 
@@ -225,33 +237,57 @@ impl SyntaxHighlighter {
         }
     }
 
-    /// Switch to a specific theme. Clears the style map and updates theme colors.
+    /// Switch to a built-in theme. Clears the style map and updates theme colors.
     pub fn set_theme(&mut self, theme: SyntaxTheme) {
-        self.theme = theme;
-        self.theme_name = theme.theme_key().to_string();
+        self.set_theme_key(theme.theme_key(), theme.background(), theme.foreground());
+    }
 
-        let bg = self.theme_background();
-        let fg = self.theme_foreground();
-        let is_dark = (bg.0 as u32 + bg.1 as u32 + bg.2 as u32) / 3 < 128;
+    /// Switch to the theme stored under `key` in the `ThemeSet` (a built-in
+    /// key or `custom:<id>`), shown on `background` with default text color
+    /// `foreground`. An unknown key falls back softly when highlighting
+    /// (`resolve_theme`). Clears the style map.
+    pub fn set_theme_key(&mut self, key: &str, background: (u8, u8, u8), foreground: (u8, u8, u8)) {
+        self.theme_name = key.to_string();
+        self.background = background;
+        self.foreground = foreground;
+        let is_dark =
+            (u32::from(background.0) + u32::from(background.1) + u32::from(background.2)) / 3 < 128;
 
         self.style_map.set_theme_colors(
-            fltk::enums::Color::from_rgb(fg.0, fg.1, fg.2),
-            fltk::enums::Color::from_rgb(bg.0, bg.1, bg.2),
+            fltk::enums::Color::from_rgb(foreground.0, foreground.1, foreground.2),
+            fltk::enums::Color::from_rgb(background.0, background.1, background.2),
             is_dark,
         );
         self.style_map.clear();
     }
 
+    /// Replace the custom themes (`(custom:<id>, theme)` pairs). Takes effect
+    /// in the `ThemeSet` at once if syntect is already loaded, else on load.
+    pub fn set_custom_themes(&mut self, themes: Vec<(String, Theme)>) {
+        if let Some(inner) = self.inner.as_mut() {
+            for (key, _) in &self.custom_themes {
+                inner.theme_set.themes.remove(key);
+            }
+            for (key, theme) in &themes {
+                inner.theme_set.themes.insert(key.clone(), theme.clone());
+            }
+        }
+        self.custom_themes = themes;
+    }
+
+    /// The active theme's `ThemeSet` key.
+    pub fn theme_key(&self) -> &str {
+        &self.theme_name
+    }
+
     /// Get the background color of the current theme as RGB tuple.
-    /// Uses hardcoded values — no syntect needed.
     pub fn theme_background(&self) -> (u8, u8, u8) {
-        self.theme.background()
+        self.background
     }
 
     /// Get the foreground color of the current theme as RGB tuple.
-    /// Uses hardcoded values — no syntect needed.
     pub fn theme_foreground(&self) -> (u8, u8, u8) {
-        self.theme.foreground()
+        self.foreground
     }
 
     pub fn font(&self) -> Font {

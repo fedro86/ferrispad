@@ -366,7 +366,7 @@ pub fn handle_settings(msg: Message, state: &mut AppState, lw: &mut LayoutWidget
         Message::ShowKeyShortcuts => state.show_key_shortcuts(),
         Message::RunShortcut(shortcut) => state.run_shortcut(&shortcut),
         Message::PreviewSyntaxTheme(theme) => {
-            state.preview_syntax_theme(theme);
+            state.preview_syntax_theme(&theme);
             retheme_panels(state, lw);
         }
         _ => {}

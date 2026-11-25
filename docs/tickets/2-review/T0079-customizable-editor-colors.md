@@ -1,7 +1,7 @@
 ---
 id: T0079
 title: Custom editor themes — syntect-based model, persistence and theme references
-status: todo            # todo | review | done
+status: review          # todo | review | done
 created: 2026-11-25
 severity: ~             # severe | moderate | minor   (for audit-derived tickets)
 area: ui                # security | robustness | ui | process
@@ -172,20 +172,146 @@ There is no UI yet (T0080), so test with hand-made files:
 4. With no custom themes, run and compare the 7 built-ins with the previous
    release. They look identical, except for the T0078 selection.
 
+## Implementation (what was actually done)
+
+- **`src/app/domain/settings.rs`** — `ThemeRef { Builtin(SyntaxTheme), Custom(id) }`
+  for `syntax_theme_light` / `syntax_theme_dark`.
+  - Serialized as the built-in's variant name (unchanged on-disk form, via
+    `SyntaxTheme::setting_name`) or `"custom:<id>"`.
+  - Read per field by `lenient_theme_ref` (`deserialize_with`): an untagged
+    `String | IgnoredAny` buffer, so a wrong type, an unknown name or a
+    malformed id (`is_valid_custom_theme_id`: `^t-[a-z0-9-]{1,64}$`) falls
+    back to that slot's default with one stderr line, and the rest of the
+    file is kept. `AppSettings::load` now goes through
+    `AppSettings::from_json_or_default` (testable, same behaviour).
+  - `default_syntax_theme(is_dark)` is the single mode-default rule.
+- **`src/ui/theme.rs`** — `EditorColors` (background, text, caret, selection,
+  line-number fg/bg, current line), `derived_editor_colors(bg, fg)` (the
+  pre-T0079 derivation verbatim + T0078's selection + a derived current-line
+  tint), and `effective_editor_colors(theme, is_builtin)`:
+  - built-in → always the derivation (syntect's own faint `selection` is
+    ignored);
+  - custom → each `theme.settings` field it sets (translucent TextMate
+    colors composited over the background), the derivation for the rest; no
+    background → white, or (30,30,30) when the foreground is light, never
+    black-on-black.
+  - `apply_syntax_theme_colors(editor, &EditorColors)` applies them (and
+    registers the selection with T0078's contrast function); `apply_theme`
+    no longer touches the editor (its White/(30,30,30) values were always
+    overwritten).
+- **`src/app/services/custom_themes.rs`** (new, no FLTK) — `ThemeStore`:
+  `load`, `list`, `get`, `clone_from(ThemeRef, name)`, `save`, `rename`,
+  `delete`, `set_color(field, rgb)`, `reset_color(field)`; `EditorColorField`
+  maps each editor color to its TextMate field (`background`, `foreground`,
+  `caret`, `selection`, `gutter_foreground`, `gutter`, `line_highlight`).
+  - Ids: `t-` + slug (`[a-z0-9-]`, ≤ 56 chars, `theme` when empty) + `-2`,
+    `-3`… for uniqueness (in memory and on disk). Names: trimmed, ≤ 64 chars,
+    `Custom theme` when empty.
+  - `save`: atomic (`<id>.json.tmp` created with `create_new`, `sync_all`,
+    `rename`). `save`/`delete` re-validate the id, canonicalize the dir and
+    refuse any path not directly inside it; `delete` refuses non-regular
+    files. Fail closed.
+  - `load`: only `*.json`; skips (one warning each) invalid file-name ids,
+    non-regular files (dirs, symlinks), files over 1 MiB (checked from
+    metadata before reading, and the read is capped), bad JSON / wrong types,
+    and `format != 1`.
+  - `set_color` / `reset_color` work in memory (T0080's working copy);
+    `clone_from`, `rename`, `delete` persist immediately.
+- **`src/app/controllers/highlight.rs`** — holds the loaded custom themes and
+  the active `EditorColors`; `set_theme(&ThemeRef, is_dark)` resolves a
+  missing custom theme to the mode default at apply time (settings.json is
+  not rewritten).
+- **`src/app/services/syntax/mod.rs`** — custom themes are inserted into the
+  `ThemeSet` as `custom:<id>` (on lazy load, or at once if already loaded);
+  the highlighter now stores the active key + bg/fg instead of a
+  `SyntaxTheme`.
+- **`src/app/state.rs`** — loads `themes/` once in `AppState::new`, prints
+  skip warnings, passes `&ThemeRef` everywhere a theme is set.
+- **Settings dialog** — the light/dark choices are built from `ThemeRef`s:
+  built-ins, then loaded custom themes; a slot pointing at a missing custom
+  theme gets an extra `<id> (missing)` entry so Save never silently rewrites
+  it. Preview/Cancel pass `ThemeRef`. Names are escaped for FLTK menus
+  (`/`, `\`, `&`, `|`). (T0080 adds the "Manage themes…" flow.)
+- `tests/fixtures/custom_theme_v1.json` — generated from a real clone of
+  Base16 Ocean Dark (3 scopes kept, distinctive background/selection/gutter).
+
+### Red first — `test_theme_ref_malformed_keeps_other_settings`
+
+Run against the naive version (a strict `Deserialize` on `ThemeRef` that
+errors on an invalid value, before `lenient_theme_ref` existed):
+
+```
+test test_theme_ref_malformed_keeps_other_settings ... FAILED
+test test_theme_ref_backward_compat ... ok
+test test_theme_ref_custom_roundtrip ... ok
+thread 'test_theme_ref_malformed_keeps_other_settings' panicked at tests/settings_persistence.rs:210:9:
+assertion `left == right` failed: font_size lost for slot value 42
+  left: 16
+ right: 23
+test result: FAILED. 2 passed; 1 failed
+```
+
+(The whole file was rejected, so `font_size` reverted to the default 16.)
+
+### Tests added
+
+- `cargo test custom_theme` — `custom_theme_roundtrip`,
+  `custom_theme_fixture_still_loads`, `custom_theme_bad_files_are_skipped`
+  (garbage, wrong type, future format, 2 MiB, `.txt`, `.json.tmp`, a
+  directory, a bad file name, a symlink on unix), `custom_theme_ids_are_safe`,
+  `custom_theme_save_and_delete_refuse_unsafe_ids`,
+  `custom_theme_rename_keeps_id`, `custom_theme_reset_color_restores_base`,
+  `clone_looks_identical_to_source` (+ clone of a clone),
+  `builtin_effective_colors_unchanged` (against a verbatim copy of the old
+  derivation, and checks the hard-coded bg/fg equal syntect's),
+  `effective_colors_fill_missing_fields`,
+  `translucent_theme_colors_are_composited_over_the_background`, and in the
+  highlight controller `custom_theme_missing_reference_falls_back_to_mode_default`,
+  `custom_theme_loaded_reference_is_applied`.
+- `cargo test --test settings_persistence theme_ref` —
+  `test_theme_ref_backward_compat`, `test_theme_ref_custom_roundtrip`,
+  `test_theme_ref_malformed_keeps_other_settings` (`42`, `"custom:../../x"`,
+  `"custom:"`, `"custom:T-UPPER"`, unknown name, `null`, an object).
+
+### Verification recipe
+
+```bash
+nix develop -c cargo test custom_theme
+nix develop -c cargo test --test settings_persistence theme_ref
+nix develop -c cargo test
+nix develop -c cargo clippy --all-targets --all-features -- -D warnings
+nix develop -c cargo fmt --check
+```
+
+Then manual steps 1–4 below (**pending user verification** — not run by
+the implementer: no display in this session).
+
+### Notes from implementation
+
+- `current_line` is defined here (theme `line_highlight`, else a derived
+  tint: `lighten(0.07)` on dark, `darken(0.95)` on light backgrounds) but not
+  rendered; T0081 owns rendering and may tune the tint. For built-ins the
+  derived tint is used (built-ins ignore `theme.settings`, like the
+  selection); T0081 should read `HighlightController::editor_colors()`.
+- A custom theme's selection is the user's choice; selected text on it still
+  goes through T0078's contrast function (registered in
+  `apply_syntax_theme_colors`), so it stays readable.
+
 ## Acceptance criteria
 
-- [ ] Custom themes are syntect `Theme`s persisted via serde in
+- [x] Custom themes are syntect `Theme`s persisted via serde in
       `themes/<id>.json`. No second color model or parser exists.
-- [ ] Built-in themes look unchanged; clones look identical to their
-      source.
-- [ ] Malformed, oversized or foreign theme files and bad references never
+- [x] Built-in themes look unchanged; clones look identical to their
+      source. (Enforced by tests; visual confirmation is manual step 4.)
+- [x] Malformed, oversized or foreign theme files and bad references never
       panic and never reset unrelated settings.
-- [ ] Ids are filesystem-safe on Linux, macOS and Windows; save and delete
+- [x] Ids are filesystem-safe on Linux, macOS and Windows; save and delete
       cannot leave `themes/`.
-- [ ] All tests listed above exist and pass; the malformed-reference test
+- [x] All tests listed above exist and pass; the malformed-reference test
       was seen failing against a naive implementation.
-- [ ] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
+- [x] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
       and `cargo fmt --check` pass.
+- [ ] Manual check 1–4 — **pending user verification**.
 
 ## Affected files
 
