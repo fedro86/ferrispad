@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use fltk::{
     app::Sender,
@@ -34,6 +34,9 @@ pub struct HighlightController {
     highlighter: SyntaxHighlighter,
     /// Custom themes loaded at startup (T0079), by id.
     custom_themes: BTreeMap<String, CustomTheme>,
+    /// Missing custom themes already reported on stderr: the theme is set
+    /// several times at startup (and on every toggle), one line is enough.
+    reported_missing: BTreeSet<String>,
     /// The editor colors of the active theme.
     editor_colors: EditorColors,
     pub pending_rehighlight: Option<(DocumentId, i32)>,
@@ -47,6 +50,7 @@ impl HighlightController {
         Self {
             highlighter: SyntaxHighlighter::new(theme, font, font_size),
             custom_themes: BTreeMap::new(),
+            reported_missing: BTreeSet::new(),
             editor_colors: derived_editor_colors(theme.background(), theme.foreground()),
             pending_rehighlight: None,
             rehighlight_timer_active: false,
@@ -85,10 +89,12 @@ impl HighlightController {
                 }
                 None => {
                     let fallback = default_syntax_theme(is_dark);
-                    eprintln!(
-                        "[theme] custom theme '{id}' is not available, using '{}'",
-                        fallback.display_name()
-                    );
+                    if self.reported_missing.insert(id.clone()) {
+                        eprintln!(
+                            "[theme] custom theme '{id}' is not available, using the mode default ('{}')",
+                            fallback.display_name()
+                        );
+                    }
                     fallback
                 }
             },
@@ -714,6 +720,8 @@ mod tests {
         ] {
             hc.set_theme(&missing, is_dark);
             assert_eq!(hc.highlighter().theme_key(), default.theme_key());
+            // Reported once, however often the theme is set.
+            assert_eq!(hc.reported_missing.len(), 1);
             assert_eq!(
                 hc.editor_colors(),
                 derived_editor_colors(default.background(), default.foreground())
