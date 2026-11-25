@@ -323,6 +323,38 @@ The JSON theme loader (T0079) is not exposed: serde_json's recursion limit
 (128) stops a deep file while parsing; pinned on ticket/T0079 by
 `custom_theme_deeply_nested_json_rejected`.
 
+### Bug found in user verification — debug-only fltk-rs assert (fixed in 2d80234)
+
+Opening Settings → Manage themes… in a debug build (`cargo run`) panicked:
+`fltk-1.5.14/src/browser.rs:120: assertion failed: c != 0 as char`. The list
+called `set_format_char` with a NUL character to show names literally, and
+fltk-rs `debug_assert!`s against it; release builds skip the check. No test
+built the window, so gates and review missed it.
+
+- Rows now use FLTK's documented `@.` escape ("print the rest of the line,
+  no more `@` codes") via `literal_browser_label`; tabs become spaces. Rows
+  are mapped to themes by index, never by their text.
+- The theme manager and the color picker are built by
+  `build_theme_manager` / `build_color_picker`, which tests call without
+  showing the window. Tests: `literal_browser_label_disables_formatting`,
+  `theme_manager_window_builds`, `color_picker_window_builds`, and the source
+  guard `no_nul_browser_format_or_column_char_in_src`.
+- fltk-rs pins its "UI thread" to the first thread that creates a window, so
+  every window-building unit test now runs through
+  `ui::on_fltk_test_thread` (one dedicated thread); the existing
+  `popup_is_top_level` moved there too.
+- Red: with the old call put back, `theme_manager_window_builds` failed with
+  the same `assertion failed: c != 0 as char`, and the source guard named
+  `theme_manager.rs`.
+- Smoke: a debug `cargo run` with a temporary `XDG_CONFIG_HOME` (a custom
+  theme in the dark slot, dark mode) started and ran 10 s without a panic.
+  **Not done:** opening the new windows (Manage themes, color picker,
+  prompts, delete confirmation, import dialog and its error) by hand —
+  this session has no way to drive the GUI (Wayland, no input tools). The
+  construction tests cover the widget setup of the manager and the picker;
+  the prompts and the file dialog are the existing shared helpers. The
+  interactive pass is part of the pending manual check.
+
 ### Tests
 
 `cargo test theme_manager`: `theme_manager_builtins_are_read_only`,
