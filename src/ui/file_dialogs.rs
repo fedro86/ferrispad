@@ -265,35 +265,14 @@ mod tests {
     use crate::app::domain::settings::SyntaxTheme;
     use crate::ui::color::wcag_contrast;
 
-    /// FLTK's `fl_luminance` (sRGB channels raised to 2.4).
-    fn fltk_luminance((r, g, b): (u8, u8, u8)) -> f64 {
-        let ch = |c: u8| (c as f64 / 255.0).powf(2.4);
-        0.212_672_9 * ch(r) + 0.715_152_2 * ch(g) + 0.072_175 * ch(b)
-    }
-
-    /// FLTK's `fl_lightness`: CIELAB L* (0..100).
-    fn fltk_lightness(c: (u8, u8, u8)) -> f64 {
-        let y = fltk_luminance(c);
-        if y <= 216.0 / 24389.0 {
-            y * (24389.0 / 27.0)
-        } else {
-            y.powf(1.0 / 3.0) * 116.0 - 16.0
-        }
-    }
-
     /// The text colour `Fl_File_Browser::item_draw` really uses on a selected
-    /// row: `fl_contrast(textcolor(), selection_color())` in FLTK's default
-    /// CIELAB mode, at the contrast level `main.rs` sets.
+    /// row: `fl_contrast(textcolor(), selection_color())`, i.e. FLTK's CIELAB
+    /// rule at FerrisPad's contrast level (the row is not an editor
+    /// selection, see `ui::contrast`).
     fn fltk_drawn_text(fg: (u8, u8, u8), bg: (u8, u8, u8)) -> (u8, u8, u8) {
-        let level = f64::from(crate::ui::theme::FLTK_CONTRAST_LEVEL);
-        let (lfg, lbg) = (fltk_lightness(fg), fltk_lightness(bg));
-        if (lfg - lbg).abs() >= level {
-            fg
-        } else if lbg > 50.0 {
-            (0, 0, 0)
-        } else {
-            (255, 255, 255)
-        }
+        use crate::ui::contrast::{EditorSelectionBgs, ferrispad_contrast};
+        let c = |(r, g, b): (u8, u8, u8)| Color::from_rgb(r, g, b);
+        ferrispad_contrast(c(fg), c(bg), EditorSelectionBgs::default()).to_rgb()
     }
 
     /// The selected row of the fallback chooser must be readable in every

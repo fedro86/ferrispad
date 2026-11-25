@@ -40,6 +40,13 @@ user sees, and every requirement below is measured against it. The hard-coded
   a dark syntax theme can run in light mode and vice versa.
 - For **all seven** `SyntaxTheme::all()` backgrounds, the selection meets the
   three contrast bars in *How to test* (focused, unfocused, selected text).
+- **Readable selected text via a custom FLTK contrast function**
+  (`src/ui/contrast.rs`, installed in `main.rs` instead of
+  `set_contrast_level`): on the editor's selection backgrounds (focused, and
+  FLTK's unfocused blend) text keeps its color only if it is ≥ 4.5:1, else it
+  becomes black or white, whichever reads better. Everywhere else it is an
+  exact port of FLTK's `fl_contrast_cielab` at `FLTK_CONTRAST_LEVEL` (10), so
+  every other widget draws as before.
 - Promote the test-only WCAG helpers from `src/ui/file_dialogs.rs:298`
   (`wcag_luminance`, `wcag_contrast`) to `src/ui/color.rs` and reuse them.
 - Apply the color wherever the main editor is (re)themed, so it never reverts
@@ -67,11 +74,15 @@ user sees, and every requirement below is measured against it. The hard-coded
    i.e. 40 % background + 60 % selection. The real case: while the Find
    dialog has focus, the found match is shown as an *unfocused* selection.
    The blended color must still be visible.
-3. **Selected-text readability.** For selected text FLTK replaces the text or
-   syntax color with `fl_contrast(fg, selection)`, which falls back to black or
-   white. So at least one of black/white must be readable on the selection.
-   Inside the selection, syntax colors may become plain black or white; that
-   is expected.
+3. **Selected-text readability.** FLTK draws selected text as
+   `fl_contrast(fg, selection)`. At FerrisPad's `FLTK_CONTRAST_LEVEL` (10) the
+   CIELAB rule keeps `fg` whenever its L* differs by ≥ 10, so on a strong blue
+   most text and syntax colors would be kept at ~1.5–3:1. FerrisPad's custom
+   contrast function fixes this **only on the editor selection** (focused and
+   unfocused blend): a color below 4.5:1 becomes black or white. Inside the
+   selection, syntax colors may therefore become plain black or white; that is
+   expected. Other widgets (tree git-status labels, menus, dialogs) keep
+   FLTK's rule at level 10 exactly.
 4. **Theme switching / preview / Cancel.** The selection must not fall back to
    the old faint color after a light↔dark toggle, an OS appearance change
    (System default), a live syntax-theme preview, or Cancel in Settings.
@@ -93,8 +104,25 @@ failure message names the theme and the measured ratio:
 - `editor_selection_contrast_focused` — `wcag_contrast(sel, bg) >= 3.0`.
 - `editor_selection_contrast_unfocused` — blended = 0.4·bg + 0.6·sel per
   channel (FLTK's rule); `wcag_contrast(blended, bg) >= 2.0`.
-- `editor_selection_text_readable` — `max(wcag_contrast(sel, white),
-  wcag_contrast(sel, black)) >= 4.5`.
+- `editor_selection_text_readable` — for the theme foreground **and every
+  syntax-scope foreground** of the syntect theme, the color FLTK actually
+  draws (`ferrispad_contrast(fg, sel)`) is ≥ 4.5:1 on the focused selection
+  and on the unfocused blend. (Replaces the original
+  `max(B/W vs sel) >= 4.5` check, which modelled a fallback FLTK does not
+  apply at level 10.)
+
+In `src/ui/contrast.rs`:
+
+- `contrast_matches_fltk_cielab_elsewhere` — hand-derived reference pairs
+  (incl. the tree git-status amber/green/red on the light-mode selected row)
+  give FLTK's level-10 CIELAB output, for the port and for
+  `ferrispad_contrast` off the editor selection.
+- `contrast_port_matches_fltk_itself` — the port equals FLTK's own
+  `fl_contrast` (CIELAB, level 10) over a grid of colors.
+- `unfocused_blend_matches_fltk` — the registered unfocused background equals
+  FLTK's `fl_color_average(bg, sel, 0.4)` (truncating, not rounding).
+- `readable_fg_on_selection_is_kept_unreadable_becomes_black_or_white`,
+  `registry_round_trips_through_the_atomics`.
 - `editor_selection_is_blue` — the blue channel is the largest and exceeds
   red by a clear margin (≥ 60), so a future tweak cannot silently drift to
   grey.
@@ -127,7 +155,11 @@ The full `nix develop -c cargo test` stays green.
 6. Open Find (Ctrl+F), search a word that occurs several times, and step
    through the matches while the Find dialog keeps focus. The match in the
    (unfocused) editor is clearly visible.
-7. Toggle Light/Dark a few times; open Settings, preview another syntax theme,
+7. Selected text is white or black and readable in Light and in Dark mode
+   (plain text and syntax-colored code). With the file tree open in light
+   mode, select a row whose label has a git-status color (modified / added /
+   conflict): the color still looks as before.
+8. Toggle Light/Dark a few times; open Settings, preview another syntax theme,
    press **Cancel**. The selection never falls back to the old faint color.
 
 ## Implementation (what was actually done)
@@ -202,11 +234,11 @@ Then the manual check below.
 
 ### Manual check — pending user verification
 
-Steps 1–7 of *Manual check* above need a display and have **not** been
+Steps 1–8 of *Manual check* above need a display and have **not** been
 performed by the implementer (headless session). Please run them and record
 the result here.
 
-### Review finding (open) — selected text readability
+### Review finding — selected text readability (fixed)
 
 Reviewer (PR #154): FLTK draws selected text as `fl_contrast(fg, selection)`.
 At contrast level 10 that keeps `fg` whenever ΔL* ≥ 10, so with the new
@@ -215,33 +247,55 @@ Dark (2.07–2.85 on Eighties/Mocha/InspiredGitHub; only the Solarized themes
 fall back to black/white). `editor_selection_text_readable` checks a fallback
 FLTK does not apply there. With fg kept, the spec's three bars are
 infeasible together (`contrast(fg,bg) = contrast(fg,sel) · contrast(sel,bg)`).
-Escalated to the orchestrator for a design decision; the fix lands on this
-branch.
+Escalated; the orchestrator chose a custom FLTK contrast function (option
+"d"), implemented in `src/ui/contrast.rs`:
 
-### Note on selected-text color
+- `fltk_cielab_contrast` — exact port of `fl_contrast_cielab`
+  (`fltk-sys-1.5.14/cfltk/fltk/src/fl_contrast.cxx`), incl. FLTK's own
+  `fl_lightness` (channels^2.4, CIELAB L*);
+- `ferrispad_contrast(fg, bg, EditorSelectionBgs)` — on a registered editor
+  selection background: `fg` if ≥ 4.5:1, else the better of black/white;
+  elsewhere: the port at `FLTK_CONTRAST_LEVEL`;
+- the registered backgrounds (selection, and the unfocused blend computed
+  like `fl_color_average`, in `f32` and truncated) live in two `AtomicU32`:
+  FLTK takes a plain function pointer with no user data, so the callback can
+  only read globals; atomics need no `unsafe` and no lock that could panic.
+  `apply_syntax_theme_colors` registers them wherever it sets the selection;
+- `install()` sets `ContrastMode::Custom` + the callback (replaces
+  `set_contrast_level` in `main.rs`). The callback runs inside C drawing code,
+  so it is panic-free: arithmetic and atomic loads only.
 
-FLTK draws selected text with `fl_contrast(style_color, selection)`
-(`Fl_Text_Display.cxx:2404`). FerrisPad lowers FLTK's contrast level to 10
-(`FLTK_CONTRAST_LEVEL`), so `fl_contrast` keeps a syntax color whenever its
-CIELAB lightness differs from the selection's by ≥ 10, and only falls back to
-black/white below that. So inside the selection most syntax colors stay as
-they are; the `editor_selection_text_readable` test guarantees the black/white
-fallback is readable. Worth a look during manual step 5.
+Red first (the new `editor_selection_text_readable`, run with FLTK's current
+level-10 CIELAB rule before the custom function existed; 655 failure lines
+over all 7 themes — scope colors not yet de-duplicated — excerpt):
+
+```
+Base16OceanDark: text (192, 197, 206) drawn as (192, 197, 206) on focused selection (70, 140, 230): 1.97:1 (< 4.5)
+Base16OceanDark: text (192, 197, 206) drawn as (192, 197, 206) on unfocused selection (59, 103, 161): 3.33:1 (< 4.5)
+Base16OceanLight: text (79, 91, 102) drawn as (79, 91, 102) on focused selection (0, 120, 215): 1.55:1 (< 4.5)
+Base16OceanLight: text (79, 91, 102) drawn as (79, 91, 102) on unfocused selection (95, 168, 227): 2.71:1 (< 4.5)
+test result: FAILED. 0 passed; 1 failed
+```
+
+Green after installing `ferrispad_contrast` (all 7 themes, theme fg + every
+scope foreground, focused + unfocused).
+
 
 ## Acceptance criteria
 
-- [ ] On all seven syntax themes the selection meets the focused (≥ 3:1),
-      unfocused (≥ 2:1) and selected-text (≥ 4.5:1) bars, enforced by tests.
-      — **open (review finding)**: focused/unfocused hold, but the
-      selected-text bar as specified is vacuous (see *Review finding* below);
-      awaiting a design decision.
+- [x] On all seven syntax themes the selection meets the focused (≥ 3:1),
+      unfocused (≥ 2:1) and selected-text (≥ 4.5:1, as FLTK really draws it,
+      every syntax color included) bars, enforced by tests.
+- [x] Off the editor selection, FLTK's contrast behaves exactly as before
+      (port tested against hand-derived pairs and FLTK itself).
 - [x] The color is chosen from background luminance, not the mode flag.
 - [x] The contrast tests exist; the focused one was seen failing on the old
       derivation, with the ratios recorded in this ticket.
 - [x] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
       and `cargo fmt --check` pass.
 - [ ] The ticket records the manual check (light, dark, system, all syntax
-      themes, Find-dialog focus, Cancel). — **pending user verification**
+      themes, Find-dialog focus, selected-text color, tree git-status colors,
+      Cancel). — **pending user verification**
 
 ## Affected files
 
@@ -253,6 +307,8 @@ fallback is readable. Worth a look during manual step 5.
   `wcag_luminance` / `wcag_contrast`.
 - `src/ui/file_dialogs.rs:298` — remove the test-only copies and use the
   promoted ones.
+- `src/ui/contrast.rs` (new) — the custom contrast function, its CIELAB
+  port and the registry; `src/main.rs` — installs it.
 - `src/app/state.rs:843-863` — `apply_theme_to_owned_widgets`: check the
   call order so the final selection matches the final background.
 
@@ -265,4 +321,11 @@ fallback is readable. Worth a look during manual step 5.
   highlight).
 - FLTK references (fltk-sys 1.5.14, `Fl_Text_Display.cxx` ~l.2380–2416):
   the unfocused blend weight is 0.4, and selected text goes through
-  `fl_contrast`.
+  `fl_contrast`. `fl_contrast.cxx` (`fl_contrast_cielab`, custom-function
+  dispatch) and `fl_color.cxx:146` (`fl_color_average`) are the sources of
+  the port.
+- The custom contrast function is global: any widget whose background
+  happens to equal the editor selection color exactly also gets the stricter
+  rule. That is harmless (it only makes text more readable).
+- `src/ui/split_panel.rs` editors set no selection color, so they are not
+  registered and keep FLTK's default behaviour (out of scope, as above).

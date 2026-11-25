@@ -13,10 +13,13 @@ use super::dialogs::{SCROLLBAR_SIZE, scrollbar_colors};
 use super::scrollbar::style_scrollbars;
 use super::tab_bar::theme_colors_from_bg;
 
-/// FLTK's CIELAB contrast threshold, lowered from its default 39 at startup
-/// (`main.rs`). The default overrides our custom tree label colors (git status
-/// amber/green/red) when selected in light mode. Level 10 preserves them while
-/// still protecting against truly unreadable combinations (e.g. white-on-white).
+/// FLTK's CIELAB contrast threshold as FerrisPad uses it, lowered from
+/// FLTK's default 39. The default overrides our custom tree label colors (git
+/// status amber/green/red) when selected in light mode. Level 10 preserves
+/// them while still protecting against truly unreadable combinations (e.g.
+/// white-on-white). Applied through FerrisPad's own contrast function
+/// (`ui::contrast`, installed in `main.rs`), which is stricter on the editor
+/// selection only.
 pub const FLTK_CONTRAST_LEVEL: i32 = 10;
 
 /// Width of all draggable panel dividers (tree, split, terminal).
@@ -121,7 +124,10 @@ pub fn apply_syntax_theme_colors(
     // every re-theme (toggle, Settings, preview, Cancel) ends consistent.
     // Editor only — NOT FLTK's global Selection color, which is also used for
     // checkbox/radio marks.
-    editor.set_selection_color(ThemeRgb::from_tuple(editor_selection_color(background)).to_fltk());
+    let selection = editor_selection_color(background);
+    editor.set_selection_color(ThemeRgb::from_tuple(selection).to_fltk());
+    // Selected text must stay readable on it (see `ui::contrast`).
+    super::contrast::register_editor_selection(background, selection);
 
     // Adjust colors based on background brightness
     let brightness = (background.0 as u32 + background.1 as u32 + background.2 as u32) / 3;
@@ -642,11 +648,10 @@ mod tests {
     }
 
     /// FLTK draws an unfocused `Fl_Text_Display` selection as
-    /// `fl_color_average(color(), selection_color(), 0.4)`: 40 % background,
-    /// 60 % selection per channel, truncated like FLTK's `(uchar)` cast.
+    /// `fl_color_average(color(), selection_color(), 0.4)`.
     fn fltk_unfocused_selection(bg: (u8, u8, u8), sel: (u8, u8, u8)) -> (u8, u8, u8) {
-        let mix = |b: u8, s: u8| (0.4 * f64::from(b) + 0.6 * f64::from(s)) as u8;
-        (mix(bg.0, sel.0), mix(bg.1, sel.1), mix(bg.2, sel.2))
+        use crate::ui::contrast::{UNFOCUSED_SELECTION_WEIGHT, fltk_color_average};
+        fltk_color_average(bg, sel, UNFOCUSED_SELECTION_WEIGHT)
     }
 
     #[test]
@@ -670,13 +675,58 @@ mod tests {
         });
     }
 
+    /// Every text color the editor can draw for `theme`: its foreground and
+    /// each syntax-scope foreground of the syntect theme.
+    fn editor_text_colors(theme: Syntax) -> Vec<(u8, u8, u8)> {
+        let set = syntect::highlighting::ThemeSet::load_defaults();
+        let mut colors = vec![theme.foreground()];
+        if let Some(t) = set.themes.get(theme.theme_key()) {
+            colors.extend(
+                t.scopes
+                    .iter()
+                    .filter_map(|item| item.style.foreground)
+                    .map(|c| (c.r, c.g, c.b)),
+            );
+        }
+        colors.sort_unstable();
+        colors.dedup();
+        colors
+    }
+
+    /// The text color FLTK draws for selected text `fg` on selection `bg`:
+    /// `Fl_Text_Display` passes both through `fl_contrast`, which FerrisPad
+    /// routes to `ferrispad_contrast` with the editor's selection registered.
+    fn drawn_selected_text(
+        fg: (u8, u8, u8),
+        bg: (u8, u8, u8),
+        editor_bg: (u8, u8, u8),
+    ) -> (u8, u8, u8) {
+        use crate::ui::contrast::{EditorSelectionBgs, ferrispad_contrast};
+        let c = |(r, g, b): (u8, u8, u8)| Color::from_rgb(r, g, b);
+        let registered = EditorSelectionBgs::new(editor_bg, editor_selection_color(editor_bg));
+        ferrispad_contrast(c(fg), c(bg), registered).to_rgb()
+    }
+
+    /// Selected text, as FLTK really draws it, is readable (>= 4.5:1) on the
+    /// focused selection and on the unfocused blend, for the theme foreground
+    /// and every syntax color of all seven themes.
     #[test]
     fn editor_selection_text_readable() {
-        for_every_theme(|t, _bg, sel| {
-            let ratio = wcag_contrast(sel, (255, 255, 255)).max(wcag_contrast(sel, (0, 0, 0)));
-            (ratio < 4.5).then(|| {
-                format!("{t:?}: best of black/white on selection {sel:?} has contrast {ratio:.2}:1 (< 4.5)")
-            })
+        for_every_theme(|t, bg, sel| {
+            let unfocused = fltk_unfocused_selection(bg, sel);
+            let mut failures = Vec::new();
+            for fg in editor_text_colors(t) {
+                for (what, on) in [("focused", sel), ("unfocused", unfocused)] {
+                    let drawn = drawn_selected_text(fg, on, bg);
+                    let ratio = wcag_contrast(drawn, on);
+                    if ratio < 4.5 {
+                        failures.push(format!(
+                            "{t:?}: text {fg:?} drawn as {drawn:?} on {what} selection {on:?}: {ratio:.2}:1 (< 4.5)"
+                        ));
+                    }
+                }
+            }
+            (!failures.is_empty()).then(|| failures.join("\n"))
         });
     }
 
