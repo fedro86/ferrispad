@@ -5,7 +5,7 @@ status: review          # todo | review | done
 created: 2026-11-25
 severity: ~             # severe | moderate | minor   (for audit-derived tickets)
 area: ui                # security | robustness | ui | process
-depends-on: []          # other ticket IDs that must land first
+depends-on: [T0082]     # other ticket IDs that must land first
 issue: 151              # GitHub issue number
 ---
 
@@ -92,6 +92,9 @@ user left it.
      truncated file.
 9. **Quit cancelled.** `FileQuit`/`WindowClose` can be cancelled in the
    unsaved-changes prompt. Save geometry only when `file_quit()` returns true.
+   Every close reaches that prompt: File → Quit / Ctrl+Q as `FileQuit`, and the
+   title-bar ×, Alt+F4 or a WM / taskbar close as `WindowClose` (T0082). The
+   geometry is captured in that dispatch arm, so no second close hook exists.
 10. **HiDPI / per-monitor scaling (Windows).** Values are stored in FLTK units.
     If the scale changes between runs, the clamp in (4)/(5) keeps the window
     on-screen. An exact pixel match is not required.
@@ -155,6 +158,9 @@ Unit tests next to the pure helpers:
 All pass after the change; the full `nix develop -c cargo test` stays green.
 
 ### Manual check (run on every available platform; record results here)
+
+"Close" below means the title-bar ×, Alt+F4, or File → Quit. With T0082 all
+of them go through `file_quit()` and this ticket's capture.
 
 For Linux, record whether the session was **Wayland or X11**
 (`echo $XDG_SESSION_TYPE`).
@@ -257,7 +263,7 @@ For Linux, record whether the session was **Wayland or X11**
   depends on it. Here the capture runs in the `FileQuit | WindowClose`
   dispatch arm for both messages, before the prompt. With T0082 the window is
   still shown there (or minimized, for a taskbar close), so no second close
-  hook is needed. Guard test:
+  hook is needed. T0082 is merged into this branch. Guard test:
   `dispatch::tests::quit_captures_window_geometry_and_saves_on_confirm`.
 - **Cancelled quit.** The snapshot is discarded when `file_quit()` returns
   false, so a later exit that captures nothing (the update-and-restart path)
@@ -332,19 +338,21 @@ FLTK_BACKEND=x11 XDG_CONFIG_HOME=/tmp/fp-cfg nix develop -c cargo run   # X11 pa
   `font_size: 20`; it ran 8 s with no panic and no stderr output about
   geometry. Same with `FLTK_BACKEND=x11` (XWayland). Closing the window was not
   exercised (the process was killed by `timeout`).
-- **Linux X11 (XWayland under GNOME), real WM close via
-  `wmctrl -c FerrisPad`**, isolated config. This ran on an interim build that
-  captured in the window callback; that hook was then dropped in favour of
-  T0082, so re-run after merging T0082:
-  1. fresh config, WM move/resize to 250,150 1000×700, close →
-     `window = {x:250, y:150, width:1000, height:700, maximized:false}`;
-     `font_size: 20` kept;
-  2. WM maximize, close → same rect with `maximized: true`;
-  3. reopen (starts maximized), WM un-maximize, close → back to
-     250,150 1000×700, after the `wait_for_expose` fix.
-- Steps 1–8 with the title-bar ×, on Linux Wayland and X11, once T0082 is
-  merged: **pending user verification**. Until then, a title-bar close does
-  not save geometry (T0082); File → Quit / Ctrl+Q does.
+- **Linux X11 (XWayland under GNOME), real WM close** (`wmctrl -c
+  FerrisPad`, i.e. `WM_DELETE_WINDOW`, the same path as × / Alt+F4), with
+  T0082 merged and an isolated config (`font_size: 20` seeded):
+  1. fresh config, WM move/resize to 250,150 1000×700, close → saved
+     `{x:250, y:150, width:1000, height:700, maximized:false}`; `font_size`
+     kept (manual steps 1–2);
+  2. WM maximize, close → same rect with `maximized: true` (step 3);
+  3. reopen → starts maximized; WM un-maximize → back to exactly 250,150
+     1000×700; close → saved as normal (step 3);
+  4. stored 300,200 900×600; type text (dirty), WM resize to 1000×700, close
+     → "Unsaved Changes" prompt; Escape (Cancel) → the window stays; process
+     then killed → stored geometry **unchanged** (edge case 9).
+- Steps 4–8 (minimized close, off-screen / malformed edit, two instances,
+  multi-monitor, old file) and native Wayland ×: **pending user
+  verification**.
 - Windows 11 (the original report): **pending user verification**.
 - macOS: **pending user verification**.
 
