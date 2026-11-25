@@ -171,6 +171,135 @@ impl SyntaxTheme {
             Self::InspiredGitHub,
         ]
     }
+
+    /// The name this theme is stored under in `settings.json` (its serde
+    /// variant name, e.g. `"SolarizedDark"`).
+    pub fn setting_name(&self) -> &'static str {
+        match self {
+            Self::Base16OceanDark => "Base16OceanDark",
+            Self::Base16OceanLight => "Base16OceanLight",
+            Self::Base16EightiesDark => "Base16EightiesDark",
+            Self::Base16MochaDark => "Base16MochaDark",
+            Self::SolarizedDark => "SolarizedDark",
+            Self::SolarizedLight => "SolarizedLight",
+            Self::InspiredGitHub => "InspiredGitHub",
+        }
+    }
+
+    /// The built-in theme stored as `name` in `settings.json`, if any.
+    pub fn from_setting_name(name: &str) -> Option<Self> {
+        Self::all()
+            .iter()
+            .copied()
+            .find(|t| t.setting_name() == name)
+    }
+}
+
+/// Prefix of a custom-theme reference in `settings.json`: `"custom:<id>"`.
+pub const CUSTOM_THEME_PREFIX: &str = "custom:";
+
+/// Longest custom-theme id body (the part after `t-`), in bytes.
+pub const CUSTOM_THEME_ID_MAX_LEN: usize = 64;
+
+/// Whether `id` is a well-formed custom-theme id: `t-` followed by 1 to 64 of
+/// `[a-z0-9-]`. Ids are file names (`themes/<id>.json`), so this alone rules
+/// out `/`, `\`, `..`, empty names and Windows reserved names (`CON`, ...).
+pub fn is_valid_custom_theme_id(id: &str) -> bool {
+    let Some(body) = id.strip_prefix("t-") else {
+        return false;
+    };
+    (1..=CUSTOM_THEME_ID_MAX_LEN).contains(&body.len())
+        && body
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// A light/dark syntax-theme slot: a built-in theme or a custom one (T0079).
+///
+/// Stored in `settings.json` as the built-in's variant name (`"SolarizedDark"`,
+/// unchanged from before custom themes existed) or as `"custom:<id>"`. Read
+/// back leniently, per slot (see `lenient_theme_ref`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ThemeRef {
+    Builtin(SyntaxTheme),
+    Custom(String),
+}
+
+impl ThemeRef {
+    /// Parse a stored slot value. `None` for anything that is neither a
+    /// built-in name nor `custom:` followed by a valid id.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.strip_prefix(CUSTOM_THEME_PREFIX) {
+            Some(id) => is_valid_custom_theme_id(id).then(|| Self::Custom(id.to_string())),
+            None => SyntaxTheme::from_setting_name(value).map(Self::Builtin),
+        }
+    }
+
+    /// The value stored in `settings.json` for this slot.
+    pub fn setting_value(&self) -> String {
+        match self {
+            Self::Builtin(theme) => theme.setting_name().to_string(),
+            Self::Custom(id) => format!("{CUSTOM_THEME_PREFIX}{id}"),
+        }
+    }
+
+    /// The key this theme has in the syntect `ThemeSet`.
+    pub fn theme_key(&self) -> String {
+        match self {
+            Self::Builtin(theme) => theme.theme_key().to_string(),
+            Self::Custom(_) => self.setting_value(),
+        }
+    }
+}
+
+impl From<SyntaxTheme> for ThemeRef {
+    fn from(theme: SyntaxTheme) -> Self {
+        Self::Builtin(theme)
+    }
+}
+
+impl Serialize for ThemeRef {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.setting_value())
+    }
+}
+
+/// Deserialize a theme slot without ever failing: a value that is not a
+/// valid reference (wrong type, unknown name, malformed `custom:` id) becomes
+/// `default` with a warning, so one bad slot never rejects the whole
+/// `settings.json`. A reference to a custom theme that is merely missing is
+/// kept here and falls back when the theme is applied.
+fn lenient_theme_ref<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+    default: SyntaxTheme,
+    slot: &str,
+) -> Result<ThemeRef, D::Error> {
+    // Buffers any JSON value, so the only error left is malformed JSON.
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Raw {
+        Text(String),
+        Other(serde::de::IgnoredAny),
+    }
+    let parsed = match Raw::deserialize(deserializer)? {
+        Raw::Text(value) => ThemeRef::parse(&value),
+        Raw::Other(_) => None,
+    };
+    Ok(parsed.unwrap_or_else(|| {
+        eprintln!(
+            "[settings] invalid {slot}, using '{}'",
+            default.display_name()
+        );
+        default.into()
+    }))
+}
+
+fn de_syntax_theme_light<'de, D: serde::Deserializer<'de>>(d: D) -> Result<ThemeRef, D::Error> {
+    lenient_theme_ref(d, DEFAULT_SYNTAX_THEME_LIGHT, "syntax_theme_light")
+}
+
+fn de_syntax_theme_dark<'de, D: serde::Deserializer<'de>>(d: D) -> Result<ThemeRef, D::Error> {
+    lenient_theme_ref(d, DEFAULT_SYNTAX_THEME_DARK, "syntax_theme_dark")
 }
 
 /// The main window's last *normal* (un-maximized) rect, in FLTK units, plus
@@ -229,12 +358,18 @@ pub struct AppSettings {
     pub preview_enabled: bool,
 
     /// Syntax theme for light mode
-    #[serde(default = "default_syntax_theme_light")]
-    pub syntax_theme_light: SyntaxTheme,
+    #[serde(
+        default = "default_syntax_theme_light",
+        deserialize_with = "de_syntax_theme_light"
+    )]
+    pub syntax_theme_light: ThemeRef,
 
     /// Syntax theme for dark mode
-    #[serde(default = "default_syntax_theme_dark")]
-    pub syntax_theme_dark: SyntaxTheme,
+    #[serde(
+        default = "default_syntax_theme_dark",
+        deserialize_with = "de_syntax_theme_dark"
+    )]
+    pub syntax_theme_dark: ThemeRef,
 
     /// Tab size in spaces (default 4)
     #[serde(default = "default_tab_size")]
@@ -298,6 +433,11 @@ pub struct AppSettings {
         skip_serializing_if = "Option::is_none"
     )]
     pub window: Option<WindowGeometry>,
+
+    /// Highlight the line holding the cursor (T0081). On by default, also
+    /// for an older settings.json without the field.
+    #[serde(default = "default_true")]
+    pub highlight_current_line: bool,
 }
 
 /// Anything but a well-formed `window` object (wrong types, out-of-range
@@ -381,12 +521,26 @@ fn default_update_channel() -> UpdateChannel {
     UpdateChannel::Stable
 }
 
-fn default_syntax_theme_light() -> SyntaxTheme {
-    SyntaxTheme::Base16OceanLight
+/// The light-mode slot's default (and fallback) built-in theme.
+pub const DEFAULT_SYNTAX_THEME_LIGHT: SyntaxTheme = SyntaxTheme::Base16OceanLight;
+/// The dark-mode slot's default (and fallback) built-in theme.
+pub const DEFAULT_SYNTAX_THEME_DARK: SyntaxTheme = SyntaxTheme::Base16OceanDark;
+
+/// The default built-in theme of the light (`is_dark == false`) or dark slot.
+pub fn default_syntax_theme(is_dark: bool) -> SyntaxTheme {
+    if is_dark {
+        DEFAULT_SYNTAX_THEME_DARK
+    } else {
+        DEFAULT_SYNTAX_THEME_LIGHT
+    }
 }
 
-fn default_syntax_theme_dark() -> SyntaxTheme {
-    SyntaxTheme::Base16OceanDark
+fn default_syntax_theme_light() -> ThemeRef {
+    DEFAULT_SYNTAX_THEME_LIGHT.into()
+}
+
+fn default_syntax_theme_dark() -> ThemeRef {
+    DEFAULT_SYNTAX_THEME_DARK.into()
 }
 
 fn default_tab_size() -> u32 {
@@ -445,6 +599,7 @@ impl Default for AppSettings {
             large_file_warning_mb: default_large_file_warning_mb(),
             max_editable_size_mb: default_max_editable_size_mb(),
             window: None,
+            highlight_current_line: true,
         }
     }
 }
@@ -466,11 +621,11 @@ impl AppSettings {
     }
 
     /// Get the syntax theme for the current mode
-    pub fn current_syntax_theme(&self, is_dark: bool) -> SyntaxTheme {
+    pub fn current_syntax_theme(&self, is_dark: bool) -> ThemeRef {
         if is_dark {
-            self.syntax_theme_dark
+            self.syntax_theme_dark.clone()
         } else {
-            self.syntax_theme_light
+            self.syntax_theme_light.clone()
         }
     }
 
@@ -483,13 +638,7 @@ impl AppSettings {
     /// write them there); an unparseable one yields defaults without writing.
     pub fn load_from(path: &Path) -> Self {
         match fs::read_to_string(path) {
-            Ok(contents) => match serde_json::from_str(&contents) {
-                Ok(settings) => settings,
-                Err(e) => {
-                    eprintln!("Failed to parse settings: {}. Using defaults.", e);
-                    Self::default()
-                }
-            },
+            Ok(contents) => Self::from_json_or_default(&contents),
             Err(_) => {
                 // File doesn't exist, use defaults
                 let default = Self::default();
@@ -498,6 +647,16 @@ impl AppSettings {
                 default
             }
         }
+    }
+
+    /// Parse `settings.json` contents. A file that does not parse at all
+    /// yields the defaults (logged); individual fields such as the syntax
+    /// theme slots fall back on their own without rejecting the rest.
+    pub fn from_json_or_default(contents: &str) -> Self {
+        serde_json::from_str(contents).unwrap_or_else(|e| {
+            eprintln!("Failed to parse settings: {}. Using defaults.", e);
+            Self::default()
+        })
     }
 
     /// Save settings to disk

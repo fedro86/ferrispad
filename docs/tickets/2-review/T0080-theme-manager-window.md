@@ -1,12 +1,12 @@
 ---
 id: T0080
 title: Theme manager window — duplicate, rename, delete, edit colors, import .tmTheme
-status: todo            # todo | review | done
+status: review          # todo | review | done
 created: 2026-11-25
 severity: ~             # severe | moderate | minor   (for audit-derived tickets)
 area: ui                # security | robustness | ui | process
 depends-on: [T0079]     # other ticket IDs that must land first
-issue: ~                # GitHub issue number
+issue: 159              # GitHub issue number
 ---
 
 ## Goal
@@ -79,8 +79,22 @@ pattern follows JetBrains "Color Scheme": built-in themes are read-only, you
    binary file, a `.tmTheme` without `background`/`foreground`, or a
    duplicate name.
    - A clear error dialog, and **nothing is created** on failure.
-   - Missing colors use T0079's derived fallbacks.
+   - Missing colors use T0079's derived fallbacks, and a missing
+     foreground/background is filled with them (T0079's
+     `fill_default_colors`), so syntect never draws plain text black.
    - Duplicate names get " (2)".
+   - **Scope-atom flood** (amendment after T0079's review): syntect interns
+     scope atoms in a process-global repository before validating them, so
+     the 1 MiB cap alone does not protect it. The file is parsed with
+     `plist::Value` first (`plist` as a direct dependency at the version
+     syntect already pulls in, so no new crate in the binary), every `scope`
+     string goes through T0079's `ScopeAtomBudget` (the process-wide one),
+     and only then is `ThemeSet::load_from_reader` called.
+   - **Deeply nested / event-flood plist** (amendment after this ticket's
+     review): a < 1 MiB file can nest 65 000 arrays, and dropping (or
+     walking) such a `plist::Value` overflows the stack and aborts the app.
+     Pipeline order: size cap → shape check (depth ≤ 32, ≤ 200 000 values,
+     before any tree is built) → `plist::Value` + atom pre-scan → syntect.
 5. **Picker cancelled.** Cancel or closing the picker dialog returns `None`,
    so no change is
    made.
@@ -143,6 +157,13 @@ nix develop -c cargo test theme_manager
 - `theme_manager_import_missing_colors_uses_fallback` —
   `import_no_background.tmTheme` imports, and its effective colors are the
   derived fallbacks (text vs background ≥ 4.5:1).
+- `theme_manager_import_missing_foreground_normalized` — an imported theme
+  without `foreground` gets the effective text color as syntect's default
+  foreground.
+- `theme_manager_import_atom_flood_rejected` — in its own integration test
+  file (`tests/theme_import_flood.rs`, own process): a `.tmTheme` with a
+  66 000-atom scope (< 1 MiB) is an error, nothing is created, and
+  `SyntaxSet::load_defaults_newlines()` plus a highlight still work.
 - `theme_manager_hex_color_parse` — accepts `#1e1e1e`, `1E1E1E`,
   `  #AbCdEf  `; rejects `""`, `#`, `#12345`, `#1234567`, `#gggggg`,
   `rgb(1,2,3)`, `#ééé` and `#12345€` (multi-byte), all without panicking.
@@ -191,22 +212,165 @@ All pass; the full `nix develop -c cargo test` stays green.
     the Choice popups. Close and reopen Manage themes: it now follows the new
     theme.
 
+## Implementation (what was actually done)
+
+- **`src/app/controllers/theme_manager.rs`** (new, no FLTK) —
+  `ThemeManagerModel` + `ThemeManagerAction` (`Error`, `Select`,
+  `ThemesChanged`, `SetSlot`, `SaveSettings`, `Retheme`).
+  - Holds the `ThemeStore`, a working copy of edited themes' settings
+    (`edits`), the *saved* light/dark slots and the theme the editor *shows*
+    (a Settings preview may differ from the saved slot).
+  - `duplicate` (keeps unsaved edits of the source), `rename`, `delete`,
+    `import` are written at once; `set_color` / `reset_color` edit the working
+    copy and return `ThemesChanged + Retheme` only when the edited theme is
+    the shown one (edge 6); `ok` saves each edited theme atomically, `cancel`
+    drops the working copy (file byte-identical).
+  - Built-ins are rejected by the model (`Error`), not only greyed out.
+  - Names: trimmed, not empty, ≤ 64 chars, unique case-insensitively
+    (`validate_name`); imports get " (2)", " (3)"….
+  - `delete`: saved slots that used the theme → mode default (`SetSlot` +
+    `SaveSettings`); if the editor showed it → shows the mode default
+    (`Retheme`).
+  - `parse_hex_color`: trims, optional `#`, exactly 6 ASCII hex digits checked
+    before any slicing (no byte-offset panic on multi-byte input).
+- **Import** (`custom_themes::read_tm_theme`, spec amendment above): metadata
+  size check (≤ 1 MiB) + capped read → `plist::Value` → every `scope` string
+  through T0079's process-wide `ScopeAtomBudget::admit_tm_selectors`
+  (syntect-mirroring selector splitter) with a bounded walk depth →
+  `ThemeSet::load_from_reader` → `fill_default_colors`. `plist = "1.8"` is a
+  direct dependency now; `Cargo.lock` only gains that edge (same 1.8.0 crate
+  syntect already pulled in, no new crate in the binary).
+- **`ThemeStore`** gained `add(name, based_on, theme)` (clone and import share
+  it; it also fills a missing fg/bg), `set_settings`,
+  `EditorColorField::set`, `base_colors`.
+- **`src/ui/dialogs/theme_manager.rs`** (new) — the window, built like the
+  Plugin Manager: `DialogTheme` colors only, `TopLevelScope`,
+  `apply_titlebar`, `run_dialog_with`, themed scrollbars; list (built-ins
+  marked "(built-in)", `@` formatting disabled) + Duplicate…/Rename…/Delete/
+  Import .tmTheme…; seven color rows (swatch, hex, Pick…, Reset — Reset
+  disabled without `based_on`); inline error line; the one-line hint about
+  what Cancel undoes; OK / Cancel (Escape and the close button = Cancel).
+  Prompts: `show_themed_input` (Duplicate/Rename), `show_themed_choice`
+  (delete, Enter = Cancel), `show_themed_message` (import errors),
+  `native_open_dialog` (Import).
+- **`src/ui/dialogs/color_picker.rs`** (new) — themed picker embedding
+  `fltk::group::ColorChooser`, a `#RRGGBB` field kept in sync both ways
+  (invalid text → inline error, no change), OK / Cancel; `None` on Cancel,
+  Escape or close (edge 5).
+- **Edge 8 (no leak)**: the manager sets FLTK's foreground to its own text
+  color while open, restores its foreground/background after every live
+  preview, and gives the dialog behind it (Settings) its globals back when
+  it closes; Settings keeps restoring its own foreground as before. If the
+  manager was used and Settings is cancelled, `open_settings` re-applies the
+  main window theme once so the globals match the editor again.
+- **Settings dialog**: "Manage themes…" button under the dark choice. Its
+  two callbacks became one `SettingsHook` (`Preview(ThemeRef)` /
+  `ManageThemes`), since both need `AppState`. After the manager closes,
+  both choices are rebuilt from the new custom list; a choice that used a
+  deleted theme falls back to its mode default (edge 10).
+- **`AppState`**: `manage_themes` loads the store, builds the model with the
+  saved slots and `HighlightController::active_theme()` (what the editor
+  really shows, a preview included), applies the actions (custom themes to
+  the highlighter, slots + `settings.json`, re-theme through the same path as
+  a Settings preview, panels included).
+
+### Red run — import scope-atom flood
+
+`tests/theme_import_flood.rs` (own binary) run with the plist pre-scan
+disabled (temporary local change, reverted):
+
+```
+test theme_manager_import_atom_flood_rejected ... FAILED
+thread 'theme_manager_import_atom_flood_rejected' panicked at tests/theme_import_flood.rs:65:9:
+one.tmTheme: [ThemesChanged, Select(Custom("t-flood"))]
+test result: FAILED. 0 passed; 1 failed
+```
+
+syntect itself silently drops the invalid rule and imports the theme — with
+the 66 000 atoms already interned. Green with the pre-scan: both floods (one
+66 000-atom scope; 66 000 one-atom scopes in one selector) are errors, nothing
+is created, syntect still loads and highlights. The flood files are generated
+by the test (~0.5 MB each) instead of a committed `import_atom_flood.tmTheme`
+fixture.
+
+### Review fix (PR #162) — deep nesting aborted the app
+
+`plist::Value::from_reader` builds the tree iteratively, but dropping a
+65 000-deep `Value` recurses once per level: a 975 KB `.tmTheme` of nested
+`<array>`s aborted FerrisPad (stack overflow, SIGABRT), losing unsaved work.
+Fix: `check_plist_shape` runs first and refuses depth > `MAX_PLIST_DEPTH` (32;
+real themes need 4–6) and more than `MAX_PLIST_EVENTS` (200 000) values,
+before any tree exists. It uses plist's stable serde API with a
+`Deserialize` that only descends as far as the limit allows, so its own
+stack use is bounded too; plist's raw event reader (`plist::stream`) is behind
+an unstable feature that would require pinning `plist = "~1.8"`. XML and
+binary plists alike.
+
+Red first — `theme_manager_import_deep_nesting_rejected` (import on a 256 KiB
+thread) against efa44d7:
+
+```
+running 2 tests
+thread '<unknown>' has overflowed its stack
+fatal runtime error: stack overflow, aborting
+process didn't exit successfully: `.../theme_import_flood-...` (signal: 6, SIGABRT: process abort signal)
+```
+
+Green after the fix. Also `theme_manager_import_binary_plist_shape_rejected`
+(binary plist nested 40 deep; binary flat array of 200 001 values). Both
+assert the specific reason, so they cannot pass on syntect's own rejection.
+The JSON theme loader (T0079) is not exposed: serde_json's recursion limit
+(128) stops a deep file while parsing; pinned on ticket/T0079 by
+`custom_theme_deeply_nested_json_rejected`.
+
+### Tests
+
+`cargo test theme_manager`: `theme_manager_builtins_are_read_only`,
+`theme_manager_delete_in_use_resets_slots`, `theme_manager_rename_validation`,
+`theme_manager_cancel_discards_color_edits`,
+`theme_manager_edit_inactive_theme_does_not_touch_editor`,
+`theme_manager_ok_persists_color_edits`, `theme_manager_import_valid`,
+`theme_manager_import_rejects_bad_files` (malformed plist, 2 MiB, binary,
+a directory), `theme_manager_import_missing_colors_uses_fallback`,
+`theme_manager_import_missing_foreground_normalized`,
+`theme_manager_hex_color_parse`,
+`theme_manager_duplicate_keeps_unsaved_edits_and_validates_name`; and
+`cargo test --test theme_import_flood`. Fixtures:
+`tests/fixtures/import_ok.tmTheme`, `import_malformed.tmTheme`,
+`import_no_background.tmTheme`.
+
+### Verification recipe
+
+```bash
+nix develop -c cargo test theme_manager
+nix develop -c cargo test --test theme_import_flood
+nix develop -c cargo test
+nix develop -c cargo clippy --all-targets --all-features -- -D warnings
+nix develop -c cargo fmt --check
+```
+
+Then manual steps 1–11 — **pending user verification** (no display in the
+implementer's session; none of them has been run).
+
 ## Acceptance criteria
 
-- [ ] Duplicate, rename, delete, import and per-color edit/reset work as
+- [x] Duplicate, rename, delete, import and per-color edit/reset work as
       described, with live preview and a real Cancel for color edits.
-- [ ] Built-ins cannot be modified, both in the UI and in the model.
+      (Model-tested; the window itself is manual steps 1–8.)
+- [x] Built-ins cannot be modified, both in the UI and in the model.
 - [ ] The manager and all its sub-dialogs (picker, prompts, import) use
       `DialogTheme` and the shared helpers. They match the Plugin Manager and
       Settings in light and dark mode, contain no hard-coded colors, and are
-      not repainted by the live preview.
-- [ ] Deleting a theme in use never leaves a dangling reference.
-- [ ] Bad import files produce an error and create nothing.
-- [ ] All tests listed above exist and pass.
-- [ ] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
+      not repainted by the live preview. — built that way; the look is manual
+      steps 9–11, **pending user verification**.
+- [x] Deleting a theme in use never leaves a dangling reference.
+- [x] Bad import files produce an error and create nothing (scope-atom flood
+      included).
+- [x] All tests listed above exist and pass.
+- [x] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
       and `cargo fmt --check` pass.
 - [ ] The ticket records the manual check in light, dark and system theme
-      modes.
+      modes. — **pending user verification**.
 
 ## Affected files
 

@@ -284,6 +284,7 @@ pub fn handle_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) {
     match msg {
         Message::ToggleLineNumbers => state.view.toggle_line_numbers(&state.tab_manager),
         Message::ToggleWordWrap => state.view.toggle_word_wrap(),
+        Message::ToggleCurrentLineHighlight => state.toggle_current_line_highlight(),
         Message::ToggleDarkMode => {
             state.toggle_dark_mode();
             retheme_panels(state, lw);
@@ -374,7 +375,7 @@ pub fn handle_settings(msg: Message, state: &mut AppState, lw: &mut LayoutWidget
         Message::ShowKeyShortcuts => state.show_key_shortcuts(),
         Message::RunShortcut(shortcut) => state.run_shortcut(&shortcut),
         Message::PreviewSyntaxTheme(theme) => {
-            state.preview_syntax_theme(theme);
+            state.preview_syntax_theme(&theme);
             retheme_panels(state, lw);
         }
         _ => {}

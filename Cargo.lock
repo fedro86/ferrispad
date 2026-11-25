@@ -16,6 +16,7 @@ dependencies = [
  "mlua",
  "objc2",
  "open",
+ "plist",
  "portable-pty",
  "pulldown-cmark",
  "regex-lite",

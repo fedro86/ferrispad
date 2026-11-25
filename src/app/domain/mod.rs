@@ -11,4 +11,4 @@ pub mod settings;
 
 pub use document::{Document, DocumentId};
 pub use messages::Message;
-pub use settings::{AppSettings, SyntaxTheme, ThemeMode};
+pub use settings::{AppSettings, SyntaxTheme, ThemeMode, ThemeRef};

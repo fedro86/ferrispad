@@ -202,8 +202,9 @@ fn main() {
     let app = fltk_app::App::default().with_scheme(fltk_app::AppScheme::Gtk);
     fltk_app::set_scrollbar_size(12);
     fltk_app::set_visible_focus(false);
-    // Lower FLTK's CIELAB contrast threshold (see `FLTK_CONTRAST_LEVEL`).
-    fltk::app::set_contrast_level(ui::theme::FLTK_CONTRAST_LEVEL);
+    // FLTK's CIELAB contrast rule at FerrisPad's lower level
+    // (`FLTK_CONTRAST_LEVEL`), plus readable selected text in the editor.
+    ui::contrast::install();
 
     // Set subtle rounded corners for RFlatBox widgets globally (min is 5, default is 15)
     fltk_app::set_frame_border_radius_max(5);
@@ -613,6 +614,7 @@ fn main() {
                 // View & Format
                 Message::ToggleLineNumbers
                 | Message::ToggleWordWrap
+                | Message::ToggleCurrentLineHighlight
                 | Message::ToggleDarkMode
                 | Message::ToggleHighlighting
                 | Message::TogglePreview
@@ -778,6 +780,10 @@ fn main() {
                 dispatch::sync_start_page(&mut state, &mut lw);
             }
         }
+
+        // Current-line highlight: also per iteration (cursor moves by mouse or
+        // key without a Message); O(1) when nothing changed (T0081).
+        state.update_current_line_highlight();
 
         // Update status bar and editor context on every event loop iteration,
         // not just message dispatch — mouse selection doesn't generate messages.

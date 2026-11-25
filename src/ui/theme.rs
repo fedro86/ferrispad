@@ -8,15 +8,18 @@ use fltk::{
     window::Window,
 };
 
-use super::color::ThemeRgb;
+use super::color::{ThemeRgb, wcag_luminance};
 use super::dialogs::{SCROLLBAR_SIZE, scrollbar_colors};
 use super::scrollbar::style_scrollbars;
 use super::tab_bar::theme_colors_from_bg;
 
-/// FLTK's CIELAB contrast threshold, lowered from its default 39 at startup
-/// (`main.rs`). The default overrides our custom tree label colors (git status
-/// amber/green/red) when selected in light mode. Level 10 preserves them while
-/// still protecting against truly unreadable combinations (e.g. white-on-white).
+/// FLTK's CIELAB contrast threshold as FerrisPad uses it, lowered from
+/// FLTK's default 39. The default overrides our custom tree label colors (git
+/// status amber/green/red) when selected in light mode. Level 10 preserves
+/// them while still protecting against truly unreadable combinations (e.g.
+/// white-on-white). Applied through FerrisPad's own contrast function
+/// (`ui::contrast`, installed in `main.rs`), which is stricter on the editor
+/// selection only.
 pub const FLTK_CONTRAST_LEVEL: i32 = 10;
 
 /// Width of all draggable panel dividers (tree, split, terminal).
@@ -78,52 +81,175 @@ pub fn diff_tab_tint_from_bg(theme_bg: (u8, u8, u8), is_dark: bool) -> Color {
     }
 }
 
-/// Apply syntax theme colors (background/foreground) to the editor.
-/// Used for live preview when changing syntax themes in settings.
-pub fn apply_syntax_theme_colors(
-    editor: &mut TextEditor,
-    background: (u8, u8, u8),
-    foreground: (u8, u8, u8),
-) {
-    editor.set_color(Color::from_rgb(background.0, background.1, background.2));
+/// WCAG luminance below which a background counts as dark: the point where
+/// white and black text have the same contrast on it (sqrt(1.05 * 0.05) - 0.05).
+const DARK_BG_LUMINANCE: f64 = 0.179;
 
-    // Adjust colors based on background brightness
-    let brightness = (background.0 as u32 + background.1 as u32 + background.2 as u32) / 3;
-    if brightness < 128 {
-        // Dark background: use light text color (override if foreground is too dark)
-        let fg_brightness = (foreground.0 as u32 + foreground.1 as u32 + foreground.2 as u32) / 3;
-        let text_color = if fg_brightness < 128 {
-            // Foreground is dark on dark background - use light fallback
-            Color::from_rgb(220, 220, 220)
-        } else {
-            Color::from_rgb(foreground.0, foreground.1, foreground.2)
-        };
-        editor.set_text_color(text_color);
-        editor.set_cursor_color(Color::from_rgb(255, 255, 255));
-        editor.set_linenumber_bgcolor(Color::from_rgb(
-            background.0.saturating_add(15),
-            background.1.saturating_add(15),
-            background.2.saturating_add(15),
-        ));
-        editor.set_linenumber_fgcolor(Color::from_rgb(150, 150, 150));
+/// Whether `bg` is a dark background, judged by its WCAG luminance alone
+/// (never by the dark-mode flag: any syntax theme can run in either mode).
+fn is_dark_background(bg: (u8, u8, u8)) -> bool {
+    wcag_luminance(bg) < DARK_BG_LUMINANCE
+}
+
+/// Editor selection on a light background: a saturated blue, as in Windows
+/// Notepad and web browsers.
+const EDITOR_SELECTION_ON_LIGHT: (u8, u8, u8) = (0, 120, 215);
+/// Editor selection on a dark background: a lighter blue, so it stands out
+/// from the background without being glaring.
+const EDITOR_SELECTION_ON_DARK: (u8, u8, u8) = (70, 140, 230);
+
+/// The main editor's text-selection color for the editor background `bg`.
+///
+/// A clearly blue color whose variant follows the background's luminance.
+/// On all seven built-in syntax themes it stays visible focused (>= 3:1) and
+/// unfocused (FLTK blends 40 % background in, >= 2:1), and black or white
+/// text stays readable on it (>= 4.5:1) — enforced by the tests below.
+pub fn editor_selection_color(bg: (u8, u8, u8)) -> (u8, u8, u8) {
+    if is_dark_background(bg) {
+        EDITOR_SELECTION_ON_DARK
     } else {
-        // Light background: use dark text color (override if foreground is too light)
-        let fg_brightness = (foreground.0 as u32 + foreground.1 as u32 + foreground.2 as u32) / 3;
-        let text_color = if fg_brightness >= 128 {
-            // Foreground is light on light background - use dark fallback
-            Color::from_rgb(30, 30, 30)
-        } else {
-            Color::from_rgb(foreground.0, foreground.1, foreground.2)
-        };
-        editor.set_text_color(text_color);
-        editor.set_cursor_color(Color::from_rgb(0, 0, 0));
-        editor.set_linenumber_bgcolor(Color::from_rgb(
-            background.0.saturating_sub(15),
-            background.1.saturating_sub(15),
-            background.2.saturating_sub(15),
-        ));
-        editor.set_linenumber_fgcolor(Color::from_rgb(100, 100, 100));
+        EDITOR_SELECTION_ON_LIGHT
     }
+}
+
+/// The main editor's colors, all as RGB: one value per editable field of a
+/// custom theme (T0079) plus the background they are drawn on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EditorColors {
+    pub background: (u8, u8, u8),
+    pub text: (u8, u8, u8),
+    pub caret: (u8, u8, u8),
+    pub selection: (u8, u8, u8),
+    pub line_number_fg: (u8, u8, u8),
+    pub line_number_bg: (u8, u8, u8),
+    pub current_line: (u8, u8, u8),
+}
+
+/// Average-of-channels brightness test used by the editor-color derivation
+/// (kept as it was before T0079, so built-in themes look unchanged).
+fn is_dim((r, g, b): (u8, u8, u8)) -> bool {
+    (u32::from(r) + u32::from(g) + u32::from(b)) / 3 < 128
+}
+
+/// The editor colors FerrisPad derives from a background and foreground.
+/// This is the look of every built-in theme, and the fallback for any field
+/// a custom theme leaves unset.
+pub fn derived_editor_colors(background: (u8, u8, u8), foreground: (u8, u8, u8)) -> EditorColors {
+    let bg = ThemeRgb::from_tuple(background);
+    let selection = editor_selection_color(background);
+    if is_dim(background) {
+        EditorColors {
+            background,
+            // Foreground too dark for a dark background: light fallback.
+            text: if is_dim(foreground) {
+                (220, 220, 220)
+            } else {
+                foreground
+            },
+            caret: (255, 255, 255),
+            selection,
+            line_number_fg: (150, 150, 150),
+            line_number_bg: (
+                background.0.saturating_add(15),
+                background.1.saturating_add(15),
+                background.2.saturating_add(15),
+            ),
+            current_line: bg.lighten(0.07).to_tuple(),
+        }
+    } else {
+        EditorColors {
+            background,
+            // Foreground too light for a light background: dark fallback.
+            text: if is_dim(foreground) {
+                foreground
+            } else {
+                (30, 30, 30)
+            },
+            caret: (0, 0, 0),
+            selection,
+            line_number_fg: (100, 100, 100),
+            line_number_bg: (
+                background.0.saturating_sub(15),
+                background.1.saturating_sub(15),
+                background.2.saturating_sub(15),
+            ),
+            current_line: bg.darken(0.95).to_tuple(),
+        }
+    }
+}
+
+/// A syntect color as RGB, composited over `under` by its alpha (TextMate
+/// themes often give `selection` / `lineHighlight` a translucent alpha).
+fn over(color: syntect::highlighting::Color, under: (u8, u8, u8)) -> (u8, u8, u8) {
+    let a = u32::from(color.a);
+    let mix = |c: u8, u: u8| ((u32::from(c) * a + u32::from(u) * (255 - a) + 127) / 255) as u8;
+    (
+        mix(color.r, under.0),
+        mix(color.g, under.1),
+        mix(color.b, under.2),
+    )
+}
+
+/// The editor colors a syntect theme is shown with.
+///
+/// A built-in theme always gets [`derived_editor_colors`] of its background
+/// and foreground, so built-ins keep their established look (and T0078's
+/// selection, not syntect's faint one). A custom theme uses each editor field
+/// of `theme.settings` it sets and derives the rest. A theme without a
+/// background (common in imported themes) gets white, or near-black when its
+/// foreground is light, so it never ends up black-on-black.
+pub fn effective_editor_colors(
+    theme: &syntect::highlighting::Theme,
+    is_builtin: bool,
+) -> EditorColors {
+    let s = &theme.settings;
+    let opaque = |c: syntect::highlighting::Color| (c.r, c.g, c.b);
+    let fg = s.foreground.map(opaque);
+    let background = match s.background.map(opaque) {
+        Some(bg) => bg,
+        None if fg.is_some_and(|fg| !is_dim(fg)) => (30, 30, 30),
+        None => (255, 255, 255),
+    };
+    let foreground = fg.unwrap_or(if is_dim(background) {
+        (220, 220, 220)
+    } else {
+        (30, 30, 30)
+    });
+    let derived = derived_editor_colors(background, foreground);
+    if is_builtin {
+        return derived;
+    }
+    let pick = |field: Option<syntect::highlighting::Color>, fallback: (u8, u8, u8)| {
+        field.map_or(fallback, |c| over(c, background))
+    };
+    EditorColors {
+        background,
+        text: fg.unwrap_or(derived.text),
+        caret: pick(s.caret, derived.caret),
+        selection: pick(s.selection, derived.selection),
+        line_number_fg: pick(s.gutter_foreground, derived.line_number_fg),
+        line_number_bg: pick(s.gutter, derived.line_number_bg),
+        current_line: pick(s.line_highlight, derived.current_line),
+    }
+}
+
+/// Apply the editor colors of the active syntax theme to the main editor.
+/// Every re-theme (startup, dark-mode toggle, Settings, live preview and its
+/// revert on Cancel) ends here, after `apply_theme`.
+pub fn apply_syntax_theme_colors(editor: &mut TextEditor, colors: &EditorColors) {
+    let fltk = |c: (u8, u8, u8)| Color::from_rgb(c.0, c.1, c.2);
+    let background = colors.background;
+    editor.set_color(fltk(background));
+    // Editor only — NOT FLTK's global Selection color, which is also used for
+    // checkbox/radio marks.
+    editor.set_selection_color(fltk(colors.selection));
+    // Selected text must stay readable on it (see `ui::contrast`).
+    super::contrast::register_editor_selection(background, colors.selection, colors.current_line);
+    editor.set_text_color(fltk(colors.text));
+    editor.set_cursor_color(fltk(colors.caret));
+    editor.set_linenumber_bgcolor(fltk(colors.line_number_bg));
+    editor.set_linenumber_fgcolor(fltk(colors.line_number_fg));
+    let brightness = ThemeRgb::from_tuple(background).brightness();
 
     // Style both editor scrollbars to match the editor theme, with the same
     // track/thumb derivation the dialogs apply to their own background.
@@ -143,8 +269,9 @@ pub fn apply_syntax_theme_colors(
     editor.redraw();
 }
 
+/// Re-theme the main window, menu bar and update banner. The editor's own
+/// colors are applied by [`apply_syntax_theme_colors`].
 pub fn apply_theme(
-    editor: &mut TextEditor,
     window: &mut Window,
     menu: &mut MenuBar,
     banner: Option<&mut Frame>,
@@ -163,26 +290,8 @@ pub fn apply_theme(
     menu.set_text_color(mc.text_color);
     menu.set_selection_color(mc.selection_color);
 
-    // Derive editor selection color from syntax theme background (same as tree panel).
-    // Applied only to the editor — NOT globally, because FLTK's global Selection
-    // color is also used for checkbox/radio marks where the subtle theme-derived
-    // color would be invisible on light backgrounds.
-    let bg_rgb = ThemeRgb::from_tuple(theme_bg);
-    let sel_color = if is_dark {
-        bg_rgb.lighten(0.10)
-    } else {
-        bg_rgb.darken(0.90)
-    }
-    .to_fltk();
-
     if is_dark {
         // Dark mode colors
-        editor.set_color(Color::from_rgb(30, 30, 30));
-        editor.set_text_color(Color::from_rgb(220, 220, 220));
-        editor.set_cursor_color(Color::from_rgb(255, 255, 255));
-        editor.set_selection_color(sel_color);
-        editor.set_linenumber_bgcolor(Color::from_rgb(40, 40, 40));
-        editor.set_linenumber_fgcolor(Color::from_rgb(150, 150, 150));
         window.set_color(Color::from_rgb(25, 25, 25));
         window.set_label_color(Color::from_rgb(220, 220, 220));
         if let Some(b) = banner {
@@ -191,12 +300,6 @@ pub fn apply_theme(
         }
     } else {
         // Light mode colors
-        editor.set_color(Color::White);
-        editor.set_text_color(Color::Black);
-        editor.set_cursor_color(Color::Black);
-        editor.set_selection_color(sel_color);
-        editor.set_linenumber_bgcolor(Color::from_rgb(240, 240, 240));
-        editor.set_linenumber_fgcolor(Color::from_rgb(100, 100, 100));
         window.set_color(Color::from_rgb(240, 240, 240));
         window.set_label_color(Color::Black);
         if let Some(b) = banner {
@@ -205,7 +308,6 @@ pub fn apply_theme(
         }
     }
 
-    editor.redraw();
     window.redraw();
     menu.redraw();
 }
@@ -599,5 +701,165 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    // --- Editor selection (T0078) -------------------------------------------
+
+    use crate::app::domain::settings::SyntaxTheme as Syntax;
+    use crate::ui::color::wcag_contrast;
+
+    /// Run `check` on every syntax theme background; collect the failures so
+    /// one run names every theme that misses the bar, with its measured value.
+    fn for_every_theme(check: impl Fn(Syntax, (u8, u8, u8), (u8, u8, u8)) -> Option<String>) {
+        let failures: Vec<String> = Syntax::all()
+            .iter()
+            .filter_map(|&t| {
+                let bg = t.background();
+                check(t, bg, editor_selection_color(bg))
+            })
+            .collect();
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// FLTK draws an unfocused `Fl_Text_Display` selection as
+    /// `fl_color_average(color(), selection_color(), 0.4)`.
+    fn fltk_unfocused_selection(bg: (u8, u8, u8), sel: (u8, u8, u8)) -> (u8, u8, u8) {
+        use crate::ui::contrast::{UNFOCUSED_SELECTION_WEIGHT, fltk_color_average};
+        fltk_color_average(bg, sel, UNFOCUSED_SELECTION_WEIGHT)
+    }
+
+    #[test]
+    fn editor_selection_contrast_focused() {
+        for_every_theme(|t, bg, sel| {
+            let ratio = wcag_contrast(sel, bg);
+            (ratio < 3.0).then(|| {
+                format!("{t:?}: selection {sel:?} on background {bg:?} has contrast {ratio:.2}:1 (< 3.0)")
+            })
+        });
+    }
+
+    #[test]
+    fn editor_selection_contrast_unfocused() {
+        for_every_theme(|t, bg, sel| {
+            let blended = fltk_unfocused_selection(bg, sel);
+            let ratio = wcag_contrast(blended, bg);
+            (ratio < 2.0).then(|| {
+                format!("{t:?}: unfocused selection {blended:?} on background {bg:?} has contrast {ratio:.2}:1 (< 2.0)")
+            })
+        });
+    }
+
+    /// Every text color the editor can draw for `theme`: its foreground and
+    /// each syntax-scope foreground of the syntect theme.
+    fn editor_text_colors(theme: Syntax) -> Vec<(u8, u8, u8)> {
+        let set = syntect::highlighting::ThemeSet::load_defaults();
+        let mut colors = vec![theme.foreground()];
+        if let Some(t) = set.themes.get(theme.theme_key()) {
+            colors.extend(
+                t.scopes
+                    .iter()
+                    .filter_map(|item| item.style.foreground)
+                    .map(|c| (c.r, c.g, c.b)),
+            );
+        }
+        colors.sort_unstable();
+        colors.dedup();
+        colors
+    }
+
+    /// The text color FLTK draws for selected text `fg` on selection `bg`:
+    /// `Fl_Text_Display` passes both through `fl_contrast`, which FerrisPad
+    /// routes to `ferrispad_contrast` with the editor's selection registered.
+    fn drawn_selected_text(
+        fg: (u8, u8, u8),
+        bg: (u8, u8, u8),
+        editor_bg: (u8, u8, u8),
+    ) -> (u8, u8, u8) {
+        use crate::ui::contrast::{EditorSelectionBgs, ferrispad_contrast};
+        let c = |(r, g, b): (u8, u8, u8)| Color::from_rgb(r, g, b);
+        let registered = EditorSelectionBgs::new(editor_bg, editor_selection_color(editor_bg));
+        ferrispad_contrast(c(fg), c(bg), registered).to_rgb()
+    }
+
+    /// Selected text, as FLTK really draws it, is readable (>= 4.5:1) on the
+    /// focused selection and on the unfocused blend, for the theme foreground
+    /// and every syntax color of all seven themes.
+    #[test]
+    fn editor_selection_text_readable() {
+        for_every_theme(|t, bg, sel| {
+            let unfocused = fltk_unfocused_selection(bg, sel);
+            let mut failures = Vec::new();
+            for fg in editor_text_colors(t) {
+                for (what, on) in [("focused", sel), ("unfocused", unfocused)] {
+                    let drawn = drawn_selected_text(fg, on, bg);
+                    let ratio = wcag_contrast(drawn, on);
+                    if ratio < 4.5 {
+                        failures.push(format!(
+                            "{t:?}: text {fg:?} drawn as {drawn:?} on {what} selection {on:?}: {ratio:.2}:1 (< 4.5)"
+                        ));
+                    }
+                }
+            }
+            (!failures.is_empty()).then(|| failures.join("\n"))
+        });
+    }
+
+    #[test]
+    fn editor_selection_is_blue() {
+        for_every_theme(|t, _bg, (r, g, b)| {
+            let blue = b > r && b > g && i32::from(b) - i32::from(r) >= 60;
+            (!blue).then(|| format!("{t:?}: selection {:?} is not clearly blue", (r, g, b)))
+        });
+    }
+
+    #[test]
+    fn editor_selection_follows_luminance_not_mode() {
+        let dark_variant = editor_selection_color(Syntax::Base16OceanDark.background());
+        let light_variant = editor_selection_color(Syntax::Base16OceanLight.background());
+        assert_ne!(dark_variant, light_variant, "there must be two variants");
+        // A dark syntax theme (usable in light mode) gets the dark variant...
+        assert_eq!(
+            editor_selection_color(Syntax::SolarizedDark.background()),
+            dark_variant
+        );
+        // ...and a light one (usable in dark mode) gets the light variant.
+        assert_eq!(
+            editor_selection_color(Syntax::InspiredGitHub.background()),
+            light_variant
+        );
+    }
+
+    /// T0081 edge case 11, on T0079's `editor_colors().current_line` (the
+    /// derived tint for built-ins): the band is visible on the background
+    /// (>= 1.05:1) and weaker than the selection, and it costs the default
+    /// text at most 20% of its contrast on the plain background, never having
+    /// to beat 4.5:1 (`text/band >= min(4.5, 0.8 * text/bg)`).
+    #[test]
+    fn current_line_color_sane_on_all_themes() {
+        use crate::app::controllers::highlight::HighlightController;
+        use crate::app::domain::settings::{SyntaxTheme, ThemeRef};
+        use crate::ui::color::wcag_contrast;
+
+        assert_eq!(SyntaxTheme::all().len(), 7);
+        let mut failures = Vec::new();
+        for theme in SyntaxTheme::all() {
+            let mut controller =
+                HighlightController::new(*theme, fltk::enums::Font::Courier, 14, true);
+            let is_dark = ThemeRgb::from_tuple(theme.background()).brightness() < 128;
+            controller.set_theme(&ThemeRef::Builtin(*theme), is_dark);
+            let c = controller.editor_colors();
+            let line = wcag_contrast(c.current_line, c.background);
+            let selection = wcag_contrast(c.selection, c.background);
+            let text = wcag_contrast(c.text, c.current_line);
+            let text_on_bg = wcag_contrast(c.text, c.background);
+            let summary = format!(
+                "{theme:?}: bg {:?} band {:?} text {:?} | band/bg {line:.3} sel/bg {selection:.2} text/band {text:.2} text/bg {text_on_bg:.2}",
+                c.background, c.current_line, c.text
+            );
+            if line < 1.05 || line >= selection || text < (0.8 * text_on_bg).min(4.5) {
+                failures.push(summary);
+            }
+        }
+        assert!(failures.is_empty(), "\n{}", failures.join("\n"));
     }
 }

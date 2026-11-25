@@ -5,6 +5,7 @@ use fltk::text::{StyleTableEntryExt, TextAttr};
 use syntect::highlighting::Color as SyntectColor;
 
 use crate::app::plugins::AnnotationColor;
+use crate::app::services::current_line::PRIMARY_STYLES;
 
 /// Reserved style characters for line markers (with bgcolor)
 /// These use indices 1-6 in the style table ('B'-'G') right after the default 'A'
@@ -246,6 +247,46 @@ impl StyleMap {
         &self.entries
     }
 
+    /// The full table for the editor (T0081): the primaries `'A'..='Z'`
+    /// (padded with copies of `'A'` up to 26), then their current-line twins
+    /// at `index + 26` (`'['..='t'`). A twin of a plain/syntax entry has the
+    /// same foreground plus `line_bg` as a `BgColorExt` background (FLTK
+    /// fills it to the right edge). A marker's twin slot is an unchanged
+    /// copy: markers are never twinned (see `twinnable`), the slot only keeps
+    /// the indices aligned. Always 52 entries, every style char ASCII.
+    pub fn table_with_twins(&self, line_bg: Color) -> Vec<StyleTableEntryExt> {
+        let mut table: Vec<StyleTableEntryExt> =
+            self.entries.iter().take(PRIMARY_STYLES).copied().collect();
+        let filler = table[0];
+        table.resize(PRIMARY_STYLES, filler);
+        let twins: Vec<StyleTableEntryExt> = table
+            .iter()
+            .map(|entry| {
+                if entry.attr == TextAttr::None {
+                    StyleTableEntryExt {
+                        attr: TextAttr::BgColorExt,
+                        bgcolor: line_bg,
+                        ..*entry
+                    }
+                } else {
+                    *entry
+                }
+            })
+            .collect();
+        table.extend(twins);
+        table
+    }
+
+    /// Which primaries (`'A' + i`) may be twinned on the cursor line: real
+    /// plain/syntax entries. Markers (`BgColor`) and unused slots may not.
+    pub fn twinnable(&self) -> [bool; PRIMARY_STYLES] {
+        let mut mask = [false; PRIMARY_STYLES];
+        for (slot, entry) in mask.iter_mut().zip(&self.entries) {
+            *slot = entry.attr == TextAttr::None;
+        }
+        mask
+    }
+
     /// Clear all mappings (used on theme change).
     pub fn clear(&mut self) {
         self.color_to_char.clear();
@@ -289,5 +330,63 @@ impl StyleMap {
         self.theme_fgcolor = fg;
         self.theme_bgcolor = bg;
         self.is_dark = is_dark;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::services::current_line::{TWIN_OFFSET, is_twin};
+
+    /// A `StyleMap` filled to its 26-entry cap (syntax colors and a custom
+    /// marker), plus twins: every style char FLTK can index stays ASCII and
+    /// the table stays within 63 entries.
+    #[test]
+    fn current_line_style_table_stays_ascii() {
+        let mut map = StyleMap::new(Font::Courier, 14);
+        map.get_or_insert_marker_rgb(10, 20, 30);
+        for i in 0..40u8 {
+            map.get_or_insert(SyntectColor {
+                r: i,
+                g: 255 - i,
+                b: 7,
+                a: 255,
+            });
+        }
+        assert_eq!(map.entries().len(), PRIMARY_STYLES);
+
+        let line_bg = Color::from_rgb(1, 2, 3);
+        let table = map.table_with_twins(line_bg);
+        assert_eq!(table.len(), 2 * PRIMARY_STYLES);
+        assert!(table.len() <= 63);
+        let last_char = b'A' + table.len() as u8 - 1;
+        assert!(last_char < 0x80, "style char {last_char:#x} is not ASCII");
+        assert!(is_twin(last_char));
+
+        let mask = map.twinnable();
+        for (i, entry) in table.iter().take(PRIMARY_STYLES).enumerate() {
+            let twin = table[i + usize::from(TWIN_OFFSET)];
+            assert_eq!(twin.color, entry.color, "twin of {i} keeps its foreground");
+            if mask[i] {
+                assert_eq!(twin.attr, TextAttr::BgColorExt);
+                assert_eq!(twin.bgcolor, line_bg);
+            } else {
+                assert_eq!(twin, *entry, "marker {i} is not twinned");
+            }
+        }
+        // 'B'..'G' and the custom marker at 'H' are markers.
+        assert!(mask[0]);
+        assert!(mask[1..8].iter().all(|m| !m));
+        assert!(mask[8..].iter().all(|m| *m));
+    }
+
+    #[test]
+    fn current_line_table_pads_a_small_map() {
+        let map = StyleMap::new(Font::Courier, 14);
+        let table = map.table_with_twins(Color::from_rgb(9, 9, 9));
+        assert_eq!(table.len(), 2 * PRIMARY_STYLES);
+        // Unused primary slots are copies of 'A' but never twinnable.
+        let mask = map.twinnable();
+        assert!(!mask[map.entries().len()..].iter().any(|m| *m));
     }
 }

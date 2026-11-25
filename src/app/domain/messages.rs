@@ -1,5 +1,5 @@
 use super::document::DocumentId;
-use super::settings::SyntaxTheme;
+use super::settings::ThemeRef;
 use crate::app::controllers::tabs::{GroupColor, GroupId};
 use crate::app::plugins::{
     Diagnostic, LineAnnotation, SplitViewRequest, TerminalViewRequest, TreeViewRequest,
@@ -59,6 +59,7 @@ pub enum Message {
     // View
     ToggleLineNumbers,
     ToggleWordWrap,
+    ToggleCurrentLineHighlight,
     ToggleDarkMode,
     ToggleHighlighting,
     TogglePreview,
@@ -98,7 +99,7 @@ pub enum Message {
 
     // Live preview from the Settings dialog. Dispatched from inside the modal
     // (see `dispatch::handle_settings`), whose loop blocks the channel.
-    PreviewSyntaxTheme(SyntaxTheme),
+    PreviewSyntaxTheme(ThemeRef),
 
     // Plugin system
     PluginsToggleGlobal,
