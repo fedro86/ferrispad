@@ -594,6 +594,8 @@ pub fn show_settings_dialog(
             shortcut_overrides: current.shortcut_overrides.clone(),
             large_file_warning_mb,
             max_editable_size_mb: max_editable_mb,
+            // Window geometry is not edited here; it is saved on close
+            window: current.window,
         };
 
         *result_save.borrow_mut() = Some(new_settings);

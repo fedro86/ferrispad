@@ -20,4 +20,5 @@ pub mod syntax;
 pub mod terminal;
 pub mod text_ops;
 pub mod updater;
+pub mod window_geometry;
 pub mod yaml_parser;

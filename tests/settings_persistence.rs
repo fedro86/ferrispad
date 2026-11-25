@@ -3,10 +3,11 @@ use std::fs;
 use tempfile::tempdir;
 
 use ferris_pad::app::domain::settings::{
-    AppSettings, PluginApprovals, ShortcutOverride, SyntaxTheme, ThemeMode,
+    AppSettings, PluginApprovals, ShortcutOverride, SyntaxTheme, ThemeMode, WindowGeometry,
 };
 use ferris_pad::app::services::session::SessionRestore;
 use ferris_pad::app::services::updater::UpdateChannel;
+use ferris_pad::app::services::window_geometry::{ScreenRect, restore_geometry};
 
 #[test]
 fn test_settings_roundtrip_all_fields() {
@@ -42,6 +43,13 @@ fn test_settings_roundtrip_all_fields() {
         shortcut_overrides: HashMap::new(),
         large_file_warning_mb: 100,
         max_editable_size_mb: 200,
+        window: Some(WindowGeometry {
+            x: -1200,
+            y: 40,
+            width: 1100,
+            height: 750,
+            maximized: true,
+        }),
     };
 
     let json = serde_json::to_string_pretty(&settings).unwrap();
@@ -145,4 +153,142 @@ fn test_settings_backward_compat() {
     assert_eq!(loaded.tab_size, 4);
     assert_eq!(loaded.large_file_warning_mb, 50);
     assert_eq!(loaded.max_editable_size_mb, 150);
+}
+
+// ---------------------------------------------------------------------------
+// Window geometry (T0077)
+// ---------------------------------------------------------------------------
+
+fn sample_geometry() -> WindowGeometry {
+    WindowGeometry {
+        x: -1500,
+        y: -20,
+        width: 1100,
+        height: 750,
+        maximized: true,
+    }
+}
+
+#[test]
+fn test_window_geometry_roundtrip() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+
+    let settings = AppSettings {
+        window: Some(sample_geometry()),
+        ..Default::default()
+    };
+    settings.save_to(&path).unwrap();
+
+    let loaded = AppSettings::load_from(&path);
+    assert_eq!(loaded.window, Some(sample_geometry()));
+    assert_eq!(loaded, settings);
+}
+
+#[test]
+fn test_window_geometry_backward_compat() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    fs::write(
+        &path,
+        r#"{ "font_size": 18, "line_numbers_enabled": false }"#,
+    )
+    .unwrap();
+
+    let loaded = AppSettings::load_from(&path);
+    assert_eq!(loaded.window, None);
+    assert_eq!(loaded.font_size, 18);
+    assert!(!loaded.line_numbers_enabled);
+
+    // `None` restores the 640×480, not-maximized default.
+    let (rect, maximized) =
+        restore_geometry(loaded.window, &[ScreenRect::new(0, 0, 1920, 1050)], 30);
+    assert_eq!((rect.w, rect.h), (640, 480));
+    assert!(!maximized);
+}
+
+#[test]
+fn test_window_geometry_malformed_keeps_other_settings() {
+    let malformed = [
+        r#""window": {"x": 10, "y": 10, "width": "abc", "height": 600, "maximized": false}"#,
+        r#""window": {"x": 10, "y": 10, "width": 1e20, "height": 600, "maximized": false}"#,
+        r#""window": {"x": 10, "y": 10, "width": 800, "height": 600, "maximized": "yes"}"#,
+        r#""window": {"x": 10, "y": 10, "width": 800}"#,
+        r#""window": null"#,
+        r#""window": [1, 2, 3, 4]"#,
+        r#""window": "1100x750""#,
+    ];
+    for field in malformed {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let json = format!(r#"{{ "font_size": 22, "theme_mode": "Dark", {field} }}"#);
+        fs::write(&path, &json).unwrap();
+
+        let loaded = AppSettings::load_from(&path);
+        assert_eq!(loaded.window, None, "geometry must be ignored for {field}");
+        assert_eq!(loaded.font_size, 22, "font_size lost for {field}");
+        assert_eq!(loaded.theme_mode, ThemeMode::Dark, "theme lost for {field}");
+    }
+}
+
+#[test]
+fn test_window_geometry_save_patches_only_geometry() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+
+    // Another instance changed the font to 20 after this one started.
+    let on_disk = AppSettings {
+        font_size: 20,
+        ..Default::default()
+    };
+    on_disk.save_to(&path).unwrap();
+
+    // This instance still holds font_size = 12 in memory.
+    let in_memory = AppSettings {
+        font_size: 12,
+        ..Default::default()
+    };
+    in_memory
+        .save_window_geometry_to(&path, sample_geometry())
+        .unwrap();
+
+    let loaded = AppSettings::load_from(&path);
+    assert_eq!(loaded.window, Some(sample_geometry()));
+    assert_eq!(
+        loaded.font_size, 20,
+        "close-time save reverted another instance's setting"
+    );
+}
+
+#[test]
+fn test_window_geometry_save_skips_unparseable_file() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let broken = b"{ \"font_size\": 20, oops this is not json";
+    fs::write(&path, broken).unwrap();
+
+    let _ = AppSettings::default().save_window_geometry_to(&path, sample_geometry());
+
+    assert_eq!(fs::read(&path).unwrap(), broken.to_vec());
+    // No stray temp file left next to it either.
+    let entries: Vec<_> = fs::read_dir(dir.path()).unwrap().collect();
+    assert_eq!(entries.len(), 1);
+}
+
+#[test]
+fn test_window_geometry_save_creates_missing_file() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+
+    let in_memory = AppSettings {
+        font_size: 14,
+        ..Default::default()
+    };
+    in_memory
+        .save_window_geometry_to(&path, sample_geometry())
+        .unwrap();
+
+    let loaded = AppSettings::load_from(&path);
+    assert_eq!(loaded.window, Some(sample_geometry()));
+    assert_eq!(loaded.font_size, 14);
 }

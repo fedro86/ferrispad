@@ -21,6 +21,9 @@ use crate::app::services::shortcut_registry::ShortcutRegistry;
 use crate::app::services::updater::{
     UpdateCheckResult, check_for_updates, is_flatpak, should_check_now,
 };
+use crate::app::services::window_geometry::{
+    self, TITLE_BAR_ESTIMATE, WindowGeometryTracker, clamp_onto_screens, restore_geometry,
+};
 use crate::app::state::AppState;
 use crate::app::{AppSettings, Message, ThemeMode, detect_system_dark_mode};
 use crate::ui::main_window::{LayoutWidgets, build_main_window};
@@ -235,8 +238,15 @@ fn main() {
         .map(|s| TreePanelPosition::from_config_str(s))
         .unwrap_or_default();
 
+    // Window geometry from the last run, validated against the current screens
+    // (T0077). On Wayland the compositor places the window; x/y are not used.
+    let on_wayland = window_geometry::running_on_wayland();
+    let screens = ui::main_window::screen_work_areas();
+    let (initial_rect, start_maximized) =
+        restore_geometry(settings.window, &screens, TITLE_BAR_ESTIMATE);
+
     // Build UI widgets (tab bar included only when tabs enabled)
-    let mut w = build_main_window(tabs_enabled, &sender, tree_position);
+    let mut w = build_main_window(tabs_enabled, &sender, tree_position, initial_rect);
 
     // Build shortcut registry from settings
     let shortcut_registry = ShortcutRegistry::from_settings(&settings.shortcut_overrides);
@@ -279,6 +289,9 @@ fn main() {
     if let Some(responses) = mcp_responses {
         state.mcp_responses = responses;
     }
+    *state.window_geometry.borrow_mut() =
+        WindowGeometryTracker::new(settings.window, on_wayland, initial_rect);
+    ui::main_window::install_geometry_tracking(&mut w.wind, state.window_geometry.clone());
 
     // Bind the initial document's buffer to the editor
     state.bind_active_buffer();
@@ -371,9 +384,13 @@ fn main() {
     // Using handle() with Event::Close to catch close even when menu is open.
     w.wind.handle({
         let s = sender;
+        let geometry = state.window_geometry.clone();
         move |wind, event| {
             match event {
                 fltk::enums::Event::Close => {
+                    // Snapshot size/maximized/minimized while still on screen;
+                    // saved only if the quit is confirmed (dispatch.rs).
+                    ui::main_window::capture_close_geometry(wind, &geometry);
                     fltk::app::program_should_quit(true);
                     s.send(Message::WindowClose);
                     // Hide the window to break out of any modal loops (like open menus)
@@ -411,6 +428,21 @@ fn main() {
 
     w.wind.end();
     w.wind.show();
+
+    // Pre-show clamping assumed a title bar of TITLE_BAR_ESTIMATE; if the real
+    // decoration is taller, re-clamp so the title bar stays grabbable.
+    let title_bar_h = w.wind.decorated_h() - w.wind.h();
+    if !on_wayland && title_bar_h > TITLE_BAR_ESTIMATE {
+        let reclamped = clamp_onto_screens(initial_rect, &screens, title_bar_h);
+        if reclamped != initial_rect {
+            w.wind
+                .resize(reclamped.x, reclamped.y, reclamped.w, reclamped.h);
+        }
+    }
+    // Created at the normal rect, then maximized: un-maximizing returns there.
+    if start_maximized {
+        w.wind.maximize();
+    }
 
     // Ctrl+letter shortcuts follow the typed letter when the keyboard layouts
     // disagree (a non-first xkb layout active): see ui::layout_shortcut.

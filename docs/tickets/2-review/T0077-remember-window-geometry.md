@@ -1,7 +1,7 @@
 ---
 id: T0077
 title: Remember the main window's size, position and maximized state across restarts
-status: todo            # todo | review | done
+status: review          # todo | review | done
 created: 2026-11-25
 severity: ~             # severe | moderate | minor   (for audit-derived tickets)
 area: ui                # security | robustness | ui | process
@@ -191,12 +191,106 @@ For Linux, record whether the session was **Wayland or X11**
       ignored without affecting any other setting.
 - [ ] Closing never reverts settings changed by another instance and never
       overwrites an unparseable `settings.json`. The write is atomic.
-- [ ] All tests listed above exist and pass; the malformed-field and
+- [x] All tests listed above exist and pass; the malformed-field and
       patch-only-geometry tests were seen failing before the fix.
-- [ ] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
+- [x] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
       and `cargo fmt --check` pass.
 - [ ] The ticket records the manual check per available platform (Wayland or
       X11 stated for Linux).
+
+## What was actually done
+
+- `src/app/domain/settings.rs`: `WindowGeometry { x, y, width, height,
+  maximized }` and `AppSettings::window: Option<WindowGeometry>`, read by a
+  lenient deserializer (anything but a well-formed object → `None`, other
+  settings untouched; also rejects the array form serde would otherwise
+  accept) and omitted from the JSON while `None`. `load()`/`save()` delegate
+  to new `load_from(&Path)`/`save_to(&Path)`; `save_to` now writes atomically
+  (temp file `.<name>.<pid>.tmp` in the same dir, `sync_all`, `rename`; temp
+  removed on failure). `save_window_geometry_to(&Path, WindowGeometry)`
+  re-reads the file, replaces only its `"window"` key on the parsed JSON value
+  (unknown keys are kept too), and writes atomically. Invalid JSON or a
+  non-object → error, nothing written. Missing file → written from the
+  in-memory settings.
+- `src/app/services/window_geometry.rs` (new, pure, no FLTK):
+  `clamp_onto_screens` (min size 200×150 else 640×480; picks the screen with
+  the largest overlap of the *decorated* rect; no overlap → centred on screen
+  0; shrink to fit; shift fully inside the work area with the title bar below
+  its top edge; i64 arithmetic, no `clamp()` panics), `restore_geometry`,
+  `geometry_to_save` (the close decision), `NormalRectHistory` +
+  `WindowGeometryTracker`, `is_wayland_backend(FLTK_BACKEND, WAYLAND_DISPLAY)`
+  / `running_on_wayland()`.
+- X11 detail beyond the spec: the `_NET_WM_STATE` maximized flag can arrive
+  *after* the maximizing resize, so that resize is recorded as "normal". The
+  history keeps the previous size: if the latest record has the maximized size,
+  the previous one is used (test `window_geometry_tracker_late_x11_maximize_flag`).
+- `src/ui/main_window.rs`: `build_main_window` takes the validated rect;
+  `screen_work_areas()`, `install_geometry_tracking()` (window
+  `resize_callback`, records only while `visible() && !maximize_active()`),
+  `capture_close_geometry()`.
+- Close path: the window's `Event::Close` handler hides the window *before*
+  `WindowClose` reaches `file_quit()`, so the snapshot (visible / maximized /
+  rect) is taken in that handler, before `hide()`. `FileQuit` (menu/shortcut)
+  captures in `dispatch::handle_file`. `AppState::save_window_geometry()` runs
+  only when `file_quit()` returns true.
+- `src/main.rs`: restore at startup (clamped with a 32-unit title-bar
+  estimate); after `show()` re-clamp with the real `decorated_h() - h()` when
+  it is taller (not on Wayland); `maximize()` after `show()`.
+- Wayland: no warning is printed; x/y of the saved geometry come from the
+  stored value (or the 100,100 default), never from Wayland's 0,0.
+- Known approximation (as specified in edge case 11): FLTK falls back to
+  probing the default `wayland-0` socket when `WAYLAND_DISPLAY` is unset; the
+  env check then says X11. Only effect: x/y would be saved from that session.
+
+### Red run before the fix (naive `#[serde(default)]` + whole-struct save)
+
+```
+$ nix develop -c cargo test --test settings_persistence window_geometry
+---- test_window_geometry_malformed_keeps_other_settings stdout ----
+Failed to parse settings: invalid type: string "abc", expected i32 at line 1 column 84. Using defaults.
+assertion `left == right` failed: font_size lost for "window": {"x": 10, "y": 10, "width": "abc", ...}
+  left: 16
+ right: 22
+---- test_window_geometry_save_patches_only_geometry stdout ----
+assertion `left == right` failed: close-time save reverted another instance's setting
+  left: 12
+ right: 20
+---- test_window_geometry_save_skips_unparseable_file stdout ----
+assertion `left == right` failed   (file bytes overwritten with a full default settings.json)
+test result: FAILED. 3 passed; 3 failed
+```
+
+After the fix: `nix develop -c cargo test window_geometry` → 6 unit + 6
+integration tests pass; full `cargo test`, clippy `-D warnings` and
+`fmt --check` green.
+
+### Verification recipe
+
+```bash
+nix develop -c cargo test window_geometry          # 12 tests
+nix develop -c cargo test --test settings_persistence
+```
+
+Then the manual steps under *How to test → Manual check*, with an isolated
+config dir so the real settings stay untouched on Linux:
+
+```bash
+mkdir -p /tmp/fp-cfg && XDG_CONFIG_HOME=/tmp/fp-cfg nix develop -c cargo run
+cat /tmp/fp-cfg/ferrispad/settings.json   # "window": {...} after a close
+FLTK_BACKEND=x11 XDG_CONFIG_HOME=/tmp/fp-cfg nix develop -c cargo run   # X11 path
+```
+
+### Manual check results
+
+- **Linux, Wayland session (GNOME, `XDG_SESSION_TYPE=wayland`)** — automated
+  smoke only: started with an isolated config holding
+  `{"x":20000,"y":20000,"width":1100,"height":750,"maximized":true}` and
+  `font_size: 20`; it ran 8 s with no panic and no stderr output about
+  geometry. Same with `FLTK_BACKEND=x11` (XWayland). Closing the window was not
+  exercised (the process was killed by `timeout`).
+- Steps 1–8 on Linux Wayland and X11: **pending user verification**.
+- Windows 11 (the original report): **pending user verification**.
+- macOS: **pending user verification**.
 
 ## Affected files
 

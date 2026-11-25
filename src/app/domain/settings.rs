@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use crate::app::infrastructure::error::AppError;
 use crate::app::services::session::SessionRestore;
@@ -172,6 +173,20 @@ impl SyntaxTheme {
     }
 }
 
+/// The main window's last *normal* (un-maximized) rect, in FLTK units, plus
+/// whether it was maximized. `x`/`y` are the client-area origin, as FLTK
+/// reports them. Hand-editable, so always validated before use (see
+/// `services::window_geometry`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowGeometry {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    #[serde(default)]
+    pub maximized: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppSettings {
     #[serde(default = "default_line_numbers")]
@@ -273,6 +288,55 @@ pub struct AppSettings {
     /// File size (MB) above which editing is blocked — read-only/tail only (default 150)
     #[serde(default = "default_max_editable_size_mb")]
     pub max_editable_size_mb: u32,
+
+    /// Main window geometry saved on a confirmed close (`None` = 640×480).
+    /// Deserialized leniently: a malformed object is dropped on its own
+    /// instead of failing the whole file (which would reset every setting).
+    #[serde(
+        default,
+        deserialize_with = "deserialize_lenient_geometry",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub window: Option<WindowGeometry>,
+}
+
+/// Anything but a well-formed `window` object (wrong types, out-of-range
+/// numbers, missing fields, `null`, an array) yields `None`; the rest of the
+/// settings still load.
+fn deserialize_lenient_geometry<'de, D>(deserializer: D) -> Result<Option<WindowGeometry>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    if !value.is_object() {
+        return Ok(None);
+    }
+    Ok(serde_json::from_value(value).ok())
+}
+
+/// Write `contents` to `path` atomically: a temp file in the same directory,
+/// flushed to disk, then renamed over the target. A crash mid-write leaves
+/// either the old file or the new one, never a truncated one.
+fn write_atomic(path: &Path, contents: &[u8]) -> Result<(), AppError> {
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "settings.json".to_string());
+    // The pid keeps two instances closing at once from sharing a temp file.
+    let tmp = dir.join(format!(".{}.{}.tmp", file_name, std::process::id()));
+
+    let result = (|| -> std::io::Result<()> {
+        let mut file = fs::File::create(&tmp)?;
+        file.write_all(contents)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result.map_err(AppError::from)
 }
 
 fn default_line_numbers() -> bool {
@@ -370,6 +434,7 @@ impl Default for AppSettings {
             shortcut_overrides: HashMap::new(),
             large_file_warning_mb: default_large_file_warning_mb(),
             max_editable_size_mb: default_max_editable_size_mb(),
+            window: None,
         }
     }
 }
@@ -401,9 +466,13 @@ impl AppSettings {
 
     /// Load settings from disk, or create default if not exists
     pub fn load() -> Self {
-        let config_path = Self::get_config_path();
+        Self::load_from(&Self::get_config_path())
+    }
 
-        match fs::read_to_string(&config_path) {
+    /// Load settings from `path`. A missing file yields defaults (and tries to
+    /// write them there); an unparseable one yields defaults without writing.
+    pub fn load_from(path: &Path) -> Self {
+        match fs::read_to_string(path) {
             Ok(contents) => match serde_json::from_str(&contents) {
                 Ok(settings) => settings,
                 Err(e) => {
@@ -415,7 +484,7 @@ impl AppSettings {
                 // File doesn't exist, use defaults
                 let default = Self::default();
                 // Try to save defaults for next time
-                let _ = default.save();
+                let _ = default.save_to(path);
                 default
             }
         }
@@ -423,17 +492,57 @@ impl AppSettings {
 
     /// Save settings to disk
     pub fn save(&self) -> Result<(), AppError> {
-        let config_path = Self::get_config_path();
+        self.save_to(&Self::get_config_path())
+    }
 
+    /// Save settings to `path`.
+    pub fn save_to(&self, path: &Path) -> Result<(), AppError> {
         // Ensure parent directory exists
-        if let Some(parent) = config_path.parent() {
+        if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
 
         let json = serde_json::to_string_pretty(self)?;
-        fs::write(&config_path, json)?;
+        write_atomic(path, json.as_bytes())
+    }
 
-        Ok(())
+    /// Close-time save of the window geometry to the real config file.
+    pub fn save_window_geometry(&self, geometry: WindowGeometry) -> Result<(), AppError> {
+        self.save_window_geometry_to(&Self::get_config_path(), geometry)
+    }
+
+    /// Close-time save of the window geometry to `path`.
+    ///
+    /// Re-reads the file and replaces only its `window` object, so settings
+    /// another instance saved since this one started are kept. If the file
+    /// does not parse as a JSON object nothing is written (startup fell back
+    /// to defaults; writing them now would destroy the user's file). Only a
+    /// missing file is created from `self`.
+    pub fn save_window_geometry_to(
+        &self,
+        path: &Path,
+        geometry: WindowGeometry,
+    ) -> Result<(), AppError> {
+        let contents = match fs::read_to_string(path) {
+            Ok(contents) => contents,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let mut settings = self.clone();
+                settings.window = Some(geometry);
+                return settings.save_to(path);
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let mut value: serde_json::Value = serde_json::from_str(&contents)?;
+        let Some(object) = value.as_object_mut() else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "settings file is not a JSON object; window geometry not saved",
+            )
+            .into());
+        };
+        object.insert("window".to_string(), serde_json::to_value(geometry)?);
+        let json = serde_json::to_string_pretty(&value)?;
+        write_atomic(path, json.as_bytes())
     }
 
     /// Get config file path (cross-platform)

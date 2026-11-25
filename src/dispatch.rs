@@ -83,7 +83,16 @@ pub fn handle_file(msg: Message, state: &mut AppState) -> DispatchResult {
             state.session.mark_dirty();
         }
         Message::FileQuit | Message::WindowClose => {
+            // WindowClose was captured by the close handler before it hid the
+            // window; a menu/shortcut quit still has the window on screen.
+            if matches!(msg, Message::FileQuit) {
+                crate::ui::main_window::capture_close_geometry(
+                    &state.window,
+                    &state.window_geometry,
+                );
+            }
             if state.file_quit() {
+                state.save_window_geometry();
                 return DispatchResult::Quit;
             }
             // User cancelled — reset the flag
