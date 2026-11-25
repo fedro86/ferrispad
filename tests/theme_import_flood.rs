@@ -132,22 +132,30 @@ fn theme_manager_import_deep_nesting_rejected() {
     );
 }
 
-/// Import `bytes` as a `.tmTheme` and assert it is an error naming `reason`
-/// that creates nothing.
+/// Import `bytes` as a `.tmTheme`, on a deliberately small stack, and assert
+/// it is an error naming `reason` that creates nothing.
 fn assert_import_rejected(name: &str, bytes: &[u8], reason: &str) {
     assert!(bytes.len() < 1024 * 1024, "{name} fits under the 1 MiB cap");
     let work = tempdir().unwrap();
     let path = work.path().join(name);
     fs::write(&path, bytes).unwrap();
     let themes = tempdir().unwrap();
-    let mut model = ThemeManagerModel::new(
-        ThemeStore::empty(themes.path().to_path_buf()),
-        SyntaxTheme::Base16OceanLight.into(),
-        SyntaxTheme::Base16OceanDark.into(),
-        true,
-        SyntaxTheme::Base16OceanDark.into(),
-    );
-    let actions = model.import(&path);
+    let themes_dir = themes.path().to_path_buf();
+    let actions = std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(move || {
+            let mut model = ThemeManagerModel::new(
+                ThemeStore::empty(themes_dir),
+                SyntaxTheme::Base16OceanLight.into(),
+                SyntaxTheme::Base16OceanDark.into(),
+                true,
+                SyntaxTheme::Base16OceanDark.into(),
+            );
+            model.import(&path)
+        })
+        .unwrap()
+        .join()
+        .expect("the import thread must not crash");
     assert!(
         matches!(actions.as_slice(), [ThemeManagerAction::Error(e)] if e.contains(reason)),
         "{name}: expected an error about {reason:?}, got {actions:?}"
