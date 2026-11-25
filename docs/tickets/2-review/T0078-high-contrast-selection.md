@@ -1,7 +1,7 @@
 ---
 id: T0078
 title: Use a high-contrast blue text selection on every editor syntax theme
-status: todo            # todo | review | done
+status: review          # todo | review | done
 created: 2026-11-25
 severity: ~             # severe | moderate | minor   (for audit-derived tickets)
 area: ui                # security | robustness | ui | process
@@ -130,17 +130,103 @@ The full `nix develop -c cargo test` stays green.
 7. Toggle Light/Dark a few times; open Settings, preview another syntax theme,
    press **Cancel**. The selection never falls back to the old faint color.
 
+## Implementation (what was actually done)
+
+- `src/ui/color.rs`: `wcag_luminance` / `wcag_contrast` promoted from the
+  test module of `src/ui/file_dialogs.rs` (now public, with a unit test
+  `wcag_contrast_extremes_and_symmetry`); `file_dialogs.rs` tests import them.
+- `src/ui/theme.rs`: new pure `editor_selection_color(bg) -> (u8,u8,u8)`.
+  It picks the variant by WCAG luminance (`< 0.179`, the point where black
+  and white text have equal contrast) — it takes no mode flag:
+  - light background → `(0, 120, 215)`;
+  - dark background → `(70, 140, 230)`.
+- `apply_syntax_theme_colors` now sets the editor selection right next to
+  the background it paints. Every re-theme path (startup `apply_settings`,
+  dark-mode toggle, Settings save, live syntax preview and the revert on
+  Cancel, system-default mode) goes through
+  `AppState::apply_theme_to_owned_widgets`, which calls `apply_theme` and then
+  `apply_syntax_theme_colors` with the same syntax-theme background, so the
+  final selection always matches the final background. `apply_theme` uses the
+  same function (no more `lighten(0.10)` / `darken(0.90)`).
+
+### Red first (old derivation, recorded before the fix)
+
+`editor_selection_color` was first introduced with the old derivation
+(`lighten(0.10)` on dark / `darken(0.90)` on light background) and the new
+tests were run:
+
+```
+---- ui::theme::tests::editor_selection_contrast_focused stdout ----
+Base16OceanDark: selection (64, 68, 78) on background (43, 48, 59) has contrast 1.36:1 (< 3.0)
+Base16OceanLight: selection (215, 216, 220) on background (239, 241, 245) has contrast 1.26:1 (< 3.0)
+Base16EightiesDark: selection (66, 66, 66) on background (45, 45, 45) has contrast 1.37:1 (< 3.0)
+Base16MochaDark: selection (78, 70, 61) on background (59, 50, 40) has contrast 1.36:1 (< 3.0)
+SolarizedDark: selection (25, 64, 74) on background (0, 43, 54) has contrast 1.34:1 (< 3.0)
+SolarizedLight: selection (227, 221, 204) on background (253, 246, 227) has contrast 1.26:1 (< 3.0)
+InspiredGitHub: selection (229, 229, 229) on background (255, 255, 255) has contrast 1.26:1 (< 3.0)
+
+failures:
+    ui::theme::tests::editor_selection_contrast_focused
+    ui::theme::tests::editor_selection_contrast_unfocused
+    ui::theme::tests::editor_selection_follows_luminance_not_mode
+    ui::theme::tests::editor_selection_is_blue
+test result: FAILED. 1 passed; 4 failed
+```
+
+(`editor_selection_text_readable` passed on the old colors too: they are
+pale/dark greys, readable with black or white.) Unfocused contrast was
+1.14–1.21:1 on the old derivation.
+
+### Measured after the fix
+
+| Syntax theme | Selection | Focused | Unfocused | Best B/W text |
+|---|---|---|---|---|
+| Base16OceanDark | (70, 140, 230) | 3.87 | 2.30 | 6.15 |
+| Base16OceanLight | (0, 120, 215) | 3.98 | 2.26 | 4.67 |
+| Base16EightiesDark | (70, 140, 230) | 4.04 | 2.34 | 6.15 |
+| Base16MochaDark | (70, 140, 230) | 3.68 | 2.20 | 6.15 |
+| SolarizedDark | (70, 140, 230) | 4.40 | 2.48 | 6.15 |
+| SolarizedLight | (0, 120, 215) | 4.17 | 2.34 | 4.67 |
+| InspiredGitHub | (0, 120, 215) | 4.50 | 2.39 | 4.67 |
+
+### Verification recipe
+
+```bash
+nix develop -c cargo test editor_selection     # 5 tests, all green
+nix develop -c cargo test                      # full suite green
+nix develop -c cargo clippy --all-targets --all-features -- -D warnings
+nix develop -c cargo fmt --check
+```
+
+Then the manual check below.
+
+### Manual check — pending user verification
+
+Steps 1–7 of *Manual check* above need a display and have **not** been
+performed by the implementer (headless session). Please run them and record
+the result here.
+
+### Note on selected-text color
+
+FLTK draws selected text with `fl_contrast(style_color, selection)`
+(`Fl_Text_Display.cxx:2404`). FerrisPad lowers FLTK's contrast level to 10
+(`FLTK_CONTRAST_LEVEL`), so `fl_contrast` keeps a syntax color whenever its
+CIELAB lightness differs from the selection's by ≥ 10, and only falls back to
+black/white below that. So inside the selection most syntax colors stay as
+they are; the `editor_selection_text_readable` test guarantees the black/white
+fallback is readable. Worth a look during manual step 5.
+
 ## Acceptance criteria
 
-- [ ] On all seven syntax themes the selection meets the focused (≥ 3:1),
+- [x] On all seven syntax themes the selection meets the focused (≥ 3:1),
       unfocused (≥ 2:1) and selected-text (≥ 4.5:1) bars, enforced by tests.
-- [ ] The color is chosen from background luminance, not the mode flag.
-- [ ] The contrast tests exist; the focused one was seen failing on the old
+- [x] The color is chosen from background luminance, not the mode flag.
+- [x] The contrast tests exist; the focused one was seen failing on the old
       derivation, with the ratios recorded in this ticket.
-- [ ] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
+- [x] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
       and `cargo fmt --check` pass.
 - [ ] The ticket records the manual check (light, dark, system, all syntax
-      themes, Find-dialog focus, Cancel).
+      themes, Find-dialog focus, Cancel). — **pending user verification**
 
 ## Affected files
 

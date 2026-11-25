@@ -73,9 +73,40 @@ impl ThemeRgb {
     }
 }
 
+/// WCAG 2 relative luminance of an sRGB color, from 0.0 (black) to 1.0
+/// (white).
+pub fn wcag_luminance((r, g, b): (u8, u8, u8)) -> f64 {
+    let ch = |c: u8| {
+        let c = f64::from(c) / 255.0;
+        if c <= 0.039_28 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)
+}
+
+/// WCAG 2 contrast ratio between two colors, from 1.0 (same luminance) to
+/// 21.0 (black on white). Symmetric in its arguments.
+pub fn wcag_contrast(a: (u8, u8, u8), b: (u8, u8, u8)) -> f64 {
+    let (la, lb) = (wcag_luminance(a), wcag_luminance(b));
+    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wcag_contrast_extremes_and_symmetry() {
+        let (black, white) = ((0, 0, 0), (255, 255, 255));
+        assert!((wcag_contrast(black, white) - 21.0).abs() < 1e-9);
+        assert!((wcag_contrast(white, black) - 21.0).abs() < 1e-9);
+        assert!((wcag_contrast((10, 20, 30), (10, 20, 30)) - 1.0).abs() < 1e-9);
+        assert_eq!(wcag_luminance(black), 0.0);
+        assert!((wcag_luminance(white) - 1.0).abs() < 1e-9);
+    }
 
     #[test]
     fn darken_scales_and_truncates_each_channel() {

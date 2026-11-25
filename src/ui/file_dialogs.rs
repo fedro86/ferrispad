@@ -263,6 +263,7 @@ pub fn native_save_dialog(directory: Option<&str>, theme_bg: (u8, u8, u8)) -> Op
 mod tests {
     use super::*;
     use crate::app::domain::settings::SyntaxTheme;
+    use crate::ui::color::wcag_contrast;
 
     /// FLTK's `fl_luminance` (sRGB channels raised to 2.4).
     fn fltk_luminance((r, g, b): (u8, u8, u8)) -> f64 {
@@ -293,24 +294,6 @@ mod tests {
         } else {
             (255, 255, 255)
         }
-    }
-
-    /// WCAG 2 relative luminance.
-    fn wcag_luminance((r, g, b): (u8, u8, u8)) -> f64 {
-        let ch = |c: u8| {
-            let c = c as f64 / 255.0;
-            if c <= 0.039_28 {
-                c / 12.92
-            } else {
-                ((c + 0.055) / 1.055).powf(2.4)
-            }
-        };
-        0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b)
-    }
-
-    fn wcag_contrast(a: (u8, u8, u8), b: (u8, u8, u8)) -> f64 {
-        let (la, lb) = (wcag_luminance(a), wcag_luminance(b));
-        (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
     }
 
     /// The selected row of the fallback chooser must be readable in every

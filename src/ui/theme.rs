@@ -8,7 +8,7 @@ use fltk::{
     window::Window,
 };
 
-use super::color::ThemeRgb;
+use super::color::{ThemeRgb, wcag_luminance};
 use super::dialogs::{SCROLLBAR_SIZE, scrollbar_colors};
 use super::scrollbar::style_scrollbars;
 use super::tab_bar::theme_colors_from_bg;
@@ -78,6 +78,37 @@ pub fn diff_tab_tint_from_bg(theme_bg: (u8, u8, u8), is_dark: bool) -> Color {
     }
 }
 
+/// WCAG luminance below which a background counts as dark: the point where
+/// white and black text have the same contrast on it (sqrt(1.05 * 0.05) - 0.05).
+const DARK_BG_LUMINANCE: f64 = 0.179;
+
+/// Whether `bg` is a dark background, judged by its WCAG luminance alone
+/// (never by the dark-mode flag: any syntax theme can run in either mode).
+fn is_dark_background(bg: (u8, u8, u8)) -> bool {
+    wcag_luminance(bg) < DARK_BG_LUMINANCE
+}
+
+/// Editor selection on a light background: a saturated blue, as in Windows
+/// Notepad and web browsers.
+const EDITOR_SELECTION_ON_LIGHT: (u8, u8, u8) = (0, 120, 215);
+/// Editor selection on a dark background: a lighter blue, so it stands out
+/// from the background without being glaring.
+const EDITOR_SELECTION_ON_DARK: (u8, u8, u8) = (70, 140, 230);
+
+/// The main editor's text-selection color for the editor background `bg`.
+///
+/// A clearly blue color whose variant follows the background's luminance.
+/// On all seven built-in syntax themes it stays visible focused (>= 3:1) and
+/// unfocused (FLTK blends 40 % background in, >= 2:1), and black or white
+/// text stays readable on it (>= 4.5:1) — enforced by the tests below.
+pub fn editor_selection_color(bg: (u8, u8, u8)) -> (u8, u8, u8) {
+    if is_dark_background(bg) {
+        EDITOR_SELECTION_ON_DARK
+    } else {
+        EDITOR_SELECTION_ON_LIGHT
+    }
+}
+
 /// Apply syntax theme colors (background/foreground) to the editor.
 /// Used for live preview when changing syntax themes in settings.
 pub fn apply_syntax_theme_colors(
@@ -86,6 +117,9 @@ pub fn apply_syntax_theme_colors(
     foreground: (u8, u8, u8),
 ) {
     editor.set_color(Color::from_rgb(background.0, background.1, background.2));
+    // The selection is set here, next to the background it is drawn on, so
+    // every re-theme (toggle, Settings, preview, Cancel) ends consistent.
+    editor.set_selection_color(ThemeRgb::from_tuple(editor_selection_color(background)).to_fltk());
 
     // Adjust colors based on background brightness
     let brightness = (background.0 as u32 + background.1 as u32 + background.2 as u32) / 3;
@@ -163,17 +197,11 @@ pub fn apply_theme(
     menu.set_text_color(mc.text_color);
     menu.set_selection_color(mc.selection_color);
 
-    // Derive editor selection color from syntax theme background (same as tree panel).
+    // Editor selection, chosen from the syntax-theme background's luminance.
     // Applied only to the editor — NOT globally, because FLTK's global Selection
-    // color is also used for checkbox/radio marks where the subtle theme-derived
-    // color would be invisible on light backgrounds.
-    let bg_rgb = ThemeRgb::from_tuple(theme_bg);
-    let sel_color = if is_dark {
-        bg_rgb.lighten(0.10)
-    } else {
-        bg_rgb.darken(0.90)
-    }
-    .to_fltk();
+    // color is also used for checkbox/radio marks. `apply_syntax_theme_colors`
+    // sets it again alongside the background it paints.
+    let sel_color = ThemeRgb::from_tuple(editor_selection_color(theme_bg)).to_fltk();
 
     if is_dark {
         // Dark mode colors
@@ -599,5 +627,87 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    // --- Editor selection (T0078) -------------------------------------------
+
+    use crate::app::domain::settings::SyntaxTheme as Syntax;
+    use crate::ui::color::wcag_contrast;
+
+    /// Run `check` on every syntax theme background; collect the failures so
+    /// one run names every theme that misses the bar, with its measured value.
+    fn for_every_theme(check: impl Fn(Syntax, (u8, u8, u8), (u8, u8, u8)) -> Option<String>) {
+        let failures: Vec<String> = Syntax::all()
+            .iter()
+            .filter_map(|&t| {
+                let bg = t.background();
+                check(t, bg, editor_selection_color(bg))
+            })
+            .collect();
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// FLTK draws an unfocused `Fl_Text_Display` selection as
+    /// `fl_color_average(color(), selection_color(), 0.4)`: 40 % background,
+    /// 60 % selection per channel.
+    fn fltk_unfocused_selection(bg: (u8, u8, u8), sel: (u8, u8, u8)) -> (u8, u8, u8) {
+        let mix = |b: u8, s: u8| (0.4 * f64::from(b) + 0.6 * f64::from(s)).round() as u8;
+        (mix(bg.0, sel.0), mix(bg.1, sel.1), mix(bg.2, sel.2))
+    }
+
+    #[test]
+    fn editor_selection_contrast_focused() {
+        for_every_theme(|t, bg, sel| {
+            let ratio = wcag_contrast(sel, bg);
+            (ratio < 3.0).then(|| {
+                format!("{t:?}: selection {sel:?} on background {bg:?} has contrast {ratio:.2}:1 (< 3.0)")
+            })
+        });
+    }
+
+    #[test]
+    fn editor_selection_contrast_unfocused() {
+        for_every_theme(|t, bg, sel| {
+            let blended = fltk_unfocused_selection(bg, sel);
+            let ratio = wcag_contrast(blended, bg);
+            (ratio < 2.0).then(|| {
+                format!("{t:?}: unfocused selection {blended:?} on background {bg:?} has contrast {ratio:.2}:1 (< 2.0)")
+            })
+        });
+    }
+
+    #[test]
+    fn editor_selection_text_readable() {
+        for_every_theme(|t, _bg, sel| {
+            let ratio = wcag_contrast(sel, (255, 255, 255)).max(wcag_contrast(sel, (0, 0, 0)));
+            (ratio < 4.5).then(|| {
+                format!("{t:?}: best of black/white on selection {sel:?} has contrast {ratio:.2}:1 (< 4.5)")
+            })
+        });
+    }
+
+    #[test]
+    fn editor_selection_is_blue() {
+        for_every_theme(|t, _bg, (r, g, b)| {
+            let blue = b > r && b > g && i32::from(b) - i32::from(r) >= 60;
+            (!blue).then(|| format!("{t:?}: selection {:?} is not clearly blue", (r, g, b)))
+        });
+    }
+
+    #[test]
+    fn editor_selection_follows_luminance_not_mode() {
+        let dark_variant = editor_selection_color(Syntax::Base16OceanDark.background());
+        let light_variant = editor_selection_color(Syntax::Base16OceanLight.background());
+        assert_ne!(dark_variant, light_variant, "there must be two variants");
+        // A dark syntax theme (usable in light mode) gets the dark variant...
+        assert_eq!(
+            editor_selection_color(Syntax::SolarizedDark.background()),
+            dark_variant
+        );
+        // ...and a light one (usable in dark mode) gets the light variant.
+        assert_eq!(
+            editor_selection_color(Syntax::InspiredGitHub.background()),
+            light_variant
+        );
     }
 }
