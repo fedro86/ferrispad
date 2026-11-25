@@ -735,51 +735,49 @@ mod tests {
     /// add itself to that group, and must leave that group current.
     #[test]
     fn popup_is_top_level() {
-        crate::ui::on_fltk_test_thread(|| {
-            let _fltk = crate::ui::fltk_widget_test_lock();
-            let theme = DialogTheme::from_theme_bg((40, 44, 52));
-            let previous = Group::try_current();
+        let _fltk = crate::ui::fltk_widget_test_lock();
+        let theme = DialogTheme::from_theme_bg((40, 44, 52));
+        let previous = Group::try_current();
 
-            let outer = Window::new(0, 0, 600, 400, None); // begun: now current
-            let outer_children = outer.children();
-            let message = build_themed_popup(
-                &theme,
-                "Error",
-                "Error opening file: No such file or directory",
-                None,
-                &choice_layout("Close", "", ""),
-            );
-            let input = build_themed_popup(
-                &theme,
-                "Go To Line",
-                "Line number:",
-                Some("1"),
-                &choice_layout("Cancel", "OK", ""),
-            );
-            let current_after = Group::try_current().map(|g| g.as_widget_ptr());
-            let children_after = outer.children();
+        let outer = Window::new(0, 0, 600, 400, None); // begun: now current
+        let outer_children = outer.children();
+        let message = build_themed_popup(
+            &theme,
+            "Error",
+            "Error opening file: No such file or directory",
+            None,
+            &choice_layout("Close", "", ""),
+        );
+        let input = build_themed_popup(
+            &theme,
+            "Go To Line",
+            "Line number:",
+            Some("1"),
+            &choice_layout("Cancel", "OK", ""),
+        );
+        let current_after = Group::try_current().map(|g| g.as_widget_ptr());
+        let children_after = outer.children();
 
-            // Restore FLTK's process-global current group before asserting, so a
-            // failure leaves no group begun for later tests.
-            outer.end();
-            Group::set_current(previous.as_ref());
+        // Restore FLTK's process-global current group before asserting, so a
+        // failure leaves no group begun for later tests.
+        outer.end();
+        Group::set_current(previous.as_ref());
 
-            for popup in [&message, &input] {
-                assert!(
-                    popup.dialog.parent().is_none(),
-                    "the popup must be a top-level window, not a child of the current group"
-                );
-            }
-            assert_eq!(
-                children_after, outer_children,
-                "outer group gained children"
+        for popup in [&message, &input] {
+            assert!(
+                popup.dialog.parent().is_none(),
+                "the popup must be a top-level window, not a child of the current group"
             );
-            assert_eq!(
-                current_after,
-                Some(outer.as_widget_ptr()),
-                "the caller's current group must be restored"
-            );
-        });
+        }
+        assert_eq!(
+            children_after, outer_children,
+            "outer group gained children"
+        );
+        assert_eq!(
+            current_after,
+            Some(outer.as_widget_ptr()),
+            "the caller's current group must be restored"
+        );
     }
 
     #[test]

@@ -237,7 +237,7 @@ pub fn show_theme_manager(
     let own_fg = theme.text_rgb();
     app::foreground(own_fg.0, own_fg.1, own_fg.2);
 
-    let (mut dialog, ctx) = build_theme_manager(theme_bg, model);
+    let (mut dialog, ctx) = build_window(theme_bg, model);
     dialog.show();
     theme.apply_titlebar(&dialog);
 
@@ -258,9 +258,19 @@ pub fn show_theme_manager(
     app::background(behind_bg.0, behind_bg.1, behind_bg.2);
 }
 
-/// Build the window and wire its callbacks, without showing it (so tests
-/// can construct it).
-fn build_theme_manager(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Window, Ctx) {
+/// Build the theme manager window with its callbacks wired, without showing
+/// it, and return it with its theme list. For the UI construction tests
+/// (`tests/ui_dialogs.rs`); [`show_theme_manager`] is the real entry point.
+pub fn build_theme_manager(
+    theme_bg: (u8, u8, u8),
+    model: ThemeManagerModel,
+) -> (Window, HoldBrowser) {
+    let (dialog, ctx) = build_window(theme_bg, model);
+    (dialog, ctx.browser)
+}
+
+/// Build the window and wire its callbacks, without showing it.
+fn build_window(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Window, Ctx) {
     let theme = DialogTheme::from_theme_bg(theme_bg);
 
     // Built top-level even if another group is current (T0058).
@@ -533,8 +543,6 @@ fn build_theme_manager(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Win
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::domain::settings::SyntaxTheme;
-    use crate::app::services::custom_themes::ThemeStore;
 
     #[test]
     fn literal_browser_label_disables_formatting() {
@@ -542,37 +550,6 @@ mod tests {
             assert_eq!(literal_browser_label(name), format!("@.{name}"));
         }
         assert_eq!(literal_browser_label("a\tb"), "@.a b");
-    }
-
-    /// Build the window in a debug build: fltk-rs debug assertions in widget
-    /// setup (one aborted "Manage themes…") fail here, not in the user's
-    /// hands.
-    #[test]
-    fn theme_manager_window_builds() {
-        crate::ui::on_fltk_test_thread(build_theme_manager_window);
-    }
-
-    fn build_theme_manager_window() {
-        let _fltk = crate::ui::fltk_widget_test_lock();
-        let dir = tempfile::tempdir().unwrap();
-        let mut store = ThemeStore::empty(dir.path().to_path_buf());
-        store
-            .clone_from(&SyntaxTheme::Base16OceanDark.into(), "@b weird\tname")
-            .unwrap();
-        let model = ThemeManagerModel::new(
-            store,
-            SyntaxTheme::Base16OceanLight.into(),
-            SyntaxTheme::Base16OceanDark.into(),
-            true,
-            SyntaxTheme::Base16OceanDark.into(),
-        );
-        let (dialog, ctx) = build_theme_manager((43, 48, 59), model);
-        assert_eq!(ctx.browser.size() as usize, SyntaxTheme::all().len() + 1);
-        assert_eq!(
-            ctx.browser.text(ctx.browser.size()).as_deref(),
-            Some("@.@b weird name")
-        );
-        assert!(!dialog.shown());
     }
 
     /// No code may turn off a browser's format or column character with

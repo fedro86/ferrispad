@@ -334,16 +334,12 @@ built the window, so gates and review missed it.
 - Rows now use FLTK's documented `@.` escape ("print the rest of the line,
   no more `@` codes") via `literal_browser_label`; tabs become spaces. Rows
   are mapped to themes by index, never by their text.
-- The theme manager and the color picker are built by
+- The theme manager and the color picker are built by the public
   `build_theme_manager` / `build_color_picker`, which tests call without
-  showing the window. Tests: `literal_browser_label_disables_formatting`,
-  `theme_manager_window_builds`, `color_picker_window_builds`, and the source
-  guard `no_nul_browser_format_or_column_char_in_src`.
-- fltk-rs pins its "UI thread" to the first thread that creates a window, so
-  every window-building unit test now runs through
-  `ui::on_fltk_test_thread` (one dedicated thread); the existing
-  `popup_is_top_level` moved there too.
-- Red: with the old call put back, `theme_manager_window_builds` failed with
+  showing the window. Tests: `literal_browser_label_disables_formatting`
+  and the source guard `no_nul_browser_format_or_column_char_in_src` (lib),
+  and `new_dialog_windows_build` in `tests/ui_dialogs.rs` (see below).
+- Red: with the old call put back, the window-construction test failed with
   the same `assertion failed: c != 0 as char`, and the source guard named
   `theme_manager.rs`.
 - Smoke: a debug `cargo run` with a temporary `XDG_CONFIG_HOME` (a custom
@@ -354,6 +350,30 @@ built the window, so gates and review missed it.
   construction tests cover the widget setup of the manager and the picker;
   the prompts and the file dialog are the existing shared helpers. The
   interactive pass is part of the pending manual check.
+
+### CI: the UI construction tests need a display
+
+The first version of the window-construction tests ran in the lib unit
+tests; building these windows opens the display (`center_screen`), and CI
+has none: "Can't open display" made FLTK exit the whole lib test binary (PR
+#162, run 45717834075, amd64 and arm64). Now:
+
+- `tests/ui_dialogs.rs` holds them, in their own binary, as one test
+  function (fltk-rs pins its "UI thread" to the first thread that creates a
+  window), so a missing display can only fail that binary.
+- Without `DISPLAY` / `WAYLAND_DISPLAY` the test is skipped with a note,
+  unless **`FERRISPAD_REQUIRE_UI_TESTS=1`**, which turns a missing display
+  into a failure ("UI tests required but no display").
+- `.github/workflows/ci.yml`, both test jobs: install `xvfb`, set
+  `FERRISPAD_REQUIRE_UI_TESTS=1`, run `xvfb-run -a cargo test --locked`.
+  `build-deps-check.yml` only builds, so it is unchanged.
+- The interim `ui::on_fltk_test_thread` helper is gone again; the existing
+  `popup_is_top_level` test never opened the display and is back as it was.
+
+Checked locally: with a display the test passes; with `DISPLAY` and
+`WAYLAND_DISPLAY` unset it is skipped; unset plus
+`FERRISPAD_REQUIRE_UI_TESTS=1` it fails as intended; the lib tests pass with
+no display at all.
 
 ### Tests
 
