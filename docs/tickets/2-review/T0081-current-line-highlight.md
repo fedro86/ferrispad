@@ -243,8 +243,8 @@ All pass; the full `nix develop -c cargo test` stays green.
     only if something changed;
   - it is a no-op when the style buffer length differs from the text
     (no style buffer bound, edge case 10).
-  The line end comes from `find_char_forward('\n')`; fltk-rs has no
-  `TextBuffer::line_end`, and the display's `line_end` follows wrapping.
+  The cursor's line is found in a **bounded byte window** (review round 1,
+  below), not with FLTK's `line_start` / `findchar_forward`.
 - Setting `highlight_current_line` (default `true`, also for old files), the
   menu item "View/Toggle Current Line Highlight" (`MenuFlag::Toggle`;
   `Message::ToggleCurrentLineHighlight` → `AppState::toggle_current_line_highlight`,
@@ -262,6 +262,42 @@ All pass; the full `nix develop -c cargo test` stays green.
   table budget, padding), `ui::contrast::current_line_unfocused_selection_blend_registered`,
   `ui::theme::current_line_color_sane_on_all_themes`, and
   `settings_persistence::test_current_line_default_on`.
+
+### Review round 1 (ferrispad-a3): bounded line lookup
+
+- **Finding (blocking):** `line_start(cursor)` and
+  `find_char_forward(cursor, '\n')` are unbounded in FLTK
+  (`findchar_backward`, and a per-char loop with a UTF-8 decode per step,
+  `Fl_Text_Buffer.cxx:1804-1845`). `MAX_LINE_BYTES` only limited the
+  rewrite, after both scans had already walked the whole line. On a 50 MB
+  one-line file every cursor move or keystroke walked up to 50 MB, so the
+  "no per-event O(file) work" criterion did not hold.
+- **Fix:** `services::current_line::cursor_line(len, cursor, read)` reads
+  **one** window of at most `MAX_LINE_BYTES + 1` bytes on each side of the
+  cursor, clamped to the buffer. The pure `line_bounds_window` looks for
+  `'\n'` in the **raw bytes** (`'\n'` never occurs inside a UTF-8
+  multi-byte sequence, so offsets are exact even when the window cuts a
+  character). A side with no `'\n'` that does not reach the buffer edge
+  means the line is too long, so there is no band and the previous line is
+  untwinned. A short read means an embedded NUL truncated FLTK's C string;
+  that also gives no band (fail safe).
+- New `infrastructure::buffer::text_range_bytes_no_leak`: raw bytes through
+  `Fl_Text_Buffer_text_range` plus `free()`. fltk-rs's `text_range` leaks
+  the copy and decodes lossily. `text_range_no_leak` (for the ASCII style
+  buffer) now wraps it.
+- Tests: `current_line_lookup_is_bounded_on_huge_lines` (bytes read ≤
+  2·(MAX+1) on a 4 MiB line, cursor at start/middle/end, and a short line
+  between two huge ones), plus `line_bounds_window_finds_line`,
+  `line_bounds_window_too_long_returns_none`,
+  `line_bounds_window_at_buffer_edges` and
+  `line_bounds_window_truncated_returns_none`.
+- Red run, against a version of `cursor_line` that reads the whole line,
+  which is what FLTK's scans walk:
+  ```
+  test app::services::current_line::tests::current_line_lookup_is_bounded_on_huge_lines ... FAILED
+  panicked at src/app/services/current_line.rs:468:13:
+  cursor 0: read 4194304 bytes
+  ```
 
 ### Verification recipe
 
@@ -305,6 +341,8 @@ FLTK_BACKEND=x11 XDG_CONFIG_HOME=/tmp/fp-cfg nix develop -c cargo run -- src/mai
 - `src/ui/menu.rs:471-478`, `src/app/domain/messages.rs`, `src/dispatch.rs` —
   the toggle message and menu item.
 - `src/ui/dialogs/settings_dialog.rs` — checkbox.
+- `src/app/infrastructure/buffer.rs` — `text_range_bytes_no_leak` (raw
+  bytes, frees FLTK's malloc'd copy) and `text_range_no_leak` on top of it.
 - `src/ui/theme.rs`, `src/ui/contrast.rs` — use `editor_colors().current_line`
   from T0079; register the unfocused-selection blend on the line color.
 
@@ -333,6 +371,12 @@ FLTK_BACKEND=x11 XDG_CONFIG_HOME=/tmp/fp-cfg nix develop -c cargo run -- src/mai
   | SolarizedLight | 1.123 | 4.17 | 3.68 | 4.13 |
   | InspiredGitHub | 1.119 | 4.50 | 11.45 | 12.82 |
 
+- Known limitation (pre-existing class, review note): text under a marker
+  background (diff/lint `BgColor`) is drawn on that marker color. An
+  unfocused selection over it therefore uses
+  `fl_color_average(marker_bg, selection, 0.4)`, which is not registered
+  with `ui::contrast`, so FLTK's CIELAB level-10 rule applies there, as
+  before T0078/T0081.
 - Follow-up candidate: an overlay for the empty current line (option B from
   the spike: a custom draw after FLTK's draw that fills the empty row's text
   area and redraws the cursor). No ticket opened yet.

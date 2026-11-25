@@ -25,13 +25,15 @@ use super::controllers::widget::WidgetController;
 use super::domain::document::DocumentId;
 use super::domain::messages::Message;
 use super::domain::settings::{self, AppSettings, ThemeMode, ThemeRef, default_syntax_theme};
-use super::infrastructure::buffer::{buffer_text_no_leak, text_range_no_leak};
+use super::infrastructure::buffer::{
+    buffer_text_no_leak, text_range_bytes_no_leak, text_range_no_leak,
+};
 use super::infrastructure::defer::defer_send;
 use super::infrastructure::platform::detect_system_dark_mode;
 use super::mcp::McpResponses;
 use super::plugins::HookResult;
 use super::plugins::{PluginHook, PluginManager, get_plugin_dir};
-use super::services::current_line::{line_to_twin, twin_bytes, untwin_bytes};
+use super::services::current_line::{cursor_line, twin_bytes, untwin_bytes};
 use super::services::custom_themes::{ThemeStore, themes_dir};
 use super::services::session;
 use super::services::shortcut_registry::ShortcutRegistry;
@@ -1178,10 +1180,12 @@ impl AppState {
             return;
         }
 
+        // Bounded window around the cursor, never FLTK's unbounded
+        // line_start / findchar_forward (O(line) on a one-line minified file).
         let line = if enabled {
-            let start = doc.buffer.line_start(cursor);
-            let end = doc.buffer.find_char_forward(cursor, '\n').unwrap_or(len);
-            line_to_twin(start, end)
+            cursor_line(len, cursor, |start, end| {
+                text_range_bytes_no_leak(&doc.buffer, start, end)
+            })
         } else {
             None
         };

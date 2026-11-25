@@ -181,6 +181,67 @@ pub fn line_to_twin(line_start: i32, line_end: i32) -> Option<ByteRange> {
     (!range.is_empty() && range.len() <= MAX_LINE_BYTES).then_some(range)
 }
 
+/// Find the line around `cursor_in_window` inside a window of raw buffer
+/// bytes starting at buffer offset `window_start`. Returns the line as
+/// buffer offsets `(start, end)` (`end` excludes the `'\n'`), or `None` when
+/// a side has no `'\n'` inside the window and the window does not reach the
+/// buffer edge on that side (the line is longer than the window).
+///
+/// Raw bytes, never a lossily decoded string: `'\n'` (0x0A) never occurs
+/// inside a UTF-8 multi-byte sequence, so the offsets stay exact even when
+/// the window cuts a character in half.
+pub fn line_bounds_window(
+    window: &[u8],
+    cursor_in_window: usize,
+    window_start: i32,
+    at_buffer_start: bool,
+    at_buffer_end: bool,
+) -> Option<(i32, i32)> {
+    let c = cursor_in_window.min(window.len());
+    let start = match window[..c].iter().rposition(|&b| b == b'\n') {
+        Some(i) => i + 1,
+        None if at_buffer_start => 0,
+        None => return None,
+    };
+    let end = match window[c..].iter().position(|&b| b == b'\n') {
+        Some(i) => c + i,
+        None if at_buffer_end => window.len(),
+        None => return None,
+    };
+    let offset = |i: usize| window_start.saturating_add(i32::try_from(i).unwrap_or(i32::MAX));
+    Some((offset(start), offset(end)))
+}
+
+/// The cursor's line to twin, reading at most `MAX_LINE_BYTES + 1` bytes on
+/// each side of the cursor with one `read(start, end)` call (raw bytes of a
+/// buffer of `len` bytes). Bounded per event even on a huge one-line file,
+/// unlike FLTK's `line_start` / `findchar_forward`, which walk the whole
+/// line. `None` for an empty line, a line too long to twin, or a short read
+/// (an embedded NUL truncates FLTK's C string: fail safe, no band).
+pub fn cursor_line(
+    len: i32,
+    cursor: i32,
+    mut read: impl FnMut(i32, i32) -> Vec<u8>,
+) -> Option<ByteRange> {
+    let len = len.max(0);
+    let cursor = cursor.clamp(0, len);
+    let reach = MAX_LINE_BYTES + 1;
+    let window_start = cursor.saturating_sub(reach).max(0);
+    let window_end = cursor.saturating_add(reach).min(len);
+    let window = read(window_start, window_end);
+    if i32::try_from(window.len()).ok() != Some(window_end - window_start) {
+        return None;
+    }
+    let (start, end) = line_bounds_window(
+        &window,
+        (cursor - window_start) as usize,
+        window_start,
+        window_start == 0,
+        window_end == len,
+    )?;
+    line_to_twin(start, end)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,6 +482,113 @@ mod tests {
         twin.on_modify(0, 1, 0);
         assert!(!twin.is_current(12));
         assert_eq!(twin.twinned(), Some(ByteRange::new(11, 21)));
+    }
+
+    /// Run `cursor_line` over `text`, returning the result and how many
+    /// bytes it read.
+    fn lookup(text: &[u8], cursor: usize) -> (Option<ByteRange>, usize) {
+        let mut read_bytes = 0;
+        let range = cursor_line(text.len() as i32, cursor as i32, |s, e| {
+            let bytes = text[s as usize..e as usize].to_vec();
+            read_bytes += bytes.len();
+            bytes
+        });
+        (range, read_bytes)
+    }
+
+    /// Review finding (T0081): the cursor-line lookup must not walk a whole
+    /// huge line on every event. At most MAX_LINE_BYTES + 1 bytes on each
+    /// side of the cursor are read, whatever the line length.
+    #[test]
+    fn current_line_lookup_is_bounded_on_huge_lines() {
+        let max = MAX_LINE_BYTES as usize;
+        let bound = 2 * (max + 1);
+        // A 4 MiB single line (minified file), cursor at start, middle, end.
+        let huge = vec![b'x'; 4 * 1024 * 1024];
+        for cursor in [0, huge.len() / 2, huge.len()] {
+            let (range, read) = lookup(&huge, cursor);
+            assert_eq!(range, None, "cursor {cursor}: too long, not twinned");
+            assert!(read <= bound, "cursor {cursor}: read {read} bytes");
+        }
+        // A short line between two huge ones is still found, cheaply.
+        let mut text = vec![b'y'; 2 * max];
+        text.extend_from_slice(b"\nshort line\n");
+        text.extend(vec![b'z'; 2 * max]);
+        let cursor = 2 * max + 3;
+        let (range, read) = lookup(&text, cursor);
+        assert_eq!(
+            range,
+            Some(ByteRange::new(2 * max as i32 + 1, 2 * max as i32 + 11))
+        );
+        assert!(read <= bound, "read {read} bytes");
+    }
+
+    #[test]
+    fn line_bounds_window_finds_line() {
+        // Window = whole buffer "ab\ncdé\nef", cursor inside "cdé".
+        let text = "ab\ncdé\nef".as_bytes();
+        assert_eq!(line_bounds_window(text, 4, 0, true, true), Some((3, 7)));
+        // Same bytes as a window starting at buffer offset 1000, not at
+        // either buffer edge: the '\n's inside still bound the line.
+        assert_eq!(
+            line_bounds_window(text, 4, 1000, false, false),
+            Some((1003, 1007))
+        );
+        // Cursor right after a '\n' (line start) and right on one (line end).
+        assert_eq!(line_bounds_window(text, 3, 0, true, true), Some((3, 7)));
+        assert_eq!(line_bounds_window(text, 7, 0, true, true), Some((3, 7)));
+    }
+
+    #[test]
+    fn line_bounds_window_too_long_returns_none() {
+        // No '\n' before the cursor and the window does not start at 0.
+        assert_eq!(line_bounds_window(b"xxxx\nyy", 2, 50, false, true), None);
+        // No '\n' after the cursor and the window does not reach the end.
+        assert_eq!(line_bounds_window(b"yy\nxxxx", 5, 0, true, false), None);
+        // Through the reader: lines over MAX on either side of the cursor.
+        let max = MAX_LINE_BYTES as usize;
+        let mut over = b"\n".to_vec();
+        over.extend(vec![b'a'; max + 1]);
+        over.push(b'\n');
+        assert_eq!(lookup(&over, 1).0, None, "too long after the cursor");
+        assert_eq!(lookup(&over, max + 2).0, None, "too long before the cursor");
+    }
+
+    #[test]
+    fn line_bounds_window_at_buffer_edges() {
+        // No '\n' at all, but the window is the whole buffer.
+        assert_eq!(line_bounds_window(b"abc", 0, 0, true, true), Some((0, 3)));
+        assert_eq!(line_bounds_window(b"abc", 3, 0, true, true), Some((0, 3)));
+        // Empty buffer, and an empty last line after a trailing '\n'.
+        assert_eq!(line_bounds_window(b"", 0, 0, true, true), Some((0, 0)));
+        assert_eq!(lookup(b"", 0).0, None);
+        assert_eq!(lookup(b"ab\n", 3).0, None, "empty last line");
+        // A line of exactly MAX bytes ending at the buffer edge, cursor at
+        // either end of it, and '\n' exactly at the window edge.
+        let max = MAX_LINE_BYTES as usize;
+        let mut exact = vec![b'a'; max];
+        exact.push(b'\n');
+        assert_eq!(lookup(&exact, 0).0, Some(ByteRange::new(0, max as i32)));
+        assert_eq!(lookup(&exact, max).0, Some(ByteRange::new(0, max as i32)));
+        let mut edge = vec![b'\n'];
+        edge.extend(vec![b'b'; max]);
+        edge.push(b'\n');
+        assert_eq!(
+            lookup(&edge, max / 2 + 1).0,
+            Some(ByteRange::new(1, max as i32 + 1))
+        );
+    }
+
+    #[test]
+    fn line_bounds_window_truncated_returns_none() {
+        // FLTK's text_range is a C string: an embedded NUL truncates it. A
+        // short read must give no band, never a band at a wrong offset.
+        let text = b"abc\0def\nghi";
+        let range = cursor_line(text.len() as i32, 1, |s, e| {
+            let bytes = &text[s as usize..e as usize];
+            bytes.split(|&b| b == 0).next().unwrap_or_default().to_vec()
+        });
+        assert_eq!(range, None);
     }
 
     #[test]
