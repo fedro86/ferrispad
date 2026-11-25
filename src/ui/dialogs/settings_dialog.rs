@@ -51,6 +51,65 @@ pub fn show_settings_dialog(
     custom_themes: &[(ThemeRef, String)],
     mut hook: impl FnMut(SettingsHook) -> Option<Vec<(ThemeRef, String)>>,
 ) -> Option<AppSettings> {
+    let SettingsUi {
+        mut dialog,
+        result,
+        pending_manage,
+        pending_preview,
+        theme_light_choice,
+        theme_dark_choice,
+        light_choices,
+        dark_choices,
+        text_rgb: (tr, tg, tb),
+    } = build_settings_dialog(current_settings, theme_bg, custom_themes);
+    dialog.show();
+    DialogTheme::from_theme_bg(theme_bg).apply_titlebar(&dialog);
+
+    let (mut light_widget, mut dark_widget) = (theme_light_choice, theme_dark_choice);
+    super::run_dialog_with(&dialog, || {
+        if pending_manage.replace(false) {
+            if let Some(customs) = hook(SettingsHook::ManageThemes) {
+                // Deleted themes leave the lists; a choice that used one
+                // falls back to its mode's default.
+                refresh_choice(&mut light_widget, &light_choices, &customs, false);
+                refresh_choice(&mut dark_widget, &dark_choices, &customs, true);
+            }
+            fltk::app::foreground(tr, tg, tb);
+        }
+        if let Some(theme) = pending_preview.take() {
+            hook(SettingsHook::Preview(theme));
+            // The preview re-themes the main window, menu text colour
+            // included; this dialog keeps its own colours, so its Choice
+            // popups need its foreground back.
+            fltk::app::foreground(tr, tg, tb);
+        }
+    });
+
+    result.borrow().clone()
+}
+
+/// A built, not yet shown Settings dialog (see [`build_settings_dialog`]).
+pub struct SettingsUi {
+    /// The dialog window.
+    pub dialog: Window,
+    result: Rc<RefCell<Option<AppSettings>>>,
+    pending_manage: Rc<Cell<bool>>,
+    pending_preview: Rc<Cell<Option<ThemeRef>>>,
+    theme_light_choice: Choice,
+    theme_dark_choice: Choice,
+    light_choices: Rc<RefCell<Vec<(ThemeRef, String)>>>,
+    dark_choices: Rc<RefCell<Vec<(ThemeRef, String)>>>,
+    text_rgb: (u8, u8, u8),
+}
+
+/// Build the Settings dialog with its callbacks wired, without showing it.
+/// [`show_settings_dialog`] is the real entry point; this is also used by
+/// the UI construction tests (`tests/ui_dialogs.rs`).
+pub fn build_settings_dialog(
+    current_settings: &AppSettings,
+    theme_bg: (u8, u8, u8),
+    custom_themes: &[(ThemeRef, String)],
+) -> SettingsUi {
     let light_choices = theme_choices(&current_settings.syntax_theme_light, custom_themes);
     let dark_choices = theme_choices(&current_settings.syntax_theme_dark, custom_themes);
     let theme = DialogTheme::from_theme_bg(theme_bg);
@@ -545,8 +604,6 @@ pub fn show_settings_dialog(
 
     dialog.end();
     drop(top_level);
-    dialog.show();
-    theme.apply_titlebar(&dialog);
 
     let result = Rc::new(RefCell::new(None));
     let result_save = result.clone();
@@ -674,28 +731,17 @@ pub fn show_settings_dialog(
         w.hide();
     });
 
-    let (mut light_widget, mut dark_widget) =
-        (theme_light_choice.clone(), theme_dark_choice.clone());
-    super::run_dialog_with(&dialog, || {
-        if pending_manage.replace(false) {
-            if let Some(customs) = hook(SettingsHook::ManageThemes) {
-                // Deleted themes leave the lists; a choice that used one
-                // falls back to its mode's default.
-                refresh_choice(&mut light_widget, &light_choices, &customs, false);
-                refresh_choice(&mut dark_widget, &dark_choices, &customs, true);
-            }
-            fltk::app::foreground(tr, tg, tb);
-        }
-        if let Some(theme) = pending_preview.take() {
-            hook(SettingsHook::Preview(theme));
-            // The preview re-themes the main window, menu text colour
-            // included; this dialog keeps its own colours, so its Choice
-            // popups need its foreground back.
-            fltk::app::foreground(tr, tg, tb);
-        }
-    });
-
-    result.borrow().clone()
+    SettingsUi {
+        dialog,
+        result,
+        pending_manage,
+        pending_preview,
+        theme_light_choice,
+        theme_dark_choice,
+        light_choices,
+        dark_choices,
+        text_rgb: (tr, tg, tb),
+    }
 }
 
 /// The entries of a syntax-theme choice: the built-ins, the custom themes,
