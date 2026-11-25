@@ -1068,6 +1068,35 @@ mod tests {
         assert!(wcag_contrast(effective.text, (30, 30, 30)) >= 4.5);
     }
 
+    /// A deeply nested theme file is rejected by serde_json's default
+    /// recursion limit (128) while parsing, so no deep tree is ever built,
+    /// walked or dropped: it is safe even on a small stack.
+    #[test]
+    fn custom_theme_deeply_nested_json_rejected() {
+        let dir = tempdir().unwrap();
+        let depth = 100_000;
+        let json = format!(
+            r#"{{"format": 1, "name": "deep", "based_on": null, "theme": {{"scopes": {}{}}}}}"#,
+            "[".repeat(depth),
+            "]".repeat(depth)
+        );
+        fs::write(dir.path().join("t-deep.json"), json).unwrap();
+        let path = dir.path().to_path_buf();
+        let (loaded, warnings) = std::thread::Builder::new()
+            .stack_size(256 * 1024)
+            .spawn(move || {
+                let mut budget = ScopeAtomBudget::default();
+                let (store, warnings) = ThemeStore::load_with_budget(path, &mut budget);
+                (store.list().len(), warnings)
+            })
+            .unwrap()
+            .join()
+            .expect("loading must not crash");
+        assert_eq!(loaded, 0);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("recursion limit"), "{warnings:?}");
+    }
+
     #[test]
     fn translucent_theme_colors_are_composited_over_the_background() {
         let mut t = Theme::default();

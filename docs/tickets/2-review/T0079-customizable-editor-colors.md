@@ -359,6 +359,17 @@ the implementer: no display in this session).
    .atom_at(0)`, atoms are numbered in insertion order) and compares the
    difference. A syntect upgrade that changes the splitting fails here.
 
+### Deep-nesting guard (after T0080's review)
+
+T0080's review found that dropping a deeply nested `plist::Value` overflows
+the stack. The JSON theme loader is not exposed: it keeps serde_json's default
+recursion limit (128; no `disable_recursion_limit`, no `serde_stacker`), so a
+deeply nested file fails while parsing and no deep tree is ever built, walked
+(`json_strings`) or dropped. Guarded by
+`custom_theme_deeply_nested_json_rejected` (100 000 nested arrays, loaded on a
+256 KiB thread: skipped with a "recursion limit" warning). No code change was
+needed, so there is no red run.
+
 ### Notes from implementation
 
 - `current_line` is defined here (theme `line_highlight`, else a derived
