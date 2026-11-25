@@ -403,6 +403,10 @@ fn build_window(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Window, Ct
         error,
         rows: Rc::new(rows),
     };
+    // Open on the theme the editor shows (falls back to the first entry
+    // when that is a missing custom theme).
+    let shown = ctx.model.borrow().shown().clone();
+    *ctx.selected.borrow_mut() = Some(shown);
     ctx.refresh_list();
 
     // ---- Callbacks ----

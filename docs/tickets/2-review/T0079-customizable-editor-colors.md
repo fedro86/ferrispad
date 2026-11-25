@@ -285,8 +285,7 @@ nix develop -c cargo clippy --all-targets --all-features -- -D warnings
 nix develop -c cargo fmt --check
 ```
 
-Then manual steps 1–4 below (**pending user verification** — not run by
-the implementer: no display in this session).
+Then manual steps 1–4 below (results: *Manual check results* below).
 
 ### Review fixes (PR #158, first review)
 
@@ -381,6 +380,41 @@ needed, so there is no red run.
   goes through T0078's contrast function (registered in
   `apply_syntax_theme_colors`), so it stays readable.
 
+## Manual check results — Xvfb/X11 (driven by Claude)
+
+Debug build of the ticket/T0080 tip (contains this ticket), run in Xvfb
+1280×800 with `FLTK_BACKEND=x11`, a temporary `XDG_CONFIG_HOME`, driven with
+`xdotool` and checked on `import` screenshots (kept outside the repo, in
+`ferrispad-wt/uitest-T0080/`).
+
+1. **PASS** — `themes/t-test.json` (the v1 fixture with background
+   `#3c1428`, selection `#e6b400`, gutter `#145a3c`) and
+   `"syntax_theme_dark": "custom:t-test"`, dark mode, `font_size` 22: the
+   editor uses that background, the yellow selection and the green gutter;
+   font size 22 (`79-step1-custom.png`). The fixture keeps only 3 syntax
+   scopes, so most code is plain text there — expected.
+2. **PASS** — `t-test.json` truncated to 400 bytes: FerrisPad starts with
+   Base16 Ocean Dark, font size 22 kept, `settings.json` byte-identical
+   (same sha256) (`79-step2-corrupt.png`). stderr: the skip line
+   (`[theme] skipping …/t-test.json: EOF while parsing an object …`) — **plus
+   the missing-theme fallback line twice**, because the theme is set twice at
+   startup. Fixed (below): reported once per id.
+3. **PASS** — `t-test.json` removed: same fallback, `settings.json`
+   untouched (same sha256) (`79-step3-deleted.png`); same duplicate line,
+   same fix.
+4. Built-ins compared with the previous release side by side — **pending
+   user verification** (no previous-release build here). The 7 built-ins in
+   light and dark were all screenshotted for T0078 and look as expected, and
+   `builtin_effective_colors_unchanged` pins the colors.
+
+### Fix from the manual check — one stderr line for a missing theme
+
+`HighlightController::set_theme` reported a missing custom theme on every
+call; startup sets the theme twice, so step 2 printed the fallback line
+twice (observed above). It now reports each id once
+(`reported_missing`), asserted in
+`custom_theme_missing_reference_falls_back_to_mode_default`.
+
 ## Acceptance criteria
 
 - [x] Custom themes are syntect `Theme`s persisted via serde in
@@ -395,7 +429,9 @@ needed, so there is no red run.
       was seen failing against a naive implementation.
 - [x] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
       and `cargo fmt --check` pass.
-- [ ] Manual check 1–4 — **pending user verification**.
+- [x] Manual check 1–3 — Xvfb/X11, driven by Claude (see results below).
+- [ ] Manual check 4 (side by side with the previous release) — **pending
+      user verification**.
 
 ## Affected files
 

@@ -401,8 +401,76 @@ nix develop -c cargo clippy --all-targets --all-features -- -D warnings
 nix develop -c cargo fmt --check
 ```
 
-Then manual steps 1–11 — **pending user verification** (no display in the
-implementer's session; none of them has been run).
+Then manual steps 1–11 — results in *Manual check results* below.
+
+## Manual check results — Xvfb/X11 (driven by Claude)
+
+Debug build of the ticket/T0080 tip, Xvfb 1280×800, `FLTK_BACKEND=x11`,
+`GDK_BACKEND=x11`, temporary `XDG_CONFIG_HOME`, driven with `xdotool`,
+checked on `import` screenshots kept in `ferrispad-wt/uitest-T0080/`
+(not committed). Window positions differ from a desktop (no window manager,
+so no title bars).
+
+1. **PASS** — Settings → **Manage themes…** opens (no panic in the debug
+   build). The 7 built-ins are marked "(built-in)"; Rename, Delete, Pick…
+   and Reset are disabled for them, with the read-only note
+   (`80-01-manager.png`).
+2. **PASS** — Ocean Dark → Duplicate…: themed prompt prefilled "Base16 Ocean
+   Dark copy" (`80-02`); named "My Dark" → listed, selected, colors identical
+   to Ocean Dark, `themes/t-my-dark.json` written (`80-03`); it appears in
+   Settings' dark-theme choice (`80-04`).
+3. **PASS** — "My Dark" chosen as the dark theme; in the manager the
+   background set to `#f0e8d0` via the picker's hex field → the editor turns
+   beige live (`80-09`). **Cancel** → previous colors back, theme file
+   byte-identical (same md5) (`80-10`). Background `#401830`, selection
+   `#c0a000`, current line `#503040` → **OK**, Settings **Save** → applied and
+   on disk (`80-11`, `80-12`); after a restart with the same config they are
+   still there (`80-13`).
+4. **PASS** — Reset on Selection → `#468ce6` (Ocean Dark's T0078 selection),
+   live (`80-14`).
+5. **PASS** — Rename → "Night" (`80-15`, `80-16`): the file stays
+   `t-my-dark.json`, its name field is "Night", the reference is unchanged.
+   The unconfirmed Reset edit was not written by the rename (selection on
+   disk still `#c0a000`).
+6. **PASS** — Delete "Night" while in use → themed confirmation (Enter =
+   Cancel) (`80-17`) → the file is gone, `settings.json` has
+   `"syntax_theme_dark": "Base16OceanDark"`, the editor shows Ocean Dark at
+   once (`80-18`).
+7. **PASS (themed chooser)** — Import .tmTheme… with
+   `tests/fixtures/import_ok.tmTheme` → "Imported OK" with the file's colors,
+   Reset disabled, "no base theme" note (`80-20`); a renamed PNG → themed
+   error "not a valid .tmTheme file (InvalidUtf8AsciiStream …)", nothing
+   created (`80-21`). Here zenity was hidden from `PATH`, so FerrisPad's own
+   themed FLTK chooser was used (`80-19`): zenity 4 (GTK4) asks the desktop
+   portal and never appears inside Xvfb. **The zenity/GTK chooser on a real
+   desktop is pending user verification.**
+8. **PASS** — with "Imported OK" saved as the dark theme: Settings → Manage
+   themes → Delete it → close the manager: the dark choice shows Ocean Dark
+   (`80-23`) → **Cancel** in Settings: `settings.json` slot is
+   `Base16OceanDark`, the editor shows Ocean Dark (`80-24`); restart is clean,
+   no warnings (`80-25`).
+9. **PASS (X11)** — dark (`80-01`) and light (`80-28`) next to the Plugin
+   Manager (`80-27`): same background, text, primary/secondary buttons,
+   scrollbars; nothing FLTK grey. The theme list uses `input_bg` with a
+   `button_bg` selection, like the font and session pickers. Windows/macOS
+   title bars: **pending user**.
+10. **PASS** — color picker dark (`80-06`) and light (`80-29`), Duplicate and
+    Rename prompts (`80-02`, `80-15`), delete confirmation (`80-17`), import
+    chooser (`80-19`) and import error (`80-21`) are all themed. `#zzz` in the
+    hex field → inline "Enter a color as #RRGGBB", no change (`80-08`).
+11. **PASS** — dark mode, active custom theme's background → very light
+    (`80-09`): the manager and the Settings dialog behind it keep their dark
+    colors (the picker was dark too, `80-06`). Reopened afterwards, Manage
+    themes follows the new theme (`80-14`). While the dialogs are open, the
+    main window's menu-bar text stays the dialogs' light foreground on the
+    previewed light menu — the edge-8 trade-off; it is right again once the
+    dialogs close (`80-12`).
+
+Found and fixed during this pass: the manager opened on the first list entry
+instead of the theme the editor shows — it now preselects it (`80-32`;
+asserted in `tests/ui_dialogs.rs`). Cosmetic, not changed: the
+`ColorChooser`'s "rgb" mode selector keeps FLTK's lighter style; the
+"Import .tmTheme…" label is tight in its button.
 
 ## Acceptance criteria
 
@@ -410,19 +478,22 @@ implementer's session; none of them has been run).
       described, with live preview and a real Cancel for color edits.
       (Model-tested; the window itself is manual steps 1–8.)
 - [x] Built-ins cannot be modified, both in the UI and in the model.
-- [ ] The manager and all its sub-dialogs (picker, prompts, import) use
+- [x] The manager and all its sub-dialogs (picker, prompts, import) use
       `DialogTheme` and the shared helpers. They match the Plugin Manager and
       Settings in light and dark mode, contain no hard-coded colors, and are
-      not repainted by the live preview. — built that way; the look is manual
-      steps 9–11, **pending user verification**.
+      not repainted by the live preview. (Xvfb/X11 steps 9–11; Windows/macOS
+      title bars pending user.)
 - [x] Deleting a theme in use never leaves a dangling reference.
 - [x] Bad import files produce an error and create nothing (scope-atom flood
       included).
 - [x] All tests listed above exist and pass.
 - [x] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
       and `cargo fmt --check` pass.
-- [ ] The ticket records the manual check in light, dark and system theme
-      modes. — **pending user verification**.
+- [x] The ticket records the manual check in light and dark mode (Xvfb/X11,
+      driven by Claude).
+- [ ] System-default mode under a real OS appearance switch, a real Wayland
+      compositor, the GTK/zenity file dialog, Windows/macOS — **pending user
+      verification**.
 
 ## Affected files
 
