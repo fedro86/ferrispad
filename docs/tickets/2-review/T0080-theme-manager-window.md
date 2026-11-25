@@ -90,6 +90,11 @@ pattern follows JetBrains "Color Scheme": built-in themes are read-only, you
      syntect already pulls in, so no new crate in the binary), every `scope`
      string goes through T0079's `ScopeAtomBudget` (the process-wide one),
      and only then is `ThemeSet::load_from_reader` called.
+   - **Deeply nested / event-flood plist** (amendment after this ticket's
+     review): a < 1 MiB file can nest 65 000 arrays, and dropping (or
+     walking) such a `plist::Value` overflows the stack and aborts the app.
+     Pipeline order: size cap → shape check (depth ≤ 32, ≤ 200 000 values,
+     before any tree is built) → `plist::Value` + atom pre-scan → syntect.
 5. **Picker cancelled.** Cancel or closing the picker dialog returns `None`,
    so no change is
    made.
@@ -287,6 +292,36 @@ the 66 000 atoms already interned. Green with the pre-scan: both floods (one
 is created, syntect still loads and highlights. The flood files are generated
 by the test (~0.5 MB each) instead of a committed `import_atom_flood.tmTheme`
 fixture.
+
+### Review fix (PR #162) — deep nesting aborted the app
+
+`plist::Value::from_reader` builds the tree iteratively, but dropping a
+65 000-deep `Value` recurses once per level: a 975 KB `.tmTheme` of nested
+`<array>`s aborted FerrisPad (stack overflow, SIGABRT), losing unsaved work.
+Fix: `check_plist_shape` runs first and refuses depth > `MAX_PLIST_DEPTH` (32;
+real themes need 4–6) and more than `MAX_PLIST_EVENTS` (200 000) values,
+before any tree exists. It uses plist's stable serde API with a
+`Deserialize` that only descends as far as the limit allows, so its own
+stack use is bounded too; plist's raw event reader (`plist::stream`) is behind
+an unstable feature that would require pinning `plist = "~1.8"`. XML and
+binary plists alike.
+
+Red first — `theme_manager_import_deep_nesting_rejected` (import on a 256 KiB
+thread) against efa44d7:
+
+```
+running 2 tests
+thread '<unknown>' has overflowed its stack
+fatal runtime error: stack overflow, aborting
+process didn't exit successfully: `.../theme_import_flood-...` (signal: 6, SIGABRT: process abort signal)
+```
+
+Green after the fix. Also `theme_manager_import_binary_plist_shape_rejected`
+(binary plist nested 40 deep; binary flat array of 200 001 values). Both
+assert the specific reason, so they cannot pass on syntect's own rejection.
+The JSON theme loader (T0079) is not exposed: serde_json's recursion limit
+(128) stops a deep file while parsing; pinned on ticket/T0079 by
+`custom_theme_deeply_nested_json_rejected`.
 
 ### Tests
 
