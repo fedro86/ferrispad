@@ -49,6 +49,14 @@ nix develop -c cargo test --test settings_persistence color_overrides
 - `test_color_overrides_backward_compat` (same file): deserialize a
   `settings.json` string with none of the new fields; it loads without error
   and every override is unset.
+- `test_color_overrides_malformed_keeps_other_settings` (same file): a
+  `settings.json` with one override set to garbage (`"zzz"`, `[300, 0, 0]`,
+  `null`, a number) and the others valid loads without error. The bad
+  override is unset, the valid ones are kept, **and an unrelated non-default
+  setting in the same file (e.g. `font_size`) is preserved**. A plain
+  `#[serde(default)]` field of the wrong type makes `serde_json` reject the
+  whole `AppSettings` and `load()` reset everything, so this test must fail
+  against a naive implementation.
 - A unit test next to the merge logic (e.g.
   `color_overrides_take_precedence_over_theme`): given theme colors and a
   partial override set, the effective colors use the override where set and
@@ -109,6 +117,13 @@ All pass after the change; the full `nix develop -c cargo test` stays green.
   this ticket, which depends on T0078 landing first.
 - Override values from `settings.json` are untrusted input: malformed or
   out-of-range values must be ignored (fall back to the theme), never panic.
+  Deserialize each override leniently (an error yields `None`); see the
+  malformed-value test. T0077 needs the same pattern for window geometry, so
+  share the helper if both land.
+- The selection override bypasses T0078's contrast guarantee. FLTK still
+  applies `fl_contrast` to selected text, so text stays readable, but a
+  selection equal to the background is the user's choice. No validation is
+  required.
 - Open question for implementation: whether overrides are global, or kept
   separately per light/dark mode. The issue asks for global theme overrides;
   start there unless review decides otherwise.
