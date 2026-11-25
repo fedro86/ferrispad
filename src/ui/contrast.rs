@@ -15,6 +15,7 @@
 //! - everywhere else it is an exact port of FLTK's own CIELAB rule at
 //!   [`FLTK_CONTRAST_LEVEL`], so every other widget draws as before.
 
+use std::ffi::{c_int, c_uint};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use fltk::app::{self, ContrastMode};
@@ -160,17 +161,30 @@ fn registered_editor_selection() -> EditorSelectionBgs {
     }
 }
 
-/// The function FLTK calls for every `fl_contrast`. It runs inside C drawing
-/// code, so it must not panic: it only does arithmetic and atomic loads.
-fn contrast_callback(fg: Color, bg: Color, _fontsize: i32, _context: i32) -> Color {
-    ferrispad_contrast(fg, bg, registered_editor_selection())
+/// The function FLTK calls for every `fl_contrast`, with FLTK's C signature
+/// `Fl_Color (*)(Fl_Color fg, Fl_Color bg, int context, int size)`. It runs
+/// inside C drawing code: it only does arithmetic and atomic loads, and being
+/// `extern "C"`, a panic here would abort rather than unwind into FLTK.
+extern "C" fn contrast_callback(fg: c_uint, bg: c_uint, _context: c_int, _size: c_int) -> c_uint {
+    // `from_rgbi` keeps the raw bits (indexed colors included); `to_rgb`
+    // resolves an index through FLTK's colormap.
+    ferrispad_contrast(
+        Color::from_rgbi(fg),
+        Color::from_rgbi(bg),
+        registered_editor_selection(),
+    )
+    .bits()
 }
 
 /// Make FLTK use [`ferrispad_contrast`] for all its contrast decisions.
 /// Call once at startup, before any widget is drawn.
 pub fn install() {
     app::set_contrast_mode(ContrastMode::Custom);
-    app::set_contrast_function(contrast_callback);
+    // Registered directly, not through `app::set_contrast_function`, which
+    // transmutes a Rust-ABI fn pointer into the C one.
+    // SAFETY: `contrast_callback` has exactly the C signature FLTK expects
+    // (`Fl_Contrast_Function`), captures nothing, and does not unwind.
+    unsafe { fltk_sys::fl::Fl_set_contrast_function(Some(contrast_callback)) };
 }
 
 #[cfg(test)]
@@ -284,6 +298,22 @@ mod tests {
         // The same pair off the selection follows FLTK's rule (fg kept).
         let elsewhere = ferrispad_contrast(rgb((79, 91, 102)), blue, EditorSelectionBgs::default());
         assert_eq!(elsewhere, rgb((79, 91, 102)));
+    }
+
+    /// The C callback plumbs raw `Fl_Color` bits: with Ocean Light's
+    /// selection registered, its text color comes back as FL_BLACK (index
+    /// 56); off the selection, the CIELAB port keeps it.
+    #[test]
+    fn contrast_callback_plumbs_raw_color_bits() {
+        register_editor_selection((239, 241, 245), (0, 120, 215));
+        let fg = rgb((79, 91, 102)).bits();
+        assert_eq!(
+            contrast_callback(fg, 0x0078_D700, 0, 14),
+            Color::Black.bits()
+        );
+        assert_eq!(Color::Black.bits(), 56);
+        // An indexed background (FL_WHITE, 255) resolves via the colormap.
+        assert_eq!(contrast_callback(fg, Color::White.bits(), 0, 14), fg);
     }
 
     #[test]

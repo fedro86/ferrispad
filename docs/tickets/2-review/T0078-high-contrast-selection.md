@@ -261,9 +261,14 @@ Escalated; the orchestrator chose a custom FLTK contrast function (option
   FLTK takes a plain function pointer with no user data, so the callback can
   only read globals; atomics need no `unsafe` and no lock that could panic.
   `apply_syntax_theme_colors` registers them wherever it sets the selection;
-- `install()` sets `ContrastMode::Custom` + the callback (replaces
-  `set_contrast_level` in `main.rs`). The callback runs inside C drawing code,
-  so it is panic-free: arithmetic and atomic loads only.
+- `install()` sets `ContrastMode::Custom` and registers the callback (replaces
+  `set_contrast_level` in `main.rs`). The callback is an `extern "C" fn` with
+  FLTK's exact `Fl_Contrast_Function` signature, registered through
+  `fltk_sys::fl::Fl_set_contrast_function` — not fltk-rs's
+  `app::set_contrast_function`, which transmutes a Rust-ABI fn pointer (review
+  finding). It runs inside C drawing code: arithmetic and atomic loads only,
+  and as `extern "C"` a panic would abort instead of unwinding into FLTK.
+  `contrast_callback_plumbs_raw_color_bits` covers the raw-bits plumbing.
 
 Red first (the new `editor_selection_text_readable`, run with FLTK's current
 level-10 CIELAB rule before the custom function existed; 655 failure lines
