@@ -12,7 +12,7 @@
 //! thread that creates a window and asserts it for every later one.
 
 use ferris_pad::app::controllers::theme_manager::ThemeManagerModel;
-use ferris_pad::app::domain::settings::SyntaxTheme;
+use ferris_pad::app::domain::settings::{SyntaxTheme, ThemeRef};
 use ferris_pad::app::services::custom_themes::ThemeStore;
 use ferris_pad::ui::dialogs::color_picker::build_color_picker;
 use ferris_pad::ui::dialogs::theme_manager::build_theme_manager;
@@ -42,7 +42,7 @@ fn new_dialog_windows_build() {
     // Theme manager, with a custom theme whose name has FLTK format codes.
     let dir = tempfile::tempdir().unwrap();
     let mut store = ThemeStore::empty(dir.path().to_path_buf());
-    store
+    let custom = store
         .clone_from(&SyntaxTheme::Base16OceanDark.into(), "@b weird\tname")
         .unwrap();
     let model = ThemeManagerModel::new(
@@ -50,11 +50,13 @@ fn new_dialog_windows_build() {
         SyntaxTheme::Base16OceanLight.into(),
         SyntaxTheme::Base16OceanDark.into(),
         true,
-        SyntaxTheme::Base16OceanDark.into(),
+        ThemeRef::Custom(custom),
     );
     let (manager, list) = build_theme_manager((43, 48, 59), model);
     assert_eq!(list.size() as usize, SyntaxTheme::all().len() + 1);
     assert_eq!(list.text(list.size()).as_deref(), Some("@.@b weird name"));
+    // Opens on the theme the editor shows: the custom one, the last row.
+    assert_eq!(list.value(), list.size());
     assert!(!manager.shown());
 
     // Color picker, on a dark and a light dialog background.
