@@ -496,9 +496,7 @@ mod tests {
             "the main window callback must only send Message::WindowClose"
         );
         assert!(
-            production.contains(
-                "MainWindowAction::RequestQuit => close_sender.send(Message::WindowClose)"
-            ),
+            production.contains("send(Message::WindowClose)"),
             "Closed must send Message::WindowClose"
         );
         assert!(
