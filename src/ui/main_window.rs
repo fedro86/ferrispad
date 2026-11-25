@@ -153,8 +153,17 @@ pub fn install_geometry_tracking(wind: &mut Window, tracker: Rc<RefCell<WindowGe
     });
 }
 
-/// Snapshot the window state for the close-time save. Must run before the
-/// window is hidden: after `hide()` it would look minimized.
+/// Whether FLTK runs its Wayland backend. Exact (asks FLTK), but only valid
+/// once the display is open, i.e. after the first `show()`.
+pub fn using_wayland() -> bool {
+    // SAFETY: plain query with no arguments; returns whether FLTK's Wayland
+    // display connection exists (always 0 on non-Wayland builds).
+    unsafe { fltk_sys::fl::Fl_using_wayland() != 0 }
+}
+
+/// Snapshot the window state for the close-time save. Must run while the
+/// window is still shown: after `hide()` it would look minimized. Called by
+/// the `FileQuit | WindowClose` dispatch before the unsaved-changes prompt.
 pub fn capture_close_geometry(wind: &Window, tracker: &RefCell<WindowGeometryTracker>) {
     if let Ok(mut t) = tracker.try_borrow_mut() {
         t.capture_close(wind.visible(), wind.maximize_active(), window_rect(wind));

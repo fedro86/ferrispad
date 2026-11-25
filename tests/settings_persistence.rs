@@ -292,3 +292,45 @@ fn test_window_geometry_save_creates_missing_file() {
     assert_eq!(loaded.window, Some(sample_geometry()));
     assert_eq!(loaded.font_size, 14);
 }
+
+#[cfg(unix)]
+#[test]
+fn test_settings_save_keeps_symlink_and_permissions() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    let dir = tempdir().unwrap();
+    let real_dir = dir.path().join("dotfiles");
+    fs::create_dir(&real_dir).unwrap();
+    let real = real_dir.join("settings.json");
+    let link = dir.path().join("settings.json");
+
+    AppSettings::default().save_to(&real).unwrap();
+    fs::set_permissions(&real, fs::Permissions::from_mode(0o600)).unwrap();
+    symlink(&real, &link).unwrap();
+
+    // Both writers go through the atomic write.
+    let settings = AppSettings {
+        font_size: 21,
+        ..Default::default()
+    };
+    settings.save_to(&link).unwrap();
+    settings
+        .save_window_geometry_to(&link, sample_geometry())
+        .unwrap();
+
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "the symlink was replaced by a regular file"
+    );
+    let loaded = AppSettings::load_from(&real);
+    assert_eq!(loaded.font_size, 21);
+    assert_eq!(loaded.window, Some(sample_geometry()));
+    let mode = fs::metadata(&real).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "permissions were not preserved");
+    // No temp files left in either directory.
+    assert_eq!(fs::read_dir(&real_dir).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+}

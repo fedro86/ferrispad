@@ -238,9 +238,53 @@ For Linux, record whether the session was **Wayland or X11**
   it is taller (not on Wayland); `maximize()` after `show()`.
 - Wayland: no warning is printed; x/y of the saved geometry come from the
   stored value (or the 100,100 default), never from Wayland's 0,0.
-- Known approximation (as specified in edge case 11): FLTK falls back to
-  probing the default `wayland-0` socket when `WAYLAND_DISPLAY` is unset; the
-  env check then says X11. Only effect: x/y would be saved from that session.
+- Wayland detection (deviation from edge case 11, after review): instead of
+  the `FLTK_BACKEND`/`WAYLAND_DISPLAY` heuristic, FerrisPad asks FLTK through
+  `fltk_sys::fl::Fl_using_wayland()` once the window is shown
+  (`ui::main_window::using_wayland`). This is exact. The env heuristic was
+  wrong when `WAYLAND_DISPLAY` is unset but the default socket works, and when
+  a stale `WAYLAND_DISPLAY` makes FLTK fall back to X11. The env helper was
+  removed. `window_geometry_backend_detection` now covers what the flag
+  changes: stored x/y are kept on Wayland, current x/y are saved elsewhere,
+  and the flag set after `show()` reaches the decision.
+
+### Review round 1 (ferrispad-a3), fixes
+
+- **Title-bar close never reached the capture.** FLTK delivers `FL_CLOSE`
+  only to the window callback, never to `handle()`, so `WindowClose` and
+  `file_quit()` never run for a title-bar close. That root cause (which also
+  skips the unsaved-changes prompt) is fixed in **T0082**, and this ticket now
+  depends on it. Here the capture runs in the `FileQuit | WindowClose`
+  dispatch arm for both messages, before the prompt. With T0082 the window is
+  still shown there (or minimized, for a taskbar close), so no second close
+  hook is needed. Guard test:
+  `dispatch::tests::quit_captures_window_geometry_and_saves_on_confirm`.
+- **Cancelled quit.** The snapshot is discarded when `file_quit()` returns
+  false, so a later exit that captures nothing (the update-and-restart path)
+  writes nothing (`window_geometry_cancelled_quit_saves_nothing`).
+- **Symlinked or `chmod 600` settings.json.** `write_atomic` (used by every
+  settings save, not only geometry) used to replace a symlink with a regular
+  file and reset the mode to the umask default. It now resolves the target
+  with `fs::canonicalize` (when the file exists), creates the temp file in
+  the target's directory, copies the original permissions onto the temp file
+  before writing, and renames onto the target. Test
+  `test_settings_save_keeps_symlink_and_permissions` (unix) checks that the
+  link stays a link, the target holds the new contents, 0600 stays 0600, and
+  no temp file is left behind. Red run on the previous `write_atomic`:
+  ```
+  thread 'test_settings_save_keeps_symlink_and_permissions' panicked at tests/settings_persistence.rs:321:5:
+  the symlink was replaced by a regular file
+  test result: FAILED. 0 passed; 1 failed
+  ```
+- **Maximize at startup on X11.** Found while verifying. With `maximize()`
+  right after `show()`, Mutter (XWayland) received the request before it had
+  framed the window. Un-maximizing then restored y+37 and h−37 (the title-bar
+  height). `wait_for_expose()` before `maximize()` fixes it: re-measured,
+  un-maximize returns exactly to 250,150 1000×700.
+- Known limitation (review nit 4, not handled): some X11 WMs maximize by
+  first moving the window to the work-area origin at its old size, then
+  resizing. The history treats that move as a normal move, so the saved
+  normal *position* would be the work-area origin. The size stays right.
 
 ### Red run before the fix (naive `#[serde(default)]` + whole-struct save)
 
@@ -288,7 +332,19 @@ FLTK_BACKEND=x11 XDG_CONFIG_HOME=/tmp/fp-cfg nix develop -c cargo run   # X11 pa
   `font_size: 20`; it ran 8 s with no panic and no stderr output about
   geometry. Same with `FLTK_BACKEND=x11` (XWayland). Closing the window was not
   exercised (the process was killed by `timeout`).
-- Steps 1–8 on Linux Wayland and X11: **pending user verification**.
+- **Linux X11 (XWayland under GNOME), real WM close via
+  `wmctrl -c FerrisPad`**, isolated config. This ran on an interim build that
+  captured in the window callback; that hook was then dropped in favour of
+  T0082, so re-run after merging T0082:
+  1. fresh config, WM move/resize to 250,150 1000×700, close →
+     `window = {x:250, y:150, width:1000, height:700, maximized:false}`;
+     `font_size: 20` kept;
+  2. WM maximize, close → same rect with `maximized: true`;
+  3. reopen (starts maximized), WM un-maximize, close → back to
+     250,150 1000×700, after the `wait_for_expose` fix.
+- Steps 1–8 with the title-bar ×, on Linux Wayland and X11, once T0082 is
+  merged: **pending user verification**. Until then, a title-bar close does
+  not save geometry (T0082); File → Quit / Ctrl+Q does.
 - Windows 11 (the original report): **pending user verification**.
 - macOS: **pending user verification**.
 

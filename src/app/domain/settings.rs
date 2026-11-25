@@ -317,21 +317,31 @@ where
 /// Write `contents` to `path` atomically: a temp file in the same directory,
 /// flushed to disk, then renamed over the target. A crash mid-write leaves
 /// either the old file or the new one, never a truncated one.
+///
+/// A symlinked `settings.json` (dotfiles repo, stow, home-manager) is
+/// followed: the temp file is renamed onto the link's *target*, so the link
+/// survives. The existing file's permissions are carried over.
 fn write_atomic(path: &Path, contents: &[u8]) -> Result<(), AppError> {
-    let dir = path.parent().unwrap_or_else(|| Path::new("."));
-    let file_name = path
+    // canonicalize() fails when the file does not exist yet: write `path`.
+    let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let dir = target.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = target
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "settings.json".to_string());
     // The pid keeps two instances closing at once from sharing a temp file.
     let tmp = dir.join(format!(".{}.{}.tmp", file_name, std::process::id()));
+    let permissions = fs::metadata(&target).ok().map(|m| m.permissions());
 
     let result = (|| -> std::io::Result<()> {
         let mut file = fs::File::create(&tmp)?;
+        if let Some(permissions) = permissions {
+            file.set_permissions(permissions)?;
+        }
         file.write_all(contents)?;
         file.sync_all()?;
         drop(file);
-        fs::rename(&tmp, path)
+        fs::rename(&tmp, &target)
     })();
     if result.is_err() {
         let _ = fs::remove_file(&tmp);

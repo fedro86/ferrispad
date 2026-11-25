@@ -22,7 +22,7 @@ use crate::app::services::updater::{
     UpdateCheckResult, check_for_updates, is_flatpak, should_check_now,
 };
 use crate::app::services::window_geometry::{
-    self, TITLE_BAR_ESTIMATE, WindowGeometryTracker, clamp_onto_screens, restore_geometry,
+    TITLE_BAR_ESTIMATE, WindowGeometryTracker, clamp_onto_screens, restore_geometry,
 };
 use crate::app::state::AppState;
 use crate::app::{AppSettings, Message, ThemeMode, detect_system_dark_mode};
@@ -239,8 +239,7 @@ fn main() {
         .unwrap_or_default();
 
     // Window geometry from the last run, validated against the current screens
-    // (T0077). On Wayland the compositor places the window; x/y are not used.
-    let on_wayland = window_geometry::running_on_wayland();
+    // (T0077). On Wayland the compositor places the window; x/y are ignored.
     let screens = ui::main_window::screen_work_areas();
     let (initial_rect, start_maximized) =
         restore_geometry(settings.window, &screens, TITLE_BAR_ESTIMATE);
@@ -290,7 +289,7 @@ fn main() {
         state.mcp_responses = responses;
     }
     *state.window_geometry.borrow_mut() =
-        WindowGeometryTracker::new(settings.window, on_wayland, initial_rect);
+        WindowGeometryTracker::new(settings.window, false, initial_rect);
     ui::main_window::install_geometry_tracking(&mut w.wind, state.window_geometry.clone());
 
     // Bind the initial document's buffer to the editor
@@ -384,13 +383,9 @@ fn main() {
     // Using handle() with Event::Close to catch close even when menu is open.
     w.wind.handle({
         let s = sender;
-        let geometry = state.window_geometry.clone();
         move |wind, event| {
             match event {
                 fltk::enums::Event::Close => {
-                    // Snapshot size/maximized/minimized while still on screen;
-                    // saved only if the quit is confirmed (dispatch.rs).
-                    ui::main_window::capture_close_geometry(wind, &geometry);
                     fltk::app::program_should_quit(true);
                     s.send(Message::WindowClose);
                     // Hide the window to break out of any modal loops (like open menus)
@@ -429,6 +424,12 @@ fn main() {
     w.wind.end();
     w.wind.show();
 
+    // The backend is known once the display is open: on Wayland the close
+    // save keeps the stored x/y instead of the compositor's meaningless 0,0.
+    let on_wayland = ui::main_window::using_wayland();
+    if let Ok(mut geometry) = state.window_geometry.try_borrow_mut() {
+        geometry.set_wayland(on_wayland);
+    }
     // Pre-show clamping assumed a title bar of TITLE_BAR_ESTIMATE; if the real
     // decoration is taller, re-clamp so the title bar stays grabbable.
     let title_bar_h = w.wind.decorated_h() - w.wind.h();
@@ -440,7 +441,10 @@ fn main() {
         }
     }
     // Created at the normal rect, then maximized: un-maximizing returns there.
+    // Wait until the window is mapped first: an X11 WM that gets the request
+    // before it has framed the window restores to a rect off by the title bar.
     if start_maximized {
+        w.wind.wait_for_expose();
         w.wind.maximize();
     }
 

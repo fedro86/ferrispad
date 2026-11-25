@@ -1,5 +1,5 @@
-//! Main-window geometry: validation of the stored rect, the close-time "what
-//! to save" decision, and Wayland backend detection.
+//! Main-window geometry: validation of the stored rect and the close-time
+//! "what to save" decision.
 //!
 //! Everything here is pure (no FLTK calls) so it can be unit-tested with
 //! screens passed in as plain rects. The FLTK glue lives in
@@ -294,35 +294,21 @@ impl WindowGeometryTracker {
         });
     }
 
+    /// Set once the display is open (see `ui::main_window::using_wayland`).
+    pub fn set_wayland(&mut self, wayland: bool) {
+        self.wayland = wayland;
+    }
+
+    /// The quit was cancelled: forget the captured close, so a later exit
+    /// that captures nothing (e.g. the update-and-restart path) saves nothing.
+    pub fn discard_close(&mut self) {
+        self.snapshot = None;
+    }
+
     /// The geometry to write for the captured close, if any.
     pub fn take_geometry_to_save(&mut self) -> Option<WindowGeometry> {
         let snapshot = self.snapshot.take()?;
         geometry_to_save(&snapshot, self.stored, self.wayland)
-    }
-}
-
-/// Whether FLTK picks its Wayland backend, from the environment the way FLTK
-/// itself decides: `FLTK_BACKEND` wins (`wayland` / `x11`), otherwise a
-/// Wayland display must be advertised. Env values are parameters so this is
-/// testable; see `running_on_wayland` for the real lookup.
-pub fn is_wayland_backend(fltk_backend: Option<&str>, wayland_display: Option<&str>) -> bool {
-    match fltk_backend {
-        Some(backend) => backend == "wayland",
-        None => wayland_display.is_some_and(|d| !d.is_empty()),
-    }
-}
-
-/// `is_wayland_backend` for this process (always `false` off Linux).
-pub fn running_on_wayland() -> bool {
-    #[cfg(target_os = "linux")]
-    {
-        let backend = std::env::var("FLTK_BACKEND").ok();
-        let display = std::env::var("WAYLAND_DISPLAY").ok();
-        is_wayland_backend(backend.as_deref(), display.as_deref())
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        false
     }
 }
 
@@ -543,13 +529,9 @@ mod tests {
 
     #[test]
     fn window_geometry_backend_detection() {
-        assert!(!is_wayland_backend(Some("x11"), Some("wayland-0")));
-        assert!(is_wayland_backend(None, Some("wayland-0")));
-        assert!(is_wayland_backend(Some("wayland"), None));
-        assert!(!is_wayland_backend(None, None));
-        assert!(!is_wayland_backend(None, Some("")));
-
-        // On Wayland the decision keeps the previously stored x/y.
+        // The backend itself is queried from FLTK (`Fl_using_wayland`, exact);
+        // this covers what the flag changes. On Wayland the decision keeps
+        // the previously stored x/y.
         let stored = Some(geom(-1500, 80, 900, 700, false));
         let snapshot = CloseSnapshot {
             visible: true,
@@ -561,10 +543,32 @@ mod tests {
             geometry_to_save(&snapshot, stored, true),
             Some(geom(-1500, 80, 1100, 750, false))
         );
+        // X11 / Windows / macOS: the current position is saved.
+        assert_eq!(
+            geometry_to_save(&snapshot, stored, false),
+            Some(geom(0, 0, 1100, 750, false))
+        );
         // Nothing stored yet: the default position, never Wayland's 0,0.
         assert_eq!(
             geometry_to_save(&snapshot, None, true),
             Some(geom(DEFAULT_X, DEFAULT_Y, 1100, 750, false))
         );
+
+        // The flag set after show() reaches the tracker's decision.
+        let mut t = WindowGeometryTracker::new(stored, false, ScreenRect::new(0, 0, 640, 480));
+        t.set_wayland(true);
+        t.capture_close(true, false, ScreenRect::new(0, 0, 1100, 750));
+        assert_eq!(
+            t.take_geometry_to_save(),
+            Some(geom(-1500, 80, 1100, 750, false))
+        );
+    }
+
+    #[test]
+    fn window_geometry_cancelled_quit_saves_nothing() {
+        let mut t = WindowGeometryTracker::new(None, false, ScreenRect::new(100, 100, 640, 480));
+        t.capture_close(true, false, ScreenRect::new(100, 100, 900, 700));
+        t.discard_close();
+        assert_eq!(t.take_geometry_to_save(), None);
     }
 }
