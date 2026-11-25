@@ -279,6 +279,7 @@ test result: FAILED. 2 passed; 1 failed
 nix develop -c cargo test custom_theme
 nix develop -c cargo test --test settings_persistence theme_ref
 nix develop -c cargo test --test theme_scope_flood
+nix develop -c cargo test --test scope_atom_mirror
 nix develop -c cargo test
 nix develop -c cargo clippy --all-targets --all-features -- -D warnings
 nix develop -c cargo fmt --check
@@ -324,6 +325,39 @@ the implementer: no display in this session).
 4. Nit — a clone of a built-in takes the same colors "reset to base"
    restores (`derived_editor_colors` of the built-in), so reset == clone by
    construction.
+
+### Review fixes (PR #158, second review)
+
+1. **Blocking — the atom count under-counted.** The first budget split
+   selector-style on whitespace, `,`, `|`… But in a JSON theme every string
+   is ONE syntect `Scope` (`Scope::new` → `ScopeRepository::build`: trim,
+   `trim_end_matches('.')`, `split('.')`; nothing else splits), so an atom
+   like `"c a j b e"` was counted as letters, and 66 000 such atoms from a
+   10-letter alphabet passed as 10. Fix: new `src/app/services/scope_atoms.rs`
+   with two pure splitters, each citing the syntect 5.3.0 code it mirrors:
+   - `scope_atoms(s)` — one scope string (JSON themes);
+   - `tm_selector_scopes(s)` — a `.tmTheme` selector text (`,`/`|`, then
+     `" -"`, then whitespace), each piece then through `scope_atoms` (used by
+     T0080's import).
+   The budget (`ScopeAtomBudget::admit_scopes` / `admit_tm_selectors`, the
+   process-wide `with_process_atom_budget`) moved there too.
+   Red first — the combinatorial flood added to `tests/theme_scope_flood.rs`,
+   against 52bee3f:
+   ```
+   test custom_theme_atom_flood_rejected ... FAILED
+   thread 'custom_theme_atom_flood_rejected' panicked at .../syntect-5.3.0/src/dumps.rs:202:91:
+   called `Result::unwrap()` on an `Err` value: Custom("Invalid scope: TooManyAtoms")
+   test result: FAILED. 0 passed; 1 failed
+   ```
+   Green after the fix (both floods rejected, syntect loads and highlights).
+2. **Differential guard** — `tests/scope_atom_mirror.rs` (own binary): for
+   tricky benign inputs (spaces inside atoms, surrounding whitespace,
+   trailing dots, empty strings, commas, `|`, `&`, parentheses, `" -"`
+   excludes, tabs/newlines) the atoms each splitter predicts equal the atoms
+   syntect really interns. syntect exposes no atom count, so the test interns
+   a fresh probe atom before and after each parse (`Scope::new(probe)
+   .atom_at(0)`, atoms are numbered in insertion order) and compares the
+   difference. A syntect upgrade that changes the splitting fails here.
 
 ### Notes from implementation
 

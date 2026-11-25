@@ -15,6 +15,7 @@ pub mod http;
 pub mod plugin_registry;
 pub mod plugin_update_checker;
 pub mod plugin_verify;
+pub mod scope_atoms;
 pub mod session;
 pub mod shortcut_registry;
 pub mod syntax;

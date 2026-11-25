@@ -16,12 +16,11 @@
 //! untrusted: a bad file is skipped with a warning, never a panic.
 //! Several instances may edit the same theme file: the last write wins.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
 use syntect::highlighting::{Color, Theme, ThemeSet, ThemeSettings};
@@ -30,6 +29,8 @@ use crate::app::domain::settings::{
     CUSTOM_THEME_ID_MAX_LEN, SyntaxTheme, ThemeRef, is_valid_custom_theme_id,
 };
 use crate::ui::theme::{EditorColors, derived_editor_colors, effective_editor_colors};
+
+use super::scope_atoms::{ScopeAtomBudget, with_process_atom_budget};
 
 /// The only theme file format this build reads and writes.
 pub const THEME_FILE_FORMAT: u32 = 1;
@@ -49,98 +50,6 @@ const FALLBACK_SLUG: &str = "theme";
 /// Longest slug taken from a name, leaving room for a `-<n>` suffix inside
 /// [`CUSTOM_THEME_ID_MAX_LEN`].
 const MAX_SLUG_LEN: usize = CUSTOM_THEME_ID_MAX_LEN - 8;
-
-// --- Scope-atom budget ---------------------------------------------------
-//
-// syntect interns every atom of every scope it parses (the dot-separated
-// parts of `source.rust`) in a process-global repository that is never
-// freed and holds at most u16::MAX - 2 = 65 533 atoms. Atoms are interned
-// *before* syntect rejects a bad scope, so a theme file that fails to load
-// can still fill the repository; syntect's own syntaxes then panic when they
-// load (`SyntaxSet::load_defaults_newlines`). The built-in syntaxes and
-// themes use a few thousand atoms. So every theme is checked here, with a
-// tokenizer of our own, before syntect sees any of it:
-// - a scope has at most 8 atoms (syntect's limit),
-// - a theme adds at most 2 048 atoms not seen before,
-// - all custom themes of the process add at most 8 192 atoms in total,
-// which leaves the built-in syntaxes far more than they need.
-
-/// Most atoms in one scope (syntect's own limit).
-pub const MAX_ATOMS_PER_SCOPE: usize = 8;
-/// Most new distinct atoms one theme may add.
-pub const MAX_NEW_ATOMS_PER_THEME: usize = 2_048;
-/// Most distinct atoms all custom themes of the process may add.
-pub const MAX_CUSTOM_ATOMS_TOTAL: usize = 8_192;
-
-/// The scope atoms admitted so far, with the per-theme and total limits.
-#[derive(Debug)]
-pub struct ScopeAtomBudget {
-    seen: HashSet<String>,
-    per_theme: usize,
-    total: usize,
-}
-
-impl Default for ScopeAtomBudget {
-    fn default() -> Self {
-        Self::new(MAX_NEW_ATOMS_PER_THEME, MAX_CUSTOM_ATOMS_TOTAL)
-    }
-}
-
-impl ScopeAtomBudget {
-    pub fn new(per_theme: usize, total: usize) -> Self {
-        Self {
-            seen: HashSet::new(),
-            per_theme,
-            total,
-        }
-    }
-
-    /// Check the scope selector texts of one theme. On success their atoms
-    /// count as seen; on failure nothing is recorded. Each text may be a
-    /// single scope (`"source.rust"`) or a TextMate selector
-    /// (`"source.rust meta.fn, text - comment"`).
-    pub fn admit<'a>(
-        &mut self,
-        selectors: impl IntoIterator<Item = &'a str>,
-    ) -> Result<(), String> {
-        let mut new: HashSet<&str> = HashSet::new();
-        for selector in selectors {
-            let scopes = selector
-                .split(|c: char| c.is_whitespace() || matches!(c, ',' | '|' | '&' | '(' | ')'))
-                .filter(|t| !t.is_empty() && *t != "-");
-            for scope in scopes {
-                let atoms: Vec<&str> = scope.trim_end_matches('.').split('.').collect();
-                if atoms.len() > MAX_ATOMS_PER_SCOPE {
-                    return Err(format!("a scope has more than {MAX_ATOMS_PER_SCOPE} parts"));
-                }
-                new.extend(atoms.into_iter().filter(|a| !self.seen.contains(*a)));
-                if new.len() > self.per_theme {
-                    return Err(format!("more than {} distinct scope names", self.per_theme));
-                }
-            }
-        }
-        if self.seen.len() + new.len() > self.total {
-            return Err(format!(
-                "custom themes together exceed {} distinct scope names",
-                self.total
-            ));
-        }
-        self.seen.extend(new.into_iter().map(str::to_string));
-        Ok(())
-    }
-}
-
-/// The budget shared by every custom theme loaded or imported in this
-/// process, like the syntect repository it protects.
-static PROCESS_ATOM_BUDGET: Mutex<Option<ScopeAtomBudget>> = Mutex::new(None);
-
-/// Run `f` with the process-wide atom budget.
-pub fn with_process_atom_budget<T>(f: impl FnOnce(&mut ScopeAtomBudget) -> T) -> T {
-    let mut guard = PROCESS_ATOM_BUDGET
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner);
-    f(guard.get_or_insert_with(ScopeAtomBudget::default))
-}
 
 /// Every string in a JSON value, depth-first (bounded by serde_json's own
 /// recursion limit when the value was parsed).
@@ -590,7 +499,8 @@ fn load_theme_file(path: &Path, budget: &mut ScopeAtomBudget) -> Result<CustomTh
         return Err(format!("larger than {MAX_THEME_FILE_BYTES} bytes"));
     }
     // Plain JSON first: syntect must not see the scopes before they pass
-    // the atom budget (see `ScopeAtomBudget`).
+    // the atom budget (see `scope_atoms`). Every string under
+    // `theme.scopes` is one syntect `Scope`.
     let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
     if value.get("format").and_then(serde_json::Value::as_u64) != Some(u64::from(THEME_FILE_FORMAT))
     {
@@ -600,7 +510,7 @@ fn load_theme_file(path: &Path, budget: &mut ScopeAtomBudget) -> Result<CustomTh
     if let Some(scopes) = value.get("theme").and_then(|t| t.get("scopes")) {
         json_strings(scopes, &mut selectors);
     }
-    budget.admit(selectors)?;
+    budget.admit_scopes(selectors)?;
     let mut file: ThemeFile = serde_json::from_value(value).map_err(|e| e.to_string())?;
     fill_default_colors(&mut file.theme);
     Ok(CustomTheme {
@@ -1030,31 +940,6 @@ mod tests {
         assert_eq!(store.list().len(), 2, "{warnings:?}");
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("together exceed 60"), "{warnings:?}");
-    }
-
-    #[test]
-    fn scope_atom_budget_verdicts() {
-        let mut budget = ScopeAtomBudget::new(5, 7);
-        // Selector syntax is tokenized: 4 atoms (a, b, c, d).
-        assert!(budget.admit(["a.b c, d - a.b"]).is_ok());
-        // Already-seen atoms are free.
-        assert!(budget.admit(["a.b.c.d"]).is_ok());
-        // Per theme: 6 new atoms > 5.
-        assert!(budget.admit(["p.q.r.s.t.u"]).is_err());
-        // Rejection records nothing: 3 new atoms still fit (4 + 3 = 7).
-        assert!(budget.admit(["x.y.z"]).is_ok());
-        // Total: one more new atom exceeds 7.
-        assert!(budget.admit(["w"]).is_err());
-        // Too many parts in one scope, even with known atoms.
-        let mut fresh = ScopeAtomBudget::default();
-        assert!(fresh.admit(["a.a.a.a.a.a.a.a.a"]).is_err());
-        assert!(
-            fresh.admit(["a.a.a.a.a.a.a.a."]).is_ok(),
-            "trailing dot ignored, like syntect"
-        );
-        // The flood: 66 000 distinct atoms in one scope string.
-        let flood: Vec<String> = (0..66_000).map(|i| format!("f{i}")).collect();
-        assert!(fresh.admit([flood.join(".").as_str()]).is_err());
     }
 
     /// Without a foreground, syntect would paint plain text black on any
