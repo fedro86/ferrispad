@@ -342,6 +342,15 @@ pub fn show_settings_dialog(
     check_word_wrap.set_value(current_settings.word_wrap_enabled);
     y += ITEM_HEIGHT;
 
+    let mut check_current_line = CheckButton::default()
+        .with_pos(RIGHT_COL + 10, y)
+        .with_size(COL_WIDTH - 10, ITEM_HEIGHT)
+        .with_label("Highlight Current Line");
+    check_current_line.set_label_color(theme.text);
+    check_current_line.set_color(theme.bg);
+    check_current_line.set_value(current_settings.highlight_current_line);
+    y += ITEM_HEIGHT;
+
     let mut check_highlighting = CheckButton::default()
         .with_pos(RIGHT_COL + 10, y)
         .with_size(COL_WIDTH - 10, ITEM_HEIGHT)
@@ -608,6 +617,7 @@ pub fn show_settings_dialog(
             shortcut_overrides: current.shortcut_overrides.clone(),
             large_file_warning_mb,
             max_editable_size_mb: max_editable_mb,
+            highlight_current_line: check_current_line.value(),
         };
 
         *result_save.borrow_mut() = Some(new_settings);

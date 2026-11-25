@@ -563,6 +563,7 @@ fn main() {
                 // View & Format
                 Message::ToggleLineNumbers
                 | Message::ToggleWordWrap
+                | Message::ToggleCurrentLineHighlight
                 | Message::ToggleDarkMode
                 | Message::ToggleHighlighting
                 | Message::TogglePreview
@@ -728,6 +729,10 @@ fn main() {
                 dispatch::sync_start_page(&mut state, &mut lw);
             }
         }
+
+        // Current-line highlight: also per iteration (cursor moves by mouse or
+        // key without a Message); O(1) when nothing changed (T0081).
+        state.update_current_line_highlight();
 
         // Update status bar and editor context on every event loop iteration,
         // not just message dispatch — mouse selection doesn't generate messages.

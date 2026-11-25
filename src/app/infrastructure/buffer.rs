@@ -33,6 +33,28 @@ pub fn buffer_text_no_leak(buf: &fltk::text::TextBuffer) -> String {
     }
 }
 
+/// Read `[start, end)` from an FLTK TextBuffer without leaking the C-allocated
+/// copy (fltk-rs's `text_range` has the same leak as `text()`).
+pub fn text_range_no_leak(buf: &fltk::text::TextBuffer, start: i32, end: i32) -> String {
+    unsafe extern "C" {
+        fn Fl_Text_Buffer_text_range(
+            buf: *const std::ffi::c_void,
+            start: std::ffi::c_int,
+            end: std::ffi::c_int,
+        ) -> *mut std::ffi::c_char;
+    }
+    let len = buf.length();
+    let end = end.clamp(0, len);
+    let start = start.clamp(0, end);
+    // SAFETY: same contract as `buffer_text_no_leak`; FLTK returns a
+    // malloc'd, null-terminated copy of the (clamped) range, freed by
+    // `ffi_string_no_leak`.
+    unsafe {
+        let ptr = Fl_Text_Buffer_text_range(buf.as_ptr() as *const std::ffi::c_void, start, end);
+        ffi_string_no_leak(ptr)
+    }
+}
+
 /// Read the selected text from an FLTK TextBuffer without leaking the C-allocated copy.
 /// Same leak pattern as `text()` — see `buffer_text_no_leak` for details.
 pub fn selection_text_no_leak(buf: &fltk::text::TextBuffer) -> String {

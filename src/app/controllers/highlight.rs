@@ -44,10 +44,13 @@ pub struct HighlightController {
 
 impl HighlightController {
     pub fn new(theme: SyntaxTheme, font: Font, font_size: i32, highlighting_enabled: bool) -> Self {
+        let editor_colors = derived_editor_colors(theme.background(), theme.foreground());
+        let mut highlighter = SyntaxHighlighter::new(theme, font, font_size);
+        highlighter.set_current_line_bg(editor_colors.current_line);
         Self {
-            highlighter: SyntaxHighlighter::new(theme, font, font_size),
+            highlighter,
             custom_themes: BTreeMap::new(),
-            editor_colors: derived_editor_colors(theme.background(), theme.foreground()),
+            editor_colors,
             pending_rehighlight: None,
             rehighlight_timer_active: false,
             highlight_queue: Vec::new(),
@@ -81,6 +84,7 @@ impl HighlightController {
                         colors.text,
                     );
                     self.editor_colors = colors;
+                    self.highlighter.set_current_line_bg(colors.current_line);
                     return;
                 }
                 None => {
@@ -95,6 +99,8 @@ impl HighlightController {
         };
         self.highlighter.set_theme(builtin);
         self.editor_colors = derived_editor_colors(builtin.background(), builtin.foreground());
+        self.highlighter
+            .set_current_line_bg(self.editor_colors.current_line);
     }
 
     /// The editor colors of the active theme.
@@ -228,7 +234,7 @@ impl HighlightController {
             if line_count <= LARGE_FILE_THRESHOLD {
                 let result = self.highlighter.highlight_full(&text, name);
                 if let Some(doc) = tab_manager.doc_by_id_mut(id) {
-                    doc.style_buffer.set_text(&result.style_string);
+                    doc.set_style_text(&result.style_string);
                     doc.checkpoints = result.checkpoints;
                 }
             } else {
@@ -301,7 +307,7 @@ impl HighlightController {
         if let Some(doc) = tab_manager.doc_by_id_mut(id) {
             let start = result.byte_start as i32;
             let end = start + result.style_chars.len() as i32;
-            doc.style_buffer.replace(start, end, &result.style_chars);
+            doc.replace_styles(start, end, &result.style_chars);
             doc.checkpoints = checkpoints;
         }
 
@@ -395,7 +401,7 @@ impl HighlightController {
             if let Some(doc) = tab_manager.doc_by_id_mut(doc_id) {
                 let start = output.byte_start as i32;
                 let end = start + output.style_chars.len() as i32;
-                doc.style_buffer.replace(start, end, &output.style_chars);
+                doc.replace_styles(start, end, &output.style_chars);
             }
 
             if is_active {
@@ -451,7 +457,7 @@ impl HighlightController {
             if line_count <= LARGE_FILE_THRESHOLD {
                 let result = self.highlighter.highlight_full(&text, &syntax_name);
                 if let Some(doc) = tab_manager.doc_by_id_mut(id) {
-                    doc.style_buffer.set_text(&result.style_string);
+                    doc.set_style_text(&result.style_string);
                     doc.checkpoints = result.checkpoints;
                 }
                 if tab_manager.active_id() == Some(id) {
@@ -500,7 +506,7 @@ impl HighlightController {
             if line_count <= LARGE_FILE_THRESHOLD {
                 let result = self.highlighter.highlight_full(&text, &syntax_name);
                 if let Some(doc) = tab_manager.doc_by_id_mut(id) {
-                    doc.style_buffer.set_text(&result.style_string);
+                    doc.set_style_text(&result.style_string);
                     doc.checkpoints = result.checkpoints;
                 }
             } else {
@@ -531,7 +537,7 @@ impl HighlightController {
                 doc.checkpoints.clear();
                 let len = doc.buffer.length() as usize;
                 let plain = "A".repeat(len);
-                doc.style_buffer.set_text(&plain);
+                doc.set_style_text(&plain);
             }
         }
     }
@@ -565,6 +571,8 @@ impl HighlightController {
         };
         let mut style_buf = doc.style_buffer.clone();
         let buf = doc.buffer.clone();
+        // Marker writes below may overwrite the current-line twin (T0081).
+        doc.mark_style_stale();
 
         let get_marker_char = |highlight: &mut Self, color: &AnnotationColor| -> char {
             match color {
@@ -678,7 +686,7 @@ impl HighlightController {
         let result = self.highlight_full(&text, &syntax_name);
 
         if let Some(doc) = tab_manager.active_doc_mut() {
-            doc.style_buffer.set_text(&result.style_string);
+            doc.set_style_text(&result.style_string);
             doc.checkpoints = result.checkpoints;
         }
 

@@ -42,6 +42,7 @@ fn test_settings_roundtrip_all_fields() {
         shortcut_overrides: HashMap::new(),
         large_file_warning_mb: 100,
         max_editable_size_mb: 200,
+        highlight_current_line: false,
     };
 
     let json = serde_json::to_string_pretty(&settings).unwrap();
@@ -219,4 +220,21 @@ fn test_theme_ref_malformed_keeps_other_settings() {
             "light slot for {bad}"
         );
     }
+}
+
+#[test]
+fn test_current_line_default_on() {
+    // An old settings.json without the field: on.
+    let old: AppSettings = serde_json::from_str(r#"{ "font_size": 14 }"#).unwrap();
+    assert!(old.highlight_current_line);
+    assert!(AppSettings::default().highlight_current_line);
+
+    // An explicit false roundtrips.
+    let off = AppSettings {
+        highlight_current_line: false,
+        ..Default::default()
+    };
+    let json = serde_json::to_string(&off).unwrap();
+    let loaded: AppSettings = serde_json::from_str(&json).unwrap();
+    assert!(!loaded.highlight_current_line);
 }

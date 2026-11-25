@@ -254,7 +254,7 @@ impl FileController {
                 doc.display_name = "Untitled".to_string();
                 doc.syntax_name = None;
                 doc.checkpoints.clear();
-                doc.style_buffer.set_text("");
+                doc.set_style_text("");
             }
             vec![
                 FileAction::UpdateWindowTitle,
@@ -468,7 +468,7 @@ impl FileController {
         if let Some(doc) = tab_manager.doc_by_id_mut(doc_id) {
             doc.buffer.set_text(&content);
             let default_style = "A".repeat(content.len());
-            doc.style_buffer.set_text(&default_style);
+            doc.set_style_text(&default_style);
             doc.has_unsaved_changes.set(false);
             doc.checkpoints.clear();
             doc.disk_mtime = new_mtime;

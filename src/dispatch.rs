@@ -276,6 +276,7 @@ pub fn handle_view(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets) {
     match msg {
         Message::ToggleLineNumbers => state.view.toggle_line_numbers(&state.tab_manager),
         Message::ToggleWordWrap => state.view.toggle_word_wrap(),
+        Message::ToggleCurrentLineHighlight => state.toggle_current_line_highlight(),
         Message::ToggleDarkMode => {
             state.toggle_dark_mode();
             retheme_panels(state, lw);

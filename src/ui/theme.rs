@@ -244,7 +244,7 @@ pub fn apply_syntax_theme_colors(editor: &mut TextEditor, colors: &EditorColors)
     // checkbox/radio marks.
     editor.set_selection_color(fltk(colors.selection));
     // Selected text must stay readable on it (see `ui::contrast`).
-    super::contrast::register_editor_selection(background, colors.selection);
+    super::contrast::register_editor_selection(background, colors.selection, colors.current_line);
     editor.set_text_color(fltk(colors.text));
     editor.set_cursor_color(fltk(colors.caret));
     editor.set_linenumber_bgcolor(fltk(colors.line_number_bg));
@@ -827,5 +827,39 @@ mod tests {
             editor_selection_color(Syntax::InspiredGitHub.background()),
             light_variant
         );
+    }
+
+    /// T0081 edge case 11, on T0079's `editor_colors().current_line` (the
+    /// derived tint for built-ins): the band is visible on the background
+    /// (>= 1.05:1) and weaker than the selection, and it costs the default
+    /// text at most 20% of its contrast on the plain background, never having
+    /// to beat 4.5:1 (`text/band >= min(4.5, 0.8 * text/bg)`).
+    #[test]
+    fn current_line_color_sane_on_all_themes() {
+        use crate::app::controllers::highlight::HighlightController;
+        use crate::app::domain::settings::{SyntaxTheme, ThemeRef};
+        use crate::ui::color::wcag_contrast;
+
+        assert_eq!(SyntaxTheme::all().len(), 7);
+        let mut failures = Vec::new();
+        for theme in SyntaxTheme::all() {
+            let mut controller =
+                HighlightController::new(*theme, fltk::enums::Font::Courier, 14, true);
+            let is_dark = ThemeRgb::from_tuple(theme.background()).brightness() < 128;
+            controller.set_theme(&ThemeRef::Builtin(*theme), is_dark);
+            let c = controller.editor_colors();
+            let line = wcag_contrast(c.current_line, c.background);
+            let selection = wcag_contrast(c.selection, c.background);
+            let text = wcag_contrast(c.text, c.current_line);
+            let text_on_bg = wcag_contrast(c.text, c.background);
+            let summary = format!(
+                "{theme:?}: bg {:?} band {:?} text {:?} | band/bg {line:.3} sel/bg {selection:.2} text/band {text:.2} text/bg {text_on_bg:.2}",
+                c.background, c.current_line, c.text
+            );
+            if line < 1.05 || line >= selection || text < (0.8 * text_on_bg).min(4.5) {
+                failures.push(summary);
+            }
+        }
+        assert!(failures.is_empty(), "\n{}", failures.join("\n"));
     }
 }

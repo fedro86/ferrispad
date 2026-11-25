@@ -59,6 +59,7 @@ pub enum Message {
     // View
     ToggleLineNumbers,
     ToggleWordWrap,
+    ToggleCurrentLineHighlight,
     ToggleDarkMode,
     ToggleHighlighting,
     TogglePreview,

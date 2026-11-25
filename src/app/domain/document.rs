@@ -8,6 +8,7 @@ use fltk::text::TextBuffer;
 use super::messages::Message;
 use crate::app::controllers::tabs::GroupId;
 use crate::app::plugins::{Diagnostic, TreeViewRequest};
+use crate::app::services::current_line::CurrentLineTwin;
 use crate::app::services::syntax::checkpoint::SparseCheckpoints;
 use crate::app::services::text_ops::extract_filename;
 
@@ -89,10 +90,12 @@ fn register_modify_callback(
     buffer: &TextBuffer,
     style_buffer: &TextBuffer,
     has_unsaved_changes: &Rc<Cell<bool>>,
+    current_line: &Rc<Cell<CurrentLineTwin>>,
     doc_id: DocumentId,
     sender: Sender<Message>,
 ) -> *mut c_void {
     let changes = has_unsaved_changes.clone();
+    let current_line = current_line.clone();
     let mut style_buf = style_buffer.clone();
 
     let cb: Box<ModifyCb> = Box::new(
@@ -110,6 +113,12 @@ fn register_modify_callback(
                 if deleted > 0 {
                     style_buf.remove(pos, pos + deleted);
                 }
+                // The style bytes moved with the text: follow the twinned
+                // current line (T0081). A Cell, not a RefCell: no borrow
+                // can fail inside this FLTK callback.
+                let mut twin = current_line.get();
+                twin.on_modify(pos, inserted, deleted);
+                current_line.set(twin);
                 sender.send(Message::BufferModified {
                     id: doc_id,
                     pos,
@@ -173,12 +182,34 @@ pub struct Document {
     /// For tail/chunk documents: byte offsets into the original file so edits
     /// can be saved back to the correct position.
     pub partial_info: PartialFileInfo,
+    /// Current-line twin state (T0081), shared with the modify callback.
+    pub current_line: Rc<Cell<CurrentLineTwin>>,
     /// Pointer to the heap-allocated closure passed to FLTK's modify callback.
     /// Must be freed in cleanup() after removing the callback.
     modify_cb_data: *mut c_void,
 }
 
 impl Document {
+    /// Rewrite the whole style buffer. Every whole-buffer style write goes
+    /// through here so the current-line twin is re-applied afterwards (T0081).
+    pub fn set_style_text(&mut self, styles: &str) {
+        self.style_buffer.set_text(styles);
+        self.mark_style_stale();
+    }
+
+    /// Rewrite part of the style buffer (incremental highlight, markers).
+    pub fn replace_styles(&mut self, start: i32, end: i32, styles: &str) {
+        self.style_buffer.replace(start, end, styles);
+        self.mark_style_stale();
+    }
+
+    /// The style bytes were rewritten: twin chars there may be gone.
+    pub fn mark_style_stale(&self) {
+        let mut twin = self.current_line.get();
+        twin.mark_stale();
+        self.current_line.set(twin);
+    }
+
     pub fn new_untitled(id: DocumentId, counter: u32, sender: Sender<Message>) -> Self {
         let display_name = if counter == 1 {
             "Untitled".to_string()
@@ -189,9 +220,16 @@ impl Document {
         let buffer = TextBuffer::default();
         let style_buffer = TextBuffer::default();
         let has_unsaved_changes = Rc::new(Cell::new(false));
+        let current_line = Rc::new(Cell::new(CurrentLineTwin::default()));
 
-        let modify_cb_data =
-            register_modify_callback(&buffer, &style_buffer, &has_unsaved_changes, id, sender);
+        let modify_cb_data = register_modify_callback(
+            &buffer,
+            &style_buffer,
+            &has_unsaved_changes,
+            &current_line,
+            id,
+            sender,
+        );
 
         Self {
             id,
@@ -211,6 +249,7 @@ impl Document {
             disk_mtime: None,
             disambiguated_name: None,
             partial_info: PartialFileInfo::Full,
+            current_line,
             modify_cb_data,
         }
     }
@@ -226,9 +265,16 @@ impl Document {
         let buffer = TextBuffer::default();
         let mut style_buffer = TextBuffer::default();
         let has_unsaved_changes = Rc::new(Cell::new(false));
+        let current_line = Rc::new(Cell::new(CurrentLineTwin::default()));
 
-        let modify_cb_data =
-            register_modify_callback(&buffer, &style_buffer, &has_unsaved_changes, id, sender);
+        let modify_cb_data = register_modify_callback(
+            &buffer,
+            &style_buffer,
+            &has_unsaved_changes,
+            &current_line,
+            id,
+            sender,
+        );
 
         // These trigger the modify callback, which keeps style_buffer in sync
         buffer.clone().set_text(content);
@@ -254,6 +300,7 @@ impl Document {
             disk_mtime: None,
             disambiguated_name: None,
             partial_info: PartialFileInfo::Full,
+            current_line,
             modify_cb_data,
         }
     }
@@ -276,9 +323,16 @@ impl Document {
 
         let mut style_buffer = TextBuffer::default();
         let has_unsaved_changes = Rc::new(Cell::new(false));
+        let current_line = Rc::new(Cell::new(CurrentLineTwin::default()));
 
-        let modify_cb_data =
-            register_modify_callback(&buffer, &style_buffer, &has_unsaved_changes, id, sender);
+        let modify_cb_data = register_modify_callback(
+            &buffer,
+            &style_buffer,
+            &has_unsaved_changes,
+            &current_line,
+            id,
+            sender,
+        );
 
         // Initialize style buffer for syntax highlighting
         // For large files, skip this to save memory (no highlighting anyway)
@@ -309,6 +363,7 @@ impl Document {
             disk_mtime: None,
             disambiguated_name: None,
             partial_info: PartialFileInfo::Full,
+            current_line,
             modify_cb_data,
         }
     }
