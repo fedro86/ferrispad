@@ -48,8 +48,8 @@ user sees, and every requirement below is measured against it. The hard-coded
 
 ## Out of scope
 
-- User-configurable colors, `settings.json` fields, Reset — that is T0079,
-  which builds on this ticket.
+- Custom themes and color editing (T0079 model, T0080 window) and the
+  current-line highlight (T0081). All three build on this ticket.
 - Editors inside the split / diff-review panel (`src/ui/split_panel.rs`).
   They set no selection color today and use FLTK's default. Aligning them is
   a follow-up.
@@ -158,9 +158,10 @@ The full `nix develop -c cargo test` stays green.
 ## Notes
 
 - Origin: user request, GitHub issue #150.
-- Issue #150 is shared with T0079 (customizable editor colors). The request
-  exceeded the ~5-bullet ticket scope, so it was split into this ticket and
-  T0079, which depends on this one.
+- Issue #150 exceeded the ~5-bullet ticket scope and is split into: T0078
+  (this ticket, high-contrast default selection), T0079 (custom themes: model
+  and persistence), T0080 (theme manager window) and T0081 (current-line
+  highlight).
 - FLTK references (fltk-sys 1.5.14, `Fl_Text_Display.cxx` ~l.2380–2416):
   the unfocused blend weight is 0.4, and selected text goes through
   `fl_contrast`.
