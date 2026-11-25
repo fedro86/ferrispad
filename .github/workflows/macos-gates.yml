@@ -24,8 +24,8 @@ env:
 
 jobs:
   gates:
-    name: build + clippy + test (macos arm64)
-    runs-on: macos-14
+    name: build + clippy + test (macos)
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
 

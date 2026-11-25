@@ -232,3 +232,11 @@ real Mac.
 need to be on `master` first: opening the draft PR for this branch against
 `master` runs the macOS gate on this very change. This removes the
 "split into its own ticket" caveat above. Not pushed, no PR opened, never run.
+
+### Update: `macos-latest` runner (2026-11-25, local only, not pushed)
+
+`macos-gates.yml` now uses `runs-on: macos-latest` instead of `macos-14`, the
+same label as `release.yml`'s `build-macos` job. The job name drops "arm64"
+(`build + clippy + test (macos)`) because the image behind `macos-latest` is
+moved by GitHub over time; it is currently Apple Silicon (arm64). Triggers,
+commands and permissions are unchanged; no other workflow is touched.
