@@ -11,6 +11,7 @@ use fltk::{
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use crate::app::domain::settings::default_syntax_theme;
 use crate::app::{AppSettings, SessionRestore, SyntaxTheme, ThemeMode, ThemeRef, UpdateChannel};
 
 use super::DialogTheme;
@@ -25,17 +26,30 @@ const LABEL_HEIGHT: i32 = 20;
 const ITEM_HEIGHT: i32 = 22;
 const SECTION_GAP: i32 = 15;
 
+/// What the Settings dialog asks of its caller while it is open. The dialog
+/// is modal, so the caller acts from inside the dialog loop.
+pub enum SettingsHook {
+    /// Show this syntax theme in the editor (a live preview, or the revert
+    /// to the original theme on Cancel/close after a preview).
+    Preview(ThemeRef),
+    /// Open the theme manager. The caller returns the custom themes
+    /// (reference, name) afterwards.
+    ManageThemes,
+}
+
 /// Show settings dialog and return updated settings if user clicked Save.
-/// `preview` is called while the dialog is open, each time the user picks a
-/// syntax theme for the current mode, and once more with the original theme
-/// when the dialog is cancelled or closed after a preview.
-/// `custom_themes` lists the loaded custom themes (reference, display name)
-/// offered beside the built-ins.
+/// `hook` is called while the dialog is open: [`SettingsHook::Preview`] each
+/// time the user picks a syntax theme for the current mode (and once more
+/// with the original theme when the dialog is cancelled or closed after a
+/// preview), [`SettingsHook::ManageThemes`] for "Manage themes…", which
+/// returns the custom themes to list afterwards. `custom_themes` lists the
+/// loaded custom themes (reference, display name) offered beside the
+/// built-ins.
 pub fn show_settings_dialog(
     current_settings: &AppSettings,
     theme_bg: (u8, u8, u8),
     custom_themes: &[(ThemeRef, String)],
-    mut preview: impl FnMut(&ThemeRef),
+    mut hook: impl FnMut(SettingsHook) -> Option<Vec<(ThemeRef, String)>>,
 ) -> Option<AppSettings> {
     let light_choices = theme_choices(&current_settings.syntax_theme_light, custom_themes);
     let dark_choices = theme_choices(&current_settings.syntax_theme_dark, custom_themes);
@@ -119,11 +133,11 @@ pub fn show_settings_dialog(
     theme_light_choice.set_text_color(theme.text);
     theme_light_choice.set_label_color(theme.text);
     theme_light_choice.set_selection_color(theme.button_bg);
-    for (_, label) in light_choices.iter() {
+    for (_, label) in light_choices.borrow().iter() {
         theme_light_choice.add_choice(&choice_label(label));
     }
     theme_light_choice.set_value(choice_index(
-        &light_choices,
+        &light_choices.borrow(),
         &current_settings.syntax_theme_light,
     ));
     y += 30;
@@ -144,13 +158,25 @@ pub fn show_settings_dialog(
     theme_dark_choice.set_text_color(theme.text);
     theme_dark_choice.set_label_color(theme.text);
     theme_dark_choice.set_selection_color(theme.button_bg);
-    for (_, label) in dark_choices.iter() {
+    for (_, label) in dark_choices.borrow().iter() {
         theme_dark_choice.add_choice(&choice_label(label));
     }
     theme_dark_choice.set_value(choice_index(
-        &dark_choices,
+        &dark_choices.borrow(),
         &current_settings.syntax_theme_dark,
     ));
+    y += 30;
+
+    let mut manage_btn = Button::default()
+        .with_pos(LEFT_COL + 10, y)
+        .with_size(COL_WIDTH - 20, 25)
+        .with_label("Manage themes…");
+    manage_btn.set_frame(FrameType::RFlatBox);
+    manage_btn.set_color(theme.button_bg);
+    manage_btn.set_label_color(theme.text);
+    let pending_manage = Rc::new(Cell::new(false));
+    let pending_manage_btn = pending_manage.clone();
+    manage_btn.set_callback(move |_| pending_manage_btn.set(true));
     y += 30 + SECTION_GAP;
 
     // Live preview callbacks for theme changes. The widget callbacks only
@@ -162,7 +188,8 @@ pub fn show_settings_dialog(
     let is_dark_for_light = is_dark;
     let light_for_preview = light_choices.clone();
     theme_light_choice.set_callback(move |c| {
-        if !is_dark_for_light && let Some(theme) = choice_at(&light_for_preview, c.value()) {
+        if !is_dark_for_light && let Some(theme) = choice_at(&light_for_preview.borrow(), c.value())
+        {
             pending_light.set(Some(theme));
             previewed_light.set(true);
         }
@@ -172,7 +199,7 @@ pub fn show_settings_dialog(
     let is_dark_for_dark = is_dark;
     let dark_for_preview = dark_choices.clone();
     theme_dark_choice.set_callback(move |c| {
-        if is_dark_for_dark && let Some(theme) = choice_at(&dark_for_preview, c.value()) {
+        if is_dark_for_dark && let Some(theme) = choice_at(&dark_for_preview.borrow(), c.value()) {
             pending_dark.set(Some(theme));
             previewed_dark.set(true);
         }
@@ -523,6 +550,8 @@ pub fn show_settings_dialog(
 
     let dialog_save = dialog.clone();
     let current = current_settings.clone();
+    let (light_choices_save, dark_choices_save) = (light_choices.clone(), dark_choices.clone());
+    let (light_save, dark_save) = (theme_light_choice.clone(), theme_dark_choice.clone());
     let warning_input_save = warning_input.clone();
     let max_edit_input_save = max_edit_input.clone();
     save_btn.set_callback(move |_| {
@@ -581,9 +610,9 @@ pub fn show_settings_dialog(
                 SessionRestore::Off
             },
             preview_enabled: current.preview_enabled,
-            syntax_theme_light: choice_at(&light_choices, theme_light_choice.value())
+            syntax_theme_light: choice_at(&light_choices_save.borrow(), light_save.value())
                 .unwrap_or_else(|| current.syntax_theme_light.clone()),
-            syntax_theme_dark: choice_at(&dark_choices, theme_dark_choice.value())
+            syntax_theme_dark: choice_at(&dark_choices_save.borrow(), dark_save.value())
                 .unwrap_or_else(|| current.syntax_theme_dark.clone()),
             tab_size: if tab_2.value() {
                 2
@@ -635,9 +664,20 @@ pub fn show_settings_dialog(
         w.hide();
     });
 
+    let (mut light_widget, mut dark_widget) =
+        (theme_light_choice.clone(), theme_dark_choice.clone());
     super::run_dialog_with(&dialog, || {
+        if pending_manage.replace(false) {
+            if let Some(customs) = hook(SettingsHook::ManageThemes) {
+                // Deleted themes leave the lists; a choice that used one
+                // falls back to its mode's default.
+                refresh_choice(&mut light_widget, &light_choices, &customs, false);
+                refresh_choice(&mut dark_widget, &dark_choices, &customs, true);
+            }
+            fltk::app::foreground(tr, tg, tb);
+        }
         if let Some(theme) = pending_preview.take() {
-            preview(&theme);
+            hook(SettingsHook::Preview(theme));
             // The preview re-themes the main window, menu text colour
             // included; this dialog keeps its own colours, so its Choice
             // popups need its foreground back.
@@ -654,7 +694,7 @@ pub fn show_settings_dialog(
 fn theme_choices(
     current: &ThemeRef,
     custom_themes: &[(ThemeRef, String)],
-) -> Rc<Vec<(ThemeRef, String)>> {
+) -> Rc<RefCell<Vec<(ThemeRef, String)>>> {
     let mut choices: Vec<(ThemeRef, String)> = SyntaxTheme::all()
         .iter()
         .map(|t| (ThemeRef::Builtin(*t), t.display_name().to_string()))
@@ -665,7 +705,33 @@ fn theme_choices(
     {
         choices.push((current.clone(), format!("{id} (missing)")));
     }
-    Rc::new(choices)
+    Rc::new(RefCell::new(choices))
+}
+
+/// Rebuild a syntax-theme choice after the theme manager changed the custom
+/// themes: keep the selected theme if it still exists, else select the
+/// light (`is_dark == false`) or dark default.
+fn refresh_choice(
+    widget: &mut Choice,
+    choices: &RefCell<Vec<(ThemeRef, String)>>,
+    custom_themes: &[(ThemeRef, String)],
+    is_dark: bool,
+) {
+    let selected = choice_at(&choices.borrow(), widget.value());
+    let builtin = ThemeRef::Builtin(default_syntax_theme(is_dark));
+    let keep = match &selected {
+        Some(ThemeRef::Builtin(_)) => selected.clone(),
+        Some(custom) if custom_themes.iter().any(|(t, _)| t == custom) => selected.clone(),
+        _ => None,
+    }
+    .unwrap_or(builtin);
+    let fresh = theme_choices(&keep, custom_themes).borrow().clone();
+    widget.clear();
+    for (_, label) in &fresh {
+        widget.add_choice(&choice_label(label));
+    }
+    widget.set_value(choice_index(&fresh, &keep));
+    *choices.borrow_mut() = fresh;
 }
 
 /// A theme name as a Choice entry: FLTK reads `/` as a submenu, `\\` as an

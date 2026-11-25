@@ -139,6 +139,11 @@ impl EditorColorField {
         }
     }
 
+    /// Store `rgb` (opaque) as this field of `settings`.
+    pub fn set(self, settings: &mut ThemeSettings, rgb: (u8, u8, u8)) {
+        *self.slot(settings) = Some(opaque(rgb));
+    }
+
     fn slot(self, settings: &mut ThemeSettings) -> &mut Option<Color> {
         match self {
             Self::Background => &mut settings.background,
@@ -240,6 +245,12 @@ fn opaque((r, g, b): (u8, u8, u8)) -> Color {
     Color { r, g, b, a: 0xFF }
 }
 
+/// The colors "reset to base" restores for a theme cloned from `base`: the
+/// base built-in's effective editor colors.
+pub fn base_colors(base: SyntaxTheme) -> EditorColors {
+    derived_editor_colors(base.background(), base.foreground())
+}
+
 /// The loaded custom themes and the directory they live in.
 pub struct ThemeStore {
     dir: PathBuf,
@@ -329,12 +340,23 @@ impl ThemeStore {
                 (src.theme.clone(), colors, src.based_on)
             }
         };
-        let name = normalize_name(name);
         for &field in EditorColorField::all() {
-            *field.slot(&mut theme.settings) = Some(opaque(field.of(&colors)));
+            field.set(&mut theme.settings, field.of(&colors));
         }
-        theme.name = Some(name.clone());
+        self.add(name, based_on, theme)
+    }
 
+    /// Add `theme` as a new custom theme named `name`, save it, and return
+    /// its fresh id. Nothing is kept if saving fails.
+    pub fn add(
+        &mut self,
+        name: &str,
+        based_on: Option<SyntaxTheme>,
+        mut theme: Theme,
+    ) -> Result<String, ThemeError> {
+        let name = normalize_name(name);
+        theme.name = Some(name.clone());
+        fill_default_colors(&mut theme);
         let id = self.new_id(&name);
         self.themes.insert(
             id.clone(),
@@ -350,6 +372,17 @@ impl ThemeStore {
             return Err(e);
         }
         Ok(id)
+    }
+
+    /// Replace the editor/UI settings of theme `id` in memory (call
+    /// [`Self::save`] to keep them). Name and scopes are untouched.
+    pub fn set_settings(&mut self, id: &str, settings: ThemeSettings) -> Result<(), ThemeError> {
+        let theme = self
+            .themes
+            .get_mut(id)
+            .ok_or_else(|| ThemeError::NotFound(id.to_string()))?;
+        theme.theme.settings = settings;
+        Ok(())
     }
 
     /// A fresh, unique id for `name` (unique among loaded themes and files
@@ -457,7 +490,7 @@ impl ThemeStore {
             .themes
             .get_mut(id)
             .ok_or_else(|| ThemeError::NotFound(id.to_string()))?;
-        *field.slot(&mut theme.theme.settings) = Some(opaque(rgb));
+        field.set(&mut theme.theme.settings, rgb);
         Ok(())
     }
 
@@ -470,10 +503,81 @@ impl ThemeStore {
             .get_mut(id)
             .ok_or_else(|| ThemeError::NotFound(id.to_string()))?;
         let base = theme.based_on.ok_or(ThemeError::NoBase)?;
-        let colors = derived_editor_colors(base.background(), base.foreground());
-        *field.slot(&mut theme.theme.settings) = Some(opaque(field.of(&colors)));
+        field.set(&mut theme.theme.settings, field.of(&base_colors(base)));
         Ok(())
     }
+}
+
+/// Deepest plist nesting the import pre-scan walks; real themes use 4.
+const MAX_PLIST_DEPTH: usize = 32;
+
+/// Every string stored under a `scope` key anywhere in `value` — the only
+/// place syntect reads scope selectors from a `.tmTheme` (each one a
+/// selector text, see `scope_atoms::tm_selector_scopes`).
+fn plist_scope_strings<'a>(
+    value: &'a plist::Value,
+    depth: usize,
+    out: &mut Vec<&'a str>,
+) -> Result<(), String> {
+    if depth > MAX_PLIST_DEPTH {
+        return Err("the file is nested too deeply".into());
+    }
+    match value {
+        plist::Value::Dictionary(dict) => {
+            for (key, item) in dict {
+                if let (true, plist::Value::String(scope)) = (key == "scope", item) {
+                    out.push(scope);
+                } else {
+                    plist_scope_strings(item, depth + 1, out)?;
+                }
+            }
+        }
+        plist::Value::Array(items) => {
+            for item in items {
+                plist_scope_strings(item, depth + 1, out)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Read a `.tmTheme` file for import, treating it as untrusted:
+/// - over 1 MiB (checked before reading, and the read is capped) or not a
+///   regular file → error;
+/// - parsed with `plist` first, and its scopes checked against the
+///   process-wide [`ScopeAtomBudget`] before syntect sees them;
+/// - then parsed by syntect; a missing foreground/background is filled in.
+pub fn read_tm_theme(path: &Path) -> Result<Theme, String> {
+    let meta = fs::metadata(path).map_err(|e| e.to_string())?;
+    if !meta.is_file() {
+        return Err("not a regular file".into());
+    }
+    let too_big = || {
+        format!(
+            "the file is larger than {} KiB",
+            MAX_THEME_FILE_BYTES / 1024
+        )
+    };
+    if meta.len() > MAX_THEME_FILE_BYTES {
+        return Err(too_big());
+    }
+    let mut bytes = Vec::new();
+    File::open(path)
+        .and_then(|f| f.take(MAX_THEME_FILE_BYTES + 1).read_to_end(&mut bytes))
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > MAX_THEME_FILE_BYTES {
+        return Err(too_big());
+    }
+    let plist = plist::Value::from_reader(io::Cursor::new(&bytes))
+        .map_err(|e| format!("not a valid .tmTheme file ({e})"))?;
+    let mut scopes = Vec::new();
+    plist_scope_strings(&plist, 0, &mut scopes)?;
+    with_process_atom_budget(|budget| budget.admit_tm_selectors(scopes))?;
+    let mut theme = ThemeSet::load_from_reader(&mut io::Cursor::new(bytes))
+        .map_err(|e| format!("not a valid .tmTheme file ({e})"))?;
+    fill_default_colors(&mut theme);
+    Ok(theme)
 }
 
 /// Read and validate one theme file; the error is a human-readable reason.
