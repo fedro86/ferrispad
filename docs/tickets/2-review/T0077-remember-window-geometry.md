@@ -377,16 +377,50 @@ FLTK_BACKEND=x11 XDG_CONFIG_HOME=/tmp/fp-cfg nix develop -c cargo run   # X11 pa
   4. stored 300,200 900×600; type text (dirty), WM resize to 1000×700, close
      → "Unsaved Changes" prompt; Escape (Cancel) → the window stays; process
      then killed → stored geometry **unchanged** (edge case 9).
-- Steps 4–9 (minimized close, off-screen / malformed edit, two instances,
-  multi-monitor, old file, hidden X11 workspace) and native Wayland ×:
-  **pending user verification**. Step 9 was not run here, because switching
-  workspaces would disturb the user's session. The code path has no blocking
-  call.
+- **Xvfb/X11 (driven by Claude)**, debug build of the stacked tip
+  (92b19f0), Xvfb 1280×800 + **openbox**. That gives real EWMH maximize,
+  real `WM_DELETE_WINDOW` closes and real workspaces. Geometry is read with
+  `xdotool getwindowgeometry` and `_NET_WM_STATE` with `xprop`. Logs and
+  screenshots are in
+  `/home/fedro/Code/personal/ferrispad-wt/uitest-T0077/run*/` (scripts
+  `uitest-T0077/t0077*.sh`).
+  - Step 1: a fresh config opens at 640×480 — **pass**.
+  - Step 2: a WM move/resize to 120,100 1100×600, close, reopen → exactly
+    120,100 1100×600 — **pass**. Note: a rect that does not fit the screen
+    (250,150 1100×750 on 1280×800) reopens shifted inside (179,49), by
+    design (edge case 4).
+  - Step 3: WM maximize, then close → saved `maximized: true` with the
+    normal rect 120,100 1100×600. Reopen → `_NET_WM_STATE_MAXIMIZED_*`.
+    Un-maximize → exactly 120,100 1100×600 — **pass**.
+  - Step 4: minimize, then close from the WM → the stored geometry is
+    byte-for-byte unchanged, and the window reopens on screen (here
+    maximized, as stored) — **pass**.
+  - Step 5: `x/y = 20000` → it opens at 190,116, fully on screen with the
+    title bar reachable. `"width": "abc"` → 640×480, and `font_size` 20 and
+    `theme_mode` Dark are kept; on close the bad object is replaced by a
+    valid one — **pass**.
+  - Step 6: two instances. B toggles the current-line setting (saved
+    `false`); closing B and then A leaves `false` on disk, and A's geometry
+    is saved — **pass**.
+  - Step 8: an old `settings.json` without the field → 640×480; the other
+    settings are kept — **pass**.
+  - Step 9: an openbox rule maps FerrisPad on desktop 3 while desktop 1 is
+    shown, with a saved maximized state. The process stays alive and idle
+    (no stall); when that desktop is shown the window is maximized, and
+    un-maximize returns to the stored size — **pass**.
+  - Step 7, partly. Shrinking the screen from 2560×800 to 1280×800 (the
+    "monitor gone / resolution changed" case) moves a window saved at
+    x=1500 fully onto the remaining screen — **pass**. Restoring at x=1500
+    on the wide screen — **pass**. Two *separate* monitors could not be
+    simulated: Xvfb ignored `+xinerama` and `xrandr --setmonitor`. Negative
+    coordinates and per-monitor work areas are covered by
+    `window_geometry_clamped_onto_screen`.
+  - No panic or debug assert in the app logs.
+- **Pending user verification:** native Wayland (the ×, maximized
+  restore), Windows 11 (the #151 report), macOS, and real multi-monitor
+  (step 7 with two monitors, including one left of the primary).
 - Native Wayland startup with a saved maximized state (the `AfterShow`
-  branch): smoke run of 6 s with no panic and no stderr output. The maximized
-  state itself is pending user verification.
-- Windows 11 (the original report): **pending user verification**.
-- macOS: **pending user verification**.
+  branch): a 6 s smoke run, with no panic and no stderr output.
 
 ## Affected files
 
