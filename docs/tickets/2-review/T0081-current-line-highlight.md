@@ -5,7 +5,7 @@ status: review          # todo | review | done
 created: 2026-11-25
 severity: ~             # severe | moderate | minor   (for audit-derived tickets)
 area: ui                # security | robustness | ui | process
-depends-on: [T0079]     # other ticket IDs that must land first
+depends-on: [T0079, T0080]  # T0080: ordering only (linear stack, single verification build)
 issue: 156              # GitHub issue number
 ---
 
