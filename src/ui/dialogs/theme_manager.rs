@@ -57,6 +57,16 @@ fn field_label(field: EditorColorField) -> &'static str {
     }
 }
 
+/// `name` as a browser line shown literally. Theme names are free text, and
+/// FLTK's browsers read a leading `@` as a formatting code and a tab as a
+/// column break. `@.` is FLTK's documented "print the rest of the line, look
+/// for no more `@` codes"; tabs become spaces. (Turning formatting off with
+/// a NUL format character trips a fltk-rs debug assertion.) Rows are always
+/// mapped to themes by index, never by their text.
+pub(crate) fn literal_browser_label(name: &str) -> String {
+    format!("@.{}", name.replace('\t', " "))
+}
+
 /// One color row: swatch, hex text, Pick… and Reset buttons.
 #[derive(Clone)]
 struct ColorRow {
@@ -130,13 +140,12 @@ impl Ctx {
         let mut browser = self.browser.clone();
         browser.clear();
         for entry in &entries {
-            let name = entry.name.replace('\t', " ");
             let label = if entry.read_only {
-                format!("{name}  (built-in)")
+                format!("{}  (built-in)", entry.name)
             } else {
-                name
+                entry.name.clone()
             };
-            browser.add(&label);
+            browser.add(&literal_browser_label(&label));
         }
         if let Some(line) = entries
             .iter()
@@ -228,6 +237,32 @@ pub fn show_theme_manager(
     let own_fg = theme.text_rgb();
     app::foreground(own_fg.0, own_fg.1, own_fg.2);
 
+    let (mut dialog, ctx) = build_theme_manager(theme_bg, model);
+    dialog.show();
+    theme.apply_titlebar(&dialog);
+
+    let (model, pending) = (ctx.model.clone(), ctx.pending.clone());
+    let mut dialog_redraw = dialog.clone();
+    super::run_dialog_with(&dialog, || {
+        let actions: Vec<ThemeManagerAction> = pending.borrow_mut().drain(..).collect();
+        if actions.is_empty() {
+            return;
+        }
+        apply(&model.borrow(), actions);
+        // Keep this window in its own colors, whatever the preview set.
+        app::foreground(own_fg.0, own_fg.1, own_fg.2);
+        app::background(behind_bg.0, behind_bg.1, behind_bg.2);
+        dialog_redraw.redraw();
+    });
+    app::foreground(behind_fg.0, behind_fg.1, behind_fg.2);
+    app::background(behind_bg.0, behind_bg.1, behind_bg.2);
+}
+
+/// Build the window and wire its callbacks, without showing it (so tests
+/// can construct it).
+fn build_theme_manager(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Window, Ctx) {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
     let mut dialog = Window::default()
@@ -254,8 +289,6 @@ pub fn show_theme_manager(
     browser.set_selection_color(theme.button_bg);
     // Item text uses FLTK's foreground, the dialog text color here.
     browser.set_frame(FrameType::FlatBox);
-    // Theme names are free text: no `@` formatting codes.
-    browser.set_format_char('\0');
     browser.set_scrollbar_size(SCROLLBAR_SIZE);
     style_scrollbars(&browser, theme.scroll_track, theme.scroll_thumb);
 
@@ -494,22 +527,76 @@ pub fn show_theme_manager(
         w.hide();
     });
 
-    dialog.show();
-    theme.apply_titlebar(&dialog);
+    (dialog, ctx)
+}
 
-    let (model, pending) = (ctx.model.clone(), ctx.pending.clone());
-    let mut dialog_redraw = dialog.clone();
-    super::run_dialog_with(&dialog, || {
-        let actions: Vec<ThemeManagerAction> = pending.borrow_mut().drain(..).collect();
-        if actions.is_empty() {
-            return;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::domain::settings::SyntaxTheme;
+    use crate::app::services::custom_themes::ThemeStore;
+
+    #[test]
+    fn literal_browser_label_disables_formatting() {
+        for name in ["@b", "@C1x", "@@", "", "normal", "@.already"] {
+            assert_eq!(literal_browser_label(name), format!("@.{name}"));
         }
-        apply(&model.borrow(), actions);
-        // Keep this window in its own colors, whatever the preview set.
-        app::foreground(own_fg.0, own_fg.1, own_fg.2);
-        app::background(behind_bg.0, behind_bg.1, behind_bg.2);
-        dialog_redraw.redraw();
-    });
-    app::foreground(behind_fg.0, behind_fg.1, behind_fg.2);
-    app::background(behind_bg.0, behind_bg.1, behind_bg.2);
+        assert_eq!(literal_browser_label("a\tb"), "@.a b");
+    }
+
+    /// Build the window in a debug build: fltk-rs debug assertions in widget
+    /// setup (one aborted "Manage themes…") fail here, not in the user's
+    /// hands.
+    #[test]
+    fn theme_manager_window_builds() {
+        crate::ui::on_fltk_test_thread(build_theme_manager_window);
+    }
+
+    fn build_theme_manager_window() {
+        let _fltk = crate::ui::fltk_widget_test_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = ThemeStore::empty(dir.path().to_path_buf());
+        store
+            .clone_from(&SyntaxTheme::Base16OceanDark.into(), "@b weird\tname")
+            .unwrap();
+        let model = ThemeManagerModel::new(
+            store,
+            SyntaxTheme::Base16OceanLight.into(),
+            SyntaxTheme::Base16OceanDark.into(),
+            true,
+            SyntaxTheme::Base16OceanDark.into(),
+        );
+        let (dialog, ctx) = build_theme_manager((43, 48, 59), model);
+        assert_eq!(ctx.browser.size() as usize, SyntaxTheme::all().len() + 1);
+        assert_eq!(
+            ctx.browser.text(ctx.browser.size()).as_deref(),
+            Some("@.@b weird name")
+        );
+        assert!(!dialog.shown());
+    }
+
+    /// No code may turn off a browser's format or column character with
+    /// '\0': fltk-rs asserts against it in debug builds.
+    #[test]
+    fn no_nul_browser_format_or_column_char_in_src() {
+        let needles = [
+            format!("set_format_char('{}0')", '\\'),
+            format!("set_column_char('{}0')", '\\'),
+        ];
+        let mut stack = vec![std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")];
+        let mut offenders = Vec::new();
+        while let Some(path) = stack.pop() {
+            if path.is_dir() {
+                for entry in std::fs::read_dir(&path).unwrap() {
+                    stack.push(entry.unwrap().path());
+                }
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                let text = std::fs::read_to_string(&path).unwrap();
+                if needles.iter().any(|n| text.contains(n.as_str())) {
+                    offenders.push(path.display().to_string());
+                }
+            }
+        }
+        assert!(offenders.is_empty(), "{offenders:?}");
+    }
 }
