@@ -278,6 +278,7 @@ test result: FAILED. 2 passed; 1 failed
 ```bash
 nix develop -c cargo test custom_theme
 nix develop -c cargo test --test settings_persistence theme_ref
+nix develop -c cargo test --test theme_scope_flood
 nix develop -c cargo test
 nix develop -c cargo clippy --all-targets --all-features -- -D warnings
 nix develop -c cargo fmt --check
@@ -285,6 +286,44 @@ nix develop -c cargo fmt --check
 
 Then manual steps 1–4 below (**pending user verification** — not run by
 the implementer: no display in this session).
+
+### Review fixes (PR #158, first review)
+
+1. **Blocking — scope-atom flood.** syntect interns every scope atom in a
+   process-global repository (max 65 533 atoms, never freed) *before* it
+   rejects a bad scope. A < 1 MiB theme file with one 66 000-atom scope was
+   "skipped", but had already filled the repository, so syntect's own
+   syntaxes panicked on the first highlight, on every launch. Fix: theme
+   files are parsed as plain `serde_json::Value` first, and every string
+   under `theme.scopes` goes through `ScopeAtomBudget` (own tokenizer, never
+   touches syntect) before `serde_json::from_value::<ThemeFile>`:
+   - ≤ 8 atoms per scope (syntect's limit, trailing dot ignored like syntect);
+   - ≤ 2 048 new distinct atoms per theme;
+   - ≤ 8 192 distinct atoms for all custom themes of the process
+     (`with_process_atom_budget`, a process-wide budget like the repository it
+     protects; T0080's import uses the same one). The built-in syntaxes and
+     themes need a few thousand of the 65 533 atoms.
+   Red first, `tests/theme_scope_flood.rs` (its own test binary, because the
+   repository is process-global) against the previous loader:
+   ```
+   test custom_theme_atom_flood_rejected ... FAILED
+   thread 'custom_theme_atom_flood_rejected' panicked at .../syntect-5.3.0/src/dumps.rs:202:91:
+   called `Result::unwrap()` on an `Err` value: Custom("Invalid scope: TooManyAtoms")
+   test result: FAILED. 0 passed; 1 failed
+   ```
+   Green after the fix. Unit tests: `custom_theme_scope_with_too_many_atoms_rejected`,
+   `custom_theme_atom_budget_is_cumulative`, `scope_atom_budget_verdicts`.
+2. **Missing foreground/background drawn black.** syntect paints unscoped
+   text with `settings.foreground`, or black when absent. `fill_default_colors`
+   now sets a missing foreground/background to the effective text/background
+   at load (clones already fill every field). Test:
+   `custom_theme_missing_foreground_normalized` (syntect's default style
+   foreground == effective text, ≥ 4.5:1 on a dark background).
+3. Nit — the temp file is `<id>.json.<pid>.tmp`, so two instances saving the
+   same theme never share (or delete) each other's temp file.
+4. Nit — a clone of a built-in takes the same colors "reset to base"
+   restores (`derived_editor_colors` of the built-in), so reset == clone by
+   construction.
 
 ### Notes from implementation
 
