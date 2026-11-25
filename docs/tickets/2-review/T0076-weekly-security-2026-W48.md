@@ -91,6 +91,8 @@ cargo run --locked
 - `Cargo.toml` — `objc2 = "0.6"` (macOS target section)
 - `Cargo.lock` — resolved versions
 - `src/ui/theme.rs` — `msg_send!` comma syntax (macOS-only code)
+- `.github/workflows/macos-gates.yml` — new, manual-only macOS gate
+  (local proposal, see below)
 
 ## Notes
 
@@ -187,3 +189,35 @@ Moved to `2-review/` and committed on `ticket/T0076-weekly-security-2026-W48`
 by the user's instruction: push, GitHub issue (`issue:` stays `~`), draft PR,
 closing the Dependabot PRs #144–#148. Those are the remaining steps of the
 `1-todo/ → 2-review/` transition in `work-sequence.md`.
+
+## Proposed macOS gate workflow (2026-11-25, local only, not pushed)
+
+The macOS recipe above has no safe runner today:
+
+- `ci.yml` (has `workflow_dispatch`) runs only on `ubuntu-latest` and
+  `ubuntu-24.04-arm`; its `on.push` covers `master` only, so `ticket/*`
+  pushes start nothing.
+- `build-deps-check.yml` is Debian/Ubuntu only.
+- `release.yml` has a `build-macos` job on `macos-latest` and a
+  `workflow_dispatch` trigger, but it **must not be launched** for this:
+  `create-release` runs with `if: always()` and would publish a real
+  (non-draft) GitHub Release, and `sign-binaries` signs with `SIGNING_KEY`.
+
+So this commit adds `.github/workflows/macos-gates.yml` as a **local
+proposal**: `workflow_dispatch` only (no `push` / `pull_request`, so existing
+CI behaviour is unchanged), one `macos-14` (arm64) job running
+`cargo build --locked`, `cargo clippy --locked --all-targets --all-features
+-- -D warnings` and `cargo test --locked`. Same actions as `ci.yml`
+(`actions/checkout@v7`, `dtolnay/rust-toolchain@stable` + clippy,
+`Swatinem/rust-cache@v2`, `CARGO_TERM_COLOR`), `permissions: contents: read`,
+no release, no signing, no secrets. `ci.yml`, `release.yml` and
+`build-deps-check.yml` are untouched.
+
+Not pushed and never run. Caveat: GitHub only offers `workflow_dispatch` for
+a workflow file that exists on the default branch, so to gate this branch the
+file must first reach `master` (e.g. split into its own small ticket); then
+`gh workflow run macos-gates.yml --ref ticket/T0076-weekly-security-2026-W48`.
+It covers recipe step 1 (warning-free arm64 debug build/clippy/test of the
+objc2 0.6 calls in `theme.rs`; not `x86_64-apple-darwin`); the visual
+title-bar checks (steps 2–5) and the runtime encoding check still need a
+real Mac.
