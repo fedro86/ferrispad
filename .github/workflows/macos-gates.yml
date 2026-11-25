@@ -2,11 +2,14 @@ name: macOS gates
 
 # On-demand quality gate for macOS-only code (e.g. the objc2 calls in
 # src/ui/theme.rs, behind #[cfg(target_os = "macos")]), which the Linux jobs
-# in ci.yml never compile. Manual trigger only: it does not change when the
-# existing CI runs, and unlike release.yml it builds, publishes and signs
-# nothing, so it is safe to launch on any branch (T0076).
+# in ci.yml never compile. Runs on pull requests targeting master and on
+# manual trigger; it does not change when the existing CI runs, and unlike
+# release.yml it builds, publishes and signs nothing, so it is safe to launch
+# on any branch (T0076).
 
 on:
+  pull_request:
+    branches: [master]
   workflow_dispatch:
 
 permissions:

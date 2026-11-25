@@ -91,8 +91,8 @@ cargo run --locked
 - `Cargo.toml` — `objc2 = "0.6"` (macOS target section)
 - `Cargo.lock` — resolved versions
 - `src/ui/theme.rs` — `msg_send!` comma syntax (macOS-only code)
-- `.github/workflows/macos-gates.yml` — new, manual-only macOS gate
-  (local proposal, see below)
+- `.github/workflows/macos-gates.yml` — new macOS gate, on PRs to `master`
+  + manual trigger (local proposal, see below)
 
 ## Notes
 
@@ -221,3 +221,14 @@ It covers recipe step 1 (warning-free arm64 debug build/clippy/test of the
 objc2 0.6 calls in `theme.rs`; not `x86_64-apple-darwin`); the visual
 title-bar checks (steps 2–5) and the runtime encoding check still need a
 real Mac.
+
+### Update: `pull_request` trigger (2026-11-25, local only, not pushed)
+
+`macos-gates.yml` now also has `on.pull_request` with `branches: [master]`
+(alongside `workflow_dispatch`). Jobs, commands, permissions and the
+`macos-14` runner are unchanged; `ci.yml`, `release.yml` and
+`build-deps-check.yml` are still untouched. Unlike `workflow_dispatch`, a
+`pull_request` workflow is read from the PR's merge ref, so it does **not**
+need to be on `master` first: opening the draft PR for this branch against
+`master` runs the macOS gate on this very change. This removes the
+"split into its own ticket" caveat above. Not pushed, no PR opened, never run.
