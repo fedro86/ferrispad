@@ -5,7 +5,7 @@ status: review          # todo | review | done
 created: 2026-11-25
 severity: ~             # severe | moderate | minor   (for audit-derived tickets)
 area: ui                # security | robustness | ui | process
-depends-on: [T0082]     # other ticket IDs that must land first
+depends-on: [T0082, T0081]  # T0081: ordering only — linear stack for a single verification build; no functional dependency
 issue: 151              # GitHub issue number
 ---
 
@@ -404,6 +404,17 @@ FLTK_BACKEND=x11 XDG_CONFIG_HOME=/tmp/fp-cfg nix develop -c cargo run   # X11 pa
 - `tests/settings_persistence.rs` — integration tests above.
 
 ## Notes
+
+- **Stacked on T0081 (ordering only).** The branch is a linear stack
+  (T0082 → T0078 → T0079 → T0080 → T0081 → T0077), so that the user can
+  verify everything in one build. There is no functional dependency on the
+  theme stack. Merge resolutions kept both sides: geometry and atomic save
+  from here; theme refs, custom themes, `SettingsHook` and
+  `highlight_current_line` from the stack. `load_from` parses through the
+  stack's `from_json_or_default`.
+  `test_window_geometry_save_keeps_theme_refs_and_current_line` pins that
+  the close-time "re-read, patch only `window`" save keeps custom theme refs
+  (with their on-disk `custom:` spelling) and `highlight_current_line`.
 
 - Origin: user request, GitHub issue #151.
 - fltk-rs 1.5 API: `maximize()`, `un_maximize()`, `maximize_active()` (there

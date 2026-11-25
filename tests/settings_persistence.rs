@@ -427,3 +427,44 @@ fn test_settings_save_keeps_symlink_and_permissions() {
     assert_eq!(fs::read_dir(&real_dir).unwrap().count(), 1);
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
 }
+
+/// The close-time save re-reads settings.json and patches only `"window"`:
+/// the theme stack's fields written by this or another instance (custom
+/// theme refs, `highlight_current_line`) survive untouched (T0077 on top of
+/// T0079/T0081).
+#[test]
+fn test_window_geometry_save_keeps_theme_refs_and_current_line() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+
+    let on_disk = AppSettings {
+        syntax_theme_dark: ThemeRef::Custom("t-night".to_string()),
+        syntax_theme_light: ThemeRef::Builtin(SyntaxTheme::SolarizedLight),
+        highlight_current_line: false,
+        ..Default::default()
+    };
+    on_disk.save_to(&path).unwrap();
+
+    // This instance's in-memory settings still hold the defaults.
+    AppSettings::default()
+        .save_window_geometry_to(&path, sample_geometry())
+        .unwrap();
+
+    let loaded = AppSettings::load_from(&path);
+    assert_eq!(loaded.window, Some(sample_geometry()));
+    assert_eq!(
+        loaded.syntax_theme_dark,
+        ThemeRef::Custom("t-night".to_string())
+    );
+    assert_eq!(
+        loaded.syntax_theme_light,
+        ThemeRef::Builtin(SyntaxTheme::SolarizedLight)
+    );
+    assert!(!loaded.highlight_current_line);
+    // And the refs keep their on-disk spelling.
+    let raw = fs::read_to_string(&path).unwrap();
+    assert!(
+        raw.contains(r#""syntax_theme_dark": "custom:t-night""#),
+        "{raw}"
+    );
+}
