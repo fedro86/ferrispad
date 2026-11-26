@@ -7,16 +7,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use fltk::{
-    button::Button,
-    enums::{CallbackTrigger, FrameType},
-    frame::Frame,
-    group::ColorChooser,
-    input::Input,
-    prelude::*,
-    window::Window,
+    button::Button, enums::CallbackTrigger, frame::Frame, group::ColorChooser, input::Input,
+    prelude::*, window::Window,
 };
 
-use super::{DialogTheme, label_width, max_label_width};
+use super::{DialogTheme, label_width, max_label_width, style_dialog_button};
 use crate::app::controllers::theme_manager::{format_hex_color, parse_hex_color};
 
 // Heights are fixed; widths are measured from the text they show
@@ -125,16 +120,12 @@ pub fn build_color_picker(
         .with_pos(dialog_w - PADDING - button_w, btn_y)
         .with_size(button_w, BUTTON_HEIGHT)
         .with_label("Cancel");
-    cancel_btn.set_frame(FrameType::RFlatBox);
-    cancel_btn.set_color(theme.secondary_button_bg);
-    cancel_btn.set_label_color(theme.text_dim);
+    style_dialog_button(&mut cancel_btn, &theme);
     let mut ok_btn = Button::default()
         .with_pos(dialog_w - PADDING * 2 - button_w * 2, btn_y)
         .with_size(button_w, BUTTON_HEIGHT)
         .with_label("OK");
-    ok_btn.set_frame(FrameType::RFlatBox);
-    ok_btn.set_color(theme.button_bg);
-    ok_btn.set_label_color(theme.text);
+    style_dialog_button(&mut ok_btn, &theme);
 
     dialog.end();
     drop(top_level);
