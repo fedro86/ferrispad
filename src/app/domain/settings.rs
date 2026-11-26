@@ -317,118 +317,90 @@ pub struct WindowGeometry {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+// One rule for missing keys (T0100): every key absent from settings.json takes
+// its `AppSettings::default()` value. No field-level `default`: a bare
+// `#[serde(default)]` on a field means the field TYPE's default (false for a
+// bool), which is how `tabs_enabled` came to disagree with `Default`.
+#[serde(default)]
 pub struct AppSettings {
-    #[serde(default = "default_line_numbers")]
     pub line_numbers_enabled: bool,
 
-    #[serde(default = "default_word_wrap")]
     pub word_wrap_enabled: bool,
 
-    #[serde(default = "default_highlighting")]
     pub highlighting_enabled: bool,
 
-    #[serde(default = "default_theme_mode")]
     pub theme_mode: ThemeMode,
 
-    #[serde(default = "default_font")]
     pub font: String,
 
-    #[serde(default = "default_font_size")]
     pub font_size: u32,
 
-    #[serde(default = "default_auto_check_updates")]
     pub auto_check_updates: bool,
 
-    #[serde(default = "default_update_channel")]
     pub update_channel: UpdateChannel,
 
-    #[serde(default)]
     pub last_update_check: i64,
 
-    #[serde(default)]
     pub skipped_versions: Vec<String>,
 
-    #[serde(default)]
     pub tabs_enabled: bool,
 
-    #[serde(default)]
     pub session_restore: SessionRestore,
 
-    #[serde(default)]
     pub preview_enabled: bool,
 
     /// Syntax theme for light mode
-    #[serde(
-        default = "default_syntax_theme_light",
-        deserialize_with = "de_syntax_theme_light"
-    )]
+    #[serde(deserialize_with = "de_syntax_theme_light")]
     pub syntax_theme_light: ThemeRef,
 
     /// Syntax theme for dark mode
-    #[serde(
-        default = "default_syntax_theme_dark",
-        deserialize_with = "de_syntax_theme_dark"
-    )]
+    #[serde(deserialize_with = "de_syntax_theme_dark")]
     pub syntax_theme_dark: ThemeRef,
 
     /// Tab size in spaces (default 4)
-    #[serde(default = "default_tab_size")]
     pub tab_size: u32,
 
     /// Insert spaces instead of tab characters (default false)
-    #[serde(default)]
     pub use_spaces: bool,
 
     /// Whether the plugin system is enabled
-    #[serde(default = "default_plugins_enabled")]
     pub plugins_enabled: bool,
 
     /// Names of explicitly disabled plugins
-    #[serde(default)]
     pub disabled_plugins: Vec<String>,
 
     /// Per-plugin permission approvals (plugin_name -> approvals)
-    #[serde(default)]
     pub plugin_approvals: HashMap<String, PluginApprovals>,
 
     /// Whether to automatically check for plugin updates
-    #[serde(default = "default_auto_check_plugin_updates")]
     pub auto_check_plugin_updates: bool,
 
     /// Timestamp of last plugin update check (UNIX timestamp)
-    #[serde(default)]
     pub last_plugin_update_check: i64,
 
     /// Names of plugins to include in "Run All Checks" (empty = all enabled plugins)
-    #[serde(default)]
     pub run_all_checks_plugins: Vec<String>,
 
     /// Shortcut for "Run All Checks" command (default: "Ctrl+Shift+L")
-    #[serde(default = "default_run_all_checks_shortcut")]
     pub run_all_checks_shortcut: String,
 
     /// Per-plugin configuration (plugin_name -> config)
-    #[serde(default)]
     pub plugin_configs: HashMap<String, PluginConfig>,
 
     /// Centralized shortcut overrides (command_id -> override)
     /// Keys: "File/Save" for built-ins, "plugin:name:action" for plugins
-    #[serde(default)]
     pub shortcut_overrides: HashMap<String, ShortcutOverride>,
 
     /// File size (MB) above which a warning is shown before loading (default 50)
-    #[serde(default = "default_large_file_warning_mb")]
     pub large_file_warning_mb: u32,
 
     /// File size (MB) above which editing is blocked — read-only/tail only (default 150)
-    #[serde(default = "default_max_editable_size_mb")]
     pub max_editable_size_mb: u32,
 
     /// Main window geometry saved on a confirmed close (`None` = 640×480).
     /// Deserialized leniently: a malformed object is dropped on its own
     /// instead of failing the whole file (which would reset every setting).
     #[serde(
-        default,
         deserialize_with = "deserialize_lenient_geometry",
         skip_serializing_if = "Option::is_none"
     )]
@@ -436,7 +408,6 @@ pub struct AppSettings {
 
     /// Highlight the line holding the cursor (T0081). On by default, also
     /// for an older settings.json without the field.
-    #[serde(default = "default_true")]
     pub highlight_current_line: bool,
 }
 
@@ -726,6 +697,31 @@ impl AppSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T0100: a settings.json that lacks a key (hand-written, or from an
+    /// older version) must get that key's `AppSettings::default()` value,
+    /// not a different serde fallback. `{}` lacks every key, so it must
+    /// parse to exactly the defaults; the message lists every field that
+    /// does not.
+    #[test]
+    fn settings_missing_keys_take_the_defaults() {
+        let parsed = serde_json::to_value(AppSettings::from_json_or_default("{}")).unwrap();
+        let default = serde_json::to_value(AppSettings::default()).unwrap();
+        let (parsed, default) = (parsed.as_object().unwrap(), default.as_object().unwrap());
+        let mismatched: Vec<String> = default
+            .iter()
+            .filter(|(key, value)| parsed.get(*key) != Some(value))
+            .map(|(key, value)| {
+                format!(
+                    "{key}: missing -> {}, default {value}",
+                    parsed
+                        .get(key)
+                        .map_or("<absent>".to_string(), |v| v.to_string())
+                )
+            })
+            .collect();
+        assert!(mismatched.is_empty(), "\n{}", mismatched.join("\n"));
+    }
 
     #[test]
     fn test_default_settings() {
