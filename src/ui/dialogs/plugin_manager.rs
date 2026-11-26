@@ -6,6 +6,7 @@
 //! - Compact row layout with truncated descriptions
 //! - Three tabs: Installed, Official, Community
 
+use crate::ui::color::fltk_rgb;
 use fltk::{
     button::Button,
     enums::{Align, CallbackTrigger, Color, Font, FrameType},
@@ -176,7 +177,7 @@ fn icon_color_for_letter(letter: char, is_dark: bool) -> Color {
     } else {
         palette_light[idx]
     };
-    Color::from_rgb(r, g, b)
+    fltk_rgb(r, g, b)
 }
 
 /// Show the plugin manager dialog
@@ -1051,7 +1052,7 @@ impl TrustBadge {
             (TrustBadge::Unverified, true) => (200, 160, 80),
             (TrustBadge::Unverified, false) => (160, 120, 40),
         };
-        Color::from_rgb(r, g, b)
+        fltk_rgb(r, g, b)
     }
 }
 
@@ -1370,9 +1371,9 @@ fn create_install_button(state: &InstallButtonState, btn_x: i32, theme: &DialogT
             install_btn.set_label("Update");
             // Green accent for update
             install_btn.set_label_color(if theme.is_dark() {
-                Color::from_rgb(100, 200, 100)
+                fltk_rgb(100, 200, 100)
             } else {
-                Color::from_rgb(40, 140, 40)
+                fltk_rgb(40, 140, 40)
             });
         }
         InstallButtonState::Install => install_btn.set_label("Install"),

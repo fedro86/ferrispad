@@ -2,6 +2,7 @@ pub mod checkpoint;
 mod highlighter;
 pub mod style_map;
 
+use crate::ui::color::fltk_rgb;
 use std::path::Path;
 
 use fltk::enums::Font;
@@ -265,8 +266,8 @@ impl SyntaxHighlighter {
             (u32::from(background.0) + u32::from(background.1) + u32::from(background.2)) / 3 < 128;
 
         self.style_map.set_theme_colors(
-            fltk::enums::Color::from_rgb(foreground.0, foreground.1, foreground.2),
-            fltk::enums::Color::from_rgb(background.0, background.1, background.2),
+            fltk_rgb(foreground.0, foreground.1, foreground.2),
+            fltk_rgb(background.0, background.1, background.2),
             is_dark,
         );
         self.style_map.clear();
@@ -320,8 +321,7 @@ impl SyntaxHighlighter {
     /// plus their current-line twins (T0081, `StyleMap::table_with_twins`).
     pub fn style_table(&self) -> Vec<StyleTableEntryExt> {
         let (r, g, b) = self.current_line_bg;
-        self.style_map
-            .table_with_twins(fltk::enums::Color::from_rgb(r, g, b))
+        self.style_map.table_with_twins(fltk_rgb(r, g, b))
     }
 
     /// Set the current-line band color used by the twins in `style_table`.
