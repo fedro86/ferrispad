@@ -44,8 +44,6 @@ pub struct DiagnosticPanel {
     shared_diagnostics: Option<Rc<RefCell<Vec<Diagnostic>>>>,
     /// Text color of each level on the current background (T0104)
     level_colors: [(u8, u8, u8); 4],
-    /// The list's current background, which the header colors derive from
-    panel_bg: (u8, u8, u8),
 }
 
 impl DiagnosticPanel {
@@ -83,7 +81,6 @@ impl DiagnosticPanel {
             sender,
             shared_diagnostics: None,
             level_colors: diagnostic_level_colors(panel_bg),
-            panel_bg,
         };
         panel.set_panel_bg(panel_bg);
         panel
@@ -91,7 +88,6 @@ impl DiagnosticPanel {
 
     /// Derive every color of the panel from its list background (T0104).
     fn set_panel_bg(&mut self, (r, g, b): (u8, u8, u8)) {
-        self.panel_bg = (r, g, b);
         self.browser.set_color(Color::from_rgb(r, g, b));
         // Selected row as in the file tree.
         crate::ui::theme::style_panel_selection(&mut self.browser, (r, g, b));
@@ -99,9 +95,9 @@ impl DiagnosticPanel {
         self.paint_header(HeaderState::of(&self.diagnostics));
     }
 
-    /// The header bar's fill and text for `state` on the current background.
+    /// The header bar's fill and text for `state`.
     fn paint_header(&mut self, state: HeaderState) {
-        let ((r, g, b), text) = diagnostic_header_colors(state, self.panel_bg);
+        let ((r, g, b), text) = diagnostic_header_colors(state);
         self.header.set_color(Color::from_rgb(r, g, b));
         self.header.set_label_color(text);
     }
@@ -429,12 +425,15 @@ pub fn diagnostic_level_colors(bg: (u8, u8, u8)) -> [(u8, u8, u8); 4] {
     })
 }
 
-/// The hue of the header bar when there is nothing to report.
-pub const DIAGNOSTIC_SUCCESS_BASE: (u8, u8, u8) = (46, 125, 50);
+/// The header bar's fills, per state (clean, error, warning, info): the
+/// pre-T0104 colors, kept on every theme by the user's choice. The bar's
+/// information is its label, which stays readable; its contrast against the
+/// panel is decorative.
+pub const DIAGNOSTIC_HEADER_BASES: [(u8, u8, u8); 4] =
+    [(46, 125, 50), (198, 40, 40), (245, 124, 0), (25, 118, 210)];
 
-/// Minimum WCAG contrast of the header bar's fill on the list background:
-/// a non-text UI component.
-const DIAGNOSTIC_HEADER_CONTRAST: f64 = 3.0;
+/// WCAG AA contrast for the header's label.
+const DIAGNOSTIC_HEADER_TEXT_CONTRAST: f64 = 4.5;
 
 /// What the header bar summarizes: the most severe level present.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -467,32 +466,30 @@ impl HeaderState {
         }
     }
 
-    /// The state's hue: the level rows' own (info for info and hint).
+    /// The state's header fill.
     pub fn base(self) -> (u8, u8, u8) {
         match self {
-            Self::Clean => DIAGNOSTIC_SUCCESS_BASE,
-            Self::Error => DIAGNOSTIC_LEVEL_BASES[0],
-            Self::Warning => DIAGNOSTIC_LEVEL_BASES[1],
-            Self::Info => DIAGNOSTIC_LEVEL_BASES[2],
+            Self::Clean => DIAGNOSTIC_HEADER_BASES[0],
+            Self::Error => DIAGNOSTIC_HEADER_BASES[1],
+            Self::Warning => DIAGNOSTIC_HEADER_BASES[2],
+            Self::Info => DIAGNOSTIC_HEADER_BASES[3],
         }
     }
 }
 
-/// The header bar's fill and label color for `state` on the list background
-/// `bg` (T0104): the state's hue, stepped in lightness until the bar stands
-/// out (>= 3:1) from the list, with black or white text, whichever reads
-/// better (always >= 4.5:1).
-pub fn diagnostic_header_colors(state: HeaderState, bg: (u8, u8, u8)) -> ((u8, u8, u8), Color) {
-    use crate::ui::color::{ThemeRgb, push_to_contrast};
-    let bg = ThemeRgb::from_tuple(bg);
-    let fill = push_to_contrast(
-        ThemeRgb::from_tuple(state.base()),
-        bg,
-        DIAGNOSTIC_HEADER_CONTRAST,
-        bg.brightness() < 128,
-    )
-    .to_tuple();
-    (fill, best_black_or_white(fill))
+/// The header bar's fill and label color for `state` (T0104): the state's
+/// fill, with the old white label wherever white reads (>= 4.5:1), and
+/// otherwise black or white, whichever reads better (the orange bar).
+pub fn diagnostic_header_colors(state: HeaderState) -> ((u8, u8, u8), Color) {
+    use crate::ui::color::{ThemeRgb, wcag_contrast};
+    let fill = state.base();
+    let text = if wcag_contrast(ThemeRgb::WHITE.to_tuple(), fill) >= DIAGNOSTIC_HEADER_TEXT_CONTRAST
+    {
+        Color::White
+    } else {
+        best_black_or_white(fill)
+    };
+    (fill, text)
 }
 
 /// FLTK's `@C<n>` browser format code for an RGB color (`0xRRGGBB00`).
@@ -573,35 +570,29 @@ mod tests {
         assert!(failures.is_empty(), "\n{}", failures.join("\n"));
     }
 
-    /// T0104: the header bar follows the theme too. In every state it keeps
-    /// the state's hue, stands out from the list (>= 3:1), and its text reads
-    /// on it (>= 4.5:1).
+    /// T0104, by the user's choice: the header bar keeps its pre-T0104 fills
+    /// on every theme (its label carries the information; the band's own
+    /// contrast against the panel is decorative). Its text is the old white
+    /// wherever white reads (>= 4.5:1), and black otherwise (the orange bar,
+    /// where white was 2.70:1).
     #[test]
-    fn diagnostic_header_follows_the_theme() {
-        let mut failures = Vec::new();
-        for (theme, editor_bg) in crate::ui::color::theme_test_backgrounds() {
-            let bg = diagnostic_panel_bg(editor_bg);
-            for state in HeaderState::ALL {
-                let (fill, text) = diagnostic_header_colors(state, bg);
-                let on_bg = wcag_contrast(fill, bg);
-                let text_on_fill = wcag_contrast(text.to_rgb(), fill);
-                let same_hue = match (hue(fill), hue(state.base())) {
-                    (Some(a), Some(b)) => {
-                        let d = (a - b).abs();
-                        d.min(360.0 - d) <= 12.0
-                    }
-                    _ => false,
-                };
-                if on_bg < 3.0 || text_on_fill < 4.5 || !same_hue {
-                    failures.push(format!(
-                        "{theme} {state:?}: bar {fill:?} on {bg:?} = {on_bg:.2}:1, \
-                         text {:?} = {text_on_fill:.2}:1, hue kept: {same_hue}",
-                        text.to_rgb()
-                    ));
-                }
-            }
+    fn diagnostic_header_keeps_the_old_fills_with_readable_text() {
+        // The function takes no background, so the bar is the same on every
+        // theme by construction.
+        let expected = [
+            (HeaderState::Clean, (46, 125, 50), (255, 255, 255)),
+            (HeaderState::Error, (198, 40, 40), (255, 255, 255)),
+            (HeaderState::Warning, (245, 124, 0), (0, 0, 0)),
+            (HeaderState::Info, (25, 118, 210), (255, 255, 255)),
+        ];
+        for (state, old_fill, old_or_readable_text) in expected {
+            let (fill, text) = diagnostic_header_colors(state);
+            let text = text.to_rgb();
+            assert_eq!(fill, old_fill, "{state:?}: the pre-T0104 fill");
+            assert_eq!(text, old_or_readable_text, "{state:?}: label color");
+            let ratio = wcag_contrast(text, fill);
+            assert!(ratio >= 4.5, "{state:?}: label {ratio:.2}:1 on the bar");
         }
-        assert!(failures.is_empty(), "\n{}", failures.join("\n"));
     }
 
     /// Black must not become `@C0`, FLTK's foreground index.

@@ -22,9 +22,8 @@ The main-window panels have the same problem T0097 fixed in the dialogs:
   in light mode), not the editor background, so it looks pasted on. Its level
   colors are fixed palette colors: the warning yellow is 1.32:1 on the light
   panel, and the hint gray is 1.98:1 on the dark one. Its header bar
-  ("⚠ 1 error, 1 warning, 2 info") is the same fixed red, orange, blue or
-  green on every theme, with white text: 2.2–2.7:1 against dark panels, and
-  white on orange is 2.70:1.
+  ("⚠ 1 error, 1 warning, 2 info") has white text everywhere, and white on
+  the orange (warning) bar is 2.70:1.
 
 ## In scope
 
@@ -33,11 +32,12 @@ The main-window panels have the same problem T0097 fixed in the dialogs:
 - **Diagnostic level colors** (error, warning, info, hint) keep their hue and
   are pushed to ≥ 4.5:1 against that background
   (`diagnostic_level_colors`, using `color::push_to_contrast`).
-- **Diagnostic header bar** in the hue of the most severe level present
-  (error, warning, info for info/hint only, green when clean), stepped in
-  lightness to ≥ 3:1 against the panel (`diagnostic_header_colors`), with
-  black or white text, whichever reads better (`contrast::best_black_or_white`,
-  always ≥ 4.5:1). A guard test keeps hand-set colors out of the panel code.
+- **Diagnostic header bar** keeps its pre-T0104 fills (red, orange, blue,
+  green: `DIAGNOSTIC_HEADER_BASES`) on every theme, by the user's choice.
+  Its label stays the old white wherever white reads (≥ 4.5:1) and is
+  otherwise black or white, whichever reads better
+  (`contrast::best_black_or_white`): the orange bar gets black text.
+  A guard test keeps hand-set colors out of the panel code.
 - **One panel selection rule** for the tree and the diagnostic panel:
   `theme::panel_selection_color` reuses the dialogs' list selection
   (`list_selection_colors`, T0097): the button color pushed to ≥ 3:1 against
@@ -61,11 +61,12 @@ The main-window panels have the same problem T0097 fixed in the dialogs:
 ```bash
 nix develop -c cargo test diagnostic_panel_follows_the_theme   # part A
 nix develop -c cargo test panel_selection_stands_out_in_every_theme   # part B
-nix develop -c cargo test diagnostic_header_follows_the_theme   # header bar
+nix develop -c cargo test diagnostic_header_keeps_the_old_fills   # header bar
 nix develop -c cargo test diagnostic_panel_sets_no_absolute_colors   # guard
 ```
 
-Both fail on master (output below) and pass on this branch.
+Each fails on master or on the previous header attempt (output below), and
+passes on this branch.
 
 Manual (or Xvfb), for each of the 7 built-in themes: open a folder with a
 modified and an untracked file, select a file in the tree, and open a file
@@ -82,8 +83,9 @@ error). Expected:
 - [ ] Diagnostic panel background = editor background on every theme.
 - [ ] Every level color ≥ 4.5:1 on that background, hue kept (built-in
       themes; see Notes for mid-tone custom backgrounds).
-- [ ] The header bar ≥ 3:1 against the panel in every state, hue kept, text
-      ≥ 4.5:1; no hand-set color left in `diagnostic_panel.rs`.
+- [ ] The header bar keeps its old fill in every state on every theme, and
+      its label is ≥ 4.5:1 (white wherever white reads); no hand-set color
+      left in `diagnostic_panel.rs`.
 - [ ] The tree's and diagnostic panel's selected rows ≥ 3:1 against the
       panel; their text ≥ 4.5:1 on the selection.
 - [ ] No re-apply timeout and no `unsafe` left in `tree_panel.rs`'s
@@ -94,7 +96,8 @@ error). Expected:
 ## Affected files
 
 - `src/ui/diagnostic_panel.rs`: `diagnostic_panel_bg`,
-  `DIAGNOSTIC_LEVEL_BASES`, `diagnostic_level_colors`, `HeaderState`,
+  `DIAGNOSTIC_LEVEL_BASES`, `diagnostic_level_colors`,
+  `DIAGNOSTIC_HEADER_BASES`, `HeaderState`,
   `diagnostic_header_colors`, `set_panel_bg`/`paint_header` (one path for
   construction and re-theme), `color_code` (black as `FL_BLACK`), tests.
 - `src/ui/color.rs`: `theme_test_backgrounds` (test-only, T0097's sweep,
@@ -130,6 +133,16 @@ error). Expected:
   deactivates the tree; the contrast.rs module doc records it.
 - **`color_code` and black** (a3): `@C0` is FLTK's foreground index (the
   T0098 bug), so pure black is written as `FL_BLACK` (`@C56`).
+- **Header bar: the old fills, by the user's choice.** A first version gave
+  the bar the level rows' hues, stepped to ≥ 3:1 against the panel. On the
+  built-in themes that meant pure, saturated red and yellow bars, and the
+  user judged that "the style was much better before". The old fills are
+  only 2.2–2.9:1 against the dark panels, so a 3:1 safety net would have
+  lightened them (and turned their text black) on 15 of the 28
+  theme × state bars. The orchestrator chose to keep the old fills
+  everywhere with no 3:1 push. The bar's information is its label, now
+  ≥ 4.5:1 everywhere, so the band's contrast against the panel is
+  decorative, as it was before T0104.
 - **Follow-up candidate** (a3, pre-existing, out of scope by option 1):
   unselected git colors are low-contrast on light themes (`ignored`
   (160,160,160) on Ocean Light ≈ 2.4:1).
@@ -166,7 +179,8 @@ InspiredGitHub: row (229, 229, 229) on (255, 255, 255) = 1.26:1
 (… every theme: rows 1.26–1.37:1, colored labels 2.1–3.9:1 on the row)
 ```
 
-Header bar (`diagnostic_header_colors` stubbed with the fixed colors):
+Header bar, first version (`diagnostic_header_colors` stubbed with the
+fixed colors; this test was later replaced, see Notes):
 
 ```
 test ui::diagnostic_panel::tests::diagnostic_header_follows_the_theme ... FAILED
@@ -176,6 +190,16 @@ Base16MochaDark Error: bar (198, 40, 40) on (59, 50, 40) = 2.23:1, text (255, 25
 Base16OceanLight Warning: bar (245, 124, 0) on (239, 241, 245) = 2.39:1, text (255, 255, 255) = 2.70:1
 InspiredGitHub Warning: bar (245, 124, 0) on (255, 255, 255) = 2.70:1, text (255, 255, 255) = 2.70:1
 (… 22 failures over the 7 themes)
+```
+
+Header bar, final version: `diagnostic_header_keeps_the_old_fills_with_readable_text`
+on the first version's code (level hues pushed to 3:1) failed in all 222
+theme × state cases, e.g.:
+
+```
+Base16OceanDark Error: bar (255, 0, 0) (old (198, 40, 40)), text (0, 0, 0) = 5.25:1
+Base16OceanLight Warning: bar (162, 138, 0) (old (245, 124, 0)), text (0, 0, 0) = 6.17:1
+Base16OceanDark Clean: bar (69, 139, 73) (old (46, 125, 50)), text (0, 0, 0) = 5.04:1
 ```
 
 The guard (`diagnostic_panel_sets_no_absolute_colors`), on the code before
@@ -208,14 +232,7 @@ inspected edge by edge:
 Header bar: three more fixture variants (warning + info/hint, info/hint
 only, no diagnostics) captured every state on every theme, before (T0105
 build) and after. The "All checks passed" bar appears after Run All Checks
-(Ctrl+Shift+L) and hides itself after 5 s. After, the bar is:
-
-- error: red, black text;
-- warning: yellow on dark themes, a darker ochre on light themes (to reach
-  3:1), black text;
-- info / hint only: the info rows' blue-violet, black text;
-- clean: green, lighter with black text on dark themes, white text on light
-  ones.
-
-Before, the same fixed red / orange / blue / green bars with white text
-showed on every theme.
+(Ctrl+Shift+L) and hides itself after 5 s. The header-only montage
+(`ferrispad-wt/uitest-T0104/t0104-header.png`, local) shows the after bars
+identical to the before ones (the same red / orange / blue / green, white
+labels), except the orange warning bar, whose label is now black.
