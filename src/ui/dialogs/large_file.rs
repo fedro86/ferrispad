@@ -117,7 +117,10 @@ pub fn build_file_too_large_dialog(
     lines_row.set_spacing(5);
 
     let lines_btn = theme.button().with_label("Open Lines:");
-    lines_row.fixed(&lines_btn, 100);
+    // Measured from the label (T0110), never below the old 100px; the row's
+    // spacer gives up the difference. Buttons use FLTK's default label size.
+    let lines_btn_w = super::label_width("Open Lines:", app::font_size()).max(100);
+    lines_row.fixed(&lines_btn, lines_btn_w);
 
     let mut start_input = theme.input();
     start_input.set_value("1");

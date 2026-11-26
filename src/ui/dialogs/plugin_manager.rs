@@ -148,6 +148,21 @@ fn truncate_text(text: &str, max_chars: usize) -> String {
     }
 }
 
+/// `text` cut with [`truncate_text`] until it fits a `width`-wide frame at
+/// label size `size`, measured like the other dialog labels
+/// (`super::label_width`, with its +2 pt slack and padding), so a long name
+/// or description ends in "..." before the row's buttons (T0110).
+fn fit_text(text: &str, width: i32, size: i32) -> String {
+    let mut max_chars = text.chars().count();
+    loop {
+        let fitted = truncate_text(text, max_chars);
+        if max_chars <= 3 || super::label_width(&fitted, size) <= width {
+            return fitted;
+        }
+        max_chars -= 1;
+    }
+}
+
 /// Get a color for the icon background based on the first letter
 fn icon_color_for_letter(letter: char, is_dark: bool) -> Color {
     // Simple palette - 6 distinct colors that work in both dark and light
@@ -1082,6 +1097,15 @@ struct RowHeader<'a> {
 }
 
 impl<'a> RowKind<'a> {
+    /// The link behind the row's Details button, if it has one.
+    fn details_url(&self) -> Option<&'a str> {
+        match self {
+            RowKind::Installed(_) => None,
+            RowKind::Official { info, .. } => info.readme_url.as_deref(),
+            RowKind::Community { info, .. } => Some(info.repo.as_str()).filter(|r| !r.is_empty()),
+        }
+    }
+
     fn header(&self) -> RowHeader<'a> {
         match self {
             RowKind::Installed(p) => {
@@ -1222,6 +1246,29 @@ struct RowTextLayout {
     meta_y: i32,
 }
 
+/// X of a row's install / toggle button column (relative to the row).
+fn row_btn_x(row_width: i32) -> i32 {
+    row_width - ROW_BTN_WIDTH - ICON_MARGIN
+}
+
+/// X of the Details button, left of the install button at `btn_x`.
+fn details_btn_x(btn_x: i32) -> i32 {
+    btn_x - DETAILS_BTN_WIDTH - ROW_BTN_GAP
+}
+
+/// Right edge (relative to the row) of the title and description lines,
+/// which sit beside the buttons: [`ICON_MARGIN`] left of the leftmost
+/// button, so they never run under the Details button (T0110).
+fn row_text_right(row_width: i32, has_details: bool) -> i32 {
+    let btn_x = row_btn_x(row_width);
+    let leftmost = if has_details {
+        details_btn_x(btn_x)
+    } else {
+        btn_x
+    };
+    leftmost - ICON_MARGIN
+}
+
 /// One layout for every tab: the three lines stacked and centred vertically.
 fn row_text_layout(row_height: i32) -> RowTextLayout {
     let block_h = TITLE_LINE_H + DESC_LINE_H + META_LINE_GAP + META_LINE_H;
@@ -1264,23 +1311,33 @@ fn create_plugin_row(kind: RowKind<'_>, ctx: &PluginRowContext) -> Group {
     let content_x = x + ICON_SIZE + ICON_MARGIN;
     let content_width = row_width - content_x - ACTION_BUTTON_WIDTH - ICON_MARGIN;
     let layout = row_text_layout(PLUGIN_ROW_HEIGHT);
+    let details_url = kind.details_url();
+    // Title and description sit beside the buttons and end left of them;
+    // the meta line is below the buttons and keeps the full content width.
+    let text_width = row_text_right(row_width, details_url.is_some()) - content_x;
 
-    // Title: name + version (line 1)
+    // Title: name + version (line 1), "..." where it would reach the buttons
     let mut title = Frame::default()
         .with_pos(content_x, layout.title_y)
-        .with_size(content_width, TITLE_LINE_H)
-        .with_label(&format!("{}  v{}", header.name, header.version));
+        .with_size(text_width, TITLE_LINE_H);
+    let title_text = format!("{}  v{}", header.name, header.version);
+    title.set_label(&fit_text(&title_text, text_width, title.label_size()));
     title.set_label_color(theme.text);
     title.set_align(Align::Left | Align::Inside);
 
     // Description (line 2) - truncated
+    const DESC_LABEL_SIZE: i32 = 11;
     let mut desc = Frame::default()
         .with_pos(content_x, layout.desc_y)
-        .with_size(content_width, DESC_LINE_H)
-        .with_label(&truncate_text(header.description, DESC_MAX_CHARS));
+        .with_size(text_width, DESC_LINE_H)
+        .with_label(&fit_text(
+            &truncate_text(header.description, DESC_MAX_CHARS),
+            text_width,
+            DESC_LABEL_SIZE,
+        ));
     desc.set_label_color(theme.text_dim);
     desc.set_align(Align::Left | Align::Inside);
-    desc.set_label_size(11);
+    desc.set_label_size(DESC_LABEL_SIZE);
 
     // Meta line (line 3) - status/author/tags + trust badge
     let mut meta = Frame::default()
@@ -1291,7 +1348,7 @@ fn create_plugin_row(kind: RowKind<'_>, ctx: &PluginRowContext) -> Group {
     meta.set_align(Align::Left | Align::Inside);
     meta.set_label_size(10);
 
-    let btn_x = row_width - ROW_BTN_WIDTH - ICON_MARGIN;
+    let btn_x = row_btn_x(row_width);
     match kind {
         RowKind::Installed(plugin) => {
             add_installed_actions(&row, meta, plugin.name, plugin.enabled, header.badge, ctx);
@@ -1301,7 +1358,7 @@ fn create_plugin_row(kind: RowKind<'_>, ctx: &PluginRowContext) -> Group {
             already_installed,
             update_available,
         } => {
-            add_details_button(info.readme_url.as_deref(), btn_x, theme);
+            add_details_button(details_url, btn_x, theme);
             let state = install_button_state(already_installed, update_available);
             add_official_install_button(info, state, btn_x, ctx);
         }
@@ -1309,8 +1366,7 @@ fn create_plugin_row(kind: RowKind<'_>, ctx: &PluginRowContext) -> Group {
             info,
             already_installed,
         } => {
-            let repo = Some(info.repo.as_str()).filter(|r| !r.is_empty());
-            add_details_button(repo, btn_x, theme);
+            add_details_button(details_url, btn_x, theme);
             let state = install_button_state(already_installed, false);
             add_community_install_button(info, state, btn_x, ctx);
         }
@@ -1329,7 +1385,7 @@ fn add_installed_actions(
     badge: TrustBadge,
     ctx: &PluginRowContext,
 ) {
-    let btn_x = ctx.row_width - ROW_BTN_WIDTH - ICON_MARGIN;
+    let btn_x = row_btn_x(ctx.row_width);
 
     // Disable/Enable button (top)
     let mut toggle_btn = ctx
@@ -1431,7 +1487,7 @@ fn add_details_button(url: Option<&str>, btn_x: i32, theme: &DialogTheme) {
     let mut details_btn = theme
         .button()
         .with_pos(
-            btn_x - DETAILS_BTN_WIDTH - ROW_BTN_GAP,
+            details_btn_x(btn_x),
             (PLUGIN_ROW_HEIGHT - ROW_BTN_HEIGHT) / 2,
         )
         .with_size(DETAILS_BTN_WIDTH, ROW_BTN_HEIGHT)
@@ -1692,6 +1748,25 @@ mod tests {
         assert!(layout.meta_y >= layout.desc_y + DESC_LINE_H);
         let bottom_margin = PLUGIN_ROW_HEIGHT - (layout.meta_y + META_LINE_H);
         assert_eq!(layout.title_y, bottom_margin);
+    }
+
+    #[test]
+    fn row_text_ends_left_of_the_row_buttons() {
+        let row_width = 520;
+        let btn_x = row_btn_x(row_width);
+        // Without Details the text column is the one it always was.
+        let content_x = ICON_MARGIN + ICON_SIZE + ICON_MARGIN;
+        assert_eq!(
+            row_text_right(row_width, false) - content_x,
+            row_width - content_x - ACTION_BUTTON_WIDTH - ICON_MARGIN
+        );
+        assert_eq!(row_text_right(row_width, false), btn_x - ICON_MARGIN);
+        // With Details it ends the same gap left of the Details button.
+        assert_eq!(
+            row_text_right(row_width, true),
+            details_btn_x(btn_x) - ICON_MARGIN
+        );
+        assert!(details_btn_x(btn_x) + DETAILS_BTN_WIDTH <= btn_x);
     }
 
     #[test]

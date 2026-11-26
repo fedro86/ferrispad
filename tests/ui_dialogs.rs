@@ -192,87 +192,18 @@ fn new_dialog_windows_build() {
     }
     // Every other dialog, through its build seam (T0106), in dark and light:
     // layout, and every input, list and button built as a themed component.
-    let mut layout = Vec::new();
     for (mode, bg, theme) in [
         ("dark", (43, 48, 59), &dark),
         ("light", (239, 241, 245), &light),
     ] {
         for (name, window) in run_only_dialogs(bg, theme) {
             let name = format!("{name} {mode}");
-            layout.extend(layout_failures(&window, &name, everything));
+            failures.extend(layout_failures(&window, &name, everything));
             failures.extend(unthemed_inputs(&window, &name, theme));
-        }
-    }
-    // Layout defects these dialogs had before T0106 made them testable,
-    // fixed by T0110. A defect is known by its identity (dialog, widget path,
-    // kind) with no pixel numbers, because label widths depend on the fonts
-    // installed: CI measures wider than a desktop, so some defects show on
-    // one machine only. Any defect whose identity is not listed fails.
-    for defect in &layout {
-        if !KNOWN_LAYOUT_DEFECTS.contains(&defect_identity(defect).as_str()) {
-            failures.push(format!("new layout defect: {defect}"));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
-
-/// A layout failure without its measurements and theme mode: the same
-/// defect on any machine, at any font size, in dark and light.
-fn defect_identity(failure: &str) -> String {
-    let rules = [
-        (r"^(.*?) (?:dark|light)([/:])", "$1$2"),
-        (
-            r": label needs \d+px at \+\d+pt, widget is \d+px",
-            ": clipped label",
-        ),
-        (r" at \+\d+pt", ""),
-        (r"Rect \{[^}]*\}", ""),
-        (r"\(-?\d+, -?\d+, -?\d+, -?\d+\)", ""),
-        (r"\s+", " "),
-    ];
-    let mut id = failure.to_string();
-    for (pattern, with) in rules {
-        let re = regex_lite::Regex::new(pattern).expect("identity pattern");
-        id = re.replace_all(&id, with).into_owned();
-    }
-    id.trim().to_string()
-}
-
-/// Layout defects of the run-only dialogs, present before T0106 made them
-/// testable, by [`defect_identity`]: the union of what a desktop and CI
-/// report (which of them reproduce depends on the installed fonts). T0110
-/// fixes them and removes this list.
-const KNOWN_LAYOUT_DEFECTS: &[&str] = &[
-    "community install, indexed/2:\"Install Anyway\": clipped label",
-    "community install, manual/2:\"Install Anyway\": clipped label",
-    "file too large/0:\"\"/3:\"\"/0:\"Open Lines:\": clipped label",
-    "find/0:\"Find what:\": clipped label",
-    "find/3:\"Use regex\": clipped label",
-    "find/4:\"(case folding: ASCII only)\": clipped label",
-    "font picker/0:\"Search:\": clipped label",
-    "go to line/0:\"Line number:\": clipped label",
-    "new session/0:\"Session name:\": clipped label",
-    "permissions: \"\" overlaps \"Allow\"",
-    "permissions: \"\" overlaps \"Deny\"",
-    "plugin manager/0:\"\"/1:\"Official\"/1:\"\"/0:\"\"/0:\"\": \"Lints\" overlaps \"Details\"",
-    "plugin manager/0:\"\"/1:\"Official\"/1:\"\"/0:\"\"/0:\"\": \"python-lint v1.3.0\" overlaps \"Details\"",
-    "plugin settings/5:\"e.g. Ctrl+Shift+L\": clipped label",
-    "read-only viewer/0:\"\"/0:\"\"/1:\"Go to Page\": clipped label",
-    "read-only viewer/0:\"\"/0:\"\"/4:\"Go to Line\": clipped label",
-    "read-only viewer/0:\"\"/3:\"\"/1:\"Next Page @>\": clipped label",
-    "replace/0:\"Find what:\": clipped label",
-    "replace/5:\"Use regex\": clipped label",
-    "replace/6:\"(case folding: ASCII only)\": clipped label",
-    "shortcuts, no plugins/0:\"\"/0:\"FerrisPad\"/0:\"\"/0:\"\"/19:\"\"/0:\"Plugins > General > Run All Checks\": clipped label",
-    "shortcuts/0:\"\"/0:\"FerrisPad\"/0:\"\"/0:\"\"/22:\"\"/0:\"Plugins > General > Run All Checks\": clipped label",
-    "update, manual only/0:\"\"/4:\"\"/0:\"Manual Update Only\": clipped label",
-    "update, manual only/0:\"\"/4:\"\"/1:\"View on GitHub\": clipped label",
-    "update, manual only/0:\"\"/4:\"\"/2:\"Skip This Version\": clipped label",
-    "update, manual only/0:\"\"/4:\"\"/3:\"Remind Later\": clipped label",
-    "update/0:\"\"/4:\"\"/1:\"View on GitHub\": clipped label",
-    "update/0:\"\"/4:\"\"/2:\"Skip This Version\": clipped label",
-    "update/0:\"\"/4:\"\"/3:\"Remind Later\": clipped label",
-];
 
 /// The dialogs that build and run in one `show_*` call, built through their
 /// `build_*` seams (T0106) on the theme background `bg`.
@@ -503,25 +434,4 @@ fn plugin_dialogs(theme: &DialogTheme) -> Vec<(&'static str, Window)> {
             build_plugin_manager_dialog(theme, &installed, Err("Network error: offline")).dialog,
         ),
     ]
-}
-
-/// The same defect has one identity on any machine (CI measures wider), at
-/// +0 and +2 pt, in dark and light.
-#[test]
-fn defect_identity_drops_measurements() {
-    for failure in [
-        "find dark/0:\"Find what:\": label needs 89px at +2pt, widget is 80px",
-        "find light/0:\"Find what:\": label needs 86px at +0pt, widget is 80px",
-    ] {
-        assert_eq!(
-            defect_identity(failure),
-            "find/0:\"Find what:\": clipped label"
-        );
-    }
-    assert_eq!(
-        defect_identity(
-            "permissions dark: \"\" (10, 10, 380, 152) overlaps \"Deny\" (215, 159, 80, 28)"
-        ),
-        "permissions: \"\" overlaps \"Deny\""
-    );
 }

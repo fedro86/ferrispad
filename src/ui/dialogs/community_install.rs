@@ -276,10 +276,14 @@ pub fn build_community_install_dialog(
         .with_size(100, 30)
         .with_label("Cancel");
 
+    // Measured from the label (T0110), never below the old 120px; it keeps
+    // its right edge and grows to the left. Buttons use FLTK's default
+    // label size.
+    let install_w = super::label_width("Install Anyway", fltk::app::font_size()).max(120);
     let install_btn = theme
         .warning_button()
-        .with_pos(DIALOG_WIDTH - PADDING - 120, btn_y)
-        .with_size(120, 30)
+        .with_pos(DIALOG_WIDTH - PADDING - install_w, btn_y)
+        .with_size(install_w, 30)
         .with_label("Install Anyway");
 
     dialog.end();

@@ -16,7 +16,7 @@ use crate::app::services::text_ops::{
     replace_all_in_text, replace_all_in_text_regex, replace_at_position_regex,
 };
 
-use super::{DialogTheme, show_themed_message};
+use super::{DialogTheme, label_width, max_label_width, show_themed_message};
 
 /// Search state shared by one dialog's buttons; clones share the same cells.
 #[derive(Clone)]
@@ -201,22 +201,79 @@ impl FindState {
     }
 }
 
-/// Width of the "Use regex" checkbox; the case-folding hint sits right of it.
+/// Minimum width of the "Use regex" checkbox; the case-folding hint sits
+/// right of it.
 const REGEX_CHECK_W: i32 = 100;
+/// Minimum width of the case-folding hint and the "Match case" checkbox.
+const REGEX_HINT_W: i32 = 170;
+const CASE_CHECK_W: i32 = 200;
+/// Label size of the case-folding hint.
+const HINT_SIZE: i32 = 11;
+/// Width of the box FLTK draws left of a check button's label.
+const CHECK_BOX_W: i32 = LABEL_SIZE + 8;
+/// FLTK's default label size, which the labels of these dialogs use.
+const LABEL_SIZE: i32 = 14;
+/// Minimum width of the label column ("Find what:"); the input column
+/// starts 10 px right of it, at [`INPUT_X`] when it is this wide.
+const LABEL_COL_W: i32 = 80;
+const INPUT_X: i32 = 110;
+/// Minimum width of both dialogs.
+const DIALOG_W: i32 = 400;
+
+/// Measured widths of the Find and Find & Replace dialogs, with the fonts
+/// installed: the label column fits each of `labels`, the checkboxes their
+/// label plus the box FLTK draws left of it, the hint its text, also 2 pt
+/// larger (see `label_width`). Never narrower than the fixed widths they had.
+struct FindLayout {
+    /// How far the input column moves right of [`INPUT_X`], and the dialog
+    /// widens, for the label column.
+    shift: i32,
+    case_w: i32,
+    regex_w: i32,
+    hint_w: i32,
+}
+
+impl FindLayout {
+    fn measure(labels: &[&str]) -> Self {
+        let label_w = max_label_width(labels, LABEL_SIZE).max(LABEL_COL_W);
+        let check = |label, min: i32| (label_width(label, LABEL_SIZE) + CHECK_BOX_W).max(min);
+        Self {
+            shift: label_w - LABEL_COL_W,
+            case_w: check("Match case", CASE_CHECK_W),
+            regex_w: check("Use regex", REGEX_CHECK_W),
+            hint_w: label_width(REGEX_CASE_FOLDING_HINT, HINT_SIZE).max(REGEX_HINT_W),
+        }
+    }
+
+    fn label_w(&self) -> i32 {
+        LABEL_COL_W + self.shift
+    }
+
+    fn input_x(&self) -> i32 {
+        INPUT_X + self.shift
+    }
+
+    /// Wider by the label column's growth, and enough to keep the
+    /// case-folding hint inside.
+    fn dialog_w(&self) -> i32 {
+        (DIALOG_W + self.shift).max(self.input_x() + self.regex_w + self.hint_w)
+    }
+}
 
 /// Hint shown next to "Use regex": the regex engine (`regex-lite`) folds case
 /// for ASCII letters only, so `café` does not match `CAFÉ` with "Match case"
 /// off, while plain search does (T0049).
 const REGEX_CASE_FOLDING_HINT: &str = "(case folding: ASCII only)";
 
-/// Draw the dimmed case-folding hint at `(x, y)`, one checkbox row high.
-fn regex_case_folding_hint(x: i32, y: i32, theme: &DialogTheme) -> Frame {
+/// Draw the dimmed case-folding hint right of the "Use regex" checkbox at
+/// `(x, y)`, one checkbox row high.
+fn regex_case_folding_hint(layout: &FindLayout, x: i32, y: i32, theme: &DialogTheme) -> Frame {
     let mut hint = Frame::default()
-        .with_pos(x, y)
-        .with_size(380 - x, 25)
+        .with_pos(x + layout.regex_w, y)
+        .with_size(layout.hint_w, 25)
         .with_label(REGEX_CASE_FOLDING_HINT)
         .with_align(Align::Left | Align::Inside);
-    hint.set_label_size(11);
+    hint.set_label_size(HINT_SIZE);
     hint.set_label_color(theme.text_dim);
     hint
 }
@@ -240,38 +297,42 @@ pub struct ReplaceUi {
 pub fn build_replace_dialog(theme: &DialogTheme) -> ReplaceUi {
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
+    // The label column fits its labels; the input column and the right
+    // aligned Close button move right by as much, the dialog widens by it.
+    let layout = FindLayout::measure(&["Find what:", "Replace:"]);
+    let (label_w, input_x) = (layout.label_w(), layout.input_x());
     let mut dialog_win = Window::default()
-        .with_size(400, 245)
+        .with_size(layout.dialog_w(), 245)
         .with_label("Find & Replace")
         .center_screen();
     dialog_win.set_color(theme.bg);
 
     let mut find_label = Frame::default()
         .with_pos(20, 20)
-        .with_size(80, 30)
+        .with_size(label_w, 30)
         .with_label("Find what:");
     find_label.set_label_color(theme.text);
-    let find_input = theme.input().with_pos(110, 20).with_size(270, 30);
+    let find_input = theme.input().with_pos(input_x, 20).with_size(270, 30);
 
     let mut replace_label = Frame::default()
         .with_pos(20, 60)
-        .with_size(80, 30)
+        .with_size(label_w, 30)
         .with_label("Replace:");
     replace_label.set_label_color(theme.text);
-    let replace_input = theme.input().with_pos(110, 60).with_size(270, 30);
+    let replace_input = theme.input().with_pos(input_x, 60).with_size(270, 30);
 
     let case_check = theme
         .check_button()
-        .with_pos(110, 100)
-        .with_size(200, 25)
+        .with_pos(input_x, 100)
+        .with_size(layout.case_w, 25)
         .with_label("Match case");
 
     let regex_check = theme
         .check_button()
-        .with_pos(110, 125)
-        .with_size(REGEX_CHECK_W, 25)
+        .with_pos(input_x, 125)
+        .with_size(layout.regex_w, 25)
         .with_label("Use regex");
-    regex_case_folding_hint(110 + REGEX_CHECK_W, 125, theme);
+    regex_case_folding_hint(&layout, input_x, 125, theme);
 
     let find_prev_btn = theme
         .button()
@@ -295,7 +356,7 @@ pub fn build_replace_dialog(theme: &DialogTheme) -> ReplaceUi {
         .with_label("Replace All");
     let close_btn = theme
         .button()
-        .with_pos(300, 205)
+        .with_pos(layout.dialog_w() - 100, 205)
         .with_size(90, 30)
         .with_label("Close");
 
@@ -546,45 +607,49 @@ pub struct FindUi {
 pub fn build_find_dialog(theme: &DialogTheme) -> FindUi {
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
+    // The label column fits its label; the input column and the button
+    // row under it move right by as much, the dialog widens by it.
+    let layout = FindLayout::measure(&["Find what:"]);
+    let (label_w, input_x, shift) = (layout.label_w(), layout.input_x(), layout.shift);
     let mut dialog_win = Window::default()
-        .with_size(400, 175)
+        .with_size(layout.dialog_w(), 175)
         .with_label("Find")
         .center_screen();
     dialog_win.set_color(theme.bg);
 
     let mut find_label = Frame::default()
         .with_pos(20, 20)
-        .with_size(80, 30)
+        .with_size(label_w, 30)
         .with_label("Find what:");
     find_label.set_label_color(theme.text);
-    let find_input = theme.input().with_pos(110, 20).with_size(270, 30);
+    let find_input = theme.input().with_pos(input_x, 20).with_size(270, 30);
 
     let case_check = theme
         .check_button()
-        .with_pos(110, 60)
-        .with_size(200, 25)
+        .with_pos(input_x, 60)
+        .with_size(layout.case_w, 25)
         .with_label("Match case");
 
     let regex_check = theme
         .check_button()
-        .with_pos(110, 87)
-        .with_size(REGEX_CHECK_W, 25)
+        .with_pos(input_x, 87)
+        .with_size(layout.regex_w, 25)
         .with_label("Use regex");
-    regex_case_folding_hint(110 + REGEX_CHECK_W, 87, theme);
+    regex_case_folding_hint(&layout, input_x, 87, theme);
 
     let find_prev_btn = theme
         .button()
-        .with_pos(110, 125)
+        .with_pos(110 + shift, 125)
         .with_size(90, 30)
         .with_label("Find Prev");
     let find_btn = theme
         .button()
-        .with_pos(210, 125)
+        .with_pos(210 + shift, 125)
         .with_size(90, 30)
         .with_label("Find Next");
     let close_btn = theme
         .button()
-        .with_pos(310, 125)
+        .with_pos(310 + shift, 125)
         .with_size(80, 30)
         .with_label("Close");
 

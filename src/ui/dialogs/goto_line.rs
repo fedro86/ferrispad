@@ -9,7 +9,10 @@ use fltk::{
 use crate::app::buffer_text_no_leak;
 use crate::app::services::text_ops::line_number_to_byte_position;
 
-use super::DialogTheme;
+use super::{DialogTheme, label_width};
+
+/// FLTK's default label size, which the label uses.
+const LABEL_SIZE: i32 = 14;
 
 /// The Go To Line dialog's window and widgets, built but not shown (a seam
 /// for the layout tests).
@@ -24,26 +27,33 @@ pub struct GotoLineUi {
 pub fn build_goto_line_dialog(theme: &DialogTheme) -> GotoLineUi {
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
+    // The label fits its text (also 2 pt larger); the input and the right
+    // aligned button row move right by as much, the dialog widens by it.
+    let label_w = label_width("Line number:", LABEL_SIZE).max(100);
+    let shift = label_w - 100;
     let mut dialog_win = Window::default()
-        .with_size(250, 120)
+        .with_size(250 + shift, 120)
         .with_label("Go To Line")
         .center_screen();
     dialog_win.set_color(theme.bg);
     let mut label = Frame::default()
         .with_pos(20, 20)
-        .with_size(100, 30)
+        .with_size(label_w, 30)
         .with_label("Line number:");
     label.set_label_color(theme.text);
-    let line_input = theme.int_input().with_pos(130, 20).with_size(100, 30);
+    let line_input = theme
+        .int_input()
+        .with_pos(130 + shift, 20)
+        .with_size(100, 30);
 
     let go_btn = theme
         .button()
-        .with_pos(60, 70)
+        .with_pos(60 + shift, 70)
         .with_size(80, 30)
         .with_label("Go");
     let cancel_btn = theme
         .button()
-        .with_pos(150, 70)
+        .with_pos(150 + shift, 70)
         .with_size(80, 30)
         .with_label("Cancel");
 
