@@ -623,6 +623,7 @@ impl AppState {
         };
 
         self.file.last_open_directory = result.last_open_directory;
+        self.session.adopt(result.adopted);
 
         // Apply syntax highlighting for each restored document
         for (id, path) in &result.highlight_docs {
@@ -664,11 +665,10 @@ impl AppState {
 
         // Re-save immediately so on-disk state matches restored state.
         let session_mode = self.settings.borrow().session_restore;
-        let _ = session::save_session(
+        let _ = self.session.save_now(
             &self.tab_manager,
             session_mode,
             self.file.last_open_directory.as_deref(),
-            self.session.current_session_name(),
         );
     }
 
@@ -799,13 +799,14 @@ impl AppState {
                 project_root: super::mcp::cwd_as_string(),
             });
 
-            let _ = session::save_session(
-                &self.tab_manager,
-                session_mode,
-                self.file.last_open_directory.as_deref(),
-                self.session.current_session_name(),
-            )
-            .inspect_err(|e| eprintln!("Failed to save session: {}", e));
+            let _ = self
+                .session
+                .save_now(
+                    &self.tab_manager,
+                    session_mode,
+                    self.file.last_open_directory.as_deref(),
+                )
+                .inspect_err(|e| eprintln!("Failed to save session: {}", e));
         }
 
         should_quit

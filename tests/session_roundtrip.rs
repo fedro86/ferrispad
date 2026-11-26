@@ -20,6 +20,7 @@ fn test_session_roundtrip_via_disk() {
                 temp_file: None,
                 was_dirty: false,
                 group_index: Some(0),
+                owner: None,
             },
             DocumentSession {
                 file_path: None,
@@ -28,6 +29,7 @@ fn test_session_roundtrip_via_disk() {
                 temp_file: Some("deadbeef.tmp".to_string()),
                 was_dirty: true,
                 group_index: None,
+                owner: None,
             },
         ],
         last_open_directory: Some("/home/user".to_string()),
@@ -72,6 +74,7 @@ fn test_session_with_groups_roundtrip() {
             temp_file: None,
             was_dirty: false,
             group_index: Some(1),
+            owner: None,
         }],
         last_open_directory: None,
         groups: vec![
@@ -143,6 +146,7 @@ fn test_session_unicode_paths() {
                 temp_file: None,
                 was_dirty: false,
                 group_index: None,
+                owner: None,
             },
             DocumentSession {
                 file_path: Some("/tmp/\u{1F600}emoji.md".to_string()),
@@ -151,6 +155,7 @@ fn test_session_unicode_paths() {
                 temp_file: None,
                 was_dirty: false,
                 group_index: None,
+                owner: None,
             },
         ],
         last_open_directory: Some("/home/user/\u{6587}\u{4EF6}\u{5939}".to_string()),

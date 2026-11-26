@@ -815,12 +815,13 @@ fn main() {
     // Safety-net: save session if file_quit() was never called or didn't complete
     if !quit_clean {
         let session_mode = state.settings.borrow().session_restore;
-        let _ = session::save_session(
-            &state.tab_manager,
-            session_mode,
-            state.file.last_open_directory.as_deref(),
-            state.session.current_session_name(),
-        )
-        .inspect_err(|e| eprintln!("Post-loop session save failed: {}", e));
+        let _ = state
+            .session
+            .save_now(
+                &state.tab_manager,
+                session_mode,
+                state.file.last_open_directory.as_deref(),
+            )
+            .inspect_err(|e| eprintln!("Post-loop session save failed: {}", e));
     }
 }
