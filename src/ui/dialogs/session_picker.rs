@@ -63,8 +63,7 @@ pub fn show_session_picker(
 
     // Session list browser
     let mut browser = HoldBrowser::default().with_pos(20, 40).with_size(320, 160);
-    browser.set_color(theme.input_bg);
-    browser.set_selection_color(theme.button_bg);
+    theme.style_list(&mut browser);
     browser.set_frame(FrameType::FlatBox);
 
     // Populate session list (use @C format code for text color on dark themes)

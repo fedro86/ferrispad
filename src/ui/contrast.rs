@@ -85,6 +85,8 @@ pub struct EditorSelectionBgs {
     /// char, FLTK blends the selection with the char's `BgColorExt` color
     /// (`clear_rect`'s `bgbasecolor`), not with the editor background.
     pub unfocused_on_line: Option<(u8, u8, u8)>,
+    /// The selected-row color of dialog lists (T0097).
+    pub list_selection: Option<(u8, u8, u8)>,
 }
 
 impl EditorSelectionBgs {
@@ -97,6 +99,7 @@ impl EditorSelectionBgs {
                 UNFOCUSED_SELECTION_WEIGHT,
             )),
             unfocused_on_line: None,
+            list_selection: None,
         }
     }
 
@@ -109,10 +112,19 @@ impl EditorSelectionBgs {
         self
     }
 
+    /// Also treat the selected-row color of dialog lists (T0097) as a
+    /// selection background: FLTK draws a selected row's text with
+    /// `fl_contrast(text, selection)` too.
+    pub fn with_list_selection(mut self, list_selection: (u8, u8, u8)) -> Self {
+        self.list_selection = Some(list_selection);
+        self
+    }
+
     fn contains(&self, rgb: (u8, u8, u8)) -> bool {
         self.focused == Some(rgb)
             || self.unfocused == Some(rgb)
             || self.unfocused_on_line == Some(rgb)
+            || self.list_selection == Some(rgb)
     }
 }
 
@@ -148,6 +160,7 @@ pub fn ferrispad_contrast(fg: Color, bg: Color, selection: EditorSelectionBgs) -
 static FOCUSED_BG: AtomicU32 = AtomicU32::new(0);
 static UNFOCUSED_BG: AtomicU32 = AtomicU32::new(0);
 static UNFOCUSED_LINE_BG: AtomicU32 = AtomicU32::new(0);
+static LIST_SELECTION_BG: AtomicU32 = AtomicU32::new(0);
 const PRESENT: u32 = 1 << 24;
 
 fn pack(rgb: Option<(u8, u8, u8)>) -> u32 {
@@ -177,11 +190,25 @@ pub fn register_editor_selection(
     UNFOCUSED_LINE_BG.store(pack(bgs.unfocused_on_line), Ordering::Relaxed);
 }
 
+/// Record the selected-row color of the dialog lists (T0097), so the text of
+/// a selected row is drawn readable on it. Called by
+/// `DialogTheme::style_list`.
+pub fn register_list_selection(selection: (u8, u8, u8)) {
+    LIST_SELECTION_BG.store(pack(Some(selection)), Ordering::Relaxed);
+}
+
+/// The dialog list selection currently registered (for tests).
+#[cfg(test)]
+pub(crate) fn registered_list_selection() -> Option<(u8, u8, u8)> {
+    unpack(LIST_SELECTION_BG.load(Ordering::Relaxed))
+}
+
 fn registered_editor_selection() -> EditorSelectionBgs {
     EditorSelectionBgs {
         focused: unpack(FOCUSED_BG.load(Ordering::Relaxed)),
         unfocused: unpack(UNFOCUSED_BG.load(Ordering::Relaxed)),
         unfocused_on_line: unpack(UNFOCUSED_LINE_BG.load(Ordering::Relaxed)),
+        list_selection: unpack(LIST_SELECTION_BG.load(Ordering::Relaxed)),
     }
 }
 

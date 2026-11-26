@@ -111,10 +111,9 @@ fn zenity_folder(directory: &str) -> String {
 }
 
 /// Background and text colour of a selected row in the themed chooser's file
-/// list: the selection colour and text colour every other themed dialog list
-/// uses (session picker, font picker).
+/// list: the shared dialog list selection (T0097).
 fn selected_row_colors(theme: &DialogTheme) -> (Color, Color) {
-    (theme.button_bg, theme.text)
+    theme.list_selection()
 }
 
 /// Show the chooser and return the chosen paths (empty when cancelled).
@@ -199,8 +198,10 @@ fn style_children(group: &impl GroupExt, theme: &DialogTheme) {
             child.set_label_color(theme.text);
         }
         if let Some(mut list) = FileBrowser::from_dyn_widget(&child) {
-            // Its background and text colour are set through the chooser.
+            // Background and text colour are set through the chooser; the
+            // selected row gets the shared, registered list selection.
             list.set_selection_color(selected_row_colors(theme).0);
+            crate::ui::contrast::register_list_selection(selected_row_colors(theme).0.to_rgb());
         } else if let Some(mut input) = FileInput::from_dyn_widget(&child) {
             // The path-segment buttons above the Filename field are drawn
             // with this box type; no box keeps them clickable but invisible.
@@ -266,13 +267,18 @@ mod tests {
     use crate::ui::color::wcag_contrast;
 
     /// The text colour `Fl_File_Browser::item_draw` really uses on a selected
-    /// row: `fl_contrast(textcolor(), selection_color())`, i.e. FLTK's CIELAB
-    /// rule at FerrisPad's contrast level (the row is not an editor
-    /// selection, see `ui::contrast`).
+    /// row: `fl_contrast(textcolor(), selection_color())`, through FerrisPad's
+    /// contrast rule with the dialog list selection registered (T0097, see
+    /// `ui::contrast`).
     fn fltk_drawn_text(fg: (u8, u8, u8), bg: (u8, u8, u8)) -> (u8, u8, u8) {
         use crate::ui::contrast::{EditorSelectionBgs, ferrispad_contrast};
         let c = |(r, g, b): (u8, u8, u8)| crate::ui::color::fltk_rgb(r, g, b);
-        ferrispad_contrast(c(fg), c(bg), EditorSelectionBgs::default()).to_rgb()
+        ferrispad_contrast(
+            c(fg),
+            c(bg),
+            EditorSelectionBgs::default().with_list_selection(bg),
+        )
+        .to_rgb()
     }
 
     /// The selected row of the fallback chooser must be readable in every

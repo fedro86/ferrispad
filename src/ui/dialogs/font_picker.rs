@@ -85,8 +85,7 @@ pub fn show_font_picker(
     let mut browser = HoldBrowser::default()
         .with_pos(list_x, list_y)
         .with_size(list_w, list_h);
-    browser.set_color(theme.input_bg);
-    browser.set_selection_color(theme.button_bg);
+    theme.style_list(&mut browser);
     browser.set_frame(FrameType::FlatBox);
 
     // Right column: size + preview
