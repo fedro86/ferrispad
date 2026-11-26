@@ -127,6 +127,21 @@ pub fn validate_path(path: &str, project_root: &Path) -> PathValidation {
     }
 }
 
+/// Whether a plugin-supplied link may be handed to the OS opener
+/// (`open::that`: ShellExecute / `open` / `xdg-open`), which opens or even
+/// *runs* a local path. Only an `http://` or `https://` URL (scheme compared
+/// case-insensitively) with a non-empty host part qualifies; anything else
+/// (`file:`, a bare or Windows path, `javascript:`, whitespace or control
+/// characters anywhere) is refused (T0090).
+pub fn is_web_url(url: &str) -> bool {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return false;
+    };
+    let web_scheme = scheme.eq_ignore_ascii_case("https") || scheme.eq_ignore_ascii_case("http");
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    web_scheme && !host.is_empty() && !url.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
 /// Check if a command argument contains shell injection characters.
 ///
 /// # Returns

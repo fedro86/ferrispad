@@ -87,22 +87,40 @@ pub fn dispatch_hook_result(result: HookResult, plugin_name: &str, ctx: &mut Hoo
     }
 }
 
-/// What a plugin's `open_file` request may open (T0090): the validated,
-/// physical path of an existing file inside the active document's project
-/// root, or `None` to block it.
+/// What a plugin's `open_file` request may open (T0090): a path to an
+/// existing file inside the active document's project root, or `None` to
+/// block it.
 ///
-/// The opener gets the resolved path, never the raw plugin string, which
-/// would resolve against the process cwd instead of the root. Without a
-/// project root (untitled document, file outside any project) the request
-/// is refused: there is nothing to confine it to, like every other plugin
-/// filesystem API.
+/// The check is the sandbox's physical rule (`validate_path`, plus "is an
+/// existing file"). What is opened is the request anchored at the root as
+/// given: `root/raw` for a relative request, the absolute request itself.
+/// Never the raw relative string (it would resolve against the process cwd)
+/// and never the canonical path: `root` comes from the active document's
+/// path as the user opened it, so the opened path has the same form as the
+/// user's other tabs (no `\\?\` prefix on Windows, no `/real/…` for a
+/// symlinked `/home/u/link/…` on Unix) and tab de-duplication keeps working.
+/// The kernel resolves it to the file that was checked; only a swap between
+/// check and open (TOCTOU, out of scope) could differ.
+///
+/// Without a project root (untitled document, file outside any project) the
+/// request is refused: there is nothing to confine it to, like every other
+/// plugin filesystem API.
 pub(crate) fn approve_open_file(
     file_path: &str,
     project_root: Option<&std::path::Path>,
 ) -> Option<String> {
     use crate::app::plugins::security::{PathValidation, validate_path};
-    match validate_path(file_path, project_root?) {
-        PathValidation::Valid(path) if path.is_file() => Some(path.to_string_lossy().into_owned()),
+    let root = project_root?;
+    match validate_path(file_path, root) {
+        PathValidation::Valid(physical) if physical.is_file() => {
+            let requested = std::path::Path::new(file_path);
+            let anchored = if requested.is_absolute() {
+                requested.to_path_buf()
+            } else {
+                root.join(requested)
+            };
+            Some(anchored.to_string_lossy().into_owned())
+        }
         _ => None,
     }
 }
@@ -280,12 +298,40 @@ mod tests {
         let root = dir.path();
         std::fs::create_dir(root.join("src")).unwrap();
         std::fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
-        let canonical = std::fs::canonicalize(root.join("src/main.rs")).unwrap();
         // A relative path must not reach the opener as-is: it would resolve
-        // against the process cwd, not the project root.
+        // against the process cwd, not the project root. It is anchored at
+        // the root as given, never canonicalized (no `\\?\` on Windows).
+        let anchored = root.join("src/main.rs").to_string_lossy().into_owned();
+        let opened = approve_open_file("src/main.rs", Some(root));
+        assert_eq!(opened.as_deref(), Some(anchored.as_str()));
+        assert!(!anchored.starts_with(r"\\?\"));
+        // An absolute request inside the root is passed on unchanged.
+        assert_eq!(approve_open_file(&anchored, Some(root)), Some(anchored));
+    }
+
+    /// The project reached through a symlinked directory: the opened path keeps
+    /// the alias form the user's tabs use, so `TabManager::find_by_path` (an
+    /// exact string compare) finds the already-open tab instead of opening a
+    /// duplicate. (Asserted on the string: building a `TabManager` would touch
+    /// FLTK, which unit tests avoid.)
+    #[cfg(unix)]
+    #[test]
+    fn hook_open_file_keeps_the_root_alias_form() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir_all(real.join("src")).unwrap();
+        std::fs::write(real.join("src/main.rs"), "fn main() {}").unwrap();
+        let alias = dir.path().join("alias");
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        // The path of the tab the user opened (File → Open through the alias).
+        let open_tab = alias.join("src/main.rs").to_string_lossy().into_owned();
         assert_eq!(
-            approve_open_file("src/main.rs", Some(root)),
-            Some(canonical.to_string_lossy().into_owned())
+            approve_open_file("src/main.rs", Some(&alias)).as_deref(),
+            Some(open_tab.as_str())
+        );
+        assert_eq!(
+            approve_open_file(&open_tab, Some(&alias)).as_deref(),
+            Some(open_tab.as_str())
         );
     }
 

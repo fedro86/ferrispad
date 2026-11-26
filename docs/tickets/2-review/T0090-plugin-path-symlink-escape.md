@@ -98,6 +98,21 @@ fails closed.
 
 There is no copy/move API besides `rename`.
 
+### The host opens or runs a plugin-supplied path / URL (review round 2)
+
+| Where | Source | Verdict |
+|---|---|---|
+| hook `open_file` → `DeferredOpenFile` | plugin | checked by the physical rule + "existing file"; opens `root/raw` (or the absolute request) in the user's path form, never the canonical one |
+| diagnostic `url` → `DiagnosticOpenDocs` → `open::that` (ShellExecute / `open` / `xdg-open`: opens **or runs** a local path) | plugin | **fixed:** dropped at parse time unless `security::is_web_url` (`http`/`https`, case-insensitive, non-empty host, no whitespace/control chars), with a `[plugin:security]` log line |
+| plugin-folder `file://` diagnostic (`plugins/hook_dispatch.rs`) | built by the host | kept: host-constructed |
+| Markdown preview temp file → `open::that` | host temp path | kept |
+| Plugin Manager "Details" → `open::that` | registry `readme_url` / community `repo` | kept: the URL is shown in a confirmation dialog before opening; the registry is the project's own (fetched over HTTPS). Follow-up candidate: the same `is_web_url` guard |
+| update dialog → `open::that(html_url)` | GitHub releases API | kept |
+
+The official plugins (`fedro86/ferrispad-plugins`) set `url` only to
+`https://` documentation links (rust-lint: clippy docs; python-lint: ruff's
+rule URL), so the filter breaks nothing legitimate.
+
 ### "No project root" paths (review round 1, orchestrator decision)
 
 | Where | Without a project root | Verdict |
@@ -252,3 +267,40 @@ test result: FAILED. 0 passed; 3 failed
 ```
 
 After: the 3 pass.
+
+## Review round 2 (a3 + orchestrator, 2026-11-26, local only)
+
+- **Blocking (a3), Windows regression from round 1:** `approve_open_file`
+  returned the canonical path, which on Windows is `\\?\C:\…`. A file
+  opened from the file-explorer plugin would get that path, so
+  `TabManager::find_by_path` (exact string compare) missed an already-open
+  tab and opened a duplicate, and the verbatim path showed up in titles,
+  recent files and the session. Unix had the same duplicate-tab problem for
+  a project behind a symlinked directory (`/real/…` vs `/home/u/link/…`).
+  Fix (orchestrator's choice): validate physically as before, but open the
+  request anchored at the root as given (`root.join(raw)`, or the absolute
+  request). `root` comes from the active document's path as the user opened
+  it, so the form matches the user's tabs. Only TOCTOU (out of scope) could
+  make the opened file differ from the checked one.
+- **Folded in (a3 audit gap, orchestrator decision):** diagnostic `url`
+  could be any string and reached `open::that` on a double-click, so a
+  plugin could `write_file` a `.bat` / `.desktop` / `.command` in the root
+  and get it run without `execute` permission. Now dropped at parse time
+  unless it is an `http(s)` URL (table above).
+
+Red runs:
+
+```
+# open_file returning the canonical path (as in 001183f), alias root:
+test …hook_open_file_keeps_the_root_alias_form ... FAILED
+  left:  Some("/tmp/…/real/src/main.rs")
+  right: Some("/tmp/…/alias/src/main.rs")
+# diagnostic url, before the filter:
+test …diagnostic_url_must_be_a_web_url ... FAILED
+  "C:\\x\\run.bat" must not reach open::that
+```
+
+After: both pass. The `\\?\` form itself cannot appear on Linux; the
+string-form assertion in `hook_open_file_opens_the_validated_path_not_the_raw_one`
+pins that the opened path is `root.join(raw)` (never canonicalized), which
+is what keeps it off Windows.
