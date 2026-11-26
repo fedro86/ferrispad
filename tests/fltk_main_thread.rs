@@ -48,6 +48,9 @@ struct Args {
     skips: Vec<String>,
     exact: bool,
     list: bool,
+    /// libtest's `--ignored`: run only `#[ignore]`d tests. None of these
+    /// checks is ignored, so it selects nothing.
+    ignored_only: bool,
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
@@ -57,10 +60,16 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
         match arg.as_str() {
             "--exact" => parsed.exact = true,
             "--list" => parsed.list = true,
+            "--ignored" => parsed.ignored_only = true,
             "--skip" => parsed.skips.extend(args.next()),
+            flag if flag.starts_with("--skip=") => {
+                parsed.skips.push(flag["--skip=".len()..].to_string());
+            }
             flag if FLAGS_WITH_VALUE.contains(&flag) => {
                 args.next();
             }
+            // Everything else is ignored, including the other `--flag=value`
+            // forms and `--include-ignored` (which runs everything, as here).
             flag if flag.starts_with('-') => {}
             filter => parsed.filters.push(filter.to_string()),
         }
@@ -77,7 +86,8 @@ fn matches(name: &str, pattern: &str, exact: bool) -> bool {
 }
 
 fn selected(name: &str, args: &Args) -> bool {
-    (args.filters.is_empty() || args.filters.iter().any(|f| matches(name, f, args.exact)))
+    !args.ignored_only
+        && (args.filters.is_empty() || args.filters.iter().any(|f| matches(name, f, args.exact)))
         && !args.skips.iter().any(|s| matches(name, s, args.exact))
 }
 

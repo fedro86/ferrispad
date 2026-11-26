@@ -148,3 +148,13 @@ CI on 97f5404 (PR #174), all green:
 - `ci.yml` run 45866050924: fmt + clippy + test (Linux, Xvfb,
   `FERRISPAD_REQUIRE_UI_TESTS=1`), test (linux arm64), build (windows x64).
 - `build-deps-check.yml` run 45866051125.
+
+## Review (a3, 2026-11-26): approved, two non-blocking points done
+
+- `--skip=PATTERN` (the `=` form libtest's getopts accepts) is now a skip;
+  before, it fell into "unknown flag" and was ignored
+  (`-- --skip=popup --list` still listed `popup_is_top_level`; now only
+  `child_index_invariant_matches_bundled_fltk`).
+- `--ignored` now behaves like libtest: it runs only `#[ignore]`d tests,
+  and none of these checks is, so nothing runs (`--list` → 0 entries);
+  `--include-ignored` runs everything, as before.
