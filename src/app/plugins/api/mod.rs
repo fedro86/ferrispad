@@ -848,6 +848,102 @@ mod tests {
         );
     }
 
+    /// T0092 review: a destructive op on the project root itself — however
+    /// it is spelled — must never succeed (a plugin bug passing "" was enough
+    /// to wipe the project and its history).
+    #[cfg(unix)]
+    #[test]
+    fn plugin_remove_refuses_the_project_root() {
+        let (d, root, _outside) = root_and_outside();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("keep.txt"), "x").unwrap();
+        std::os::unix::fs::symlink(&root, root.join("rootlink")).unwrap();
+        let alias = d.path().join("alias");
+        std::os::unix::fs::symlink(&root, &alias).unwrap();
+        let abs = root.to_string_lossy().into_owned();
+        let alias_abs = alias.to_string_lossy().into_owned();
+        for spelling in [
+            "",
+            ".",
+            "./",
+            "sub/..",
+            "rootlink",
+            abs.as_str(),
+            alias_abs.as_str(),
+        ] {
+            let (ok, _) = call1(api_with_root(&root), "remove", spelling);
+            assert!(!ok, "remove({spelling:?}) must fail");
+            let (ok, _) = call2(api_with_root(&root), "rename", spelling, "moved");
+            assert!(!ok, "rename({spelling:?}) must fail");
+            assert!(
+                root.join(".git").is_dir() && root.join("keep.txt").exists(),
+                "{spelling:?}"
+            );
+        }
+    }
+
+    /// Removing or moving a directory must not take a `.git` inside it along.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_remove_refuses_directories_containing_dot_git() {
+        let (_d, root, outside) = root_and_outside();
+        std::fs::create_dir_all(root.join("sub/.git")).unwrap();
+        std::fs::create_dir_all(root.join("deep/a/b/c/.GIT")).unwrap();
+        std::fs::create_dir_all(root.join("deep/a/b/c/.git")).unwrap();
+        for dir in ["sub", "deep"] {
+            let (ok, _) = call1(api_with_root(&root), "remove", dir);
+            assert!(!ok, "remove({dir}) must fail");
+            let (ok, _) = call2(api_with_root(&root), "rename", dir, "moved");
+            assert!(!ok, "rename({dir}) must fail");
+        }
+        assert!(root.join("sub/.git").is_dir() && root.join("deep/a/b/c/.git").is_dir());
+
+        // A symlink inside the directory that points at a .git elsewhere is
+        // not followed: removing the directory removes the link, not its
+        // target, so it does not block either.
+        std::fs::create_dir_all(outside.join(".git")).unwrap();
+        std::fs::create_dir_all(root.join("links")).unwrap();
+        std::os::unix::fs::symlink(outside.join(".git"), root.join("links/g")).unwrap();
+        let (ok, err) = call1(api_with_root(&root), "remove", "links");
+        assert!(ok, "{err}");
+        assert!(
+            outside.join(".git").is_dir(),
+            "the link target is untouched"
+        );
+    }
+
+    /// The directory walk is bounded; past the bound the op fails closed.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_remove_walk_is_bounded() {
+        let (_d, root, _outside) = root_and_outside();
+        let mut deep = root.join("tall");
+        for i in 0..(sandbox::MAX_REMOVE_DEPTH + 2) {
+            deep.push(format!("d{i}"));
+        }
+        std::fs::create_dir_all(&deep).unwrap();
+        let (ok, _) = call1(api_with_root(&root), "remove", "tall");
+        assert!(!ok, "deeper than the bound must fail closed");
+        assert!(root.join("tall").is_dir());
+
+        let wide = root.join("wide");
+        std::fs::create_dir(&wide).unwrap();
+        for i in 0..=sandbox::MAX_REMOVE_ENTRIES {
+            std::fs::write(wide.join(format!("f{i}")), "").unwrap();
+        }
+        let (ok, _) = call1(api_with_root(&root), "remove", "wide");
+        assert!(!ok, "more entries than the bound must fail closed");
+        assert!(wide.is_dir());
+
+        // Within the bounds a plain directory is removed.
+        std::fs::create_dir_all(root.join("plain/a/b")).unwrap();
+        std::fs::write(root.join("plain/a/b/f"), "x").unwrap();
+        let (ok, err) = call1(api_with_root(&root), "remove", "plain");
+        assert!(ok, "{err}");
+        assert!(!root.join("plain").exists());
+    }
+
     // ── S4: file_exists / is_file without project root ────────────────
 
     #[test]

@@ -26,6 +26,44 @@ pub(super) fn resolve_and_validate(
     }
 }
 
+/// Check that no entry below `dir` is named `.git` (same case rules as the
+/// `.git` path check), walking at most [`MAX_REMOVE_DEPTH`] levels and
+/// [`MAX_REMOVE_ENTRIES`] entries without following symlinks. A symlink is
+/// judged by its own name only: removing or moving the directory acts on the
+/// link, not on its target. Past a bound, or on any read error, it fails
+/// closed.
+fn dir_tree_is_git_free(dir: &Path) -> Result<(), &'static str> {
+    use super::super::security::{CASE_INSENSITIVE_NAMES, is_git_component};
+    let mut stack = vec![(dir.to_path_buf(), 0usize)];
+    let mut seen = 0usize;
+    while let Some((current, depth)) = stack.pop() {
+        let entries = std::fs::read_dir(&current).map_err(|_| "Cannot inspect directory")?;
+        for entry in entries {
+            let entry = entry.map_err(|_| "Cannot inspect directory")?;
+            seen += 1;
+            if seen > MAX_REMOVE_ENTRIES {
+                return Err("Directory too large for a plugin to remove or move");
+            }
+            if is_git_component(&entry.file_name().to_string_lossy(), CASE_INSENSITIVE_NAMES) {
+                return Err("Directory contains .git");
+            }
+            let file_type = entry.file_type().map_err(|_| "Cannot inspect directory")?;
+            if file_type.is_dir() {
+                if depth + 1 >= MAX_REMOVE_DEPTH {
+                    return Err("Directory too deep for a plugin to remove or move");
+                }
+                stack.push((entry.path(), depth + 1));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Bounds of the walk that checks a directory before removing or moving it.
+pub(super) const MAX_REMOVE_DEPTH: usize = 32;
+/// See [`MAX_REMOVE_DEPTH`].
+pub(super) const MAX_REMOVE_ENTRIES: usize = 10_000;
+
 /// What a write operation does to its target (T0092).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum WriteKind {
@@ -65,6 +103,19 @@ pub(super) fn resolve_for_write(
     };
     if path_has_git_component(&physical, &canonical_root, CASE_INSENSITIVE_NAMES) {
         return refuse("Plugins may not modify .git");
+    }
+    // The project root itself — "", ".", "sub/..", an alias or a symlink to
+    // it all resolve here — is never removed, moved or replaced.
+    if physical == canonical_root {
+        return refuse("Plugins may not remove, move or replace the project root");
+    }
+    // Removing or moving a directory takes everything below it along: walk
+    // it first (bounded, symlinks not followed) so no `.git` goes with it.
+    if kind == WriteKind::Modify
+        && std::fs::symlink_metadata(&physical).is_ok_and(|m| m.is_dir())
+        && let Err(why) = dir_tree_is_git_free(&physical)
+    {
+        return refuse(why);
     }
     if kind == WriteKind::Create {
         let name = physical

@@ -177,3 +177,56 @@ was not opened:" with the URL and a Close button. Edge-by-edge check: the
 text is not clipped and the button sits inside the popup. The good link
 still shows the usual "This will open your browser to: … Continue?"
 confirmation.
+
+## Review round 2 (a3 + orchestrator, 2026-11-26, local only)
+
+**Blocking (a3):** the `.git` rule looked only at the path itself, so a
+recursive remove of an ANCESTOR deleted `.git`. Worse, `remove("")` and
+`remove(".")` resolve to the project root and returned `(true, "")`: the
+whole project, history included, was gone. A plugin **bug** was enough.
+
+Fix, in `sandbox::resolve_for_write` (every write kind):
+
+- **The project root itself is refused**, however it is spelled. `""`,
+  `"."`, `"./"`, `"sub/.."`, the absolute root, an alias of the root and an
+  in-root symlink to the root all compare equal after physical resolution.
+- **Removing or moving a directory** (`Modify`, which covers `remove` and the
+  `rename` source) first walks it with `dir_tree_is_git_free`:
+  - `read_dir` plus `DirEntry::file_type`, which does not follow symlinks;
+  - bounded at `MAX_REMOVE_DEPTH` = 32 levels and `MAX_REMOVE_ENTRIES` =
+    10 000 entries;
+  - it refuses on any entry named `.git` (same case rules as (b3)), on any
+    read error, and past a bound (fail closed).
+- A symlink inside the directory is judged by its own name only. Removing
+  or moving the directory acts on the link, not its target, so a link
+  pointing at a `.git` elsewhere neither blocks nor is followed. That
+  target stays intact, and a test checks it.
+- `rename` of an ancestor is refused by the same walk. Even if it were
+  allowed it would only MOVE `.git` with its content intact. Refusing keeps
+  one rule.
+
+Red (on 354b064):
+
+```
+test …plugin_remove_refuses_the_project_root ... FAILED      remove("") must fail
+test …plugin_remove_refuses_directories_containing_dot_git ... FAILED   remove(sub) must fail
+test …plugin_remove_walk_is_bounded ... FAILED      deeper than the bound must fail closed
+```
+
+All three pass after the fix. The earlier T0090/T0092 tests stay green.
+
+Non-blocking notes (a3), not changed:
+
+- **`~<digit>` false positives on Windows:** names like Emacs numbered
+  backups (`file.txt.~1~`) or `draft~2.md` are refused when a *plugin*
+  creates them on Windows. This fails closed and is accepted.
+- **Windows reserved device names** (`CON`, `NUL`, `COM1`, `nul.txt`, …) are
+  not refused. Writing one touches a device; it is no execution vector.
+  Follow-up note only.
+- **Windows compile check:** all Windows rules (`windows_name_is_unsafe`,
+  `has_executable_extension`, case folding via `is_git_component`) are plain
+  functions compiled and unit-tested on every platform. `cfg!(windows)` only
+  chooses whether to apply them, and those are ordinary expressions that
+  compile everywhere. There is no Windows CI on this local branch, so the
+  first pushed Windows CI run (at the rc.3 reveal) is the real compile check
+  of the wiring.
