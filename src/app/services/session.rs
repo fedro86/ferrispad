@@ -479,8 +479,19 @@ pub fn load_session(mode: SessionRestore, session_name: &str) -> Option<SessionD
 
 /// Read temp file content from the session directory.
 pub fn read_temp_file(temp_file: &str, session_name: &str) -> Option<String> {
-    let path = session_dir(session_name).join(temp_file);
-    fs::read_to_string(&path).ok()
+    read_temp_file_in(&session_dir(session_name), temp_file)
+}
+
+/// Read the temp file `temp_file` of the session directory `dir`. The name
+/// comes from session.json (untrusted): like the write side
+/// ([`temp_file_name`]), only a plain `*.tmp` name is read; anything else
+/// is skipped with a log line, and the restore goes on without it (T0099).
+fn read_temp_file_in(dir: &Path, temp_file: &str) -> Option<String> {
+    if !is_plain_temp_name(temp_file) {
+        eprintln!("[session] Skipping temp file {temp_file:?}: not a plain .tmp name");
+        return None;
+    }
+    fs::read_to_string(dir.join(temp_file)).ok()
 }
 
 /// The temp file holding a document's unsaved text in the session (T0099).
@@ -785,6 +796,28 @@ mod tests {
             let name = temp_file_name("Untitled", 1, "1", Some(bad));
             assert_ne!(name, bad);
             assert!(is_plain_temp_name(&name), "{bad} -> {name}");
+        }
+    }
+
+    /// A temp file name from session.json is read only when it is a plain
+    /// `*.tmp` name inside the session directory: an absolute path or `..`
+    /// must never pull another file into a tab on Full restore.
+    #[test]
+    fn session_identity_read_only_plain_temp_names() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("default");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("good.tmp"), "unsaved").unwrap();
+        fs::write(root.path().join("x.tmp"), "outside the session dir").unwrap();
+        let outside = root.path().join("x.tmp");
+        let outside = outside.to_str().unwrap();
+
+        assert_eq!(
+            read_temp_file_in(&dir, "good.tmp").as_deref(),
+            Some("unsaved")
+        );
+        for bad in ["../x.tmp", outside, "/etc/hostname"] {
+            assert_eq!(read_temp_file_in(&dir, bad), None, "{bad} must not be read");
         }
     }
 

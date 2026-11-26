@@ -67,6 +67,14 @@ file.**
   pid differs) and keeps the closed document. After the first auto-save
   the run owns the session and closes stick. T0101 will merge only with
   instances that are still alive, failing safe.
+- **Known, also for T0101 (cross-instance closes).** With `name_dup` gone,
+  an untitled document that instance B closed can be merged back by
+  instance A's next save: A keeps every foreign temp file not in its own
+  list. Before, `name_dup` sometimes hid this by accident, when A had an
+  "Untitled" of its own. Resurrection is preferred to data loss. T0101's
+  fix has to account for closes in other instances, e.g. with a
+  per-instance list of closed temp files or an ownership tag on
+  `DocumentSession` (review note, ferrispad-a3).
 
 ## How to test
 
@@ -104,6 +112,24 @@ test app::services::session::tests::session_identity_foreign_untitled_survives_m
   instance 111's unsaved text was dropped from the session: ["bbbb.tmp"]
 test result: FAILED. 0 passed; 3 failed
 ```
+
+Read side, folded in during review (ferrispad-a3, orchestrator):
+`read_temp_file` now applies the same `is_plain_temp_name` rule as the
+write side. A `session.json` entry whose temp file is an absolute path or
+contains `..` is skipped with a log line, and the restore goes on with the
+other documents: the restore loop's `let`-chain already skips an entry whose
+read returns `None`. Test
+`…::session_identity_read_only_plain_temp_names`: `good.tmp` is read;
+`../x.tmp`, an absolute path to a file outside the session dir, and
+`/etc/hostname` are not. Red before the rule:
+`../x.tmp must not be read  left: Some("outside the session dir")  right: None`.
+Xvfb, with a hand-made `session.json` of three untitled entries whose temp
+files are `../x.tmp` (a file one level above, holding "OUTSIDE"),
+`good.tmp` and `/etc/hostname` (absent on the test host):
+- `master` restores two tabs, one of them the outside file's text;
+- the fix restores only the `good.tmp` tab ("kept text"), and logs
+  `[session] Skipping temp file "../x.tmp": not a plain .tmp name` and the
+  same for `/etc/hostname`.
 
 Guard tests, added at the orchestrator's request. They pass on the old code
 too; they pin that the new naming does not cost disk or compatibility:
