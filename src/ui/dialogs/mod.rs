@@ -18,13 +18,7 @@ pub mod theme_manager;
 pub mod update;
 pub mod widgets;
 
-use fltk::{
-    app,
-    enums::{Color, FrameType},
-    group::Scroll,
-    prelude::*,
-    window::Window,
-};
+use fltk::{app, enums::Color, group::Scroll, prelude::*, window::Window};
 
 use super::color::ThemeRgb;
 use super::scrollbar::style_scrollbar;
@@ -600,17 +594,6 @@ pub(crate) fn popup_height(message: &str, has_input: bool) -> i32 {
     2 * POPUP_PADDING + message_h + POPUP_SPACING + input_h + POPUP_ROW_HEIGHT
 }
 
-/// Width of a popup button wide enough for `label`.
-/// Style a dialog action button like the Settings dialog's buttons: flat
-/// rounded, `button_bg`, label in `text`. Cancel and Reset included: a
-/// dimmed label would make an enabled button look disabled (FLTK greys the
-/// label of a deactivated button by itself).
-pub(crate) fn style_dialog_button(button: &mut fltk::button::Button, theme: &DialogTheme) {
-    button.set_frame(FrameType::RFlatBox);
-    button.set_color(theme.button_bg);
-    button.set_label_color(theme.text);
-}
-
 /// Points added to a label's font size when measuring it for layout, so a
 /// desktop font a little wider than the one measured still fits (the UI
 /// tests check labels at +2 pt too).
@@ -666,7 +649,6 @@ fn build_themed_popup(
     layout: &ChoiceLayout<'_>,
 ) -> ThemedPopup {
     use fltk::{
-        button::Button,
         enums::{Align, Event, Key},
         frame::Frame,
         group::{Flex, FlexType},
@@ -715,14 +697,13 @@ fn build_themed_popup(
     Frame::default(); // spacer: the buttons sit on the right, as in FLTK
     let mut default_btn = None;
     for &(index, label) in &layout.buttons {
-        let mut btn = Button::default().with_label(label);
-        btn.set_frame(FrameType::RFlatBox);
-        btn.set_label_color(theme.text);
-        btn.set_color(if index == layout.default {
-            theme.button_bg
+        // The Enter default stands out; the others are secondary.
+        let mut btn = if index == layout.default {
+            theme.button()
         } else {
-            theme.secondary_button_bg
-        });
+            theme.secondary_button()
+        }
+        .with_label(label);
         row.fixed(&btn, popup_button_width(label));
         let result_btn = result.clone();
         let mut dialog_btn = dialog.clone();

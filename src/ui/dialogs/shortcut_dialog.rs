@@ -11,7 +11,6 @@
 
 use fltk::{
     app,
-    button::Button,
     enums::{Align, Event, FrameType, Key},
     frame::Frame,
     group::{Group, Pack, PackType, Scroll, Tabs},
@@ -123,9 +122,9 @@ pub fn show_shortcut_dialog(
 
     // Add header row
     {
-        let mut header = Group::default().with_size(row_w_builtin, SECTION_HEADER_HEIGHT);
-        header.set_frame(FrameType::FlatBox);
-        header.set_color(theme.button_bg);
+        let header = theme
+            .header_bar()
+            .with_size(row_w_builtin, SECTION_HEADER_HEIGHT);
 
         let mut cmd_label = Frame::default()
             .with_pos(PADDING, 4)
@@ -216,9 +215,9 @@ pub fn show_shortcut_dialog(
             }
 
             // Section header for plugin name
-            let mut section = Group::default().with_size(row_w_plugins, SECTION_HEADER_HEIGHT);
-            section.set_frame(FrameType::FlatBox);
-            section.set_color(theme.button_bg);
+            let section = theme
+                .header_bar()
+                .with_size(row_w_plugins, SECTION_HEADER_HEIGHT);
 
             let mut section_label = Frame::default()
                 .with_pos(PADDING, 4)
@@ -270,21 +269,17 @@ pub fn show_shortcut_dialog(
 
     let btn_y = DIALOG_HEIGHT - PADDING - BUTTON_HEIGHT;
 
-    let mut save_btn = Button::default()
+    let mut save_btn = theme
+        .button()
         .with_pos(DIALOG_WIDTH - PADDING - 165, btn_y)
         .with_size(75, BUTTON_HEIGHT)
         .with_label("Save");
-    save_btn.set_frame(FrameType::RFlatBox);
-    save_btn.set_color(theme.button_bg);
-    save_btn.set_label_color(theme.text);
 
-    let mut cancel_btn = Button::default()
+    let mut cancel_btn = theme
+        .button()
         .with_pos(DIALOG_WIDTH - PADDING - 80, btn_y)
         .with_size(75, BUTTON_HEIGHT)
         .with_label("Cancel");
-    cancel_btn.set_frame(FrameType::RFlatBox);
-    cancel_btn.set_color(theme.button_bg);
-    cancel_btn.set_label_color(theme.text);
 
     dialog.end();
     drop(top_level);
@@ -549,13 +544,11 @@ fn create_shortcut_row(
 
     // Reset button
     let reset_x = input_x + INPUT_WIDTH + 8;
-    let mut reset_btn = Button::default()
+    let mut reset_btn = theme
+        .button()
         .with_pos(reset_x, 4)
         .with_size(RESET_BTN_WIDTH, 24)
         .with_label("Reset");
-    reset_btn.set_frame(FrameType::RFlatBox);
-    reset_btn.set_color(theme.button_bg);
-    reset_btn.set_label_color(theme.text);
     reset_btn.set_label_size(11);
 
     // Reset callback

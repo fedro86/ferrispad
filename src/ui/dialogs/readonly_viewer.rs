@@ -6,7 +6,6 @@
 
 use fltk::{
     app,
-    button::Button,
     enums::{Align, Event, Font, FrameType, Key},
     frame::Frame,
     group::Flex,
@@ -417,10 +416,7 @@ pub fn show_readonly_viewer(
     page_input.set_tooltip("Page number (e.g., 5)");
     toolbar.fixed(&page_input, 60);
 
-    let mut page_btn = Button::default().with_label("Go to Page");
-    page_btn.set_frame(FrameType::RFlatBox);
-    page_btn.set_color(theme.button_bg);
-    page_btn.set_label_color(theme.text);
+    let mut page_btn = theme.button().with_label("Go to Page");
     toolbar.fixed(&page_btn, 90);
 
     let mut spacer_page = Frame::default();
@@ -431,10 +427,7 @@ pub fn show_readonly_viewer(
     goto_input.set_tooltip("Line number or range (e.g., 100 or 100-200)");
     toolbar.fixed(&goto_input, 100);
 
-    let mut goto_btn = Button::default().with_label("Go to Line");
-    goto_btn.set_frame(FrameType::RFlatBox);
-    goto_btn.set_color(theme.button_bg);
-    goto_btn.set_label_color(theme.text);
+    let mut goto_btn = theme.button().with_label("Go to Line");
     toolbar.fixed(&goto_btn, 80);
 
     let mut spacer2 = Frame::default();
@@ -445,25 +438,16 @@ pub fn show_readonly_viewer(
     search_input.set_tooltip("Search text");
     toolbar.fixed(&search_input, 150);
 
-    let mut search_btn = Button::default().with_label("Find");
+    let mut search_btn = theme.button().with_label("Find");
     search_btn.set_tooltip("Find from start");
-    search_btn.set_frame(FrameType::RFlatBox);
-    search_btn.set_color(theme.button_bg);
-    search_btn.set_label_color(theme.text);
     toolbar.fixed(&search_btn, 60);
 
-    let mut search_prev_btn = Button::default().with_label("@<");
+    let mut search_prev_btn = theme.button().with_label("@<");
     search_prev_btn.set_tooltip("Find previous (Shift+F3)");
-    search_prev_btn.set_frame(FrameType::RFlatBox);
-    search_prev_btn.set_color(theme.button_bg);
-    search_prev_btn.set_label_color(theme.text);
     toolbar.fixed(&search_prev_btn, 30);
 
-    let mut search_next_btn = Button::default().with_label("@>");
+    let mut search_next_btn = theme.button().with_label("@>");
     search_next_btn.set_tooltip("Find next (F3)");
-    search_next_btn.set_frame(FrameType::RFlatBox);
-    search_next_btn.set_color(theme.button_bg);
-    search_next_btn.set_label_color(theme.text);
     toolbar.fixed(&search_next_btn, 30);
 
     toolbar.end();
@@ -515,39 +499,27 @@ pub fn show_readonly_viewer(
     btn_row.set_type(fltk::group::FlexType::Row);
     btn_row.set_spacing(5);
 
-    let mut prev_btn = Button::default().with_label("@<  Prev Page");
+    let mut prev_btn = theme.button().with_label("@<  Prev Page");
     prev_btn.set_tooltip("Previous page (Page Up)");
-    prev_btn.set_frame(FrameType::RFlatBox);
-    prev_btn.set_color(theme.button_bg);
-    prev_btn.set_label_color(theme.text);
     btn_row.fixed(&prev_btn, 110);
 
-    let mut next_btn = Button::default().with_label("Next Page  @>");
+    let mut next_btn = theme.button().with_label("Next Page  @>");
     next_btn.set_tooltip("Next page (Page Down)");
-    next_btn.set_frame(FrameType::RFlatBox);
-    next_btn.set_color(theme.button_bg);
-    next_btn.set_label_color(theme.text);
     btn_row.fixed(&next_btn, 110);
 
     let mut spacer_left = Frame::default();
     spacer_left.set_frame(FrameType::FlatBox);
     spacer_left.set_color(theme.bg);
 
-    let mut open_btn = Button::default().with_label("Open (editable)");
+    let mut open_btn = theme.button().with_label("Open (editable)");
     open_btn.set_tooltip("Open current page as editable chunk");
-    open_btn.set_frame(FrameType::RFlatBox);
-    open_btn.set_color(theme.button_bg);
-    open_btn.set_label_color(theme.text);
     btn_row.fixed(&open_btn, 140);
 
     let mut spacer_right = Frame::default();
     spacer_right.set_frame(FrameType::FlatBox);
     spacer_right.set_color(theme.bg);
 
-    let mut close_btn = Button::default().with_label("Close");
-    close_btn.set_frame(FrameType::RFlatBox);
-    close_btn.set_color(theme.secondary_button_bg);
-    close_btn.set_label_color(theme.text_dim);
+    let mut close_btn = theme.secondary_button().with_label("Close");
     btn_row.fixed(&close_btn, 100);
 
     btn_row.end();

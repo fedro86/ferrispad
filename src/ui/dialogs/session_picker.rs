@@ -2,7 +2,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use fltk::{
-    button::Button,
     enums::CallbackTrigger,
     frame::Frame,
     prelude::{BrowserExt, GroupExt, InputExt, WidgetExt, WindowExt},
@@ -95,33 +94,29 @@ pub fn show_session_picker(
     let btn_h = 30;
     let btn_w = 100;
 
-    let mut switch_btn = Button::default()
+    let mut switch_btn = theme
+        .button()
         .with_pos(20, btn_y)
         .with_size(btn_w, btn_h)
         .with_label("Switch");
-    switch_btn.set_color(theme.button_bg);
-    switch_btn.set_label_color(theme.text);
 
-    let mut new_win_btn = Button::default()
+    let mut new_win_btn = theme
+        .button()
         .with_pos(125, btn_y)
         .with_size(btn_w, btn_h)
         .with_label("New Window");
-    new_win_btn.set_color(theme.button_bg);
-    new_win_btn.set_label_color(theme.text);
 
-    let mut delete_btn = Button::default()
+    let mut delete_btn = theme
+        .button()
         .with_pos(230, btn_y)
         .with_size(55, btn_h)
         .with_label("Delete");
-    delete_btn.set_color(theme.button_bg);
-    delete_btn.set_label_color(theme.text);
 
-    let mut cancel_btn = Button::default()
+    let mut cancel_btn = theme
+        .button()
         .with_pos(290, btn_y)
         .with_size(55, btn_h)
         .with_label("Cancel");
-    cancel_btn.set_color(theme.button_bg);
-    cancel_btn.set_label_color(theme.text);
 
     // Status label for errors
     let mut status = Frame::default()
@@ -305,19 +300,17 @@ pub fn show_new_session_dialog(parent: &Window, theme_bg: (u8, u8, u8)) -> Optio
         .with_label("");
     status.set_label_color(theme.error_color());
 
-    let mut ok_btn = Button::default()
+    let mut ok_btn = theme
+        .button()
         .with_pos(100, 75)
         .with_size(80, 30)
         .with_label("Create");
-    ok_btn.set_color(theme.button_bg);
-    ok_btn.set_label_color(theme.text);
 
-    let mut cancel_btn = Button::default()
+    let mut cancel_btn = theme
+        .button()
         .with_pos(190, 75)
         .with_size(80, 30)
         .with_label("Cancel");
-    cancel_btn.set_color(theme.button_bg);
-    cancel_btn.set_label_color(theme.text);
 
     dialog_win.end();
     drop(top_level);

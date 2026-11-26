@@ -59,14 +59,11 @@ The goal is to make the mistake impossible.
 
 ## Out of scope
 
-- Plain push buttons: `theme.button(label)` exists, but the 63 buttons
-  (many with icon or custom styles) are not all converted, and the guard
-  does not cover `Button`. Follow-up candidate.
-- Dialogs that cannot be built without running them (find, goto, font
-  picker, session picker, plugin dialogs, shortcut dialog, large file,
-  viewer, update). Guard (a) covers them statically, and the Xvfb campaign
-  below exercises their inputs. Extracting `build_*` functions for guard (b)
-  is a follow-up.
+- Guard (b) for the dialogs that cannot be built without running them
+  (find, goto, font picker, session picker, plugin dialogs, shortcut dialog,
+  large file, viewer, update). Guard (a) covers them statically, and the
+  Xvfb campaigns exercise them. **T0106** (text below) adds the `build_*`
+  seams.
 
 ## How to test
 
@@ -154,3 +151,89 @@ the campaign: the color chooser's FLTK value fields still selected in
 `button_bg`; `style_color_chooser` now gives them the shared selection
 (its mode menu keeps the button color). Inspected edge by edge: no layout
 change, nothing clipped.
+
+## Round 2 (orchestrator + a3, 2026-11-26): buttons and a broader guard
+
+- **Buttons are components too.** All 62 plain dialog buttons go through
+  `theme.button()` (flat, button color), `theme.secondary_button()`
+  (Cancel/Close, secondary color, **normal** text) or
+  `theme.warning_button()` ("Install Anyway", `warning_text()` label). The
+  popups' non-default buttons use `secondary_button()`. The Plugin Manager
+  row buttons are `button()` plus their 11 pt label. `style_dialog_button`
+  and `style_row_button` are gone. Shortcut-dialog section bars use
+  `theme.header_bar()`; the file chooser's own menu button uses
+  `style_foreign_menu_button`.
+- **Guard (a) is a regex now** (a3): any
+  `\w*(Input|Output|Browser|Choice|Button|Display|Editor|Progress|Spinner)::(new|default)(`
+  outside `widgets.rs`. That also covers `Output`, `MultilineOutput`,
+  `Select/Multi/Browser`, `MenuButton`, `Spinner`, `ValueInput`,
+  `FileInput`, `ReturnButton`. Hand styling is also refused:
+  `.set_selection_color(`, `.set_cursor_color(`, `button_bg)`,
+  `set_frame(FrameType::RFlatBox)`. Comments and `#[cfg(test)]` code are
+  skipped. Mutation check: an `Output::default()` and a `Button::new(..)`
+  added to `goto_line.rs` were both reported, then reverted.
+
+### Intended visible changes (for the screenshot reviewer)
+
+1. Inputs that had FLTK's default `DOWN_BOX` (find/replace, shortcut
+   fields, …) are flat now (`FlatBox`): no 3D border, text ~2 px left.
+2. Buttons that had the default raised frame (Find, Replace, Go to Line,
+   Sessions, the font/size "Change…", plugin dialogs, update) are flat like
+   the rest (Settings, About, Plugin Manager already were).
+3. Secondary buttons (large-file and viewer Cancel/Close) draw their label
+   in the normal text color, no longer dimmed (an active button must not
+   look disabled; `active_buttons_looking_disabled` enforces it).
+4. Preselected or selected input text uses the shared selection (the file
+   chooser's Filename, the Duplicate name prompt).
+5. The Find check buttons keep FLTK's mark color (drawn on FLTK's white
+   box) instead of the button color.
+6. Input labels use the theme text color.
+
+### Screenshot diff, every converted dialog (Claude, Xvfb)
+
+Before = T0097 base, after = this branch, dark and light, full screen,
+`compare -metric AE -fuzz 2%`. Shots, diff images and before | after | diff
+triptychs are in `ferrispad-wt/uitest-T0105/diff/` (`trip/*.png`,
+`all-dark.png`, `all-light.png`, `ae.txt`):
+
+| Dialog | AE dark / light | Explained by |
+|---|---|---|
+| theme manager, plugin manager | 0 / 0 | identical |
+| read-only viewer | 36 / 32 | 3 (Close label) |
+| large-file dialog | 44 / 39 | 3 (Cancel label) |
+| Settings | 99 / 106 | 2 ("Change…" flat) |
+| color picker | 188 / 318 | 1, 2 |
+| font picker | 232 / 249 | 1, 2 |
+| goto line, session name | 262–419 | 1, 2 |
+| find, sessions | 460–771 | 1, 2, 5 |
+| name prompt | 1380 / 567 | 4 (preselected name) |
+| replace | 839 / 1283 | 1, 2 |
+| file chooser | 2973 / 1200 | 4 (preselected Filename) |
+| shortcuts | 2039 / 4430 | 1 (every shortcut field) |
+
+Each diff image was inspected: the changed pixels are only on input
+borders, button frames, the dimmed labels and the preselected text. No
+geometry moved, and the existing layout checks pass.
+
+Gates: fmt and clippy `-D warnings` clean. Full suite under Xvfb: lib 584,
+every binary green.
+
+## T0106 (follow-up ticket text, ID reserved, not implemented here)
+
+> **T0106: `build_*` seams so the structural theme test covers every dialog.**
+> Goal: guard (b) of T0105 (`unthemed_inputs` in `tests/ui_dialogs.rs`)
+> only reaches dialogs that have a pure `build_*` function (theme manager,
+> color picker, name prompt, Settings). Find/replace, goto line, font
+> picker, session picker and name prompt, shortcut dialog, plugin
+> config/settings/permissions/manager, community install, large-file,
+> read-only viewer and update build and run in one function, so a themed
+> property they get wrong would only show up in Xvfb.
+> In scope: split each into `build_<dialog>(theme_bg, …) -> (Window, handles)`
+> plus the existing run loop, with no behavior change. Call every builder in
+> `tests/ui_dialogs.rs` in dark and light, with `unthemed_inputs` and the
+> layout checks. Extend `unthemed_inputs` to buttons (frame, color, label
+> color matching a `button()` / `secondary_button()` / `warning_button()`)
+> and lists.
+> Out of scope: visual changes.
+> Test: the extended `ui_dialogs` test fails on a mutated component (e.g.
+> no cursor color) for each newly covered dialog.

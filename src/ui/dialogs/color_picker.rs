@@ -6,12 +6,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use fltk::{
-    button::Button, enums::CallbackTrigger, frame::Frame, group::ColorChooser, prelude::*,
-    window::Window,
-};
+use fltk::{enums::CallbackTrigger, frame::Frame, group::ColorChooser, prelude::*, window::Window};
 
-use super::{DialogTheme, label_width, max_label_width, style_dialog_button};
+use super::{DialogTheme, label_width, max_label_width};
 use crate::app::controllers::theme_manager::{format_hex_color, parse_hex_color};
 
 // Heights are fixed; widths are measured from the text they show
@@ -106,16 +103,16 @@ pub fn build_color_picker(
     error.set_label_size(ERROR_SIZE);
 
     let btn_y = DIALOG_HEIGHT - PADDING - BUTTON_HEIGHT;
-    let mut cancel_btn = Button::default()
+    let mut cancel_btn = theme
+        .button()
         .with_pos(dialog_w - PADDING - button_w, btn_y)
         .with_size(button_w, BUTTON_HEIGHT)
         .with_label("Cancel");
-    style_dialog_button(&mut cancel_btn, &theme);
-    let mut ok_btn = Button::default()
+    let mut ok_btn = theme
+        .button()
         .with_pos(dialog_w - PADDING * 2 - button_w * 2, btn_y)
         .with_size(button_w, BUTTON_HEIGHT)
         .with_label("OK");
-    style_dialog_button(&mut ok_btn, &theme);
 
     dialog.end();
     drop(top_level);

@@ -15,16 +15,16 @@
 use fltk::{
     browser::HoldBrowser,
     button::{Button, CheckButton, RadioRoundButton},
-    enums::FrameType,
-    group::{ColorChooser, Tabs},
+    enums::{Color, FrameType},
+    group::{ColorChooser, Group, Tabs},
     input::{Input, IntInput},
-    menu::Choice,
+    menu::{Choice, MenuButton},
     misc::Progress,
     prelude::*,
     text::{TextDisplay, TextEditor},
 };
 
-use super::{DialogTheme, style_dialog_button};
+use super::DialogTheme;
 
 impl DialogTheme {
     /// The colors every text field shares: input background, text and cursor
@@ -158,6 +158,21 @@ impl DialogTheme {
         crate::ui::contrast::register_list_selection(self.list_selection_bg.to_rgb());
     }
 
+    /// A section header bar (a group, flat, in the button color).
+    pub fn header_bar(&self) -> Group {
+        let mut bar = Group::default();
+        bar.set_frame(FrameType::FlatBox);
+        bar.set_color(self.button_bg);
+        bar
+    }
+
+    /// A menu button FLTK builds itself (the file chooser's): the secondary
+    /// button color, menu highlight in the button color.
+    pub(crate) fn style_foreign_menu_button(&self, menu: &mut MenuButton) {
+        self.style_foreign_menu(menu);
+        menu.set_color(self.secondary_button_bg);
+    }
+
     /// A menu FLTK builds itself (the file chooser's): input colors, menu
     /// highlight in the button color.
     pub(crate) fn style_foreign_menu<M: MenuExt>(&self, menu: &mut M) {
@@ -176,11 +191,40 @@ impl DialogTheme {
         crate::ui::contrast::register_list_selection(self.list_selection_bg.to_rgb());
     }
 
-    /// A push button labelled `label` (see [`style_dialog_button`]).
-    pub fn button(&self, label: &str) -> Button {
-        let mut button = Button::default().with_label(label);
-        style_dialog_button(&mut button, self);
+    /// A flat dialog button in `bg` with a `label_color` label.
+    fn flat_button(&self, bg: Color, label_color: Color) -> Button {
+        let mut button = Button::default();
+        button.set_frame(FrameType::RFlatBox);
+        button.set_color(bg);
+        button.set_label_color(label_color);
         button
+    }
+
+    /// A push button (OK, Save, Find, …): flat, in the button color.
+    pub fn button(&self) -> Button {
+        self.flat_button(self.button_bg, self.text)
+    }
+
+    /// A secondary push button (Cancel, Close): flat, a subtle step off the
+    /// dialog background, with the normal text color (a dimmed label would
+    /// make an active button look disabled).
+    pub fn secondary_button(&self) -> Button {
+        self.flat_button(self.secondary_button_bg, self.text)
+    }
+
+    /// A push button whose action needs care (e.g. "Install Anyway"): the
+    /// button color with a [`Self::warning_text`] label.
+    pub fn warning_button(&self) -> Button {
+        self.flat_button(self.button_bg, self.warning_text())
+    }
+
+    /// Warning text color, readable on the dialog in dark and light themes.
+    pub fn warning_text(&self) -> Color {
+        if self.is_dark() {
+            Color::from_rgb(220, 180, 80)
+        } else {
+            Color::from_rgb(180, 120, 20)
+        }
     }
 
     /// A single-selection list (see [`DialogTheme::style_list`]).
@@ -207,33 +251,30 @@ mod tests {
             .filter(|p| p.extension().is_some_and(|e| e == "rs") && !p.ends_with("widgets.rs"))
             .collect();
         files.push(root.join("file_dialogs.rs"));
-        let raw = [
-            "Input::default(",
-            "Input::new(",
-            "IntInput::default(",
-            "IntInput::new(",
-            "TextDisplay::default(",
-            "TextDisplay::new(",
-            "TextEditor::default(",
-            "TextEditor::new(",
-            "HoldBrowser::default(",
-            "HoldBrowser::new(",
-            "Choice::default(",
-            "Choice::new(",
-            "CheckButton::default(",
-            "CheckButton::new(",
-            "RadioRoundButton::default(",
-            "RadioRoundButton::new(",
-            "Progress::default(",
-            "Progress::new(",
+        // Any FLTK widget a user can select in or click, built raw…
+        let constructor = regex_lite::Regex::new(
+            r"\b\w*(Input|Output|Browser|Choice|Button|Display|Editor|Progress|Spinner)::(new|default)\(",
+        )
+        .unwrap();
+        // …or styled by hand.
+        let hand_styled = [
             ".set_selection_color(",
             ".set_cursor_color(",
+            "button_bg)",
+            "set_frame(FrameType::RFlatBox)",
         ];
         let mut hits = Vec::new();
         for file in files {
             let text = std::fs::read_to_string(&file).unwrap();
-            for (n, line) in text.lines().enumerate() {
-                if let Some(pattern) = raw.iter().find(|p| line.contains(*p)) {
+            // Test code and comments may name these freely.
+            let code = text.split("#[cfg(test)]").next().unwrap_or("");
+            for (n, line) in code.lines().enumerate() {
+                if line.trim_start().starts_with("//") {
+                    continue;
+                }
+                if let Some(m) = constructor.find(line) {
+                    hits.push(format!("{}:{}: {}", file.display(), n + 1, m.as_str()));
+                } else if let Some(pattern) = hand_styled.iter().find(|p| line.contains(*p)) {
                     hits.push(format!("{}:{}: {pattern}", file.display(), n + 1));
                 }
             }

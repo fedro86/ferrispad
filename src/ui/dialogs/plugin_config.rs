@@ -14,7 +14,7 @@
 //! - cli_args: Validates CLI arguments (blocks shell metacharacters)
 //! - regex:PATTERN: Validates against a custom regex pattern
 
-use fltk::{enums::FrameType, prelude::*, *};
+use fltk::{prelude::*, *};
 use regex_lite::Regex;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -143,7 +143,6 @@ pub fn show_plugin_config_dialog(
     let bg_color = theme.bg;
     let text_color = theme.text;
     let text_dim = theme.text_dim;
-    let button_bg = theme.button_bg;
     let error_color = theme.error_color();
 
     // Calculate dialog height based on number of params
@@ -296,21 +295,17 @@ pub fn show_plugin_config_dialog(
     // Buttons at the bottom
     let button_y = dialog_height - 45;
 
-    let mut save_btn = button::Button::default()
+    let mut save_btn = theme
+        .button()
         .with_pos(DIALOG_WIDTH - 180, button_y)
         .with_size(75, 30)
         .with_label("Save");
-    save_btn.set_frame(FrameType::RFlatBox);
-    save_btn.set_color(button_bg);
-    save_btn.set_label_color(text_color);
 
-    let mut cancel_btn = button::Button::default()
+    let mut cancel_btn = theme
+        .button()
         .with_pos(DIALOG_WIDTH - 95, button_y)
         .with_size(75, 30)
         .with_label("Cancel");
-    cancel_btn.set_frame(FrameType::RFlatBox);
-    cancel_btn.set_color(button_bg);
-    cancel_btn.set_label_color(text_color);
 
     dialog.end();
     drop(top_level);

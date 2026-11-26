@@ -39,7 +39,6 @@ pub fn show_plugin_settings_dialog(
     let bg_color = theme.bg;
     let text_color = theme.text;
     let text_dim = theme.text_dim;
-    let button_bg = theme.button_bg;
 
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
@@ -140,19 +139,17 @@ pub fn show_plugin_settings_dialog(
     shortcut_hint.set_align(enums::Align::Left | enums::Align::Inside);
 
     // Buttons
-    let mut save_btn = button::Button::default()
+    let mut save_btn = theme
+        .button()
         .with_pos(DIALOG_WIDTH - 180, DIALOG_HEIGHT - 45)
         .with_size(75, 30)
         .with_label("Save");
-    save_btn.set_color(button_bg);
-    save_btn.set_label_color(text_color);
 
-    let mut cancel_btn = button::Button::default()
+    let mut cancel_btn = theme
+        .button()
         .with_pos(DIALOG_WIDTH - 95, DIALOG_HEIGHT - 45)
         .with_size(75, 30)
         .with_label("Cancel");
-    cancel_btn.set_color(button_bg);
-    cancel_btn.set_label_color(text_color);
 
     dialog.end();
     drop(top_level);

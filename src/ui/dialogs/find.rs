@@ -1,5 +1,4 @@
 use fltk::{
-    button::Button,
     enums::{Align, CallbackTrigger},
     frame::Frame,
     prelude::*,
@@ -259,36 +258,31 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
         .with_label("Use regex");
     regex_case_folding_hint(110 + REGEX_CHECK_W, 125, &theme);
 
-    let mut find_prev_btn = Button::default()
+    let mut find_prev_btn = theme
+        .button()
         .with_pos(20, 160)
         .with_size(90, 30)
         .with_label("Find Prev");
-    find_prev_btn.set_color(theme.button_bg);
-    find_prev_btn.set_label_color(theme.text);
-    let mut find_btn = Button::default()
+    let mut find_btn = theme
+        .button()
         .with_pos(120, 160)
         .with_size(90, 30)
         .with_label("Find Next");
-    find_btn.set_color(theme.button_bg);
-    find_btn.set_label_color(theme.text);
-    let mut replace_btn = Button::default()
+    let mut replace_btn = theme
+        .button()
         .with_pos(220, 160)
         .with_size(90, 30)
         .with_label("Replace");
-    replace_btn.set_color(theme.button_bg);
-    replace_btn.set_label_color(theme.text);
-    let mut replace_all_btn = Button::default()
+    let mut replace_all_btn = theme
+        .button()
         .with_pos(20, 205)
         .with_size(100, 30)
         .with_label("Replace All");
-    replace_all_btn.set_color(theme.button_bg);
-    replace_all_btn.set_label_color(theme.text);
-    let mut close_btn = Button::default()
+    let mut close_btn = theme
+        .button()
         .with_pos(300, 205)
         .with_size(90, 30)
         .with_label("Close");
-    close_btn.set_color(theme.button_bg);
-    close_btn.set_label_color(theme.text);
 
     dialog_win.end();
     drop(top_level);
@@ -523,24 +517,21 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: 
         .with_label("Use regex");
     regex_case_folding_hint(110 + REGEX_CHECK_W, 87, &theme);
 
-    let mut find_prev_btn2 = Button::default()
+    let mut find_prev_btn2 = theme
+        .button()
         .with_pos(110, 125)
         .with_size(90, 30)
         .with_label("Find Prev");
-    find_prev_btn2.set_color(theme.button_bg);
-    find_prev_btn2.set_label_color(theme.text);
-    let mut find_btn = Button::default()
+    let mut find_btn = theme
+        .button()
         .with_pos(210, 125)
         .with_size(90, 30)
         .with_label("Find Next");
-    find_btn.set_color(theme.button_bg);
-    find_btn.set_label_color(theme.text);
-    let mut close_btn = Button::default()
+    let mut close_btn = theme
+        .button()
         .with_pos(310, 125)
         .with_size(80, 30)
         .with_label("Close");
-    close_btn.set_color(theme.button_bg);
-    close_btn.set_label_color(theme.text);
 
     dialog_win.end();
     drop(top_level);

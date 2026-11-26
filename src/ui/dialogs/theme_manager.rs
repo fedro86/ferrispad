@@ -24,7 +24,7 @@ use fltk::{
 use super::color_picker::show_color_picker;
 use super::{
     DialogTheme, SCROLLBAR_SIZE, label_width, max_label_width, show_themed_choice,
-    show_themed_input, show_themed_message, style_dialog_button,
+    show_themed_input, show_themed_message,
 };
 use crate::app::controllers::theme_manager::{
     ThemeEntry, ThemeManagerAction, ThemeManagerModel, format_hex_color,
@@ -229,12 +229,11 @@ impl Ctx {
 }
 
 fn button(x: i32, y: i32, w: i32, label: &str, theme: &DialogTheme) -> Button {
-    let mut b = Button::default()
+    theme
+        .button()
         .with_pos(x, y)
         .with_size(w, BUTTON_HEIGHT)
-        .with_label(label);
-    style_dialog_button(&mut b, theme);
-    b
+        .with_label(label)
 }
 
 /// Show the theme manager over `model`. `apply` receives the model and the

@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use fltk::{
     browser::HoldBrowser,
-    button::{Button, CheckButton},
+    button::CheckButton,
     enums::{CallbackTrigger, Event, Key},
     frame::Frame,
     input::{Input, IntInput},
@@ -130,19 +130,17 @@ pub fn show_font_picker(
     let btn_w = 90;
     let btn_h = 30;
 
-    let mut ok_btn = Button::default()
+    let mut ok_btn = theme
+        .button()
         .with_pos(DW - 2 * btn_w - 30, btn_y)
         .with_size(btn_w, btn_h)
         .with_label("OK");
-    ok_btn.set_color(theme.button_bg);
-    ok_btn.set_label_color(theme.text);
 
-    let mut cancel_btn = Button::default()
+    let mut cancel_btn = theme
+        .button()
         .with_pos(DW - btn_w - 20, btn_y)
         .with_size(btn_w, btn_h)
         .with_label("Cancel");
-    cancel_btn.set_color(theme.button_bg);
-    cancel_btn.set_label_color(theme.text);
 
     dialog_win.end();
     drop(top_level);

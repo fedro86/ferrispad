@@ -4,14 +4,7 @@
 //! wants to execute. This implements the browser-style permission model
 //! for the plugin sandbox.
 
-use fltk::{
-    button::{Button, CheckButton},
-    enums::FrameType,
-    frame::Frame,
-    group::Group,
-    prelude::*,
-    window::Window,
-};
+use fltk::{button::CheckButton, frame::Frame, group::Group, prelude::*, window::Window};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -147,21 +140,17 @@ pub fn show_permission_dialog(
     let allow_x = DIALOG_WIDTH - MARGIN - BUTTON_WIDTH;
     let deny_x = allow_x - BUTTON_WIDTH - 10;
 
-    let mut deny_btn = Button::default()
+    let mut deny_btn = theme
+        .button()
         .with_pos(deny_x, btn_y)
         .with_size(BUTTON_WIDTH, BUTTON_HEIGHT)
         .with_label("Deny");
-    deny_btn.set_frame(FrameType::RFlatBox);
-    deny_btn.set_color(theme.button_bg);
-    deny_btn.set_label_color(theme.text);
 
-    let mut allow_btn = Button::default()
+    let mut allow_btn = theme
+        .button()
         .with_pos(allow_x, btn_y)
         .with_size(BUTTON_WIDTH, BUTTON_HEIGHT)
         .with_label("Allow");
-    allow_btn.set_frame(FrameType::RFlatBox);
-    allow_btn.set_color(theme.button_bg);
-    allow_btn.set_label_color(theme.text);
 
     dialog.end();
     drop(top_level);

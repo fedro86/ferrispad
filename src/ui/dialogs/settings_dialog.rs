@@ -1,5 +1,4 @@
 use fltk::{
-    button::Button,
     enums::{CallbackTrigger, FrameType},
     frame::Frame,
     group::{Group, Scroll, ScrollType},
@@ -330,13 +329,11 @@ pub fn build_settings_dialog(
     ));
     y += 30;
 
-    let mut manage_btn = Button::default()
+    let mut manage_btn = theme
+        .button()
         .with_pos(LEFT_COL + 10, y)
         .with_size(m.left_w - 20, 25)
         .with_label("Manage themes…");
-    manage_btn.set_frame(FrameType::RFlatBox);
-    manage_btn.set_color(theme.button_bg);
-    manage_btn.set_label_color(theme.text);
     let pending_manage = Rc::new(Cell::new(false));
     let pending_manage_btn = pending_manage.clone();
     manage_btn.set_callback(move |_| pending_manage_btn.set(true));
@@ -384,12 +381,11 @@ pub fn build_settings_dialog(
     font_value.set_value(&current_settings.font);
     font_value.set_readonly(true);
 
-    let mut change_font_btn = Button::default()
+    let mut change_font_btn = theme
+        .button()
         .with_pos(LEFT_COL + m.left_w - m.change_w, y)
         .with_size(m.change_w, ITEM_HEIGHT)
         .with_label("Change...");
-    change_font_btn.set_color(theme.button_bg);
-    change_font_btn.set_label_color(theme.text);
     y += ITEM_HEIGHT + SECTION_GAP;
 
     // Font size section
@@ -691,20 +687,16 @@ pub fn build_settings_dialog(
 
     // Buttons at bottom
     let btn_y = fit.dialog_h - 45;
-    let mut save_btn = Button::default()
+    let mut save_btn = theme
+        .button()
         .with_pos(dialog_w - 2 * m.button_w - 20, btn_y)
         .with_size(m.button_w, 30)
         .with_label("Save");
-    save_btn.set_frame(FrameType::RFlatBox);
-    save_btn.set_color(theme.button_bg);
-    save_btn.set_label_color(theme.text);
-    let mut cancel_btn = Button::default()
+    let mut cancel_btn = theme
+        .button()
         .with_pos(dialog_w - m.button_w - 10, btn_y)
         .with_size(m.button_w, 30)
         .with_label("Cancel");
-    cancel_btn.set_frame(FrameType::RFlatBox);
-    cancel_btn.set_color(theme.button_bg);
-    cancel_btn.set_label_color(theme.text);
 
     dialog.end();
     drop(top_level);

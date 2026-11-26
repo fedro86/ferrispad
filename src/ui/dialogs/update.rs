@@ -1,6 +1,5 @@
 use fltk::{
     app,
-    button::Button,
     enums::{Color, Font, FrameType},
     frame::Frame,
     group::Flex,
@@ -164,25 +163,13 @@ pub fn show_update_available_dialog(
     button_row.set_spacing(10);
     button_row.set_color(dialog_bg);
 
-    let mut install_btn = Button::default().with_label("Install Now");
-    install_btn.set_frame(FrameType::RFlatBox);
-    install_btn.set_color(theme.button_bg);
-    install_btn.set_label_color(theme.text);
+    let mut install_btn = theme.button().with_label("Install Now");
 
-    let mut download_btn = Button::default().with_label("View on GitHub");
-    download_btn.set_frame(FrameType::RFlatBox);
-    download_btn.set_color(theme.button_bg);
-    download_btn.set_label_color(theme.text);
+    let mut download_btn = theme.button().with_label("View on GitHub");
 
-    let mut skip_btn = Button::default().with_label("Skip This Version");
-    skip_btn.set_frame(FrameType::RFlatBox);
-    skip_btn.set_color(theme.button_bg);
-    skip_btn.set_label_color(theme.text);
+    let mut skip_btn = theme.button().with_label("Skip This Version");
 
-    let mut later_btn = Button::default().with_label("Remind Later");
-    later_btn.set_frame(FrameType::RFlatBox);
-    later_btn.set_color(theme.button_bg);
-    later_btn.set_label_color(theme.text);
+    let mut later_btn = theme.button().with_label("Remind Later");
 
     if direct_asset.is_none() {
         install_btn.deactivate();

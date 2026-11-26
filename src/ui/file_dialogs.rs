@@ -205,8 +205,7 @@ fn style_children(group: &impl GroupExt, theme: &DialogTheme) {
         } else if let Some(mut menu) = Choice::from_dyn_widget(&child) {
             theme.style_foreign_menu(&mut menu);
         } else if let Some(mut menu) = MenuButton::from_dyn_widget(&child) {
-            theme.style_foreign_menu(&mut menu);
-            menu.set_color(theme.secondary_button_bg);
+            theme.style_foreign_menu_button(&mut menu);
         } else {
             child.set_color(theme.bg);
         }
