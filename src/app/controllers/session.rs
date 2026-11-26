@@ -177,7 +177,6 @@ impl SessionController {
 
         let mut highlight_docs = Vec::new();
         let mut adopted = Vec::new();
-        let us = std::process::id().to_string();
         let target_index = session_data.active_index;
 
         for (i, doc_session) in session_data.documents.iter().enumerate() {
@@ -222,7 +221,7 @@ impl SessionController {
                         // unless another live instance still writes it
                         // (T0101).
                         let owner = session::entry_owner(doc_session, &session_data);
-                        if session::reuse_restored_temp(&owner, &us) {
+                        if session::reuse_restored_temp(&owner) {
                             doc.restored_temp_file = Some(temp_file.clone());
                             adopted.push((path.clone(), owner));
                         }
@@ -248,7 +247,7 @@ impl SessionController {
                     // Keep the session identity (save back to this file),
                     // unless another live instance still writes it (T0101).
                     let owner = session::entry_owner(doc_session, &session_data);
-                    if session::reuse_restored_temp(&owner, &us) {
+                    if session::reuse_restored_temp(&owner) {
                         doc.restored_temp_file = Some(temp_file.clone());
                         adopted.push((temp_file.clone(), owner));
                     }

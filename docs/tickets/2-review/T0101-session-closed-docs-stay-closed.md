@@ -76,6 +76,17 @@ crashed instance's unsaved text would be dropped.
   copy gets its own temp file (a fork), so no temp file ever has two
   writers. A duplicate tab on a later restore is acceptable; a lost text is
   not.
+- **Instance id = `<pid>-<nonce>`**, the nonce random per run (std-only:
+  a `RandomState` hasher over the pid and the start time). With a bare pid,
+  a new process that got a crashed instance's pid would take that
+  instance's entries for its own and drop them. Liveness reads the `<pid>`
+  prefix (a bare pid in older files): another run with **our** pid is gone,
+  since we hold that pid now. One `InstanceState` (us / gone / alive /
+  unknown) serves both adoption and the session lock.
+- **Windows liveness fails safe:** `OpenProcess` failing with anything but
+  "no such process" (`ERROR_INVALID_PARAMETER`), e.g. access denied for an
+  elevated process, reads as alive, so its documents are kept and its temp
+  file is forked.
 - **No persisted tombstones are needed.** A close lost to a crash before
   the save leaves the doc in the session, which is the fail-safe direction.
   An ordered-tombstone variant was considered and replaced by this
@@ -108,8 +119,18 @@ session_closed_reopen_in_other_instance_survives  ... ok       (guard)
 session_closed_crashed_instance_docs_are_kept     ... ok       (guard)
 ```
 
-After the fix all 8 pass, as do the T0015 and T0099 session tests. Gates:
-673 passed, clippy `-D warnings` and fmt clean.
+PID reuse (review round 1), red on a scaffold where `instance_id()` was
+still the bare pid:
+
+```text
+session_closed_pid_reuse_keeps_crashed_entries ... FAILED   513297: the crashed instance's doc was dropped  left: []
+session_closed_same_pid_other_run_is_gone      ... FAILED   "<our pid>-<other nonce>" read as alive: fork
+```
+
+After the fix all 10 pass, as do the T0015 and T0099 session tests. Gates
+(after merging `master`): 679 passed, clippy `-D warnings` and fmt clean.
+The Windows liveness branch is compiled by CI's `windows-build` job (no
+Windows target locally).
 
 ### Xvfb (debug builds; "before" = `ticket/T0099` tip)
 
@@ -146,6 +167,8 @@ restart.
 - [x] No temp file has two writers (fork on adoption from a live or unknown
       owner).
 - [x] Old session files (no `owner`) restore and merge.
+- [x] A reused pid never makes an instance treat a crashed one's entries as
+      its own (`<pid>-<nonce>` instance id).
 - [x] Regression tests added; they failed before the fix.
 - [x] Gates pass with zero warnings; Xvfb before/after for (b) and adoption.
 - [ ] Pending user verification.
@@ -154,7 +177,10 @@ restart.
 
 - `src/app/services/session.rs`:
   - `DocumentSession.owner`, `session_identity`, `entry_owner`;
-  - `reuse_restored_temp` (fork unless the owner is gone);
+  - `instance_id()` (`<pid>-<nonce>`), `InstanceState`, used by
+    `reuse_restored_temp` (fork unless the owner is gone) and
+    `session_is_locked`;
+  - Windows `process_is_alive`: only "no such process" means gone;
   - `Ownership`;
   - `Saver`;
   - the merge rule (`mode` is no longer a parameter);
@@ -167,9 +193,24 @@ restart.
   - a session switch resets `ownership`.
 - `src/app/state.rs`, `src/main.rs` — saves go through `save_now`; restore
   adopts.
+- `tests/active_doc_menus.rs` (from T0103) — `owner: None`.
 
 ## Notes
 
 - Depends on T0099 (temp-file identity). Assigned by the orchestrator
   (ferrispad-5a), target 0.9.11. Case (a) comes from ferrispad-a3's T0099
   review; the adoption fork rule is from the orchestrator.
+- **Known limitation: crashed instances' entries accumulate.** An entry
+  whose owner crashed with unsaved text is kept (fail-safe), and only a
+  restore that adopts it, followed by a close, removes it. In
+  `SavedFiles` mode a restore never adopts temp entries, so they are never
+  restored or closed: each crash with unsaved text adds entries (and temp
+  files) that stay in the session.
+- **Follow-up ticket (not opened, not implemented): "Recover documents
+  from crashed sessions".** Goal: at startup, when the session holds
+  unsaved documents whose owner is gone and the restore mode would not
+  bring them back (`SavedFiles`, or restore off), offer them once: "N
+  unsaved documents from a session that ended unexpectedly: Restore /
+  Discard". Restore opens them as unsaved tabs (adopting their temp
+  files); Discard removes the entries and their temp files. Reactive, at
+  startup only: no watcher, no timer.

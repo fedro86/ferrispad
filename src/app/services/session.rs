@@ -67,19 +67,65 @@ pub fn entry_owner(doc: &DocumentSession, file: &SessionData) -> String {
         .unwrap_or_default()
 }
 
+/// This process's instance id, as written to `owner` and `instance_id`
+/// (T0101): `<pid>-<nonce>`, the nonce random per run. A bare pid is not
+/// enough: a new process that gets a crashed instance's pid would take that
+/// instance's entries for its own and drop them.
+pub fn instance_id() -> &'static str {
+    static ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ID.get_or_init(|| {
+        use std::hash::BuildHasher;
+        // `RandomState` is seeded from the OS's random source; the time and
+        // the pid only add to it.
+        let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+        std::process::id().hash(&mut hasher);
+        std::time::SystemTime::now().hash(&mut hasher);
+        format!("{}-{:016x}", std::process::id(), hasher.finish())
+    })
+}
+
+/// What an instance id names, seen from this process (T0101).
+#[derive(Debug, PartialEq, Eq)]
+enum InstanceState {
+    /// This process.
+    Us,
+    /// An instance that is no longer running.
+    Gone,
+    /// Another instance that is still running.
+    Alive,
+    /// Not an instance id (empty, or not `<pid>[-<nonce>]`).
+    Unknown,
+}
+
+fn instance_state(id: &str) -> InstanceState {
+    if id == instance_id() {
+        return InstanceState::Us;
+    }
+    match instance_pid(id) {
+        None => InstanceState::Unknown,
+        // Another run with our pid: it is gone, we hold its pid now.
+        Some(pid) if pid == std::process::id() => InstanceState::Gone,
+        Some(pid) if process_is_alive(pid) => InstanceState::Alive,
+        Some(_) => InstanceState::Gone,
+    }
+}
+
+/// The process id an instance id names: its `<pid>` prefix (a bare pid in
+/// files from before T0101).
+fn instance_pid(id: &str) -> Option<u32> {
+    id.split('-').next()?.parse().ok()
+}
+
 /// Whether a restore may take over a restored entry's temp file (T0101):
 /// only from an instance that is gone. If another instance still runs (or
 /// the owner cannot be told), the restored copy gets a temp file of its
 /// own, so no temp file ever has two writers; a duplicate tab on a later
 /// restore is acceptable, a lost text is not.
-pub fn reuse_restored_temp(owner: &str, us: &str) -> bool {
-    if owner == us {
-        return true;
-    }
-    match owner.parse::<u32>() {
-        Ok(pid) => !process_is_alive(pid),
-        Err(_) => false,
-    }
+pub fn reuse_restored_temp(owner: &str) -> bool {
+    matches!(
+        instance_state(owner),
+        InstanceState::Us | InstanceState::Gone
+    )
 }
 
 /// Who is saving (T0101): the instance and the copies it closed.
@@ -240,19 +286,11 @@ pub fn session_is_locked(name: &str) -> bool {
     let Ok(data) = serde_json::from_str::<SessionData>(&contents) else {
         return false;
     };
-    let Some(ref pid_str) = data.instance_id else {
-        return false;
-    };
-    let Ok(pid) = pid_str.parse::<u32>() else {
-        return false;
-    };
-    // Check if the PID is our own process (not locked by another)
-    if pid == std::process::id() {
-        return false;
-    }
     // Portable liveness check — the old `/proc/{pid}` probe silently never
     // engaged off Linux, so the lock did nothing on macOS/Windows (audit M7).
-    process_is_alive(pid)
+    data.instance_id
+        .as_deref()
+        .is_some_and(|id| instance_state(id) == InstanceState::Alive)
 }
 
 /// Whether a process with this PID is currently running, portably.
@@ -283,7 +321,7 @@ fn process_is_alive(pid: u32) -> bool {
 
 #[cfg(windows)]
 fn process_is_alive(pid: u32) -> bool {
-    use windows::Win32::Foundation::{CloseHandle, FALSE};
+    use windows::Win32::Foundation::{CloseHandle, ERROR_INVALID_PARAMETER, FALSE};
     use windows::Win32::System::Threading::{
         GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
     };
@@ -292,8 +330,15 @@ fn process_is_alive(pid: u32) -> bool {
     // SAFETY: each call takes a valid pid / the handle we just opened; every
     // failure path is handled and the handle is always closed.
     unsafe {
-        let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid) else {
-            return false; // cannot open → treat as not running
+        let handle = match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid) {
+            Ok(handle) => handle,
+            // Only "no such process" (ERROR_INVALID_PARAMETER) means gone.
+            // Anything else, e.g. access denied for another user's or an
+            // elevated process, reads as alive: a caller then keeps that
+            // instance's documents or forks its temp file (T0101).
+            Err(e) => {
+                return e.code() != windows::core::HRESULT::from_win32(ERROR_INVALID_PARAMETER.0);
+            }
         };
         if handle.is_invalid() {
             return false;
@@ -352,7 +397,7 @@ pub fn save_session(
         })
         .collect();
 
-    let instance_id = std::process::id().to_string();
+    let instance_id = instance_id().to_string();
     let mut doc_sessions = Vec::new();
 
     for doc in docs {
@@ -951,20 +996,53 @@ mod tests {
     /// it, so the restored copy gets its own temp file.
     #[test]
     fn session_closed_adoption_forks_when_owner_alive() {
-        let us = std::process::id().to_string();
         let mut child = std::process::Command::new("true").spawn().unwrap();
         let dead = child.id().to_string();
         child.wait().unwrap();
-        assert!(
-            reuse_restored_temp(&dead, &us),
-            "a gone instance: take over"
-        );
-        assert!(!reuse_restored_temp("1", &us), "a live instance: fork");
-        assert!(!reuse_restored_temp("", &us), "unknown owner: fork");
-        assert!(
-            !reuse_restored_temp("not-a-pid", &us),
-            "unknown owner: fork"
-        );
+        assert!(reuse_restored_temp(&dead), "a gone instance: take over");
+        assert!(reuse_restored_temp(instance_id()), "ours: keep writing it");
+        assert!(!reuse_restored_temp("1"), "a live instance: fork");
+        assert!(!reuse_restored_temp(""), "unknown owner: fork");
+        assert!(!reuse_restored_temp("not-a-pid"), "unknown owner: fork");
+    }
+
+    /// PID reuse: an instance that crashed with the pid we now run under
+    /// wrote its unsaved `old.tmp` as its own (a bare pid, or the pid with
+    /// another run's nonce). Our save must not take it for ours and drop it.
+    #[test]
+    fn session_closed_pid_reuse_keeps_crashed_entries() {
+        let pid = std::process::id();
+        for crashed in [pid.to_string(), format!("{pid}-0123456789abcdef")] {
+            let dir = tempfile::tempdir().unwrap();
+            let d = dir.path();
+            fs::write(d.join("old.tmp"), "unsaved").unwrap();
+            write_session(d, &crashed, vec![entry(None, Some("old.tmp"), &crashed)]);
+            save(d, instance_id(), vec![], &[]);
+            assert_eq!(
+                ids(d),
+                ["old.tmp"],
+                "{crashed}: the crashed instance's doc was dropped"
+            );
+            assert_eq!(
+                fs::read_to_string(d.join("old.tmp")).ok().as_deref(),
+                Some("unsaved"),
+                "{crashed}: its temp file was deleted"
+            );
+        }
+    }
+
+    /// An instance id that names our pid but is not ours belongs to an
+    /// instance that is gone (we hold its pid): its temp file can be taken
+    /// over, and it does not lock the session.
+    #[test]
+    fn session_closed_same_pid_other_run_is_gone() {
+        let pid = std::process::id();
+        let other_run = format!("{pid}-0123456789abcdef");
+        assert_ne!(instance_id(), other_run);
+        assert!(reuse_restored_temp(&other_run));
+        assert_eq!(instance_state(&other_run), InstanceState::Gone);
+        assert_eq!(instance_state(&pid.to_string()), InstanceState::Gone);
+        assert_eq!(instance_state(instance_id()), InstanceState::Us);
     }
 
     // --- T0099: the identity of an unsaved document is its temp file ---
