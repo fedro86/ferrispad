@@ -22,6 +22,9 @@ use super::toast::Toast;
 use super::tree_panel::TreePanel;
 use crate::app::Message;
 use crate::app::domain::settings::TreePanelPosition;
+use crate::app::services::window_geometry::{ScreenRect, WindowGeometryTracker};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 /// Subset of MainWidgets used during the dispatch loop.
 /// Created after `editor_container` and `tab_bar` are moved into AppState.
@@ -141,17 +144,64 @@ fn main_window_callback_action(reason: CallbackReason) -> MainWindowAction {
     }
 }
 
+/// Work areas of every connected screen, in FLTK units.
+pub fn screen_work_areas() -> Vec<ScreenRect> {
+    (0..fltk::app::screen_count())
+        .map(|n| {
+            let (x, y, w, h) = fltk::app::screen_work_area(n);
+            ScreenRect::new(x, y, w, h)
+        })
+        .collect()
+}
+
+fn window_rect(wind: &Window) -> ScreenRect {
+    ScreenRect::new(wind.x(), wind.y(), wind.w(), wind.h())
+}
+
+/// Record the window's normal rect on every resize/move (event-driven; writes
+/// nothing to disk). FLTK hides an iconified window, so `visible()` is false
+/// while minimized.
+pub fn install_geometry_tracking(wind: &mut Window, tracker: Rc<RefCell<WindowGeometryTracker>>) {
+    wind.resize_callback(move |w, x, y, width, height| {
+        if let Ok(mut t) = tracker.try_borrow_mut() {
+            t.record_resize(
+                w.visible(),
+                w.maximize_active(),
+                ScreenRect::new(x, y, width, height),
+            );
+        }
+    });
+}
+
+/// Whether FLTK runs its Wayland backend. Exact (asks FLTK), but only valid
+/// once the display is open, i.e. after the first `show()`.
+pub fn using_wayland() -> bool {
+    // SAFETY: plain query with no arguments; returns whether FLTK's Wayland
+    // display connection exists (always 0 on non-Wayland builds).
+    unsafe { fltk_sys::fl::Fl_using_wayland() != 0 }
+}
+
+/// Snapshot the window state for the close-time save. Must run while the
+/// window is still shown: after `hide()` it would look minimized. Called by
+/// the `FileQuit | WindowClose` dispatch before the unsaved-changes prompt.
+pub fn capture_close_geometry(wind: &Window, tracker: &RefCell<WindowGeometryTracker>) {
+    if let Ok(mut t) = tracker.try_borrow_mut() {
+        t.capture_close(wind.visible(), wind.maximize_active(), window_rect(wind));
+    }
+}
+
 pub fn build_main_window(
     tabs_enabled: bool,
     sender: &Sender<Message>,
     tree_position: TreePanelPosition,
+    rect: ScreenRect,
 ) -> MainWidgets {
     let title = if cfg!(target_os = "windows") {
         "Untitled - FerrisPad"
     } else {
         "Untitled - \u{1f980} FerrisPad"
     };
-    let mut wind = Window::new(100, 100, 640, 480, title);
+    let mut wind = Window::new(rect.x, rect.y, rect.w, rect.h, title);
     wind.set_xclass("FerrisPad");
     // FLTK runs a window's callback when an Escape press reaches it unhandled,
     // and the default callback hides the window: for the main window that hides
@@ -179,7 +229,7 @@ pub fn build_main_window(
         }
     }
 
-    let mut flex = Flex::new(0, 0, 640, 480, None);
+    let mut flex = Flex::new(0, 0, rect.w, rect.h, None);
     flex.set_type(fltk::group::FlexType::Column);
     flex.set_margin(0);
     flex.set_pad(0);

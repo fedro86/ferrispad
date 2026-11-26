@@ -4,9 +4,11 @@ use tempfile::tempdir;
 
 use ferris_pad::app::domain::settings::{
     AppSettings, PluginApprovals, ShortcutOverride, SyntaxTheme, ThemeMode, ThemeRef,
+    WindowGeometry,
 };
 use ferris_pad::app::services::session::SessionRestore;
 use ferris_pad::app::services::updater::UpdateChannel;
+use ferris_pad::app::services::window_geometry::{ScreenRect, restore_geometry};
 
 #[test]
 fn test_settings_roundtrip_all_fields() {
@@ -42,6 +44,13 @@ fn test_settings_roundtrip_all_fields() {
         shortcut_overrides: HashMap::new(),
         large_file_warning_mb: 100,
         max_editable_size_mb: 200,
+        window: Some(WindowGeometry {
+            x: -1200,
+            y: 40,
+            width: 1100,
+            height: 750,
+            maximized: true,
+        }),
         highlight_current_line: false,
     };
 
@@ -237,4 +246,225 @@ fn test_current_line_default_on() {
     let json = serde_json::to_string(&off).unwrap();
     let loaded: AppSettings = serde_json::from_str(&json).unwrap();
     assert!(!loaded.highlight_current_line);
+}
+
+// ---------------------------------------------------------------------------
+// Window geometry (T0077)
+// ---------------------------------------------------------------------------
+
+fn sample_geometry() -> WindowGeometry {
+    WindowGeometry {
+        x: -1500,
+        y: -20,
+        width: 1100,
+        height: 750,
+        maximized: true,
+    }
+}
+
+#[test]
+fn test_window_geometry_roundtrip() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+
+    let settings = AppSettings {
+        window: Some(sample_geometry()),
+        ..Default::default()
+    };
+    settings.save_to(&path).unwrap();
+
+    let loaded = AppSettings::load_from(&path);
+    assert_eq!(loaded.window, Some(sample_geometry()));
+    assert_eq!(loaded, settings);
+}
+
+#[test]
+fn test_window_geometry_backward_compat() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    fs::write(
+        &path,
+        r#"{ "font_size": 18, "line_numbers_enabled": false }"#,
+    )
+    .unwrap();
+
+    let loaded = AppSettings::load_from(&path);
+    assert_eq!(loaded.window, None);
+    assert_eq!(loaded.font_size, 18);
+    assert!(!loaded.line_numbers_enabled);
+
+    // `None` restores the 640×480, not-maximized default.
+    let (rect, maximized) =
+        restore_geometry(loaded.window, &[ScreenRect::new(0, 0, 1920, 1050)], 30);
+    assert_eq!((rect.w, rect.h), (640, 480));
+    assert!(!maximized);
+}
+
+#[test]
+fn test_window_geometry_malformed_keeps_other_settings() {
+    let malformed = [
+        r#""window": {"x": 10, "y": 10, "width": "abc", "height": 600, "maximized": false}"#,
+        r#""window": {"x": 10, "y": 10, "width": 1e20, "height": 600, "maximized": false}"#,
+        r#""window": {"x": 10, "y": 10, "width": 800, "height": 600, "maximized": "yes"}"#,
+        r#""window": {"x": 10, "y": 10, "width": 800}"#,
+        r#""window": null"#,
+        r#""window": [1, 2, 3, 4]"#,
+        r#""window": "1100x750""#,
+    ];
+    for field in malformed {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let json = format!(r#"{{ "font_size": 22, "theme_mode": "Dark", {field} }}"#);
+        fs::write(&path, &json).unwrap();
+
+        let loaded = AppSettings::load_from(&path);
+        assert_eq!(loaded.window, None, "geometry must be ignored for {field}");
+        assert_eq!(loaded.font_size, 22, "font_size lost for {field}");
+        assert_eq!(loaded.theme_mode, ThemeMode::Dark, "theme lost for {field}");
+    }
+}
+
+#[test]
+fn test_window_geometry_save_patches_only_geometry() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+
+    // Another instance changed the font to 20 after this one started.
+    let on_disk = AppSettings {
+        font_size: 20,
+        ..Default::default()
+    };
+    on_disk.save_to(&path).unwrap();
+
+    // This instance still holds font_size = 12 in memory.
+    let in_memory = AppSettings {
+        font_size: 12,
+        ..Default::default()
+    };
+    in_memory
+        .save_window_geometry_to(&path, sample_geometry())
+        .unwrap();
+
+    let loaded = AppSettings::load_from(&path);
+    assert_eq!(loaded.window, Some(sample_geometry()));
+    assert_eq!(
+        loaded.font_size, 20,
+        "close-time save reverted another instance's setting"
+    );
+}
+
+#[test]
+fn test_window_geometry_save_skips_unparseable_file() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let broken = b"{ \"font_size\": 20, oops this is not json";
+    fs::write(&path, broken).unwrap();
+
+    let _ = AppSettings::default().save_window_geometry_to(&path, sample_geometry());
+
+    assert_eq!(fs::read(&path).unwrap(), broken.to_vec());
+    // No stray temp file left next to it either.
+    let entries: Vec<_> = fs::read_dir(dir.path()).unwrap().collect();
+    assert_eq!(entries.len(), 1);
+}
+
+#[test]
+fn test_window_geometry_save_creates_missing_file() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+
+    let in_memory = AppSettings {
+        font_size: 14,
+        ..Default::default()
+    };
+    in_memory
+        .save_window_geometry_to(&path, sample_geometry())
+        .unwrap();
+
+    let loaded = AppSettings::load_from(&path);
+    assert_eq!(loaded.window, Some(sample_geometry()));
+    assert_eq!(loaded.font_size, 14);
+}
+
+#[cfg(unix)]
+#[test]
+fn test_settings_save_keeps_symlink_and_permissions() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    let dir = tempdir().unwrap();
+    let real_dir = dir.path().join("dotfiles");
+    fs::create_dir(&real_dir).unwrap();
+    let real = real_dir.join("settings.json");
+    let link = dir.path().join("settings.json");
+
+    AppSettings::default().save_to(&real).unwrap();
+    fs::set_permissions(&real, fs::Permissions::from_mode(0o600)).unwrap();
+    symlink(&real, &link).unwrap();
+
+    // Both writers go through the atomic write.
+    let settings = AppSettings {
+        font_size: 21,
+        ..Default::default()
+    };
+    settings.save_to(&link).unwrap();
+    settings
+        .save_window_geometry_to(&link, sample_geometry())
+        .unwrap();
+
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "the symlink was replaced by a regular file"
+    );
+    let loaded = AppSettings::load_from(&real);
+    assert_eq!(loaded.font_size, 21);
+    assert_eq!(loaded.window, Some(sample_geometry()));
+    let mode = fs::metadata(&real).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "permissions were not preserved");
+    // No temp files left in either directory.
+    assert_eq!(fs::read_dir(&real_dir).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+}
+
+/// The close-time save re-reads settings.json and patches only `"window"`:
+/// the theme stack's fields written by this or another instance (custom
+/// theme refs, `highlight_current_line`) survive untouched (T0077 on top of
+/// T0079/T0081).
+#[test]
+fn test_window_geometry_save_keeps_theme_refs_and_current_line() {
+    let dir = tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+
+    let on_disk = AppSettings {
+        syntax_theme_dark: ThemeRef::Custom("t-night".to_string()),
+        syntax_theme_light: ThemeRef::Builtin(SyntaxTheme::SolarizedLight),
+        highlight_current_line: false,
+        ..Default::default()
+    };
+    on_disk.save_to(&path).unwrap();
+
+    // This instance's in-memory settings still hold the defaults.
+    AppSettings::default()
+        .save_window_geometry_to(&path, sample_geometry())
+        .unwrap();
+
+    let loaded = AppSettings::load_from(&path);
+    assert_eq!(loaded.window, Some(sample_geometry()));
+    assert_eq!(
+        loaded.syntax_theme_dark,
+        ThemeRef::Custom("t-night".to_string())
+    );
+    assert_eq!(
+        loaded.syntax_theme_light,
+        ThemeRef::Builtin(SyntaxTheme::SolarizedLight)
+    );
+    assert!(!loaded.highlight_current_line);
+    // And the refs keep their on-disk spelling.
+    let raw = fs::read_to_string(&path).unwrap();
+    assert!(
+        raw.contains(r#""syntax_theme_dark": "custom:t-night""#),
+        "{raw}"
+    );
 }

@@ -83,11 +83,19 @@ pub fn handle_file(msg: Message, state: &mut AppState) -> DispatchResult {
             state.session.mark_dirty();
         }
         Message::FileQuit | Message::WindowClose => {
+            // Snapshot the window before the prompt; saved only on a confirmed
+            // quit. A title-bar close arrives here as WindowClose with the
+            // window still shown (T0082), or minimized from the taskbar.
+            crate::ui::main_window::capture_close_geometry(&state.window, &state.window_geometry);
             if state.file_quit() {
+                state.save_window_geometry();
                 return DispatchResult::Quit;
             }
             // User cancelled — reset the flag
             fltk::app::program_should_quit(false);
+            if let Ok(mut geometry) = state.window_geometry.try_borrow_mut() {
+                geometry.discard_close();
+            }
         }
         _ => {}
     }
@@ -1500,6 +1508,27 @@ mod tests {
             !dialog.contains(".send(Message::PreviewSyntaxTheme"),
             "the modal Settings dialog must not queue previews on the channel"
         );
+    }
+
+    /// Every quit path (File > Quit, and the title-bar close once it is
+    /// routed to `WindowClose`, T0082) must capture the window geometry while
+    /// the window is still shown, before the unsaved-changes prompt, and save
+    /// it only when the quit is confirmed (T0077).
+    #[test]
+    fn quit_captures_window_geometry_and_saves_on_confirm() {
+        let arm = without_whitespace(arm_body(dispatch_src(), "Message::WindowClose"));
+        let capture = arm.find("capture_close_geometry(");
+        let prompt = arm.find("state.file_quit()");
+        let save = arm.find("state.save_window_geometry()");
+        assert!(
+            capture.is_some() && prompt.is_some() && capture < prompt,
+            "the quit arm must capture the geometry before file_quit()"
+        );
+        assert!(
+            arm.contains("ifstate.file_quit(){state.save_window_geometry();"),
+            "the geometry must be saved only on a confirmed quit"
+        );
+        assert!(save > prompt);
     }
 
     /// The menu text colour has one rule (`ui::theme::menu_foreground`),

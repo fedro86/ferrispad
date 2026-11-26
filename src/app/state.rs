@@ -38,6 +38,7 @@ use super::services::current_line::{cursor_line, twin_bytes, untwin_bytes};
 use super::services::custom_themes::{ThemeStore, themes_dir};
 use super::services::session;
 use super::services::shortcut_registry::ShortcutRegistry;
+use super::services::window_geometry::WindowGeometryTracker;
 use crate::ui::dialogs::settings_dialog::{SettingsHook, show_settings_dialog};
 use crate::ui::dialogs::theme_manager::show_theme_manager;
 use crate::ui::dialogs::{show_themed_choice, show_themed_message};
@@ -81,6 +82,9 @@ pub struct AppState {
     /// Pending diff reviews from MCP tools (session_id → (file_path, decision_fifo))
     /// If decision_fifo is Some, write "accept"/"reject" to it on user action.
     pub pending_diff_reviews: HashMap<u32, (String, Option<String>)>,
+    /// Main-window geometry tracked for the close-time save (T0077). Shared
+    /// with the window's resize callback and close handler in `main.rs`.
+    pub window_geometry: Rc<RefCell<WindowGeometryTracker>>,
 }
 
 impl AppState {
@@ -200,6 +204,7 @@ impl AppState {
             text_change_timer_active: false,
             mcp_responses: Default::default(),
             pending_diff_reviews: HashMap::new(),
+            window_geometry: Rc::new(RefCell::new(WindowGeometryTracker::default())),
         }
     }
 
@@ -804,6 +809,25 @@ impl AppState {
         }
 
         should_quit
+    }
+
+    /// Close-time geometry save, after a confirmed quit: patches only the
+    /// `window` object of the settings file on disk (see
+    /// `AppSettings::save_window_geometry`). Minimized at close → no write.
+    pub fn save_window_geometry(&self) {
+        let geometry = match self.window_geometry.try_borrow_mut() {
+            Ok(mut tracker) => tracker.take_geometry_to_save(),
+            Err(_) => None,
+        };
+        let Some(geometry) = geometry else {
+            return;
+        };
+        let Ok(settings) = self.settings.try_borrow() else {
+            return;
+        };
+        let _ = settings
+            .save_window_geometry(geometry)
+            .inspect_err(|e| eprintln!("Failed to save window geometry: {}", e));
     }
 
     pub fn switch_to_next_tab(&mut self) {
