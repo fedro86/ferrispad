@@ -94,9 +94,18 @@ fails closed.
 | `rename` | `fs::rename`, source **and** destination | `resolve_and_validate` ×2 |
 | `remove` | `remove_dir_all` / `remove_file` | `resolve_and_validate` |
 | `setup_mcp_config` | `fs::write` `.mcp.json`, read+write `.gitignore` | root only → now each file too |
-| hook result `open_file` (`hook_dispatch.rs`) | opens a tab | `validate_path` |
+| hook result `open_file` (`hook_dispatch.rs`) | opens a tab | `validate_path`, but the **raw** string was opened → now the validated path (review round 1) |
 
 There is no copy/move API besides `rename`.
+
+### "No project root" paths (review round 1, orchestrator decision)
+
+| Where | Without a project root | Verdict |
+|---|---|---|
+| hook `open_file` | opened **any** path (comment: "allow, same as file_exists") | **fixed: refused**, logged as `[plugin:security] open_file BLOCKED` |
+| every Lua fs API (`file_exists` … `setup_mcp_config`) | returns `false` / `nil` / "No project root" | already fail-closed |
+| `run_command` | runs with the process cwd instead of the root | kept: it only runs a command the user approved for that plugin, and it passes no path that the sandbox resolves (the cwd isn't an access boundary) |
+| terminal-view `working_dir` | plugin value, metacharacter-checked only | kept, same reason: an approved command in a terminal; no FerrisPad file op |
 
 ## How to test
 
@@ -211,3 +220,35 @@ the `.mcp.json` case could be tested without a running MCP port.)
   `app::plugins::api::tests::test_lua_create_dir_and_rename` skip in
   `macos-gates.yml` and check the macOS run (the alias test reproduces the
   `/var` → `/private/var` case on Linux and passes).
+
+## Review round 1 (a3 + orchestrator, 2026-11-26, local only)
+
+- **Blocking (a3):** hook `open_file` validated the path against the root but
+  sent the **raw** string to `DeferredOpenFile`. `FileController::open_file`
+  resolves a relative path against the process cwd, so with FerrisPad
+  started from `$HOME`, `open_file = ".ssh/id_rsa"` passed the check
+  (`<root>/.ssh/id_rsa` is "inside, not yet existing") and opened
+  `~/.ssh/id_rsa` for the plugin to read. One-level names were already
+  exploitable before T0090; making deep missing paths `Valid` widened it.
+  Fix: `hook_dispatch::approve_open_file(path, root) -> Option<String>`
+  returns the **validated physical path**, and only for an **existing file**.
+- **Folded in (orchestrator):** with no project root, `open_file` opened any
+  path; it is now refused (table above).
+- **Non-blocking (a3):** `validate_path` walks up only on `NotFound` /
+  `NotADirectory`; any other `lstat` error (permission, name too long) is
+  `InvalidPath`. Its doc now states that `remove`/`rename` of an in-root
+  symlink to an in-root target act on the target (unchanged behaviour).
+
+Red (the helper extracted first with the old behaviour, then the tests):
+
+```
+test …hook_open_file_without_project_root_is_refused ... FAILED
+  left: Some("/etc/hostname")   right: None
+test …hook_open_file_refuses_paths_that_are_not_existing_files_in_root ... FAILED
+  left: Some(".ssh/id_rsa")     right: None
+test …hook_open_file_opens_the_validated_path_not_the_raw_one ... FAILED
+  left: Some("src/main.rs")     right: Some("<canonical root>/src/main.rs")
+test result: FAILED. 0 passed; 3 failed
+```
+
+After: the 3 pass.

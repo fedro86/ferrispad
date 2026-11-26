@@ -50,7 +50,7 @@ pub fn dispatch_hook_result(result: HookResult, plugin_name: &str, ctx: &mut Hoo
 
     // Handle open_file request with security validation
     if let Some(ref file_path) = result.open_file {
-        use crate::app::plugins::security::{PathValidation, find_project_root, validate_path};
+        use crate::app::plugins::security::find_project_root;
 
         // Determine project root from current document
         let project_root = ctx
@@ -59,28 +59,17 @@ pub fn dispatch_hook_result(result: HookResult, plugin_name: &str, ctx: &mut Hoo
             .and_then(|d| d.file_path.as_ref())
             .and_then(|p| find_project_root(std::path::Path::new(p)));
 
-        if let Some(ref root) = project_root {
-            match validate_path(file_path, root) {
-                PathValidation::Valid(_) => {
-                    eprintln!("[plugin:{}] open_file approved: {}", plugin_name, file_path);
-                    ctx.sender
-                        .send(Message::DeferredOpenFile(file_path.clone()));
-                }
-                other => {
-                    eprintln!(
-                        "[plugin:security] open_file BLOCKED for '{}': '{}' - {:?}",
-                        plugin_name, file_path, other
-                    );
-                }
+        match approve_open_file(file_path, project_root.as_deref()) {
+            Some(path) => {
+                eprintln!("[plugin:{}] open_file approved: {}", plugin_name, path);
+                ctx.sender.send(Message::DeferredOpenFile(path));
             }
-        } else {
-            // No project root - allow (same as file_exists behavior for untitled docs)
-            eprintln!(
-                "[plugin:{}] open_file (no project root): {}",
-                plugin_name, file_path
-            );
-            ctx.sender
-                .send(Message::DeferredOpenFile(file_path.clone()));
+            None => {
+                eprintln!(
+                    "[plugin:security] open_file BLOCKED for '{}': '{}'",
+                    plugin_name, file_path
+                );
+            }
         }
     }
 
@@ -95,6 +84,26 @@ pub fn dispatch_hook_result(result: HookResult, plugin_name: &str, ctx: &mut Hoo
     {
         let buf = doc.buffer.clone();
         ctx.view.goto_line(&buf, line);
+    }
+}
+
+/// What a plugin's `open_file` request may open (T0090): the validated,
+/// physical path of an existing file inside the active document's project
+/// root, or `None` to block it.
+///
+/// The opener gets the resolved path, never the raw plugin string, which
+/// would resolve against the process cwd instead of the root. Without a
+/// project root (untitled document, file outside any project) the request
+/// is refused: there is nothing to confine it to, like every other plugin
+/// filesystem API.
+pub(crate) fn approve_open_file(
+    file_path: &str,
+    project_root: Option<&std::path::Path>,
+) -> Option<String> {
+    use crate::app::plugins::security::{PathValidation, validate_path};
+    match validate_path(file_path, project_root?) {
+        PathValidation::Valid(path) if path.is_file() => Some(path.to_string_lossy().into_owned()),
+        _ => None,
     }
 }
 
@@ -262,6 +271,42 @@ fn validate_terminal_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── T0090: plugin open_file requests ─────────────────────────────
+
+    #[test]
+    fn hook_open_file_opens_the_validated_path_not_the_raw_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir(root.join("src")).unwrap();
+        std::fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
+        let canonical = std::fs::canonicalize(root.join("src/main.rs")).unwrap();
+        // A relative path must not reach the opener as-is: it would resolve
+        // against the process cwd, not the project root.
+        assert_eq!(
+            approve_open_file("src/main.rs", Some(root)),
+            Some(canonical.to_string_lossy().into_owned())
+        );
+    }
+
+    #[test]
+    fn hook_open_file_refuses_paths_that_are_not_existing_files_in_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        // `.ssh/id_rsa` does not exist under the root: with FerrisPad started
+        // from $HOME the raw string would open ~/.ssh/id_rsa.
+        assert_eq!(approve_open_file(".ssh/id_rsa", Some(root)), None);
+        assert_eq!(approve_open_file(".bashrc", Some(root)), None);
+        std::fs::create_dir(root.join("dir")).unwrap();
+        assert_eq!(approve_open_file("dir", Some(root)), None, "not a file");
+        assert_eq!(approve_open_file("/etc/hostname", Some(root)), None);
+    }
+
+    #[test]
+    fn hook_open_file_without_project_root_is_refused() {
+        assert_eq!(approve_open_file("/etc/hostname", None), None);
+        assert_eq!(approve_open_file(".ssh/id_rsa", None), None);
+    }
 
     fn req(command: Option<&str>, args: &[&str], working_dir: Option<&str>) -> TerminalViewRequest {
         TerminalViewRequest {

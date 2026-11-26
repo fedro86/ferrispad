@@ -62,6 +62,10 @@ pub enum PathValidation {
 /// are both rejected, while an absolute path under a symlinked alias of the
 /// root (macOS `/var` → `/private/var`) is accepted.
 ///
+/// An existing path resolves to its physical target, so `remove` / `rename`
+/// of an in-root symlink whose target is also inside the root act on the
+/// target, not on the link (as before T0090).
+///
 /// Out of scope: a symlink created or swapped between this check and the
 /// operation (TOCTOU).
 pub fn validate_path(path: &str, project_root: &Path) -> PathValidation {
@@ -79,11 +83,25 @@ pub fn validate_path(path: &str, project_root: &Path) -> PathValidation {
         project_root.join(input_path)
     };
 
-    // Longest ancestor that exists as an entry (symlinks not followed).
-    let Some(existing) = raw
-        .ancestors()
-        .find(|a| !a.as_os_str().is_empty() && std::fs::symlink_metadata(a).is_ok())
-    else {
+    // Longest ancestor that exists as an entry (symlinks not followed). Only
+    // "does not exist" lets the walk go up; any other error (permission,
+    // name too long, …) fails closed.
+    let mut existing = None;
+    for ancestor in raw.ancestors().filter(|a| !a.as_os_str().is_empty()) {
+        match std::fs::symlink_metadata(ancestor) {
+            Ok(_) => {
+                existing = Some(ancestor);
+                break;
+            }
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) => {}
+            Err(e) => return PathValidation::InvalidPath(e.to_string()),
+        }
+    }
+    let Some(existing) = existing else {
         return PathValidation::InvalidPath(format!("No existing ancestor: {}", path));
     };
     let base = match std::fs::canonicalize(existing) {
