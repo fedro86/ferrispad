@@ -336,6 +336,22 @@ impl DialogTheme {
         self.flat_button(self.button_bg, self.warning_text())
     }
 
+    /// A push button offering an update (the Plugin Manager's "Update"): the
+    /// button color with a [`Self::success_text`] label.
+    pub fn success_button(&self) -> Button {
+        self.flat_button(self.button_bg, self.success_text())
+    }
+
+    /// Success (update available) text color, readable on the button color in
+    /// dark and light themes.
+    pub fn success_text(&self) -> Color {
+        if self.is_dark() {
+            Color::from_rgb(100, 200, 100)
+        } else {
+            Color::from_rgb(40, 140, 40)
+        }
+    }
+
     /// Warning text color, readable on the dialog in dark and light themes.
     pub fn warning_text(&self) -> Color {
         if self.is_dark() {

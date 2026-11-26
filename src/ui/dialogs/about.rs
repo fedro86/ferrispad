@@ -8,9 +8,16 @@ use fltk::{
 
 use super::DialogTheme;
 
-/// Show About dialog
-pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
-    let theme = DialogTheme::from_theme_bg(theme_bg);
+/// The About dialog's window and widgets, built but not shown (a seam for
+/// the layout tests).
+pub struct AboutUi {
+    pub dialog: Window,
+    pub close_btn: fltk::button::Button,
+}
+
+/// Build the About dialog. `theme_bg` is the editor background, which the
+/// dialog uses as is (not the derived `theme.bg`).
+pub fn build_about_dialog(theme: &DialogTheme, theme_bg: (u8, u8, u8)) -> AboutUi {
     let version = env!("CARGO_PKG_VERSION");
 
     // Use original editor background for dialog (not derived/darkened)
@@ -22,7 +29,6 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
         .with_size(450, 330)
         .with_label("About FerrisPad")
         .center_screen();
-    dialog.make_modal(true);
     dialog.set_color(dialog_bg);
 
     let mut flex = Flex::new(10, 10, 430, 310, None);
@@ -82,12 +88,25 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
     flex.fixed(&info_frame, 120);
 
     // Close button
-    let mut close_btn = theme.button().with_label("Close");
+    let close_btn = theme.button().with_label("Close");
     flex.fixed(&close_btn, 35);
 
     flex.end();
     dialog.end();
     drop(top_level);
+    AboutUi { dialog, close_btn }
+}
+
+/// Show About dialog
+pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
+    let AboutUi {
+        mut dialog,
+        mut close_btn,
+    } = build_about_dialog(&theme, theme_bg);
+    // Only a flag until show(): setting it after the build draws the same.
+    dialog.make_modal(true);
 
     let mut dialog_close = dialog.clone();
     close_btn.set_callback(move |_| {

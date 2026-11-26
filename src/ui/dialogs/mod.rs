@@ -748,6 +748,34 @@ pub fn build_themed_input(
     .dialog
 }
 
+/// Build, without showing, the themed notice [`show_themed_message`] shows.
+/// For the UI construction tests (`tests/ui_dialogs.rs`).
+pub fn build_themed_message(theme_bg: (u8, u8, u8), title: &str, message: &str) -> Window {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+    build_themed_popup(
+        &theme,
+        title,
+        message,
+        None,
+        &choice_layout("Close", "", ""),
+    )
+    .dialog
+}
+
+/// Build, without showing, the themed question [`show_themed_choice`] shows
+/// (e.g. the large-file warning). For the UI construction tests.
+pub fn build_themed_choice(
+    theme_bg: (u8, u8, u8),
+    title: &str,
+    message: &str,
+    b0: &str,
+    b1: &str,
+    b2: &str,
+) -> Window {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+    build_themed_popup(&theme, title, message, None, &choice_layout(b0, b1, b2)).dialog
+}
+
 /// Show the themed popup (see [`build_themed_popup`]) and run it with
 /// [`run_dialog`]. Returns the pressed button's index (`None` for Escape, the
 /// window's close button, or an app quit) and the input's final text.

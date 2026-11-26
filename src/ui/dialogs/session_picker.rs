@@ -337,15 +337,24 @@ pub fn show_session_picker(
     result.borrow().clone()
 }
 
-/// Show a small dialog that asks for a session name.
-/// `parent` is the main window used to center the dialog (reliable on Wayland).
-/// Returns `Some(sanitized_name)` or `None` if cancelled.
-pub fn show_new_session_dialog(parent: &Window, theme_bg: (u8, u8, u8)) -> Option<String> {
-    let theme = DialogTheme::from_theme_bg(theme_bg);
-    let result: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+/// Size of the New Session dialog.
+const NEW_SESSION_DW: i32 = 300;
+const NEW_SESSION_DH: i32 = 120;
 
-    const DW: i32 = 300;
-    const DH: i32 = 120;
+/// The New Session dialog's window and widgets, built but not shown (a seam
+/// for the layout tests).
+pub struct NewSessionUi {
+    pub dialog_win: Window,
+    pub name_input: fltk::input::Input,
+    pub status: Frame,
+    pub ok_btn: fltk::button::Button,
+    pub cancel_btn: fltk::button::Button,
+}
+
+/// Build the New Session dialog.
+pub fn build_new_session_dialog(theme: &DialogTheme) -> NewSessionUi {
+    const DW: i32 = NEW_SESSION_DW;
+    const DH: i32 = NEW_SESSION_DH;
     // Regular xdg_toplevel (not modal) — see show_session_picker for rationale.
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
@@ -361,7 +370,7 @@ pub fn show_new_session_dialog(parent: &Window, theme_bg: (u8, u8, u8)) -> Optio
         .with_label("Session name:");
     label.set_label_color(theme.text);
 
-    let mut name_input = theme.input().with_pos(130, 15).with_size(150, 30);
+    let name_input = theme.input().with_pos(130, 15).with_size(150, 30);
 
     let mut status = Frame::default()
         .with_pos(20, 50)
@@ -369,13 +378,13 @@ pub fn show_new_session_dialog(parent: &Window, theme_bg: (u8, u8, u8)) -> Optio
         .with_label("");
     status.set_label_color(theme.error_color());
 
-    let mut ok_btn = theme
+    let ok_btn = theme
         .button()
         .with_pos(100, 75)
         .with_size(80, 30)
         .with_label("Create");
 
-    let mut cancel_btn = theme
+    let cancel_btn = theme
         .button()
         .with_pos(190, 75)
         .with_size(80, 30)
@@ -383,6 +392,31 @@ pub fn show_new_session_dialog(parent: &Window, theme_bg: (u8, u8, u8)) -> Optio
 
     dialog_win.end();
     drop(top_level);
+    NewSessionUi {
+        dialog_win,
+        name_input,
+        status,
+        ok_btn,
+        cancel_btn,
+    }
+}
+
+/// Show a small dialog that asks for a session name.
+/// `parent` is the main window used to center the dialog (reliable on Wayland).
+/// Returns `Some(sanitized_name)` or `None` if cancelled.
+pub fn show_new_session_dialog(parent: &Window, theme_bg: (u8, u8, u8)) -> Option<String> {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+    let result: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+
+    const DW: i32 = NEW_SESSION_DW;
+    const DH: i32 = NEW_SESSION_DH;
+    let NewSessionUi {
+        mut dialog_win,
+        mut name_input,
+        status,
+        mut ok_btn,
+        mut cancel_btn,
+    } = build_new_session_dialog(&theme);
     dialog_win.make_resizable(false);
     dialog_win.show();
     theme.apply_titlebar(&dialog_win);

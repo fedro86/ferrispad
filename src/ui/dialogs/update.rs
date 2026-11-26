@@ -72,22 +72,35 @@ pub fn check_for_updates_ui(
     let _ = settings_mut.save();
 }
 
-/// Show update available dialog with options.
-/// `parent` is the main window used to center the dialog (reliable on Wayland).
-pub fn show_update_available_dialog(
-    parent: &Window,
-    release: updater::ReleaseInfo,
-    settings: &Rc<RefCell<AppSettings>>,
+/// Size of the Update Available dialog.
+const DW: i32 = 500;
+const DH: i32 = 480;
+
+/// The Update Available dialog's window and widgets, built but not shown (a
+/// seam for the layout tests).
+pub struct UpdateAvailableUi {
+    pub dialog: Window,
+    pub progress: fltk::misc::Progress,
+    pub status_frame: Frame,
+    pub button_row: Flex,
+    pub install_btn: fltk::button::Button,
+    pub download_btn: fltk::button::Button,
+    pub skip_btn: fltk::button::Button,
+    pub later_btn: fltk::button::Button,
+}
+
+/// Build the Update Available dialog for `release`. Without
+/// `install_available` (no asset for this platform) the install button is
+/// disabled and reads "Manual Update Only".
+pub fn build_update_available_dialog(
+    theme: &DialogTheme,
     theme_bg: (u8, u8, u8),
-) {
-    let theme = DialogTheme::from_theme_bg(theme_bg);
+    release: &updater::ReleaseInfo,
+    install_available: bool,
+) -> UpdateAvailableUi {
     let dialog_bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
     let current_version = env!("CARGO_PKG_VERSION");
-    let direct_asset = updater::get_platform_asset_name()
-        .and_then(|name| release.assets.iter().find(|a| a.name.ends_with(name)));
 
-    const DW: i32 = 500;
-    const DH: i32 = 480;
     // Regular xdg_toplevel (not modal) — on Wayland/GNOME, make_modal(true) on the
     // first invocation maps the surface before the decoration + modal-hint round-trip
     // completes, yielding an undecorated, ungrabbed window with no input (and the
@@ -165,13 +178,13 @@ pub fn show_update_available_dialog(
 
     let mut install_btn = theme.button().with_label("Install Now");
 
-    let mut download_btn = theme.button().with_label("View on GitHub");
+    let download_btn = theme.button().with_label("View on GitHub");
 
-    let mut skip_btn = theme.button().with_label("Skip This Version");
+    let skip_btn = theme.button().with_label("Skip This Version");
 
-    let mut later_btn = theme.button().with_label("Remind Later");
+    let later_btn = theme.button().with_label("Remind Later");
 
-    if direct_asset.is_none() {
+    if !install_available {
         install_btn.deactivate();
         install_btn.set_label("Manual Update Only");
     }
@@ -182,6 +195,40 @@ pub fn show_update_available_dialog(
     flex.end();
     dialog.end();
     drop(top_level);
+    UpdateAvailableUi {
+        dialog,
+        progress,
+        status_frame,
+        button_row,
+        install_btn,
+        download_btn,
+        skip_btn,
+        later_btn,
+    }
+}
+
+/// Show update available dialog with options.
+/// `parent` is the main window used to center the dialog (reliable on Wayland).
+pub fn show_update_available_dialog(
+    parent: &Window,
+    release: updater::ReleaseInfo,
+    settings: &Rc<RefCell<AppSettings>>,
+    theme_bg: (u8, u8, u8),
+) {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+    let direct_asset = updater::get_platform_asset_name()
+        .and_then(|name| release.assets.iter().find(|a| a.name.ends_with(name)));
+
+    let UpdateAvailableUi {
+        mut dialog,
+        progress,
+        status_frame,
+        button_row,
+        mut install_btn,
+        mut download_btn,
+        mut skip_btn,
+        mut later_btn,
+    } = build_update_available_dialog(&theme, theme_bg, &release, direct_asset.is_some());
 
     // Install Now button
     if direct_asset.is_some() {
