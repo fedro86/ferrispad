@@ -161,11 +161,11 @@ Neighbours:
 
 ## Other oddities noticed in tab naming (not fixed here; for the orchestrator)
 
-1. **Start page title.** With no document open (the start page, or after
+1. **Start page title.** Folded into T0093. With no document open (the start page, or after
    closing every tab), the window title is "Untitled - 🦀 FerrisPad"
    (`state.rs` `update_window_title` fallback), although nothing called
    Untitled exists. "🦀 FerrisPad" alone would match the screen.
-2. **Dirty markers do not follow typing** (T0093). Typing into a new tab
+2. **Dirty markers do not follow typing.** Fixed in T0093. Typing into a new tab
    leaves the title without "*". The tab bar shows "●" on an *inactive*
    dirty tab but not on the *active* one being typed into. After a session
    restore the active tab does show "● Untitled 2", so the active tab can
@@ -174,8 +174,8 @@ Neighbours:
    display name "Untitled". `add_untitled` does not call
    `disambiguate_display_names`, so both tabs read "Untitled" until the next
    open or close. Then the untitled one becomes "Untitled ()" (empty parent
-   path) and the file "Untitled (dir)".
-4. **`tabs_enabled` defaults differ.** The serde default for a missing key
+   path) and the file "Untitled (dir)". **Backlog** (orchestrator decision).
+4. **`tabs_enabled` defaults differ.** Becomes T0100. The serde default for a missing key
    is `false` (`#[serde(default)]` on a bool), while
    `AppSettings::default()` says `true`. A `settings.json` that lacks the
    key (hand-written, or from an older version) turns tabs off. Found while
