@@ -1,0 +1,58 @@
+name: macOS gates
+
+# On-demand quality gate for macOS-only code (e.g. the objc2 calls in
+# src/ui/theme.rs, behind #[cfg(target_os = "macos")]), which the Linux jobs
+# in ci.yml never compile. Runs on pull requests targeting master and on
+# manual trigger; it does not change when the existing CI runs, and unlike
+# release.yml it builds, publishes and signs nothing, so it is safe to launch
+# on any branch (T0076).
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gates:
+    name: build + clippy + test (macos)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      # --locked fails the job on Cargo.lock drift, as in ci.yml.
+      - name: cargo build
+        run: cargo build --locked
+
+      - name: cargo clippy (-D warnings)
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      # Known macOS test failures, skipped by EXACT name (--exact applies to
+      # --skip). This list may only shrink: any other failing test still
+      # turns the job red.
+      # - FLTK widget tests abort on macOS because libtest runs them off the
+      #   main thread (AppKit requirement): T0089.
+      # - Plugin path validation on macOS: T0090.
+      - name: cargo test
+        run: >-
+          cargo test --locked -- --exact
+          --skip ui::dialogs::tests::popup_is_top_level
+          --skip ui::scrollbar::tests::child_index_invariant_matches_bundled_fltk
+          --skip app::plugins::api::tests::test_lua_create_dir_and_rename
