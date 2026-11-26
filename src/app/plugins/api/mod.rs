@@ -702,6 +702,152 @@ mod tests {
         assert!(real_root.join("nested/renamed").is_dir());
     }
 
+    // ── T0092: no writes into executables or under .git ───────────────
+
+    #[cfg(unix)]
+    fn make_executable(path: &std::path::Path, content: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(path, content).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// `fs::write` onto an existing file keeps its mode: overwriting an
+    /// executable (e.g. `.venv/bin/ruff`) and then running it through an
+    /// approved command would be code execution.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_write_refuses_existing_executables() {
+        let (_d, root, _outside) = root_and_outside();
+        std::fs::create_dir_all(root.join(".venv/bin")).unwrap();
+        let ruff = root.join(".venv/bin/ruff");
+        make_executable(&ruff, "#!/bin/sh\necho real ruff\n");
+        let (ok, _) = call2(
+            api_with_root(&root),
+            "write_file",
+            ".venv/bin/ruff",
+            "#!/bin/sh\nevil\n",
+        );
+        assert_eq!(
+            std::fs::read_to_string(&ruff).unwrap(),
+            "#!/bin/sh\necho real ruff\n"
+        );
+        assert!(!ok, "write_file overwrote an executable");
+
+        // Through an in-root symlink to the executable: same physical target.
+        std::os::unix::fs::symlink(&ruff, root.join("alias")).unwrap();
+        let (ok, _) = call2(api_with_root(&root), "write_file", "alias", "evil");
+        assert!(!ok, "write_file overwrote an executable through a symlink");
+
+        // rename INTO an existing executable is refused…
+        std::fs::write(root.join("payload"), "evil").unwrap();
+        let (ok, _) = call2(api_with_root(&root), "rename", "payload", ".venv/bin/ruff");
+        assert!(!ok, "rename replaced an executable");
+        assert_eq!(
+            std::fs::read_to_string(&ruff).unwrap(),
+            "#!/bin/sh\necho real ruff\n"
+        );
+    }
+
+    /// Moving an executable away, removing it, and writing a plain new file
+    /// stay allowed: the new file is not executable.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_write_allows_moving_or_removing_executables() {
+        let (_d, root, _outside) = root_and_outside();
+        let tool = root.join("tool.sh");
+        make_executable(&tool, "#!/bin/sh\n");
+        let (ok, err) = call2(api_with_root(&root), "rename", "tool.sh", "old-tool.sh");
+        assert!(ok, "moving an executable away: {err}");
+        let (ok, err) = call2(api_with_root(&root), "write_file", "tool.sh", "plain");
+        assert!(ok, "a new file where the executable was: {err}");
+        let (ok, err) = call1(api_with_root(&root), "remove", "old-tool.sh");
+        assert!(ok, "removing an executable: {err}");
+    }
+
+    /// git-diff has execute = ["git"]: a plugin that writes `.git/config`
+    /// (core.fsmonitor, core.pager, aliases) or a hook runs code through it.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_write_refuses_paths_under_dot_git() {
+        let (_d, root, _outside) = root_and_outside();
+        std::fs::create_dir_all(root.join(".git/hooks")).unwrap();
+        std::fs::write(root.join(".git/config"), "[core]\n").unwrap();
+        std::fs::write(root.join(".git/hooks/pre-commit.sample"), "x").unwrap();
+        std::fs::create_dir(root.join("sub")).unwrap();
+        std::os::unix::fs::symlink(root.join(".git"), root.join("gitlink")).unwrap();
+
+        for (method, args) in [
+            (
+                "write_file",
+                vec![".git/config", "[core]\nfsmonitor = evil\n"],
+            ),
+            ("write_file", vec!["sub/../.git/config", "x"]),
+            ("write_file", vec!["gitlink/config", "x"]),
+            (
+                "write_file",
+                vec![".git/hooks/post-checkout", "#!/bin/sh\n"],
+            ),
+            (
+                "rename",
+                vec![".git/hooks/pre-commit.sample", ".git/hooks/pre-commit"],
+            ),
+            ("rename", vec!["sub", ".git/sub"]),
+        ] {
+            let (ok, _) = call2(api_with_root(&root), method, args[0], args[1]);
+            assert!(!ok, "{method}{args:?} under .git must fail");
+        }
+        for (method, arg) in [
+            ("create_dir", ".git/hooks/x"),
+            ("create_file", ".git/hooks/pre-push"),
+            ("remove", ".git/hooks/pre-commit.sample"),
+        ] {
+            let (ok, _) = call1(api_with_root(&root), method, arg);
+            assert!(!ok, "{method}({arg}) under .git must fail");
+        }
+        assert_eq!(
+            std::fs::read_to_string(root.join(".git/config")).unwrap(),
+            "[core]\n"
+        );
+        assert!(root.join(".git/hooks/pre-commit.sample").exists());
+        assert!(!root.join(".git/hooks/post-checkout").exists());
+        assert!(!root.join(".git/hooks/pre-commit").exists());
+
+        // Reads stay allowed; look-alikes are not .git.
+        let lua = mlua::Lua::new();
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api_with_root(&root)).unwrap();
+            let read: mlua::Function = ud.get("read_file").unwrap();
+            let (content, err): (Option<String>, Option<String>) =
+                read.call((&ud, ".git/config".to_string())).unwrap();
+            assert_eq!(content.as_deref(), Some("[core]\n"), "{err:?}");
+            Ok(())
+        })
+        .unwrap();
+        for ok_path in [".github/workflows/ci.yml", "x.git/file", "docs/.gitkeep"] {
+            let (ok, err) = call2(api_with_root(&root), "write_file", ok_path, "x");
+            assert!(ok, "{ok_path}: {err}");
+        }
+    }
+
+    /// `.git` as a FILE (worktrees, submodules) is covered too.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_write_refuses_dot_git_file() {
+        let (_d, root, _outside) = root_and_outside();
+        std::fs::write(root.join(".git"), "gitdir: /elsewhere\n").unwrap();
+        let (ok, _) = call2(
+            api_with_root(&root),
+            "write_file",
+            ".git",
+            "gitdir: /evil\n",
+        );
+        assert!(!ok);
+        assert_eq!(
+            std::fs::read_to_string(root.join(".git")).unwrap(),
+            "gitdir: /elsewhere\n"
+        );
+    }
+
     // ── S4: file_exists / is_file without project root ────────────────
 
     #[test]

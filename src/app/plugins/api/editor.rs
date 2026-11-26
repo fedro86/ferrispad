@@ -175,10 +175,12 @@ pub(super) fn write_mcp_files(
 ) -> Result<(), String> {
     let in_root = |name: &str| -> Result<std::path::PathBuf, String> {
         let path = root.join(name);
-        super::sandbox::resolve_and_validate(&path.to_string_lossy(), project_root)
-            .ok()
-            .flatten()
-            .ok_or_else(|| format!("{} is outside project root", name))
+        super::sandbox::resolve_for_write(
+            &path.to_string_lossy(),
+            project_root,
+            super::sandbox::WriteKind::Create,
+        )
+        .map_err(|e| format!("{}: {}", name, e))
     };
     let mcp_path = in_root(".mcp.json")?;
 

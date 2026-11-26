@@ -26,6 +26,63 @@ pub(super) fn resolve_and_validate(
     }
 }
 
+/// What a write operation does to its target (T0092).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum WriteKind {
+    /// Creates or replaces the target's content (write, create, rename
+    /// destination): not under `.git`, not onto an existing executable,
+    /// not an executable extension on Windows.
+    Create,
+    /// Moves or deletes the target (rename source, remove): not under `.git`.
+    /// Moving or removing an executable is allowed.
+    Modify,
+}
+
+/// [`resolve_and_validate`] for an operation that changes the file system,
+/// plus the write policy (T0092). `Err` carries the reason for the plugin.
+///
+/// The policy closes the plugin-controlled write → execute path: a plugin
+/// with an approved command could otherwise overwrite that command's binary
+/// (`fs::write` keeps an existing file's mode), drop a runnable file on
+/// Windows, or rewrite `.git/config` / hooks that the approved `git` runs.
+pub(super) fn resolve_for_write(
+    path: &str,
+    project_root: &Path,
+    kind: WriteKind,
+) -> Result<PathBuf, String> {
+    use super::super::security::{
+        CASE_INSENSITIVE_NAMES, has_executable_extension, is_existing_executable,
+        path_has_git_component,
+    };
+    let Ok(Some(physical)) = resolve_and_validate(path, project_root) else {
+        return Err("Path outside project root".to_string());
+    };
+    let canonical_root = std::fs::canonicalize(project_root)
+        .map_err(|e| format!("Cannot canonicalize project root: {}", e))?;
+    let refuse = |why: &str| {
+        eprintln!("[plugin:security] write blocked: '{}': {}", path, why);
+        Err(why.to_string())
+    };
+    if path_has_git_component(&physical, &canonical_root, CASE_INSENSITIVE_NAMES) {
+        return refuse("Plugins may not modify .git");
+    }
+    if kind == WriteKind::Create {
+        let name = physical
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if cfg!(windows)
+            && has_executable_extension(&name, std::env::var("PATHEXT").ok().as_deref())
+        {
+            return refuse("Plugins may not create executable files");
+        }
+        if is_existing_executable(&physical) {
+            return refuse("Plugins may not overwrite an executable");
+        }
+    }
+    Ok(physical)
+}
+
 /// Hard cap on the number of entries a single directory scan may return.
 ///
 /// Bounds Rust-side work even on a pathologically large real tree, and (with the

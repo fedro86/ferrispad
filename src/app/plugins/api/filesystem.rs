@@ -6,7 +6,7 @@ use std::process::Command;
 
 use super::super::security::{PathValidation, validate_path};
 use super::EditorApi;
-use super::sandbox::{resolve_and_validate, scan_dir_recursive};
+use super::sandbox::{WriteKind, resolve_and_validate, resolve_for_write, scan_dir_recursive};
 
 /// Check if a file exists at the given path.
 /// Returns true if the file exists AND is within project root, false otherwise.
@@ -154,9 +154,9 @@ pub fn create_file(_: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Resul
     let Some(ref project_root) = this.project_root else {
         return Ok((false, "No project root".to_string()));
     };
-    let resolved = match resolve_and_validate(&path, project_root)? {
-        Some(p) => p,
-        None => return Ok((false, "Path outside project root".to_string())),
+    let resolved = match resolve_for_write(&path, project_root, WriteKind::Create) {
+        Ok(p) => p,
+        Err(e) => return Ok((false, e)),
     };
     match std::fs::OpenOptions::new()
         .write(true)
@@ -174,9 +174,9 @@ pub fn create_dir(_: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Result
     let Some(ref project_root) = this.project_root else {
         return Ok((false, "No project root".to_string()));
     };
-    let resolved = match resolve_and_validate(&path, project_root)? {
-        Some(p) => p,
-        None => return Ok((false, "Path outside project root".to_string())),
+    let resolved = match resolve_for_write(&path, project_root, WriteKind::Create) {
+        Ok(p) => p,
+        Err(e) => return Ok((false, e)),
     };
     match std::fs::create_dir_all(&resolved) {
         Ok(_) => Ok((true, String::new())),
@@ -194,13 +194,13 @@ pub fn rename(
     let Some(ref project_root) = this.project_root else {
         return Ok((false, "No project root".to_string()));
     };
-    let old_resolved = match resolve_and_validate(&old, project_root)? {
-        Some(p) => p,
-        None => return Ok((false, "Source path outside project root".to_string())),
+    let old_resolved = match resolve_for_write(&old, project_root, WriteKind::Modify) {
+        Ok(p) => p,
+        Err(e) => return Ok((false, format!("Source: {}", e))),
     };
-    let new_resolved = match resolve_and_validate(&new, project_root)? {
-        Some(p) => p,
-        None => return Ok((false, "Destination path outside project root".to_string())),
+    let new_resolved = match resolve_for_write(&new, project_root, WriteKind::Create) {
+        Ok(p) => p,
+        Err(e) => return Ok((false, format!("Destination: {}", e))),
     };
     match std::fs::rename(&old_resolved, &new_resolved) {
         Ok(_) => Ok((true, String::new())),
@@ -214,9 +214,9 @@ pub fn remove(_: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Result<(bo
     let Some(ref project_root) = this.project_root else {
         return Ok((false, "No project root".to_string()));
     };
-    let resolved = match resolve_and_validate(&path, project_root)? {
-        Some(p) => p,
-        None => return Ok((false, "Path outside project root".to_string())),
+    let resolved = match resolve_for_write(&path, project_root, WriteKind::Modify) {
+        Ok(p) => p,
+        Err(e) => return Ok((false, e)),
     };
     let result = if resolved.is_dir() {
         std::fs::remove_dir_all(&resolved)
@@ -243,9 +243,9 @@ pub fn write_file(
     let Some(ref project_root) = this.project_root else {
         return Ok((false, "No project root".to_string()));
     };
-    let resolved = match resolve_and_validate(&path, project_root)? {
-        Some(p) => p,
-        None => return Ok((false, "Path outside project root".to_string())),
+    let resolved = match resolve_for_write(&path, project_root, WriteKind::Create) {
+        Ok(p) => p,
+        Err(e) => return Ok((false, e)),
     };
     // Create parent directories if they don't exist
     if let Some(parent) = resolved.parent()
