@@ -1,7 +1,7 @@
 ---
 id: T0091
 title: Number new untitled tabs from the lowest free number, starting at "Untitled"
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: minor
 area: ui
@@ -139,7 +139,7 @@ Neighbours:
 - [x] Regression tests added; the first one failed before the fix with
       "Untitled 2".
 - [x] Gates pass with zero warnings; UI driven in Xvfb (tab-bar screenshots).
-- [ ] Pending user verification: the manual recipe on a real desktop.
+- [x] User verification: the manual recipe on a real desktop.
 
 ## What was done
 
@@ -191,3 +191,8 @@ Neighbours:
 ## Notes
 
 - Lowest-free numbering is what VS Code and most editors do.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland) with the rc.3 integration
+build `verify/rc3` (checklist `VERIFICA-RC3.md`).
