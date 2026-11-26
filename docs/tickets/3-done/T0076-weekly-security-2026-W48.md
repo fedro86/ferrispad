@@ -1,7 +1,7 @@
 ---
 id: T0076
 title: Weekly security hardening 2026-W48 — land the five pending Dependabot bumps
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-25
 severity: ~
 area: security
@@ -78,12 +78,12 @@ cargo run --locked
 
 ## Acceptance criteria
 
-- [ ] `Cargo.lock` resolves `serde 1.0.229`, `similar 3.2.1`,
+- [x] `Cargo.lock` resolves `serde 1.0.229`, `similar 3.2.1`,
       `serde_json 1.0.154`, `sha2 0.11.1`, `objc2 0.6.5`; every package
       source is `registry+https://github.com/rust-lang/crates.io-index`.
-- [ ] Every new checksum matches the crates.io index entry (verified below).
-- [ ] macOS build is warning-free and the title-bar feature works (recipe above).
-- [ ] `cargo test`, `cargo clippy --all-targets --all-features`, and
+- [x] Every new checksum matches the crates.io index entry (verified below).
+- [x] macOS build is warning-free and the title-bar feature works (recipe above).
+- [x] `cargo test`, `cargo clippy --all-targets --all-features`, and
       `cargo fmt --check` all pass with zero warnings.
 
 ## Affected files
@@ -292,3 +292,7 @@ with the three named skips.
 
 Still pending user verification on a Mac: the objc2 0.6 recipe above (title
 bar colours/title, debug build encoding check).
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland) with the rc.3 integration build `verify/rc3` (checklist VERIFICA-RC3.md); T0076 also on macOS (the title bar follows the theme at startup, the title updates on edit and save, no unexpected quit).
