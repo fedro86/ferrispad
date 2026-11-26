@@ -10,8 +10,8 @@
 //!
 //! So FerrisPad installs its own contrast function ([`install`]):
 //! - on the registered selection backgrounds (the editor's, focused and
-//!   FLTK's unfocused blend; the dialog lists' (T0097); the main-window
-//!   panels' (T0104)) the text keeps its color only if it is WCAG-readable
+//!   FLTK's unfocused blend; the dialog lists' (T0097); the file tree's
+//!   (T0104)) the text keeps its color only if it is WCAG-readable
 //!   (>= 4.5:1), otherwise it becomes black or white, whichever reads better;
 //! - everywhere else it is an exact port of FLTK's own CIELAB rule at
 //!   [`FLTK_CONTRAST_LEVEL`], so every other widget draws as before.
@@ -100,7 +100,7 @@ pub struct EditorSelectionBgs {
     pub unfocused_on_line: Option<(u8, u8, u8)>,
     /// The selected-row color of dialog lists (T0097).
     pub list_selection: Option<(u8, u8, u8)>,
-    /// The selected-row color of the main-window panels (T0104).
+    /// The selected-row color of the file tree (T0104).
     pub panel_selection: Option<(u8, u8, u8)>,
 }
 
@@ -136,7 +136,7 @@ impl EditorSelectionBgs {
         self
     }
 
-    /// Also treat the main-window panels' selected-row color as a selection
+    /// Also treat the file tree's selected-row color as a selection
     /// background (T0104).
     pub fn with_panel_selection(mut self, panel_selection: (u8, u8, u8)) -> Self {
         self.panel_selection = Some(panel_selection);
@@ -153,7 +153,7 @@ impl EditorSelectionBgs {
 }
 
 /// The black or white FLTK color with the higher WCAG contrast on `bg`.
-pub fn best_black_or_white(bg: (u8, u8, u8)) -> Color {
+fn best_black_or_white(bg: (u8, u8, u8)) -> Color {
     if wcag_contrast((0, 0, 0), bg) >= wcag_contrast((255, 255, 255), bg) {
         Color::Black
     } else {
@@ -228,7 +228,7 @@ pub(crate) fn registered_list_selection() -> Option<(u8, u8, u8)> {
     unpack(LIST_SELECTION_BG.load(Ordering::Relaxed))
 }
 
-/// Record the selected-row color of the main-window panels (T0104).
+/// Record the selected-row color of the file tree (T0104).
 pub fn register_panel_selection(selection: (u8, u8, u8)) {
     PANEL_SELECTION_BG.store(pack(Some(selection)), Ordering::Relaxed);
 }

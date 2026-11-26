@@ -34,9 +34,9 @@ pub struct PanelTheme {
     pub bg: (u8, u8, u8),
 }
 
-/// The selected-row color of the main-window panels (file tree, diagnostic
-/// list) for a theme whose editor background, which those panels use, is
-/// `theme_bg` (T0104).
+/// The selected-row color of the main-window file tree for a theme whose
+/// editor background, which the tree uses, is `theme_bg` (T0104). (The
+/// diagnostic list keeps its own pre-T0104 colors, by the user's choice.)
 ///
 /// The same rule as the dialog lists (T0097, variant A): the dialog button
 /// color pushed to >= 3:1 against the panel background. Labels on it are
@@ -672,15 +672,13 @@ pub fn set_windows_titlebar_theme(window: &Window, theme_bg: (u8, u8, u8), theme
 mod tests {
     use super::*;
 
-    /// T0104: the selected row of the file tree and the diagnostic list
-    /// stands out from the panel (>= 3:1), and every label drawn on it (the
-    /// theme text, git-status colors, diagnostic level colors) reads at >=
-    /// 4.5:1 there, through the contrast rule.
+    /// T0104: the file tree's selected row stands out from the tree (>= 3:1),
+    /// and every label drawn on it (the theme text, the git-status colors)
+    /// reads at >= 4.5:1 there, through the contrast rule.
     #[test]
     fn panel_selection_stands_out_in_every_theme() {
         use crate::ui::color::wcag_contrast;
         use crate::ui::contrast::{EditorSelectionBgs, ferrispad_contrast};
-        use crate::ui::diagnostic_panel::diagnostic_level_colors;
         use crate::ui::tree_panel::git_label_rgb;
         let mut failures = Vec::new();
         for (theme, bg) in crate::ui::color::theme_test_backgrounds() {
@@ -698,9 +696,6 @@ mod tests {
             )];
             for name in ["modified", "added", "conflict", "ignored"] {
                 labels.push((name, git_label_rgb(name, is_dark).unwrap()));
-            }
-            for (i, c) in diagnostic_level_colors(bg).into_iter().enumerate() {
-                labels.push((["error", "warning", "info", "hint"][i], c));
             }
             let bgs = EditorSelectionBgs::default().with_panel_selection(sel);
             let rgb = |(r, g, b): (u8, u8, u8)| Color::from_rgb(r, g, b);
