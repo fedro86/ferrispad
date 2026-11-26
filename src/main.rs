@@ -198,8 +198,9 @@ fn main() {
     let app = fltk_app::App::default().with_scheme(fltk_app::AppScheme::Gtk);
     fltk_app::set_scrollbar_size(12);
     fltk_app::set_visible_focus(false);
-    // Lower FLTK's CIELAB contrast threshold (see `FLTK_CONTRAST_LEVEL`).
-    fltk::app::set_contrast_level(ui::theme::FLTK_CONTRAST_LEVEL);
+    // FLTK's CIELAB contrast rule at FerrisPad's lower level
+    // (`FLTK_CONTRAST_LEVEL`), plus readable selected text in the editor.
+    ui::contrast::install();
 
     // Set subtle rounded corners for RFlatBox widgets globally (min is 5, default is 15)
     fltk_app::set_frame_border_radius_max(5);

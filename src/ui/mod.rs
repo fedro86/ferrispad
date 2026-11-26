@@ -1,4 +1,5 @@
 pub mod color;
+pub mod contrast;
 pub mod diagnostic_panel;
 pub mod dialogs;
 pub mod divider;
