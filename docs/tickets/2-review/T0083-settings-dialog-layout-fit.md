@@ -107,7 +107,7 @@ User (pending): the same on the real GNOME/Wayland desktop.
       than the work area.
 - [x] The red fit test was seen failing on the old layout, with the output
       recorded here.
-- [ ] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
+- [x] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
       and `cargo fmt --check` pass; CI is green on the PR.
 - [x] The Xvfb screenshots are listed here, with an edge-by-edge note per
       setup.
