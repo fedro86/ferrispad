@@ -1,7 +1,7 @@
 ---
 id: T0103
 title: Refresh the file-type menus whenever the active document is rebound (Preview after a restored .md)
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: minor
 area: ui
@@ -120,7 +120,17 @@ Private dirs, `session_restore: SavedFiles`, a session with `other.txt` and
       it separately.
 - [x] Regression test added; it failed before the fix.
 - [x] Gates pass with zero warnings; Xvfb screenshot of the View menu.
-- [ ] Pending user verification: on macOS, the user's original report.
+- [x] User verification: on macOS, the user's original report (see below).
+
+## User verification
+
+2026-11-26, by the user on macOS, build of `ticket/T0103`: with a restored
+session whose active tab is a `.md`, Ctrl+M / View → Preview in Browser
+works immediately.
+
+While building on macOS the user saw an `unused variable: window` warning
+at `src/ui/dialogs/mod.rs:366`. It is pre-existing on `master` and fixed by
+T0076 (608fb44), so no action here.
 
 ## Affected files
 
