@@ -382,6 +382,10 @@ impl DialogTheme {
             };
             crate::ui::theme::set_windows_titlebar_theme(window, self.theme_bg, fg);
         }
+        // macOS: the .app bundle provides the icon and the system draws the
+        // dialog title bar, so there is nothing to apply.
+        #[cfg(target_os = "macos")]
+        let _ = window;
     }
 
     /// Apply flat themed scrollbar styling to a Scroll widget.
