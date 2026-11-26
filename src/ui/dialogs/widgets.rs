@@ -72,7 +72,10 @@ fn register_input_border(fill: (u8, u8, u8), border: (u8, u8, u8)) {
     INPUT_BORDERS[slot].store(entry, Ordering::Relaxed);
 }
 
-/// The border registered for a field filled with `fill`, if any.
+/// The border registered for a field filled with `fill`, if any. Keyed by
+/// the fill alone: two themes with the same `input_bg` but different dialog
+/// backgrounds would share the first registered border. The current
+/// derivation never maps two dialog backgrounds to one `input_bg`.
 pub fn input_border_for(fill: Color) -> Option<Color> {
     let fill = pack_rgb(fill.to_rgb());
     INPUT_BORDERS.iter().find_map(|slot| {
