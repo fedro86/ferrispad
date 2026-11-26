@@ -249,8 +249,9 @@ impl AppState {
         };
         if let Some(doc) = self.tab_manager.active_doc() {
             let prefix = if doc.is_dirty() { "*" } else { "" };
+            let label = self.tab_manager.tab_label(doc.id).unwrap_or_default();
             self.window
-                .set_label(&format!("{}{} - {}", prefix, doc.tab_label(), suffix));
+                .set_label(&format!("{}{} - {}", prefix, label, suffix));
         } else {
             self.window.set_label(&format!("Untitled - {}", suffix));
         }

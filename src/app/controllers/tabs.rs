@@ -148,7 +148,6 @@ impl TabManager {
         let doc = Document::new_from_file(id, path, content, self.sender);
         self.documents.push(doc);
         self.active_id = Some(id);
-        self.disambiguate_display_names();
         id
     }
 
@@ -166,7 +165,6 @@ impl TabManager {
         let doc = Document::new_from_buffer(id, path, buffer, self.sender, skip_style_init);
         self.documents.push(doc);
         self.active_id = Some(id);
-        self.disambiguate_display_names();
         id
     }
 
@@ -213,7 +211,6 @@ impl TabManager {
                 self.active_id = Some(self.documents[new_idx].id);
             }
         }
-        self.disambiguate_display_names();
     }
 
     /// Move a tab from one index to another.
@@ -379,90 +376,10 @@ impl TabManager {
             .map(|d| d.id)
     }
 
-    /// Recompute disambiguated tab labels for documents with duplicate filenames.
-    /// Uses minimal parent directory segments to make each label unique (VS Code style).
-    pub fn disambiguate_display_names(&mut self) {
-        // Group document indices by display_name
-        let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
-        for (i, doc) in self.documents.iter().enumerate() {
-            groups.entry(doc.display_name.clone()).or_default().push(i);
-        }
-
-        for (filename, indices) in &groups {
-            if indices.len() <= 1 {
-                // Unique name — clear any previous disambiguation
-                self.documents[indices[0]].disambiguated_name = None;
-                continue;
-            }
-
-            // Collect reversed parent path segments for each duplicate
-            let rev_segments: Vec<Vec<String>> = indices
-                .iter()
-                .map(|&i| {
-                    self.documents[i]
-                        .file_path
-                        .as_ref()
-                        .map(|p| {
-                            Path::new(p)
-                                .parent()
-                                .unwrap_or(Path::new(""))
-                                .components()
-                                .rev()
-                                .map(|c| c.as_os_str().to_string_lossy().to_string())
-                                .collect()
-                        })
-                        .unwrap_or_default()
-                })
-                .collect();
-
-            // Find minimum depth where all suffixes are unique
-            let max_depth = rev_segments.iter().map(|s| s.len()).max().unwrap_or(0);
-            let mut depth = 1;
-            while depth <= max_depth {
-                let suffixes: Vec<String> = rev_segments
-                    .iter()
-                    .map(|segs| {
-                        segs.iter()
-                            .take(depth)
-                            .rev()
-                            .cloned()
-                            .collect::<Vec<_>>()
-                            .join("/")
-                    })
-                    .collect();
-                let unique = suffixes
-                    .iter()
-                    .collect::<std::collections::HashSet<_>>()
-                    .len()
-                    == suffixes.len();
-                if unique {
-                    // Apply disambiguated names
-                    for (j, &idx) in indices.iter().enumerate() {
-                        self.documents[idx].disambiguated_name =
-                            Some(format!("{} ({})", filename, suffixes[j]));
-                    }
-                    break;
-                }
-                depth += 1;
-            }
-
-            // Fallback: if we exhausted depth without uniqueness, use full parent path
-            if depth > max_depth {
-                for &idx in indices {
-                    let suffix = self.documents[idx]
-                        .file_path
-                        .as_ref()
-                        .and_then(|p| {
-                            Path::new(p)
-                                .parent()
-                                .map(|pp| pp.to_string_lossy().to_string())
-                        })
-                        .unwrap_or_default();
-                    self.documents[idx].disambiguated_name =
-                        Some(format!("{} ({})", filename, suffix));
-                }
-            }
-        }
+    /// The tab label of document `id` (`tab_labels`).
+    pub fn tab_label(&self, id: DocumentId) -> Option<String> {
+        let i = self.documents.iter().position(|d| d.id == id)?;
+        tab_labels(&self.documents).into_iter().nth(i)
     }
 
     pub fn doc_by_id(&self, id: DocumentId) -> Option<&Document> {
@@ -635,6 +552,87 @@ impl TabManager {
 // with parallel test execution. Tests for TabManager logic are covered via
 // integration testing. Unit tests for pure functions like GroupColor are below.
 
+/// Tab labels for `documents`, in order: the display name, plus the
+/// minimal parent folders ("main.rs (src)", VS Code style) when another
+/// document has the same name.
+///
+/// Labels are computed from the current paths and names whenever they are
+/// shown, never cached, so no change of a path or name (open, close, new
+/// tab, Save As, tail or chunk views) can leave two tabs with the same
+/// label until the next recompute (T0112). A document without a path (an
+/// untitled one) keeps its name, which T0091 numbering makes unique; only
+/// files take folder suffixes, chosen to be unique among the files.
+pub fn tab_labels(documents: &[Document]) -> Vec<String> {
+    let mut labels: Vec<String> = documents.iter().map(|d| d.display_name.clone()).collect();
+    let mut groups: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (i, doc) in documents.iter().enumerate() {
+        groups.entry(doc.display_name.as_str()).or_default().push(i);
+    }
+    for (name, indices) in groups {
+        if indices.len() < 2 {
+            continue;
+        }
+        let files: Vec<(usize, &str)> = indices
+            .iter()
+            .filter_map(|&i| documents[i].file_path.as_deref().map(|p| (i, p)))
+            .collect();
+        for (i, suffix) in files.iter().map(|&(i, _)| i).zip(folder_suffixes(&files)) {
+            if !suffix.is_empty() {
+                labels[i] = format!("{name} ({suffix})");
+            }
+        }
+    }
+    labels
+}
+
+/// The shortest trailing run of parent folders that tells `files` apart
+/// (at least one folder), else each file's whole parent path.
+fn folder_suffixes(files: &[(usize, &str)]) -> Vec<String> {
+    let rev_segments: Vec<Vec<String>> = files
+        .iter()
+        .map(|(_, p)| {
+            Path::new(p)
+                .parent()
+                .unwrap_or(Path::new(""))
+                .components()
+                .rev()
+                .map(|c| c.as_os_str().to_string_lossy().to_string())
+                .collect()
+        })
+        .collect();
+    let max_depth = rev_segments.iter().map(Vec::len).max().unwrap_or(0);
+    for depth in 1..=max_depth {
+        let suffixes: Vec<String> = rev_segments
+            .iter()
+            .map(|segs| {
+                segs.iter()
+                    .take(depth)
+                    .rev()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("/")
+            })
+            .collect();
+        let unique = suffixes
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+            == suffixes.len();
+        if unique {
+            return suffixes;
+        }
+    }
+    files
+        .iter()
+        .map(|(_, p)| {
+            Path::new(p)
+                .parent()
+                .map(|pp| pp.to_string_lossy().to_string())
+                .unwrap_or_default()
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -691,6 +689,91 @@ mod tests {
         assert_eq!(name(&tabs, first), "notes.txt");
         let next = tabs.add_untitled();
         assert_eq!(name(&tabs, next), "Untitled");
+    }
+
+    // --- T0112: tab labels of a file named like an untitled document ---
+
+    fn label(tabs: &TabManager, id: DocumentId) -> String {
+        tabs.tab_label(id).unwrap()
+    }
+
+    /// A file literally named "Untitled" opened next to an untitled document:
+    /// two distinct labels, right away, and no empty "()" suffix.
+    #[test]
+    fn untitled_label_distinct_from_file_named_untitled() {
+        let mut tabs = tabs();
+        let file = tabs.add_from_file("/home/u/notes/Untitled".to_string(), "x");
+        let new = tabs.add_untitled();
+        assert_eq!(
+            (label(&tabs, file), label(&tabs, new)),
+            ("Untitled (notes)".to_string(), "Untitled".to_string()),
+            "file opened first, then a new tab"
+        );
+
+        let mut tabs = super::tests::tabs();
+        let new = tabs.add_untitled();
+        let file = tabs.add_from_file("/home/u/notes/Untitled".to_string(), "x");
+        assert_eq!(
+            (label(&tabs, file), label(&tabs, new)),
+            ("Untitled (notes)".to_string(), "Untitled".to_string()),
+            "a new tab first, then the file"
+        );
+
+        // Closing the file: the untitled tab is plain "Untitled" again.
+        tabs.remove(file);
+        assert_eq!(label(&tabs, new), "Untitled");
+    }
+
+    /// Two files named like the untitled document, in different folders:
+    /// they disambiguate among themselves; the untitled tab keeps its name.
+    #[test]
+    fn untitled_label_with_two_files_of_its_name() {
+        let mut tabs = tabs();
+        let new = tabs.add_untitled();
+        let second = tabs.add_untitled();
+        let a = tabs.add_from_file("/a/Untitled 2".to_string(), "");
+        let b = tabs.add_from_file("/b/Untitled 2".to_string(), "");
+        assert_eq!(label(&tabs, new), "Untitled");
+        assert_eq!(label(&tabs, second), "Untitled 2");
+        assert_eq!(label(&tabs, a), "Untitled 2 (a)");
+        assert_eq!(label(&tabs, b), "Untitled 2 (b)");
+    }
+
+    /// Save As gives a tab the name of another open file: both labels
+    /// disambiguate at once (`file.rs` Save As sets the path and display
+    /// name in place).
+    #[test]
+    fn save_as_same_name_labels_distinct() {
+        let mut tabs = tabs();
+        let open = tabs.add_from_file("/y/main.rs".to_string(), "");
+        let other = tabs.add_from_file("/x/notes.txt".to_string(), "");
+        let doc = tabs.doc_by_id_mut(other).unwrap();
+        doc.file_path = Some("/x/main.rs".to_string());
+        doc.update_display_name();
+        assert_eq!(
+            (label(&tabs, open), label(&tabs, other)),
+            ("main.rs (y)".to_string(), "main.rs (x)".to_string())
+        );
+    }
+
+    /// Guard: labels of ordinary files, as before T0112.
+    #[test]
+    fn file_labels_unchanged() {
+        let mut tabs = tabs();
+        let lone = tabs.add_from_file("/p/lib.rs".to_string(), "");
+        let a = tabs.add_from_file("/p/a/main.rs".to_string(), "");
+        let b = tabs.add_from_file("/p/b/main.rs".to_string(), "");
+        let deep1 = tabs.add_from_file("/x/src/mod.rs".to_string(), "");
+        let deep2 = tabs.add_from_file("/y/src/mod.rs".to_string(), "");
+        let new = tabs.add_untitled();
+        assert_eq!(label(&tabs, lone), "lib.rs");
+        assert_eq!(label(&tabs, a), "main.rs (a)");
+        assert_eq!(label(&tabs, b), "main.rs (b)");
+        assert_eq!(label(&tabs, deep1), "mod.rs (x/src)");
+        assert_eq!(label(&tabs, deep2), "mod.rs (y/src)");
+        assert_eq!(label(&tabs, new), "Untitled");
+        tabs.remove(b);
+        assert_eq!(label(&tabs, a), "main.rs");
     }
 
     #[test]

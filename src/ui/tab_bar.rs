@@ -222,10 +222,11 @@ impl TabBar {
         st.tabs.clear();
         st.groups.clear();
         let diff_tab_active = st.diff_tab.as_ref().is_some_and(|dt| dt.is_active);
-        for doc in documents {
+        let labels = crate::app::controllers::tabs::tab_labels(documents);
+        for (doc, label) in documents.iter().zip(labels) {
             st.tabs.push(TabInfo {
                 id: doc.id,
-                display_name: doc.tab_label().to_string(),
+                display_name: label,
                 is_dirty: doc.is_dirty(),
                 is_active: !diff_tab_active && active_id == Some(doc.id),
                 group_id: doc.group_id,
