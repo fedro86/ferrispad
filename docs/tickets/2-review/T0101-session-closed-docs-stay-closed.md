@@ -132,17 +132,28 @@ After the fix all 10 pass, as do the T0015 and T0099 session tests. Gates
 The Windows liveness branch is compiled by CI's `windows-build` job (no
 Windows target locally).
 
-### Xvfb (debug builds; "before" = `ticket/T0099` tip)
+### Xvfb (debug builds; "before" = `ticket/T0099` tip d6d1513, "after" = bc72b2d)
 
 Two real instances, private config and data dirs, Full restore; saves via
 auto-save (an event 31 s after a change).
 
-**(b) Data loss**: A and B type; B saves; A saves (merge); A types and saves
-again; `kill -9 B`.
+**Harness correction (2026-11-27).** The first runs recorded here were
+invalid. The helper that finds an instance's window ran
+`xdotool search --pid P --name FerrisPad`, and xdotool ORs its search
+criteria, so "A" and "B" both resolved to the newest window and every
+keystroke went to one process. The helper now uses `--all`, and A and B
+were checked to map to different windows. The tables below are the reruns
+with the fixed harness
+(`uitest-T0087/t0101b.sh`, `t0101c.sh`; output in `t0101-fixed-harness.txt`).
+The conclusions did not change. The unit tests never depended on the
+harness.
+
+**(b) Data loss**: A types "from A" and B types "from B". Both auto-save,
+so A merges. A types " more" and saves again. Then `kill -9 B`.
 
 | step | before | after |
 |---|---|---|
-| B saved, then A merged | a1 + b1 | a1 + b1 (owners A, B) |
+| both saved (A merged) | a1 + b1 | a1 + b1 (owners A, B) |
 | A saved again (own file) | **a1 only, b1's temp file deleted** | a1 + b1 |
 | B killed (-9) | **"from B" lost** | "from B" kept |
 
@@ -151,7 +162,13 @@ restores it; both edit it; both save.
 
 | | before | after |
 |---|---|---|
-| temp files | one, shared: "from A + A edits" (**B's edits lost**) | two: A's "from A + A edits", B's fork "from A + B edits" |
+| temp files | one, shared, ending as "from A + A edits" (**B's edits lost**) | two: A's "from A + A edits", B's fork "from A + B edits" |
+
+**The section-5 cell of the rc.3 checklist.** Two instances, one unsaved
+untitled tab each, close one window then the other ("Quit Without Saving"),
+restart one instance. Both texts come back on `ticket/T0099`, `verify/rc3`
+and this branch, in either close order and with or without an auto-save
+first. Only `master` (before T0099) keeps just the last writer's text.
 
 ### Manual (the user)
 
