@@ -121,6 +121,24 @@ pub fn wcag_contrast(a: (u8, u8, u8), b: (u8, u8, u8)) -> f64 {
     (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
 }
 
+/// Theme backgrounds for contrast tests: every built-in syntax theme plus a
+/// sweep of grays and tinted colors, standing in for custom themes (T0097;
+/// shared with the panels since T0104).
+#[cfg(test)]
+pub(crate) fn theme_test_backgrounds() -> Vec<(String, (u8, u8, u8))> {
+    use crate::app::domain::settings::SyntaxTheme;
+    let mut bgs: Vec<(String, (u8, u8, u8))> = SyntaxTheme::all()
+        .iter()
+        .map(|t| (format!("{t:?}"), t.background()))
+        .collect();
+    for v in (0..=255u8).step_by(15) {
+        bgs.push((format!("gray {v}"), (v, v, v)));
+        bgs.push((format!("blue-ish {v}"), (v / 2, v / 2, v)));
+        bgs.push((format!("warm {v}"), (v, v.saturating_sub(20), v / 2)));
+    }
+    bgs
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

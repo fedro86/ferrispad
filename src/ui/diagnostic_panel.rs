@@ -18,6 +18,7 @@ use std::rc::Rc;
 use super::theme::{PanelTheme, Themeable};
 use crate::app::Message;
 use crate::app::plugins::{Diagnostic, DiagnosticLevel};
+use crate::ui::contrast::best_black_or_white;
 
 /// Height of the diagnostic panel when visible
 pub const DIAGNOSTIC_PANEL_HEIGHT: i32 = 120;
@@ -43,6 +44,8 @@ pub struct DiagnosticPanel {
     shared_diagnostics: Option<Rc<RefCell<Vec<Diagnostic>>>>,
     /// Text color of each level on the current background (T0104)
     level_colors: [(u8, u8, u8); 4],
+    /// The list's current background, which the header colors derive from
+    panel_bg: (u8, u8, u8),
 }
 
 impl DiagnosticPanel {
@@ -54,8 +57,6 @@ impl DiagnosticPanel {
         // Header bar with summary
         let mut header = Frame::default().with_size(0, HEADER_HEIGHT);
         header.set_frame(FrameType::FlatBox);
-        header.set_color(Color::from_rgb(60, 60, 60));
-        header.set_label_color(Color::White);
         header.set_label_font(Font::HelveticaBold);
         header.set_label_size(12);
         header.set_align(Align::Left | Align::Inside);
@@ -65,15 +66,15 @@ impl DiagnosticPanel {
         // Browser for listing diagnostics
         let mut browser = HoldBrowser::default();
         browser.set_frame(FrameType::FlatBox);
-        browser.set_color(Color::from_rgb(40, 40, 40));
-        browser.set_selection_color(Color::from_rgb(80, 80, 80));
         browser.set_text_size(12);
         browser.hide();
 
         container.end();
         container.hide();
 
-        Self {
+        // Until the first theme arrives: FLTK's own list background.
+        let panel_bg = browser.color().to_rgb();
+        let mut panel = Self {
             container,
             header,
             browser,
@@ -81,8 +82,28 @@ impl DiagnosticPanel {
             expanded: false,
             sender,
             shared_diagnostics: None,
-            level_colors: diagnostic_level_colors((40, 40, 40)),
-        }
+            level_colors: diagnostic_level_colors(panel_bg),
+            panel_bg,
+        };
+        panel.set_panel_bg(panel_bg);
+        panel
+    }
+
+    /// Derive every color of the panel from its list background (T0104).
+    fn set_panel_bg(&mut self, (r, g, b): (u8, u8, u8)) {
+        self.panel_bg = (r, g, b);
+        self.browser.set_color(Color::from_rgb(r, g, b));
+        // Selected row as in the file tree.
+        crate::ui::theme::style_panel_selection(&mut self.browser, (r, g, b));
+        self.level_colors = diagnostic_level_colors((r, g, b));
+        self.paint_header(HeaderState::of(&self.diagnostics));
+    }
+
+    /// The header bar's fill and text for `state` on the current background.
+    fn paint_header(&mut self, state: HeaderState) {
+        let ((r, g, b), text) = diagnostic_header_colors(state, self.panel_bg);
+        self.header.set_color(Color::from_rgb(r, g, b));
+        self.header.set_label_color(text);
     }
 
     /// Get a reference to the container widget for layout
@@ -120,8 +141,8 @@ impl DiagnosticPanel {
         self.browser.clear();
 
         if self.diagnostics.is_empty() {
-            // All good - show green success state
-            self.header.set_color(Color::from_rgb(46, 125, 50)); // Green
+            // All good - show the success state
+            self.paint_header(HeaderState::Clean);
             self.header.set_label("  \u{2714} All checks passed");
             self.browser.hide();
             self.expanded = false;
@@ -144,14 +165,8 @@ impl DiagnosticPanel {
                 .filter(|d| d.level == DiagnosticLevel::Info || d.level == DiagnosticLevel::Hint)
                 .count();
 
-            // Set header color based on most severe
-            if error_count > 0 {
-                self.header.set_color(Color::from_rgb(198, 40, 40)); // Red
-            } else if warning_count > 0 {
-                self.header.set_color(Color::from_rgb(245, 124, 0)); // Orange
-            } else {
-                self.header.set_color(Color::from_rgb(25, 118, 210)); // Blue
-            }
+            // Header in the hue of the most severe level present
+            self.paint_header(HeaderState::of(&self.diagnostics));
 
             // Build header label
             let mut parts = Vec::new();
@@ -376,11 +391,7 @@ impl Themeable for DiagnosticPanel {
     fn apply_theme(&mut self, theme: PanelTheme) {
         // The list follows the theme (T0104): the editor background, and the
         // level colors re-derived to stay readable on it.
-        let (r, g, b) = diagnostic_panel_bg(theme.bg);
-        self.browser.set_color(Color::from_rgb(r, g, b));
-        // Selected row as in the file tree (T0104).
-        crate::ui::theme::style_panel_selection(&mut self.browser, (r, g, b));
-        self.level_colors = diagnostic_level_colors((r, g, b));
+        self.set_panel_bg(diagnostic_panel_bg(theme.bg));
         if !self.diagnostics.is_empty() {
             self.refresh_display();
         }
@@ -418,8 +429,79 @@ pub fn diagnostic_level_colors(bg: (u8, u8, u8)) -> [(u8, u8, u8); 4] {
     })
 }
 
+/// The hue of the header bar when there is nothing to report.
+pub const DIAGNOSTIC_SUCCESS_BASE: (u8, u8, u8) = (46, 125, 50);
+
+/// Minimum WCAG contrast of the header bar's fill on the list background:
+/// a non-text UI component.
+const DIAGNOSTIC_HEADER_CONTRAST: f64 = 3.0;
+
+/// What the header bar summarizes: the most severe level present.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeaderState {
+    /// No diagnostics.
+    Clean,
+    /// At least one error.
+    Error,
+    /// Warnings, no error.
+    Warning,
+    /// Only info or hint lines.
+    Info,
+}
+
+impl HeaderState {
+    /// Every state, for tests and screenshots.
+    pub const ALL: [Self; 4] = [Self::Clean, Self::Error, Self::Warning, Self::Info];
+
+    /// The state for a list of diagnostics.
+    pub fn of(diagnostics: &[Diagnostic]) -> Self {
+        let has = |level: DiagnosticLevel| diagnostics.iter().any(|d| d.level == level);
+        if diagnostics.is_empty() {
+            Self::Clean
+        } else if has(DiagnosticLevel::Error) {
+            Self::Error
+        } else if has(DiagnosticLevel::Warning) {
+            Self::Warning
+        } else {
+            Self::Info
+        }
+    }
+
+    /// The state's hue: the level rows' own (info for info and hint).
+    pub fn base(self) -> (u8, u8, u8) {
+        match self {
+            Self::Clean => DIAGNOSTIC_SUCCESS_BASE,
+            Self::Error => DIAGNOSTIC_LEVEL_BASES[0],
+            Self::Warning => DIAGNOSTIC_LEVEL_BASES[1],
+            Self::Info => DIAGNOSTIC_LEVEL_BASES[2],
+        }
+    }
+}
+
+/// The header bar's fill and label color for `state` on the list background
+/// `bg` (T0104): the state's hue, stepped in lightness until the bar stands
+/// out (>= 3:1) from the list, with black or white text, whichever reads
+/// better (always >= 4.5:1).
+pub fn diagnostic_header_colors(state: HeaderState, bg: (u8, u8, u8)) -> ((u8, u8, u8), Color) {
+    use crate::ui::color::{ThemeRgb, push_to_contrast};
+    let bg = ThemeRgb::from_tuple(bg);
+    let fill = push_to_contrast(
+        ThemeRgb::from_tuple(state.base()),
+        bg,
+        DIAGNOSTIC_HEADER_CONTRAST,
+        bg.brightness() < 128,
+    )
+    .to_tuple();
+    (fill, best_black_or_white(fill))
+}
+
 /// FLTK's `@C<n>` browser format code for an RGB color (`0xRRGGBB00`).
+/// Pure black would pack to 0, which FLTK reads as palette index 0 (the
+/// foreground color), so it is written as `FL_BLACK` (index 56) instead.
 fn color_code((r, g, b): (u8, u8, u8)) -> String {
+    if (r, g, b) == (0, 0, 0) {
+        return format!("@C{}", Color::Black.bits());
+    }
     format!(
         "@C{}",
         u32::from(r) << 24 | u32::from(g) << 16 | u32::from(b) << 8
@@ -429,7 +511,6 @@ fn color_code((r, g, b): (u8, u8, u8)) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::domain::settings::SyntaxTheme;
     use crate::ui::color::wcag_contrast;
 
     /// Hue in degrees, or `None` for a gray.
@@ -452,17 +533,23 @@ mod tests {
 
     /// T0104: the diagnostic list follows the theme (its background is the
     /// editor's, never a fixed gray), and every level color stays readable on
-    /// it (>= 4.5:1) while keeping its hue.
+    /// it (>= 4.5:1). On the built-in themes it keeps its hue. On a mid-tone
+    /// custom background readability wins: 4.5:1 is only reachable near
+    /// white or black, where the hue fades to gray, but it never turns into
+    /// another hue.
     #[test]
     fn diagnostic_panel_follows_the_theme() {
+        use crate::app::domain::settings::SyntaxTheme;
         let reference = DIAGNOSTIC_LEVEL_BASES;
         let mut failures = Vec::new();
-        for theme in SyntaxTheme::all() {
-            let editor_bg = theme.background();
+        for (theme, editor_bg) in crate::ui::color::theme_test_backgrounds() {
+            let built_in = SyntaxTheme::all()
+                .iter()
+                .any(|t| t.background() == editor_bg);
             let bg = diagnostic_panel_bg(editor_bg);
             if bg != editor_bg {
                 failures.push(format!(
-                    "{theme:?}: panel bg {bg:?} != editor bg {editor_bg:?}"
+                    "{theme}: panel bg {bg:?} != editor bg {editor_bg:?}"
                 ));
             }
             for (i, color) in diagnostic_level_colors(bg).into_iter().enumerate() {
@@ -473,15 +560,73 @@ mod tests {
                         d.min(360.0 - d) <= 12.0
                     }
                     (None, None) => true,
-                    _ => false,
+                    (None, Some(_)) => !built_in,
+                    (Some(_), None) => false,
                 };
                 if ratio < 4.5 || !same_hue {
                     failures.push(format!(
-                        "{theme:?}: level {i} {color:?} on {bg:?} = {ratio:.2}:1, hue kept: {same_hue}"
+                        "{theme}: level {i} {color:?} on {bg:?} = {ratio:.2}:1, hue kept: {same_hue}"
                     ));
                 }
             }
         }
         assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+    }
+
+    /// T0104: the header bar follows the theme too. In every state it keeps
+    /// the state's hue, stands out from the list (>= 3:1), and its text reads
+    /// on it (>= 4.5:1).
+    #[test]
+    fn diagnostic_header_follows_the_theme() {
+        let mut failures = Vec::new();
+        for (theme, editor_bg) in crate::ui::color::theme_test_backgrounds() {
+            let bg = diagnostic_panel_bg(editor_bg);
+            for state in HeaderState::ALL {
+                let (fill, text) = diagnostic_header_colors(state, bg);
+                let on_bg = wcag_contrast(fill, bg);
+                let text_on_fill = wcag_contrast(text.to_rgb(), fill);
+                let same_hue = match (hue(fill), hue(state.base())) {
+                    (Some(a), Some(b)) => {
+                        let d = (a - b).abs();
+                        d.min(360.0 - d) <= 12.0
+                    }
+                    _ => false,
+                };
+                if on_bg < 3.0 || text_on_fill < 4.5 || !same_hue {
+                    failures.push(format!(
+                        "{theme} {state:?}: bar {fill:?} on {bg:?} = {on_bg:.2}:1, \
+                         text {:?} = {text_on_fill:.2}:1, hue kept: {same_hue}",
+                        text.to_rgb()
+                    ));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+    }
+
+    /// Black must not become `@C0`, FLTK's foreground index.
+    #[test]
+    fn color_code_never_writes_the_foreground_index() {
+        assert_eq!(color_code((0, 0, 0)), "@C56");
+        assert_eq!(color_code((255, 0, 0)), format!("@C{}", 0xFF00_0000u32));
+        assert_eq!(color_code((0, 0, 1)), "@C256");
+    }
+
+    /// T0104: every color of the panel is derived from the theme; none is
+    /// written into the widget code by hand.
+    #[test]
+    fn diagnostic_panel_sets_no_absolute_colors() {
+        let src = include_str!("diagnostic_panel.rs");
+        let code = src.split("#[cfg(test)]\nmod tests").next().expect("source");
+        let literal = regex_lite::Regex::new(
+            r"(from_rgb|fltk_rgb)\(\s*\d|set_\w*color\(\s*Color::(White|Black|Red|Green|Blue|Yellow|Dark\w*|Light\w*|Gray\w*)\b",
+        )
+        .expect("regex");
+        let hits: Vec<&str> = code
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .filter(|l| literal.is_match(l))
+            .collect();
+        assert!(hits.is_empty(), "absolute colors:\n{}", hits.join("\n"));
     }
 }

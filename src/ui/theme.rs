@@ -678,19 +678,17 @@ mod tests {
     /// 4.5:1 there, through the contrast rule.
     #[test]
     fn panel_selection_stands_out_in_every_theme() {
-        use crate::app::domain::settings::SyntaxTheme;
         use crate::ui::color::wcag_contrast;
         use crate::ui::contrast::{EditorSelectionBgs, ferrispad_contrast};
         use crate::ui::diagnostic_panel::diagnostic_level_colors;
         use crate::ui::tree_panel::git_label_rgb;
         let mut failures = Vec::new();
-        for theme in SyntaxTheme::all() {
-            let bg = theme.background();
+        for (theme, bg) in crate::ui::color::theme_test_backgrounds() {
             let is_dark = ThemeRgb::from_tuple(bg).brightness() < 128;
             let sel = panel_selection_color(bg);
             let row = wcag_contrast(sel, bg);
             if row < 3.0 {
-                failures.push(format!("{theme:?}: row {sel:?} on {bg:?} = {row:.2}:1"));
+                failures.push(format!("{theme}: row {sel:?} on {bg:?} = {row:.2}:1"));
             }
             let mut labels = vec![(
                 "text",
@@ -711,7 +709,7 @@ mod tests {
                 let ratio = wcag_contrast(drawn, sel);
                 if ratio < 4.5 {
                     failures.push(format!(
-                        "{theme:?}: {name} {drawn:?} on the selected row {sel:?} = {ratio:.2}:1"
+                        "{theme}: {name} {drawn:?} on the selected row {sel:?} = {ratio:.2}:1"
                     ));
                 }
             }

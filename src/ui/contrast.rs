@@ -22,6 +22,11 @@
 //! row). Level 10 is kept on purpose: it still decides the text color of
 //! every *unregistered* background (buttons, menus, other widgets), and
 //! changing it would be a separate, app-wide visual change.
+//!
+//! One edge, unused today: an *inactive* tree draws its selected row in
+//! `fl_inactive(selection_color)`, which is not registered, while the text is
+//! still chosen against the active selection color. FerrisPad never
+//! deactivates the tree; a change that does should register that blend too.
 
 use std::ffi::{c_int, c_uint};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -148,7 +153,7 @@ impl EditorSelectionBgs {
 }
 
 /// The black or white FLTK color with the higher WCAG contrast on `bg`.
-fn best_black_or_white(bg: (u8, u8, u8)) -> Color {
+pub fn best_black_or_white(bg: (u8, u8, u8)) -> Color {
     if wcag_contrast((0, 0, 0), bg) >= wcag_contrast((255, 255, 255), bg) {
         Color::Black
     } else {
