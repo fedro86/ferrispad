@@ -75,7 +75,11 @@ offered the RC.
 - [x] The start page shows the new version and entries without clipping
       (Xvfb screenshot).
 - [ ] After the tag: a pre-release with all assets signed; FlatPark, the
-      website and `/releases/latest` unchanged.
+      website and `/releases/latest` unchanged. **Not met:** the release is a
+      pre-release, the Linux and macOS assets are signed, FlatPark was skipped
+      and `/releases/latest` and the website stayed on 0.9.9, but there are
+      no Windows assets: `build-windows` failed with MSVC 14.52 (run
+      45821907548). Fixed by T0085, shipped as 0.9.10-rc.2.
 
 ## What was done (2026-11-26)
 

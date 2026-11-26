@@ -195,7 +195,7 @@ All pass; the full `nix develop -c cargo test` stays green.
 
 - [x] The current line is highlighted by default and can be toggled off
       persistently on Linux X11 and Wayland (persistence verified).
-- [ ] The same on Windows/macOS — optional, still to run.
+- [x] The same on Windows/macOS (user, 2026-11-26, on 0.9.10-rc.2: Windows 11 and macOS).
 - [x] The color comes from the theme (`line_highlight`) or a derived tint,
       and passes the color-sanity test on all built-ins (relative text
       criterion, edge case 11).

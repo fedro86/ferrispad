@@ -609,7 +609,7 @@ dark `#101820`/`#182028` ones and the white Caret one included.
       driven by Claude).
 - [x] System-default mode under a real GNOME appearance switch, a real
       Wayland compositor and the GTK/zenity file dialog (user, 2026-11-26).
-- [ ] Windows/macOS title bars — optional, still to run.
+- [x] Windows/macOS title bars (user, 2026-11-26, on 0.9.10-rc.2: Windows 11 and macOS).
 
 ## Affected files
 

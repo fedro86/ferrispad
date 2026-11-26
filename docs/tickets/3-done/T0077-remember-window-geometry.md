@@ -191,9 +191,9 @@ For Linux, record whether the session was **Wayland or X11**
 
 ## Acceptance criteria
 
-- [ ] On macOS, Windows and X11 the window reopens with the same size and
+- [x] On macOS, Windows and X11 the window reopens with the same size and
       position (within a few pixels) after resize, move and close.
-      (X11: yes, Xvfb. Windows/macOS: optional, still to run.)
+      (X11: yes, Xvfb. Windows/macOS: yes (user, 2026-11-26, on 0.9.10-rc.2: Windows 11 and macOS).)
 - [x] On Wayland the size and maximized state are restored. The position is
       left to the compositor, and a stored X11 position is not overwritten.
 - [x] A window closed maximized reopens maximized and un-maximizes to its
