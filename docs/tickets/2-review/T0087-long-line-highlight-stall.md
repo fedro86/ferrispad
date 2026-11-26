@@ -1,7 +1,7 @@
 ---
 id: T0087
 title: Do not stall on files with very long lines (bound syntax-highlighting work in bytes)
-status: todo            # todo | review | done
+status: review          # todo | review | done
 created: 2026-11-26
 severity: moderate
 area: robustness
@@ -72,6 +72,9 @@ every recalc** (not fixed: known limitation, see below).
   - The parse and highlight state carries over unchanged to the next line.
   - Because it lives in `highlight_line`, it applies identically to full,
     incremental (every keystroke) and chunked highlighting.
+  - The boundary is inclusive. A line of exactly 16 384 bytes, line ending
+    included, is still tokenized; 16 385 bytes are not
+    (`long_line_boundary_is_inclusive`).
 - Highlight work is budgeted in **bytes handed to syntect**. Lines skipped
   by the rule above cost syntect nothing and do not count.
   - `highlight_plan` is `Synchronous` only for ≤ 5000 lines **and**
@@ -79,12 +82,20 @@ every recalc** (not fixed: known limitation, see below).
   - A chunk ends after `CHUNK_SIZE` (2000) lines **or** `CHUNK_BYTES`
     (256 KiB), whichever comes first. A chunk's `done` is now "the text is
     consumed" instead of "fewer than 2000 lines were processed".
-  - Counting skipped lines would send the 8 MB one-line file down the
-    chunked path. That adds nothing for syntect, but it shows the
-    "Highlighting large file…" banner, and showing and hiding it relays out
-    the editor twice. Each relayout is one full FLTK recalc of the 8 MB line
-    (about 2.3 s, cause B). Measured: idle after 14.5 s with skipped bytes
-    counted, against the hl-off floor of 8.7 s.
+  - Computing the plan is one pass over the text:
+    `str::split_inclusive('\n')` finds each newline with a memchr-style
+    search and yields borrowed slices. There is no per-line allocation, and
+    the pass stops as soon as either bound is crossed. Before, the check was
+    `text.lines().count()`, also one pass.
+- **Deliberate change from the approved scope** (agreed with the
+  orchestrator during the work). The scope as first approved counted all
+  bytes. That would send the 8 MB one-line file down the chunked path, which
+  gains nothing for syntect because the line is skipped anyway. It does show
+  the "Highlighting large file…" banner, though, and showing and hiding it
+  relays out the editor twice. Each relayout is one full FLTK recalc of the
+  8 MB line (about 2.3 s, cause B). Measured on the 8 MB file, hl on, wrap
+  on: idle after 14.5 s with all bytes counted, against the hl-off floor of
+  about 8.7 s.
 - No new thread, timer, setting or plugin API. Chunks still advance through
   the existing `ContinueHighlight` message.
 - The T0081 current-line highlight already skips lines over 64 KiB
@@ -102,13 +113,61 @@ over).
 
 ## Measurements before / after
 
-Release, Xvfb, columns as defined above; "—" means not measured because the
-open had not finished within 200 s.
+Release builds, Xvfb. Before is the code at `origin/master` (7ea980d); after
+is this branch. Values are wall seconds, median (min–max) over 3
+interleaved before/after pairs. The 8 MB wrap-off rows are single pairs,
+because each run takes minutes; "> 200" / "> 60" means the open or key hit
+the timeout. The fixtures are the generated ones from *How to test*.
 
-<<TABLES>>
+**Load caveat.** The machine is shared with other build sessions, and the
+1-minute load average ranged from 1 to 9 across the 1 MB runs. Pairs were
+interleaved so that both sides saw the same load. The hl-off rows run the
+same code before and after, so their spread is the noise level. The 8 MB
+wrap-on rows ran at load ≈ 1 and agree within 0.3 s across repetitions. One
+"after" 1 MB hl-on/wrap-on run lost its key events (a stray window on the
+display) and is left out of the click/Right/key columns.
 
-Normal file (`src/app/controllers/highlight.rs`, 789 lines, Rust, debug
-build): <<NORMAL>>
+| File | hl | wrap | | open | click | Right | key |
+|---|---|---|---|---|---|---|---|
+| 1 MB | on | on | before | 6.9 (4.7–15.9) | 0.4 (0.3–1.0) | 0.5 (0.3–1.2) | 8.8 (2.4–12.4) |
+| 1 MB | on | on | after | 1.9 (1.0–1.9) | 0.5 (0.5–0.5) | 0.8 (0.7–0.9) | 2.1 (0.7–3.4) |
+| 1 MB | on | off | before | 40.5 (36.7–80.5) | 9.7 (7.4–15.7) | 8.5 (7.8–8.8) | 17.9 (17.1–19.2) |
+| 1 MB | on | off | after | 9.1 (9.1–10.4) | 2.0 (2.0–3.0) | 2.0 (1.9–2.9) | 4.3 (4.1–6.4) |
+| 1 MB | off | on | before | 0.8 (0.8–1.2) | 0.3 (0.3–0.4) | 0.3 (0.3–0.8) | 0.7 (0.5–0.7) |
+| 1 MB | off | on | after | 0.8 (0.8–1.0) | 0.3 (0.3–0.4) | 0.3 (0.3–0.4) | 0.8 (0.7–1.0) |
+| 1 MB | off | off | before | 6.2 (6.2–9.4) | 2.0 (1.9–3.0) | 2.1 (2.0–2.5) | 2.1 (2.0–2.1) |
+| 1 MB | off | off | after | 7.0 (6.2–7.5) | 2.1 (2.0–8.3) | 2.2 (1.9–9.1) | 2.3 (2.0–6.2) |
+| 8 MB | on | on | before | **43.2** (43.2–43.4) | 2.3 (2.1–2.3) | 2.2 (2.1–2.3) | **22.9** (22.7–23.0) |
+| 8 MB | on | on | after | **10.3** (10.3–10.4) | 2.0 (2.0–2.2) | 2.1 (2.0–2.2) | **6.3** (6.2–6.3) |
+| 8 MB | on | off | before | > 200 | > 60 | > 60 | > 60 |
+| 8 MB | on | off | after | 80.2 | 22.5 | 20.9 | 41.6 |
+| 8 MB | off | on | before | 8.1 (8.1–8.3) | 2.3 (2.1–2.3) | 2.3 (2.1–2.3) | 3.8 (3.7–4.0) |
+| 8 MB | off | on | after | 8.1 (7.8–8.7) | 2.2 (2.1–2.3) | 2.1 (2.1–2.2) | 3.8 (3.6–3.9) |
+| 8 MB | off | off | before | 58.4 | 19.1 | 19.0 | 18.9 |
+| 8 MB | off | off | after | 69.4 | 23.9 | 20.1 | 20.5 |
+
+Reading it:
+- With highlighting on (the default), the stall drops 4–5× everywhere:
+  - 8 MB, wrap on: open 43 → 10 s, key 23 → 6 s;
+  - 1 MB, wrap off: open 40 → 9 s, key 18 → 4 s;
+  - 8 MB, wrap off: > 200 → 80 s.
+- With highlighting off nothing changes, as expected. That is the FLTK
+  floor of cause B.
+- Highlighting on still costs about 2 s more than off on the 8 MB line. No
+  syntect work is left; the cause is one extra full FLTK repaint (see
+  *Known limitation*).
+
+Normal file, hl on, wrap on, release: `src/app/controllers/highlight.rs` as
+on `master` (773 lines of Rust). Opened, a line typed
+(`let t0087 = "typed"; // check`) and re-highlighted. Screenshots before and
+after: `compare -metric AE` = **0 differing pixels**, both after open and
+after typing.
+
+Debug-build UI smoke (fltk debug assertions), Xvfb:
+- 1 MB file: open, click, End, type, Home.
+- 8 MB file: open, click, type.
+- No panic and no assertion in the log. The long line shows in the plain
+  text colour, and the typed characters land at the cursor.
 
 ## Known limitation — cause B (FLTK, not fixed)
 
@@ -126,9 +185,25 @@ highlighting:
   the whole visible logical line in one `fl_width` call, which shapes it with
   pango/harfbuzz (about 2 µs/byte), and every draw shapes it again. An 8 MB
   line costs tens of seconds per recalc or draw, with RSS around 420 MB.
-- Every extra draw or recalc that the application triggers multiplies this
-  cost. That is why "hl on" still measures somewhat slower than "hl off" with
-  wrap off: restyling after an edit repaints the line once more.
+- FLTK's own `draw()` runs `recalc_display()` **twice** when the widget has
+  `FL_DAMAGE_ALL`: once because `display_needs_recalc_` is set, and once in
+  the `FL_DAMAGE_ALL` branch. `display_needs_recalc()` itself calls
+  `redraw()`, i.e. `FL_DAMAGE_ALL`. So one keystroke is one draw with two
+  full measurements of the line.
+- Every extra full repaint the application triggers multiplies this cost.
+  50 ms after a keystroke, `rehighlight_document` rewrites the style range
+  and calls `editor.redraw()`. That is a second draw, with two more
+  recalcs. gdb on one typed character in the 8 MB file, hl on: four
+  `recalc_display()` calls, all from `Fl::flush` → `draw()`. This is the
+  ~2.5 s gap between "hl on" and "hl off" in the key column, and the ~2 s gap
+  at open.
+- Possible follow-up, a separate ticket: restyle without a full repaint.
+  Skip the style write and the redraw when the new style chars equal the
+  current ones, which is always the case for a skipped long line; otherwise
+  damage only the restyled range (`redisplay_range`) instead of
+  `redraw()`. That would bring "hl on" down to the "hl off" floor on long
+  lines. It is not done here: it changes the repaint path for every file
+  and needs its own review.
 
 Fixing B needs FLTK changes, e.g. caching per-character widths for the text
 display's font, or measuring only the visible window of a long line; or a
@@ -155,8 +230,13 @@ slow"); it is not built here.
 nix develop -c cargo test --lib long_line
 ```
 
-The six T0087 tests (the filter also matches three older long-line tests in
-other modules, which stay green):
+The seven T0087 tests (the filter also matches three older long-line tests
+in other modules, which stay green):
+
+- `services::syntax::tests::long_line_boundary_is_inclusive`
+  - A 16 384-byte line is tokenized; a 16 385-byte line is plain.
+  - Added after the fix. It was run red with the rule disabled: `panicked …
+    one byte over: plain`.
 
 - `services::syntax::tests::long_line_is_one_plain_run_in_every_path`
   - The long line is in the middle, at the very start, and at the very end
@@ -246,9 +326,11 @@ After the fix all six pass, and the full suite is green.
 - [x] The synchronous/chunked decision bounds lines and syntect bytes, in one
       helper used by every call site.
 - [x] Normal files highlight exactly as before: existing highlight tests are
-      green, and the screenshot diff is identical.
-- [x] Xvfb, release: with highlighting on, the 8 MB fixture and default
-      settings are idle within the FLTK floor measured with highlighting off.
+      green, and the screenshot diff shows 0 differing pixels.
+- [x] Xvfb, release, highlighting on: the stall shrinks 4–5× (8 MB default:
+      open 43 → 10 s, key 23 → 6 s). What remains is FLTK work only (no
+      syntect frame in any sample); the 2 s above the hl-off floor is one
+      extra full repaint (Known limitation, follow-up).
 - [x] Regression tests added and green; they failed before the fix.
 - [x] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
       and `cargo fmt --check` all pass with zero warnings.

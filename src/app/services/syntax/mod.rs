@@ -626,6 +626,31 @@ mod tests {
         }
     }
 
+    /// The exact boundary: a line of LONG_LINE_BYTES bytes (line ending
+    /// included) is still tokenized; one byte more is not.
+    #[test]
+    fn long_line_boundary_is_inclusive() {
+        let line_of = |len: usize| {
+            let mut line = "var a = 1;".repeat(len / 10 + 1);
+            line.truncate(len - 1);
+            line.push('\n');
+            line
+        };
+        let at = line_of(LONG_LINE_BYTES);
+        let over = line_of(LONG_LINE_BYTES + 1);
+        assert_eq!(
+            (at.len(), over.len()),
+            (LONG_LINE_BYTES, LONG_LINE_BYTES + 1)
+        );
+        assert!(!is_long_line(&at));
+        assert!(is_long_line(&over));
+        let mut h = js();
+        let styles = h.highlight_full(&at, "JavaScript").style_string;
+        assert!(distinct_styles(&styles) > 1, "at the limit: tokenized");
+        let styles = h.highlight_full(&over, "JavaScript").style_string;
+        assert!(styles.bytes().all(|b| b == b'A'), "one byte over: plain");
+    }
+
     /// The skipped line would have closed the block comment opened on the
     /// line before. The parse state carries over unchanged, so the code after
     /// it is still colored as comment: a known, accepted effect.
