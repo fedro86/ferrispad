@@ -149,8 +149,9 @@ until idle after each key:
     cleared on entry to the handler. Every `ContinueHighlight` send goes
     through `request_continue()`, including `queue_chunked`, the chunked
     path and the queued starts.
-- **Found while measuring, and fixed here because the new path made it
-  matter.** The first version cost 3.9 s to open the comment and 10 s to
+- **Deliberate deviation from the first scope (accepted by the
+  orchestrator).** Found while measuring, and fixed here because the new
+  per-step path made it matter. T0095 keeps the keystroke path. The first version cost 3.9 s to open the comment and 10 s to
   close it. Each continuation step caused a full editor repaint, and in
   wrap mode FLTK then re-counts the lines of the whole buffer (stacks:
   `recalc_display` → `count_lines` / `estimate_lines`). There were two
