@@ -516,6 +516,16 @@ pub(crate) fn popup_height(message: &str, has_input: bool) -> i32 {
 }
 
 /// Width of a popup button wide enough for `label`.
+/// Style a dialog action button like the Settings dialog's buttons: flat
+/// rounded, `button_bg`, label in `text`. Cancel and Reset included: a
+/// dimmed label would make an enabled button look disabled (FLTK greys the
+/// label of a deactivated button by itself).
+pub(crate) fn style_dialog_button(button: &mut fltk::button::Button, theme: &DialogTheme) {
+    button.set_frame(FrameType::RFlatBox);
+    button.set_color(theme.button_bg);
+    button.set_label_color(theme.text);
+}
+
 /// Points added to a label's font size when measuring it for layout, so a
 /// desktop font a little wider than the one measured still fits (the UI
 /// tests check labels at +2 pt too).

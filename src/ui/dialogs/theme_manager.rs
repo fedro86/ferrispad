@@ -24,7 +24,7 @@ use fltk::{
 use super::color_picker::show_color_picker;
 use super::{
     DialogTheme, SCROLLBAR_SIZE, label_width, max_label_width, show_themed_choice,
-    show_themed_input, show_themed_message,
+    show_themed_input, show_themed_message, style_dialog_button,
 };
 use crate::app::controllers::theme_manager::{
     ThemeEntry, ThemeManagerAction, ThemeManagerModel, format_hex_color,
@@ -63,6 +63,22 @@ fn field_label(field: EditorColorField) -> &'static str {
         EditorColorField::LineNumberBg => "Line number bg",
         EditorColorField::CurrentLine => "Current line",
     }
+}
+
+/// Tooltip of the color swatches (also how the UI tests find them).
+pub const SWATCH_TOOLTIP: &str = "Current color";
+
+/// A color swatch with a 1 px border in the dialog's dimmed text color, so
+/// a color close to the dialog background (or equal to it) stays visible.
+/// FLTK's `BorderBox` alone draws a black border, invisible on dark themes.
+fn style_swatch(swatch: &mut Frame, theme: &DialogTheme) {
+    swatch.set_frame(FrameType::BorderBox);
+    swatch.set_tooltip(SWATCH_TOOLTIP);
+    let border = theme.text_dim;
+    swatch.draw(move |f| {
+        fltk::draw::draw_rect_fill(f.x(), f.y(), f.w(), f.h(), f.color());
+        fltk::draw::draw_rect_with_color(f.x(), f.y(), f.w(), f.h(), border);
+    });
 }
 
 /// `name` as a browser line shown literally. Theme names are free text, and
@@ -212,18 +228,12 @@ impl Ctx {
     }
 }
 
-fn style_button(button: &mut Button, theme: &DialogTheme) {
-    button.set_frame(FrameType::RFlatBox);
-    button.set_color(theme.button_bg);
-    button.set_label_color(theme.text);
-}
-
 fn button(x: i32, y: i32, w: i32, label: &str, theme: &DialogTheme) -> Button {
     let mut b = Button::default()
         .with_pos(x, y)
         .with_size(w, BUTTON_HEIGHT)
         .with_label(label);
-    style_button(&mut b, theme);
+    style_dialog_button(&mut b, theme);
     b
 }
 
@@ -370,7 +380,7 @@ fn build_window(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Window, Ct
         let mut swatch = Frame::default()
             .with_pos(swatch_x, y + 2)
             .with_size(SWATCH_W, 22);
-        swatch.set_frame(FrameType::FlatBox);
+        style_swatch(&mut swatch, &theme);
         let mut hex = Frame::default()
             .with_pos(hex_x, y)
             .with_size(hex_col, 26)
@@ -378,13 +388,7 @@ fn build_window(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Window, Ct
         hex.set_label_color(theme.text_dim);
         hex.set_label_size(HEX_SIZE);
         let pick = button(pick_x, y, pick_w, "Pick…", &theme);
-        let mut reset = Button::default()
-            .with_pos(reset_x, y)
-            .with_size(reset_w, BUTTON_HEIGHT)
-            .with_label("Reset");
-        reset.set_frame(FrameType::RFlatBox);
-        reset.set_color(theme.secondary_button_bg);
-        reset.set_label_color(theme.text_dim);
+        let mut reset = button(reset_x, y, reset_w, "Reset", &theme);
         reset.set_tooltip("Reset to the base theme's color");
         rows.push(ColorRow {
             field,
@@ -420,13 +424,7 @@ fn build_window(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Window, Ct
         .with_align(Align::Left | Align::Inside | Align::Wrap);
     hint.set_label_color(theme.text_dim);
     hint.set_label_size(HINT_SIZE);
-    let mut cancel_btn = Button::default()
-        .with_pos(cancel_x, btn_y)
-        .with_size(ok_w, BUTTON_HEIGHT)
-        .with_label("Cancel");
-    cancel_btn.set_frame(FrameType::RFlatBox);
-    cancel_btn.set_color(theme.secondary_button_bg);
-    cancel_btn.set_label_color(theme.text_dim);
+    let mut cancel_btn = button(cancel_x, btn_y, ok_w, "Cancel", &theme);
     let mut ok_btn = button(ok_x, btn_y, ok_w, "OK", &theme);
 
     dialog.end();

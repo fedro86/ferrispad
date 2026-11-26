@@ -19,14 +19,18 @@ mod support;
 use ferris_pad::app::controllers::theme_manager::ThemeManagerModel;
 use ferris_pad::app::domain::settings::{AppSettings, SyntaxTheme, ThemeRef};
 use ferris_pad::app::services::custom_themes::ThemeStore;
+use ferris_pad::ui::dialogs::DialogTheme;
 use ferris_pad::ui::dialogs::build_themed_input;
 use ferris_pad::ui::dialogs::color_picker::build_color_picker;
 use ferris_pad::ui::dialogs::settings_dialog::build_settings_dialog;
-use ferris_pad::ui::dialogs::theme_manager::build_theme_manager;
+use ferris_pad::ui::dialogs::theme_manager::{SWATCH_TOOLTIP, build_theme_manager};
 use fltk::prelude::*;
 use fltk::widget::Widget;
 use fltk::window::Window;
-use support::ui_layout::{count_matching, display_available, everything, layout_failures};
+use support::ui_layout::{
+    active_buttons_looking_disabled, count_matching, display_available, everything,
+    flat_widgets_with_tooltip, layout_failures,
+};
 
 /// The Settings rows T0079/T0080 added: the syntax-theme choices (and their
 /// labels) and "Manage themes…". The rest of the dialog is T0083's.
@@ -68,6 +72,14 @@ fn new_dialog_windows_build() {
     // Opens on the theme the editor shows: the custom one, the last row.
     assert_eq!(list.value(), list.size());
     assert!(!manager.shown());
+    // Every color swatch keeps a border, so a color close to the dialog
+    // background stays visible (7 swatches).
+    assert_eq!(
+        count_matching(&manager, |w| w.tooltip().as_deref() == Some(SWATCH_TOOLTIP)),
+        7
+    );
+    let flat_swatches = flat_widgets_with_tooltip(&manager, "theme manager", SWATCH_TOOLTIP);
+    assert!(flat_swatches.is_empty(), "{flat_swatches:?}");
     windows.push(("theme manager", manager));
 
     // Color picker, on a dark and a light dialog background.
@@ -102,6 +114,17 @@ fn new_dialog_windows_build() {
     let mut failures = Vec::new();
     for (name, window) in &windows {
         failures.extend(layout_failures(window, name, everything));
+    }
+    // Enabled buttons must not look disabled (dimmed label text).
+    let dark_dim = DialogTheme::from_theme_bg((43, 48, 59)).text_dim;
+    let light_dim = DialogTheme::from_theme_bg((239, 241, 245)).text_dim;
+    for (name, window) in &windows {
+        let dim = if name.contains("light") {
+            light_dim
+        } else {
+            dark_dim
+        };
+        failures.extend(active_buttons_looking_disabled(window, name, dim));
     }
     // Two labels, two choices and the button.
     assert_eq!(count_matching(&settings.dialog, settings_theme_rows), 5);
