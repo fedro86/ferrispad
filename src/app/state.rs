@@ -232,6 +232,10 @@ impl AppState {
             }
         }
         self.update_linenumber_width();
+        // The active document may have changed (session restore, new
+        // session, ...): the file-type menus follow it here, once, instead
+        // of in every caller (T0103).
+        self.update_menus_for_file_type();
     }
 
     /// Update the window title based on active document
@@ -421,6 +425,8 @@ impl AppState {
         self.tab_manager.remove(id);
 
         if self.tab_manager.count() == 0 {
+            // No document left: nothing to preview (T0103).
+            self.update_menus_for_file_type();
             return true;
         }
 

@@ -72,12 +72,11 @@ pub fn detect_system_dark_mode() -> bool {
         if let Ok(output) = Command::new("defaults")
             .args(["read", "-g", "AppleInterfaceStyle"])
             .output()
+            && output.status.success()
         {
-            if output.status.success() {
-                let style = String::from_utf8_lossy(&output.stdout).to_lowercase();
-                if style.contains("dark") {
-                    return true;
-                }
+            let style = String::from_utf8_lossy(&output.stdout).to_lowercase();
+            if style.contains("dark") {
+                return true;
             }
         }
     }
