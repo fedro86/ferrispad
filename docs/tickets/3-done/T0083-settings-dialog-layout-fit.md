@@ -1,7 +1,7 @@
 ---
 id: T0083
 title: Settings dialog — labels must fit and the dialog must fit small screens
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: moderate      # severe | moderate | minor   (for audit-derived tickets)
 area: ui                # security | robustness | ui | process
@@ -269,3 +269,16 @@ Noto Sans; Noto Sans forced; DejaVu Sans forced, via `FONTCONFIG_FILE`),
 - Found by the T0081 layout sweep (`ferrispad-wt/uitest-fit/`), 2026-11-26.
 - Stacked on `ticket/T0077`, so the user verifies it in the same final build.
   It lands last.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland), build `ab9ed45`
+(T0077–T0083 together): every checklist step passed, including W8 (no
+clipped labels, Save/Cancel visible). Windows 11 and macOS are optional and
+still to run on the 0.9.10-rc.1 release candidate.
+
+### Known limitation
+
+The content scrolls only vertically. On a work area narrower than the
+dialog (well under ~650 FLTK units), Save/Cancel would sit past the
+right edge. Follow-up candidate: a horizontal fallback.
