@@ -213,6 +213,99 @@ pub fn is_existing_executable(path: &Path) -> bool {
     }
 }
 
+/// The user's home directory as a trusted place for plugin programs (T0094),
+/// or `None`. Fails closed: unset, empty, relative or uncanonicalizable means
+/// "no home", and so does a home that is the filesystem root (`HOME=/` in some
+/// services and containers), which would trust every directory.
+pub fn trusted_home(value: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
+    let value = value.filter(|v| !v.is_empty())?;
+    let path = Path::new(value);
+    if !path.is_absolute() {
+        return None;
+    }
+    let canonical = std::fs::canonicalize(path).ok()?;
+    canonical.parent().is_some().then_some(canonical)
+}
+
+/// [`trusted_home`] from the environment: `USERPROFILE` on Windows, `HOME`
+/// elsewhere.
+pub fn trusted_home_from_env() -> Option<PathBuf> {
+    let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    trusted_home(std::env::var_os(var).as_deref())
+}
+
+/// A program given by name only, which the OS looks up on `PATH`. Anything
+/// with a separator or a drive colon is a path.
+pub fn is_bare_program(cmd: &str) -> bool {
+    !cmd.contains(['/', '\\', ':'])
+}
+
+/// Where a non-bare plugin program may be run from (T0094). Returns the path to
+/// pass to the OS, or why it is refused.
+///
+/// - A relative program is anchored at the project root (no root: refused) and
+///   run by that absolute path, so the platforms' different handling of a
+///   relative program with `current_dir` never matters.
+/// - With `windows`, a program without an extension gets `.exe`, which is what
+///   the OS would run.
+/// - Its **parent directory**, physically resolved, must lie inside the
+///   project root or the trusted home. The file itself may be a symlink
+///   anywhere (a venv's `bin/python` → `/usr/bin/python3`) as long as it
+///   resolves to an existing executable regular file. This stops a binary
+///   dropped in a shared directory such as `/tmp` from passing as an
+///   approved command by its name.
+///
+/// Invariant: plugins cannot create symlinks (rename and remove act on the
+/// resolved target, and there is no symlink API). A future plugin API that
+/// creates links re-opens this parent-directory rule.
+pub fn resolve_plugin_program(
+    cmd: &str,
+    project_root: Option<&Path>,
+    home: Option<&Path>,
+    windows: bool,
+    pathext: Option<&str>,
+) -> Result<PathBuf, String> {
+    let requested = Path::new(cmd);
+    let mut program = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        project_root
+            .ok_or("a relative program needs a project root")?
+            .join(requested)
+    };
+    if windows && program.extension().is_none() {
+        program.set_extension("exe");
+    }
+    let parent = program
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .ok_or("program has no directory")?;
+    let parent = std::fs::canonicalize(parent).map_err(|_| "program directory not found")?;
+    let canonical_root = project_root.and_then(|r| std::fs::canonicalize(r).ok());
+    let trusted = canonical_root
+        .as_deref()
+        .is_some_and(|root| parent.starts_with(root))
+        || home.is_some_and(|home| parent.starts_with(home));
+    if !trusted {
+        return Err("program directory is outside the project and the home directory".into());
+    }
+    let meta = std::fs::metadata(&program).map_err(|_| "program not found")?;
+    let name = program
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let executable = meta.is_file()
+        && if windows {
+            has_executable_extension(&name, pathext)
+        } else {
+            is_existing_executable(&program)
+        };
+    if !executable {
+        return Err("program is not an executable file".into());
+    }
+    Ok(program)
+}
+
 /// Whether a plugin-supplied link may be handed to the OS opener
 /// (`open::that`: ShellExecute / `open` / `xdg-open`), which opens or even
 /// *runs* a local path. Only an `http://` or `https://` URL (scheme compared
@@ -310,6 +403,73 @@ pub fn find_project_root(file_path: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── T0094: trusted home and program paths ─────────────────────────
+
+    #[test]
+    fn trusted_home_fails_closed() {
+        use std::ffi::OsStr;
+        assert_eq!(trusted_home(None), None, "unset");
+        assert_eq!(trusted_home(Some(OsStr::new(""))), None, "empty");
+        assert_eq!(
+            trusted_home(Some(OsStr::new("relative/home"))),
+            None,
+            "relative"
+        );
+        assert_eq!(
+            trusted_home(Some(OsStr::new("/nonexistent/ferrispad-home"))),
+            None,
+            "uncanonicalizable"
+        );
+        #[cfg(unix)]
+        assert_eq!(
+            trusted_home(Some(OsStr::new("/"))),
+            None,
+            "the filesystem root"
+        );
+        let dir = tempdir().unwrap();
+        assert_eq!(
+            trusted_home(Some(dir.path().as_os_str())),
+            Some(fs::canonicalize(dir.path()).unwrap())
+        );
+    }
+
+    #[test]
+    fn bare_program_names() {
+        for bare in ["ruff", "cargo", "git", "ruff.exe"] {
+            assert!(is_bare_program(bare), "{bare}");
+        }
+        for path in [
+            "./ruff",
+            ".venv/bin/ruff",
+            "/usr/bin/ruff",
+            r"tools\ruff",
+            "C:ruff",
+        ] {
+            assert!(!is_bare_program(path), "{path}");
+        }
+    }
+
+    /// The Windows naming is plain logic: exercised on every platform.
+    #[test]
+    fn program_rule_windows_naming() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        fs::create_dir_all(root.join("tools")).unwrap();
+        fs::write(root.join("tools/ruff.exe"), "MZ").unwrap();
+        fs::write(root.join("tools/ruff.txt"), "x").unwrap();
+        // No extension: the `.exe` the OS would run is what gets validated.
+        let p = resolve_plugin_program("tools/ruff", Some(root), None, true, None).unwrap();
+        assert_eq!(p, root.join("tools/ruff.exe"));
+        // A non-executable extension is refused.
+        assert!(resolve_plugin_program("tools/ruff.txt", Some(root), None, true, None).is_err());
+        // Only a trusted directory: the home also counts.
+        assert!(resolve_plugin_program("tools/ruff", None, None, true, None).is_err());
+        let abs = root.join("tools/ruff").to_string_lossy().into_owned();
+        assert!(resolve_plugin_program(&abs, None, None, true, None).is_err());
+        let home = fs::canonicalize(root).unwrap();
+        assert!(resolve_plugin_program(&abs, None, Some(&home), true, None).is_ok());
+    }
 
     // ── T0092 name rules (pure: tested on every platform) ─────────────
 
