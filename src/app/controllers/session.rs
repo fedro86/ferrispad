@@ -249,8 +249,11 @@ impl SessionController {
     }
 }
 
-#[cfg(test)]
-mod tests {
+/// Checks that build documents (hence FLTK `TextBuffer`s), so they must run
+/// on the process main thread (see `tabs::main_thread_checks`). Called by
+/// `tests/fltk_main_thread.rs` (T0089); not part of the public API.
+#[doc(hidden)]
+pub mod main_thread_checks {
     use super::*;
     use crate::app::domain::messages::Message;
     use crate::app::services::session::DocumentSession;
@@ -269,8 +272,7 @@ mod tests {
     /// T0091: a Full restore of two unsaved untitled tabs names them
     /// "Untitled" and "Untitled 2", although startup created (and restore
     /// removed) a default untitled document first.
-    #[test]
-    fn untitled_full_restore_numbers_from_one() {
+    pub fn untitled_full_restore_numbers_from_one() {
         let (sender, _receiver) = fltk::app::channel::<Message>();
         let mut tabs = TabManager::new(sender);
         tabs.add_untitled(); // AppState::new's default document
