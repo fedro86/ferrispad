@@ -89,6 +89,33 @@ pub const fn fltk_rgb(r: u8, g: u8, b: u8) -> Color {
     }
 }
 
+/// `base` stepped away from `bg` until it reaches `min` WCAG contrast on it:
+/// lighter first when `lighter` (toward white), darker otherwise (scaled
+/// toward black, which keeps the hue), and the other way when that direction
+/// cannot get there. One rule for every "readable on this background" color
+/// (list selection, input borders).
+pub fn push_to_contrast(base: ThemeRgb, bg: ThemeRgb, min: f64, lighter: bool) -> ThemeRgb {
+    let rgb = |c: ThemeRgb| (c.r, c.g, c.b);
+    let reaches = |c: ThemeRgb| wcag_contrast(rgb(c), rgb(bg)) >= min;
+    let search = |up: bool| {
+        let mut c = base;
+        for _ in 0..120 {
+            if reaches(c) {
+                return Some(c);
+            }
+            c = if up { c.lighten(0.06) } else { c.darken(0.94) };
+        }
+        reaches(c).then_some(c)
+    };
+    search(lighter)
+        .or_else(|| search(!lighter))
+        .unwrap_or(if lighter {
+            ThemeRgb::WHITE
+        } else {
+            ThemeRgb::new(0, 0, 0)
+        })
+}
+
 /// WCAG 2 relative luminance of an sRGB color, from 0.0 (black) to 1.0
 /// (white).
 pub fn wcag_luminance((r, g, b): (u8, u8, u8)) -> f64 {
