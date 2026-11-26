@@ -884,8 +884,6 @@ mod tests {
     use super::*;
     use fltk::group::Group;
 
-    /// Theme backgrounds to check: every built-in syntax theme plus a sweep
-    /// of grays and tinted colors, standing in for custom themes.
     /// a3's T0097 nit: the registered list selection must follow every
     /// re-theme, not wait for the next dialog list to be styled.
     #[test]
@@ -910,6 +908,8 @@ mod tests {
         }
     }
 
+    /// Theme backgrounds to check: every built-in syntax theme plus a sweep
+    /// of grays and tinted colors, standing in for custom themes.
     fn dialog_list_test_backgrounds() -> Vec<(String, (u8, u8, u8))> {
         use crate::app::domain::settings::SyntaxTheme;
         let mut bgs: Vec<(String, (u8, u8, u8))> = SyntaxTheme::all()
