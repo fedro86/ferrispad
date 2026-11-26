@@ -22,6 +22,9 @@ use super::toast::Toast;
 use super::tree_panel::TreePanel;
 use crate::app::Message;
 use crate::app::domain::settings::TreePanelPosition;
+use crate::app::services::window_geometry::{ScreenRect, WindowGeometryTracker};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 /// Subset of MainWidgets used during the dispatch loop.
 /// Created after `editor_container` and `tab_bar` are moved into AppState.
@@ -115,32 +118,105 @@ pub struct MainWidgets {
     pub editor_col: Option<Flex>,
 }
 
-/// Whether the main window's callback may hide it. `Cancelled` is what FLTK
-/// passes for an unhandled Escape key press; that must never close the editor.
-fn callback_hides_main_window(reason: CallbackReason) -> bool {
-    reason != CallbackReason::Cancelled
+/// What the main window's callback does for a given FLTK callback reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MainWindowAction {
+    /// Ask to quit through the normal path (`Message::WindowClose` →
+    /// `file_quit()`, which prompts for unsaved changes). Never hides.
+    RequestQuit,
+    /// Do nothing.
+    Ignore,
+    /// FLTK's default: hide the window.
+    Hide,
+}
+
+/// The main window's callback decision.
+/// - `Closed`: title-bar ×, Alt+F4, the taskbar / window-manager close.
+///   FLTK delivers `FL_CLOSE` only to the callback (`Fl.cxx`,
+///   `do_callback(FL_REASON_CLOSED)`), never to `handle()`, so this is the one
+///   place a window close can reach the unsaved-changes prompt.
+/// - `Cancelled`: an unhandled Escape press; that must never close the editor.
+fn main_window_callback_action(reason: CallbackReason) -> MainWindowAction {
+    match reason {
+        CallbackReason::Closed => MainWindowAction::RequestQuit,
+        CallbackReason::Cancelled => MainWindowAction::Ignore,
+        _ => MainWindowAction::Hide,
+    }
+}
+
+/// Work areas of every connected screen, in FLTK units.
+pub fn screen_work_areas() -> Vec<ScreenRect> {
+    (0..fltk::app::screen_count())
+        .map(|n| {
+            let (x, y, w, h) = fltk::app::screen_work_area(n);
+            ScreenRect::new(x, y, w, h)
+        })
+        .collect()
+}
+
+fn window_rect(wind: &Window) -> ScreenRect {
+    ScreenRect::new(wind.x(), wind.y(), wind.w(), wind.h())
+}
+
+/// Record the window's normal rect on every resize/move (event-driven; writes
+/// nothing to disk). FLTK hides an iconified window, so `visible()` is false
+/// while minimized.
+pub fn install_geometry_tracking(wind: &mut Window, tracker: Rc<RefCell<WindowGeometryTracker>>) {
+    wind.resize_callback(move |w, x, y, width, height| {
+        if let Ok(mut t) = tracker.try_borrow_mut() {
+            t.record_resize(
+                w.visible(),
+                w.maximize_active(),
+                ScreenRect::new(x, y, width, height),
+            );
+        }
+    });
+}
+
+/// Whether FLTK runs its Wayland backend. Exact (asks FLTK), but only valid
+/// once the display is open, i.e. after the first `show()`.
+pub fn using_wayland() -> bool {
+    // SAFETY: plain query with no arguments; returns whether FLTK's Wayland
+    // display connection exists (always 0 on non-Wayland builds).
+    unsafe { fltk_sys::fl::Fl_using_wayland() != 0 }
+}
+
+/// Snapshot the window state for the close-time save. Must run while the
+/// window is still shown: after `hide()` it would look minimized. Called by
+/// the `FileQuit | WindowClose` dispatch before the unsaved-changes prompt.
+pub fn capture_close_geometry(wind: &Window, tracker: &RefCell<WindowGeometryTracker>) {
+    if let Ok(mut t) = tracker.try_borrow_mut() {
+        t.capture_close(wind.visible(), wind.maximize_active(), window_rect(wind));
+    }
 }
 
 pub fn build_main_window(
     tabs_enabled: bool,
     sender: &Sender<Message>,
     tree_position: TreePanelPosition,
+    rect: ScreenRect,
 ) -> MainWidgets {
     let title = if cfg!(target_os = "windows") {
         "Untitled - FerrisPad"
     } else {
         "Untitled - \u{1f980} FerrisPad"
     };
-    let mut wind = Window::new(100, 100, 640, 480, title);
+    let mut wind = Window::new(rect.x, rect.y, rect.w, rect.h, title);
     wind.set_xclass("FerrisPad");
     // FLTK runs a window's callback when an Escape press reaches it unhandled,
     // and the default callback hides the window: for the main window that hides
     // or quits the editor. Keep the default for every other reason.
-    wind.set_callback(|w| {
-        if callback_hides_main_window(fltk::app::callback_reason()) {
-            w.hide();
-        }
-    });
+    // Only send the message: do not set `program_should_quit` here. The
+    // unsaved-changes prompt runs in `run_dialog_with`, which hides any dialog
+    // as soon as that flag is set, so the prompt would vanish unanswered.
+    let close_sender = *sender;
+    wind.set_callback(
+        move |w| match main_window_callback_action(fltk::app::callback_reason()) {
+            MainWindowAction::RequestQuit => close_sender.send(Message::WindowClose),
+            MainWindowAction::Ignore => {}
+            MainWindowAction::Hide => w.hide(),
+        },
+    );
 
     // Load and set the crab icon (title bar on Linux/Windows).
     // macOS uses the .app bundle icon instead.
@@ -153,7 +229,7 @@ pub fn build_main_window(
         }
     }
 
-    let mut flex = Flex::new(0, 0, 640, 480, None);
+    let mut flex = Flex::new(0, 0, rect.w, rect.h, None);
     flex.set_type(fltk::group::FlexType::Column);
     flex.set_margin(0);
     flex.set_pad(0);
@@ -382,14 +458,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn escape_never_hides_the_main_window() {
-        assert!(!callback_hides_main_window(CallbackReason::Cancelled));
+    fn main_window_callback_close_requests_quit() {
+        assert_eq!(
+            main_window_callback_action(CallbackReason::Closed),
+            MainWindowAction::RequestQuit
+        );
     }
 
     #[test]
-    fn other_callback_reasons_keep_fltks_default_hide() {
-        for reason in [CallbackReason::Closed, CallbackReason::Unknown] {
-            assert!(callback_hides_main_window(reason), "{reason:?}");
-        }
+    fn main_window_callback_escape_is_ignored() {
+        assert_eq!(
+            main_window_callback_action(CallbackReason::Cancelled),
+            MainWindowAction::Ignore
+        );
+    }
+
+    #[test]
+    fn main_window_callback_other_reasons_hide() {
+        assert_eq!(
+            main_window_callback_action(CallbackReason::Unknown),
+            MainWindowAction::Hide
+        );
+    }
+
+    /// Source-level guards (FLTK routing cannot be unit-tested):
+    /// - the main window callback must not set `program_should_quit`, or
+    ///   `run_dialog_with` hides the unsaved-changes prompt before it is
+    ///   answered;
+    /// - `main.rs` must not grow an `Event::Close` arm again: FLTK never
+    ///   delivers `FL_CLOSE` to `handle()`, so such an arm is dead code.
+    #[test]
+    fn main_window_callback_close_path_guards() {
+        let src = include_str!("main_window.rs");
+        let production = &src[..src.find("#[cfg(test)]").unwrap_or(src.len())];
+        assert!(
+            !production.contains("program_should_quit("),
+            "the main window callback must only send Message::WindowClose"
+        );
+        assert!(
+            production.contains("send(Message::WindowClose)"),
+            "Closed must send Message::WindowClose"
+        );
+        assert!(
+            !include_str!("../main.rs").contains("Event::Close"),
+            "FL_CLOSE never reaches handle(); the close path is the window callback"
+        );
     }
 }

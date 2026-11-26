@@ -21,6 +21,10 @@ use crate::app::services::shortcut_registry::ShortcutRegistry;
 use crate::app::services::updater::{
     UpdateCheckResult, check_for_updates, is_flatpak, should_check_now,
 };
+use crate::app::services::window_geometry::{
+    MaximizeOnMap, StartupMaximize, TITLE_BAR_ESTIMATE, WindowGeometryTracker, clamp_onto_screens,
+    restore_geometry, startup_maximize,
+};
 use crate::app::state::AppState;
 use crate::app::{AppSettings, Message, ThemeMode, detect_system_dark_mode};
 use crate::ui::main_window::{LayoutWidgets, build_main_window};
@@ -198,8 +202,9 @@ fn main() {
     let app = fltk_app::App::default().with_scheme(fltk_app::AppScheme::Gtk);
     fltk_app::set_scrollbar_size(12);
     fltk_app::set_visible_focus(false);
-    // Lower FLTK's CIELAB contrast threshold (see `FLTK_CONTRAST_LEVEL`).
-    fltk::app::set_contrast_level(ui::theme::FLTK_CONTRAST_LEVEL);
+    // FLTK's CIELAB contrast rule at FerrisPad's lower level
+    // (`FLTK_CONTRAST_LEVEL`), plus readable selected text in the editor.
+    ui::contrast::install();
 
     // Set subtle rounded corners for RFlatBox widgets globally (min is 5, default is 15)
     fltk_app::set_frame_border_radius_max(5);
@@ -235,8 +240,14 @@ fn main() {
         .map(|s| TreePanelPosition::from_config_str(s))
         .unwrap_or_default();
 
+    // Window geometry from the last run, validated against the current screens
+    // (T0077). On Wayland the compositor places the window; x/y are ignored.
+    let screens = ui::main_window::screen_work_areas();
+    let (initial_rect, start_maximized) =
+        restore_geometry(settings.window, &screens, TITLE_BAR_ESTIMATE);
+
     // Build UI widgets (tab bar included only when tabs enabled)
-    let mut w = build_main_window(tabs_enabled, &sender, tree_position);
+    let mut w = build_main_window(tabs_enabled, &sender, tree_position, initial_rect);
 
     // Build shortcut registry from settings
     let shortcut_registry = ShortcutRegistry::from_settings(&settings.shortcut_overrides);
@@ -279,6 +290,9 @@ fn main() {
     if let Some(responses) = mcp_responses {
         state.mcp_responses = responses;
     }
+    *state.window_geometry.borrow_mut() =
+        WindowGeometryTracker::new(settings.window, false, initial_rect);
+    ui::main_window::install_geometry_tracking(&mut w.wind, state.window_geometry.clone());
 
     // Bind the initial document's buffer to the editor
     state.bind_active_buffer();
@@ -367,19 +381,27 @@ fn main() {
         defer_send(sender, delay, Message::FileNew);
     }
 
-    // Window event handler for close and resize.
-    // Using handle() with Event::Close to catch close even when menu is open.
+    // Window event handler for resize and focus. A window close does not come
+    // through here: see the main window callback in ui::main_window.
+    // X11 only: maximize after the first draw, i.e. once mapped and exposed
+    // (see StartupMaximize). FLTK draws the window itself first; the request
+    // is sent from a one-shot timeout, outside the draw.
+    let maximize_on_map = Rc::new(std::cell::Cell::new(MaximizeOnMap::default()));
+    w.wind.draw({
+        let maximize_on_map = maximize_on_map.clone();
+        move |wind| {
+            let mut on_map = maximize_on_map.get();
+            if on_map.on_draw() {
+                let mut wind = wind.clone();
+                fltk_app::add_timeout3(0.0, move |_| wind.maximize());
+            }
+            maximize_on_map.set(on_map);
+        }
+    });
     w.wind.handle({
         let s = sender;
-        move |wind, event| {
+        move |_wind, event| {
             match event {
-                fltk::enums::Event::Close => {
-                    fltk::app::program_should_quit(true);
-                    s.send(Message::WindowClose);
-                    // Hide the window to break out of any modal loops (like open menus)
-                    wind.hide();
-                    true
-                }
                 fltk::enums::Event::Resize => {
                     s.send(Message::WindowResize);
                     false // Let FLTK handle the resize too
@@ -411,6 +433,36 @@ fn main() {
 
     w.wind.end();
     w.wind.show();
+
+    // The backend is known once the display is open: on Wayland the close
+    // save keeps the stored x/y instead of the compositor's meaningless 0,0.
+    let on_wayland = ui::main_window::using_wayland();
+    if let Ok(mut geometry) = state.window_geometry.try_borrow_mut() {
+        geometry.set_wayland(on_wayland);
+    }
+    // Pre-show clamping assumed a title bar of TITLE_BAR_ESTIMATE; if the real
+    // decoration is taller, re-clamp so the title bar stays grabbable.
+    let title_bar_h = w.wind.decorated_h() - w.wind.h();
+    if !on_wayland && title_bar_h > TITLE_BAR_ESTIMATE {
+        let reclamped = clamp_onto_screens(initial_rect, &screens, title_bar_h);
+        if reclamped != initial_rect {
+            w.wind
+                .resize(reclamped.x, reclamped.y, reclamped.w, reclamped.h);
+        }
+    }
+    // Created at the normal rect, then maximized: un-maximizing returns there.
+    // No blocking wait (wait_for_expose would stall startup until an X11
+    // window on a hidden workspace is exposed).
+    let x11 = cfg!(all(unix, not(target_os = "macos"))) && !on_wayland;
+    match startup_maximize(start_maximized, x11) {
+        StartupMaximize::No => {}
+        StartupMaximize::AfterShow => w.wind.maximize(),
+        StartupMaximize::OnFirstMap => {
+            let mut on_map = maximize_on_map.get();
+            on_map.arm();
+            maximize_on_map.set(on_map);
+        }
+    }
 
     // Ctrl+letter shortcuts follow the typed letter when the keyboard layouts
     // disagree (a non-first xkb layout active): see ui::layout_shortcut.
@@ -562,6 +614,7 @@ fn main() {
                 // View & Format
                 Message::ToggleLineNumbers
                 | Message::ToggleWordWrap
+                | Message::ToggleCurrentLineHighlight
                 | Message::ToggleDarkMode
                 | Message::ToggleHighlighting
                 | Message::TogglePreview
@@ -727,6 +780,10 @@ fn main() {
                 dispatch::sync_start_page(&mut state, &mut lw);
             }
         }
+
+        // Current-line highlight: also per iteration (cursor moves by mouse or
+        // key without a Message); O(1) when nothing changed (T0081).
+        state.update_current_line_highlight();
 
         // Update status bar and editor context on every event loop iteration,
         // not just message dispatch — mouse selection doesn't generate messages.

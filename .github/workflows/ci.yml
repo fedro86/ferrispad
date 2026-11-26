@@ -34,6 +34,11 @@ jobs:
             libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev \
             libwayland-dev wayland-protocols libdbus-1-dev libxkbcommon-dev
 
+      # The UI construction tests (tests/ui_dialogs.rs) build real FLTK
+      # windows, which opens a display: give them a virtual X server.
+      - name: Install Xvfb
+        run: sudo apt-get install -y --no-install-recommends xvfb
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -52,8 +57,12 @@ jobs:
       - name: cargo clippy (-D warnings)
         run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
+      # FERRISPAD_REQUIRE_UI_TESTS makes the UI tests fail instead of skip
+      # when no display is available, so they can never be skipped silently.
       - name: cargo test
-        run: cargo test --locked
+        env:
+          FERRISPAD_REQUIRE_UI_TESTS: "1"
+        run: xvfb-run -a cargo test --locked
 
   # Release builds ship an ARM64 Linux binary (T0068): build and test it on a
   # native ARM runner so an arch-specific break shows up before a tag.
@@ -72,11 +81,39 @@ jobs:
             libpango1.0-dev libgl1-mesa-dev libglu1-mesa-dev \
             libwayland-dev wayland-protocols libdbus-1-dev libxkbcommon-dev
 
+      # The UI construction tests (tests/ui_dialogs.rs) build real FLTK
+      # windows, which opens a display: give them a virtual X server.
+      - name: Install Xvfb
+        run: sudo apt-get install -y --no-install-recommends xvfb
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
 
+      # FERRISPAD_REQUIRE_UI_TESTS makes the UI tests fail instead of skip
+      # when no display is available, so they can never be skipped silently.
       - name: cargo test
-        run: cargo test --locked
+        env:
+          FERRISPAD_REQUIRE_UI_TESTS: "1"
+        run: xvfb-run -a cargo test --locked
+
+  # release.yml builds the Windows binary only after a tag is pushed. Build it
+  # on every pull request too, so a toolchain or dependency change that breaks
+  # Windows (T0085: MSVC 14.52 vs fltk-sys 1.5.14) shows up before a tag.
+  windows-build:
+    name: build (windows x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      # The same build release.yml runs; --locked also fails on Cargo.lock drift.
+      - name: cargo build --release
+        run: cargo build --release --locked

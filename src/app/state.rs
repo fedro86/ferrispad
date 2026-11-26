@@ -19,21 +19,28 @@ use super::controllers::plugin::PluginController;
 use super::controllers::preview::PreviewController;
 use super::controllers::session::SessionController;
 use super::controllers::tabs::{GroupId, TabManager};
+use super::controllers::theme_manager::{ThemeManagerAction, ThemeManagerModel};
 use super::controllers::update::UpdateController;
 use super::controllers::view::ViewController;
 use super::controllers::widget::WidgetController;
 use super::domain::document::DocumentId;
 use super::domain::messages::Message;
-use super::domain::settings::{self, AppSettings, SyntaxTheme, ThemeMode};
-use super::infrastructure::buffer::buffer_text_no_leak;
+use super::domain::settings::{self, AppSettings, ThemeMode, ThemeRef, default_syntax_theme};
+use super::infrastructure::buffer::{
+    buffer_text_no_leak, text_range_bytes_no_leak, text_range_no_leak,
+};
 use super::infrastructure::defer::defer_send;
 use super::infrastructure::platform::detect_system_dark_mode;
 use super::mcp::McpResponses;
 use super::plugins::HookResult;
 use super::plugins::{PluginHook, PluginManager, get_plugin_dir};
+use super::services::current_line::{cursor_line, twin_bytes, untwin_bytes};
+use super::services::custom_themes::{ThemeStore, themes_dir};
 use super::services::session;
 use super::services::shortcut_registry::ShortcutRegistry;
-use crate::ui::dialogs::settings_dialog::show_settings_dialog;
+use super::services::window_geometry::WindowGeometryTracker;
+use crate::ui::dialogs::settings_dialog::{SettingsHook, show_settings_dialog};
+use crate::ui::dialogs::theme_manager::show_theme_manager;
 use crate::ui::dialogs::{show_themed_choice, show_themed_message};
 use crate::ui::editor_container::EditorContainer;
 use crate::ui::tab_bar::TabBar;
@@ -75,6 +82,9 @@ pub struct AppState {
     /// Pending diff reviews from MCP tools (session_id → (file_path, decision_fifo))
     /// If decision_fifo is Some, write "accept"/"reject" to it on user action.
     pub pending_diff_reviews: HashMap<u32, (String, Option<String>)>,
+    /// Main-window geometry tracked for the close-time save (T0077). Shared
+    /// with the window's resize callback and close handler in `main.rs`.
+    pub window_geometry: Rc<RefCell<WindowGeometryTracker>>,
 }
 
 impl AppState {
@@ -112,8 +122,19 @@ impl AppState {
         let font_size = settings.borrow().font_size_clamped();
         let highlighting_enabled = settings.borrow().highlighting_enabled;
         let syntax_theme = settings.borrow().current_syntax_theme(dark_mode);
-        let highlight =
-            HighlightController::new(syntax_theme, font, font_size, highlighting_enabled);
+        let mut highlight = HighlightController::new(
+            default_syntax_theme(dark_mode),
+            font,
+            font_size,
+            highlighting_enabled,
+        );
+        // Custom themes are read once, here (no directory watching).
+        let (theme_store, theme_warnings) = ThemeStore::load(themes_dir());
+        for warning in theme_warnings {
+            eprintln!("{warning}");
+        }
+        highlight.set_custom_themes(theme_store.into_themes());
+        highlight.set_theme(&syntax_theme, dark_mode);
 
         let preview = PreviewController::new();
 
@@ -183,6 +204,7 @@ impl AppState {
             text_change_timer_active: false,
             mcp_responses: Default::default(),
             pending_diff_reviews: HashMap::new(),
+            window_geometry: Rc::new(RefCell::new(WindowGeometryTracker::default())),
         }
     }
 
@@ -789,6 +811,25 @@ impl AppState {
         should_quit
     }
 
+    /// Close-time geometry save, after a confirmed quit: patches only the
+    /// `window` object of the settings file on disk (see
+    /// `AppSettings::save_window_geometry`). Minimized at close → no write.
+    pub fn save_window_geometry(&self) {
+        let geometry = match self.window_geometry.try_borrow_mut() {
+            Ok(mut tracker) => tracker.take_geometry_to_save(),
+            Err(_) => None,
+        };
+        let Some(geometry) = geometry else {
+            return;
+        };
+        let Ok(settings) = self.settings.try_borrow() else {
+            return;
+        };
+        let _ = settings
+            .save_window_geometry(geometry)
+            .inspect_err(|e| eprintln!("Failed to save window geometry: {}", e));
+    }
+
     pub fn switch_to_next_tab(&mut self) {
         if let Some(next_id) = self.tab_manager.next_doc_id() {
             self.switch_to_document(next_id);
@@ -815,7 +856,7 @@ impl AppState {
             .settings
             .borrow()
             .current_syntax_theme(self.view.dark_mode);
-        self.highlight.set_theme(theme);
+        self.highlight.set_theme(&theme, self.view.dark_mode);
         self.apply_theme_to_owned_widgets();
 
         self.highlight
@@ -843,11 +884,11 @@ impl AppState {
     fn apply_theme_to_owned_widgets(&mut self) {
         let theme = self.panel_theme();
         let bg = theme.bg;
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         let fg = self.highlight.highlighter().theme_foreground();
 
         // Apply theme with syntax background for menu bar color
         apply_theme(
-            &mut self.editor,
             &mut self.window,
             &mut self.menu,
             Some(&mut self.update_banner_frame),
@@ -859,8 +900,8 @@ impl AppState {
         #[cfg(target_os = "macos")]
         set_macos_titlebar_color(&self.window, bg, fg);
 
-        // Apply syntax theme colors to editor
-        apply_syntax_theme_colors(&mut self.editor, bg, fg);
+        // Apply the active theme's editor colors
+        apply_syntax_theme_colors(&mut self.editor, &self.highlight.editor_colors());
 
         // Apply theme to tab bar with editor background color
         if let Some(ref mut tab_bar) = self.tab_bar {
@@ -914,10 +955,26 @@ impl AppState {
     /// Show the Settings dialog and apply the result on Save. `on_preview`
     /// runs while the dialog is open, for each live syntax-theme preview and
     /// for the revert to the original theme on Cancel/close.
-    pub fn open_settings(&mut self, mut on_preview: impl FnMut(&mut AppState, SyntaxTheme)) {
+    pub fn open_settings(&mut self, mut on_preview: impl FnMut(&mut AppState, ThemeRef)) {
         let current = self.settings.borrow().clone();
         let theme_bg = self.highlight.highlighter().theme_background();
-        let result = show_settings_dialog(&current, theme_bg, |theme| on_preview(self, theme));
+        let custom_themes = self.custom_theme_choices();
+        let mut managed = false;
+        let result = show_settings_dialog(&current, theme_bg, &custom_themes, |hook| match hook {
+            SettingsHook::Preview(theme) => {
+                on_preview(self, theme);
+                None
+            }
+            SettingsHook::ManageThemes => {
+                managed = true;
+                Some(self.manage_themes(&mut on_preview))
+            }
+        });
+        if result.is_none() && managed {
+            // The theme manager kept the dialogs' colors in FLTK's globals
+            // while it previewed; give them back to the main window.
+            self.apply_theme_to_owned_widgets();
+        }
         if let Some(new_settings) = result {
             if let Err(e) = new_settings.save() {
                 show_themed_message(
@@ -929,6 +986,72 @@ impl AppState {
             }
             self.apply_settings(new_settings);
         }
+    }
+
+    /// The loaded custom themes as (reference, name), sorted by name.
+    pub fn custom_theme_choices(&self) -> Vec<(ThemeRef, String)> {
+        let mut themes: Vec<(ThemeRef, String)> = self
+            .highlight
+            .custom_themes()
+            .values()
+            .map(|t| (t.theme_ref(), t.name.clone()))
+            .collect();
+        themes.sort_by_key(|(_, name)| name.to_lowercase());
+        themes
+    }
+
+    /// Run the theme manager (T0080) from the Settings dialog. `retheme`
+    /// shows a theme with its panels, like a Settings preview. Returns the
+    /// custom themes afterwards, for the Settings choices.
+    fn manage_themes(
+        &mut self,
+        retheme: &mut impl FnMut(&mut AppState, ThemeRef),
+    ) -> Vec<(ThemeRef, String)> {
+        // What the editor shows now: a Settings preview included.
+        let shown = self.highlight.active_theme().clone();
+        let (store, warnings) = ThemeStore::load(themes_dir());
+        for warning in warnings {
+            eprintln!("{warning}");
+        }
+        let (light, dark) = {
+            let settings = self.settings.borrow();
+            (
+                settings.syntax_theme_light.clone(),
+                settings.syntax_theme_dark.clone(),
+            )
+        };
+        let model = ThemeManagerModel::new(store, light, dark, self.view.dark_mode, shown);
+        let theme_bg = self.highlight.highlighter().theme_background();
+        show_theme_manager(theme_bg, model, |model, actions| {
+            let mut show_again = false;
+            for action in actions {
+                match action {
+                    ThemeManagerAction::ThemesChanged => {
+                        self.highlight.set_custom_themes(model.custom_themes());
+                    }
+                    ThemeManagerAction::SetSlot { is_dark, theme } => {
+                        let mut settings = self.settings.borrow_mut();
+                        if is_dark {
+                            settings.syntax_theme_dark = theme;
+                        } else {
+                            settings.syntax_theme_light = theme;
+                        }
+                    }
+                    ThemeManagerAction::SaveSettings => {
+                        let saved = self.settings.borrow().save();
+                        if let Err(e) = saved {
+                            eprintln!("[theme] could not save settings: {e}");
+                        }
+                    }
+                    ThemeManagerAction::Retheme => show_again = true,
+                    ThemeManagerAction::Error(_) | ThemeManagerAction::Select(_) => {}
+                }
+            }
+            if show_again {
+                retheme(self, model.shown().clone());
+            }
+        });
+        self.custom_theme_choices()
     }
 
     /// Run the menu command bound to `shortcut` (a normalized shortcut
@@ -1005,8 +1128,8 @@ impl AppState {
     /// Preview a syntax theme (called from settings dialog for live preview).
     /// Re-themes the widgets `AppState` owns; the caller re-themes the panels
     /// in `LayoutWidgets` through `dispatch::retheme_panels`.
-    pub fn preview_syntax_theme(&mut self, theme: SyntaxTheme) {
-        self.highlight.set_theme(theme);
+    pub fn preview_syntax_theme(&mut self, theme: &ThemeRef) {
+        self.highlight.set_theme(theme, self.view.dark_mode);
         self.apply_theme_to_owned_widgets();
 
         self.highlight
@@ -1053,7 +1176,7 @@ impl AppState {
 
         // Set syntax theme first to get background color
         let syntax_theme = new_settings.current_syntax_theme(is_dark);
-        self.highlight.set_theme(syntax_theme);
+        self.highlight.set_theme(&syntax_theme, is_dark);
         self.highlight.set_font(font, new_font_size);
         self.apply_theme_to_owned_widgets();
         self.update_menu_checkbox("View/Toggle Dark Mode", is_dark);
@@ -1069,6 +1192,12 @@ impl AppState {
             self.editor.wrap_mode(WrapMode::None, 0);
         }
         self.update_menu_checkbox("View/Toggle Word Wrap", self.view.word_wrap);
+        self.update_menu_checkbox(
+            "View/Toggle Current Line Highlight",
+            new_settings.highlight_current_line,
+        );
+        // Re-apply (or clear) the current-line twin everywhere.
+        self.mark_all_styles_stale();
 
         // Apply tab size to all document buffers
         self.tab_manager
@@ -1101,6 +1230,86 @@ impl AppState {
             self.highlight
                 .rehighlight_all_documents(&mut self.tab_manager, &self.sender);
             self.bind_active_buffer();
+        }
+    }
+
+    /// View > Toggle Current Line Highlight (T0081): flip and persist the
+    /// setting. The next main-loop update applies or clears the band.
+    pub fn toggle_current_line_highlight(&mut self) {
+        let enabled = {
+            let mut settings = self.settings.borrow_mut();
+            settings.highlight_current_line = !settings.highlight_current_line;
+            settings.highlight_current_line
+        };
+        if let Err(e) = self.settings.borrow().save() {
+            eprintln!("Failed to save settings: {}", e);
+        }
+        self.update_menu_checkbox("View/Toggle Current Line Highlight", enabled);
+        self.mark_all_styles_stale();
+    }
+
+    /// Every document's current-line twin must be re-applied or cleared on
+    /// its next update (setting toggled, theme or table changed).
+    fn mark_all_styles_stale(&self) {
+        for doc in self.tab_manager.documents() {
+            doc.mark_style_stale();
+        }
+    }
+
+    /// Current-line highlight (T0081). Runs on every main-loop iteration,
+    /// like the status bar, so there is no timer. O(1) while the cursor stays
+    /// put and nothing was edited or restyled; otherwise it rewrites the style
+    /// bytes of at most two lines (the old one and the new one, each capped at
+    /// `MAX_LINE_BYTES`).
+    pub fn update_current_line_highlight(&mut self) {
+        let enabled = self
+            .settings
+            .try_borrow()
+            .is_ok_and(|s| s.highlight_current_line);
+        let Some(doc) = self.tab_manager.active_doc() else {
+            return;
+        };
+        let cursor = self.editor.insert_position();
+        let mut twin = doc.current_line.get();
+        if (enabled && twin.is_current(cursor)) || (!enabled && twin.twinned().is_none()) {
+            return;
+        }
+        // No style buffer bound (huge read-only / tail views): silent no-op.
+        let len = doc.buffer.length();
+        if doc.style_buffer.length() != len {
+            return;
+        }
+
+        // Bounded window around the cursor, never FLTK's unbounded
+        // line_start / findchar_forward (O(line) on a one-line minified file).
+        let line = if enabled {
+            cursor_line(len, cursor, |start, end| {
+                text_range_bytes_no_leak(&doc.buffer, start, end)
+            })
+        } else {
+            None
+        };
+        let Some(plan) = twin.plan(line) else {
+            twin.applied(twin.twinned(), Some(cursor));
+            doc.current_line.set(twin);
+            return;
+        };
+
+        let mut style_buf = doc.style_buffer.clone();
+        let mut changed = false;
+        if let Some(range) = plan.untwin {
+            changed |= rewrite_styles(&mut style_buf, range.start, range.end, untwin_bytes);
+        }
+        if let Some(range) = plan.twin {
+            let twinnable = self.highlight.highlighter().twinnable_styles();
+            changed |= rewrite_styles(&mut style_buf, range.start, range.end, |bytes| {
+                twin_bytes(bytes, &twinnable)
+            });
+        }
+        twin.applied(plan.twin, Some(cursor));
+        doc.current_line.set(twin);
+        if changed {
+            self.editor.redraw();
         }
     }
 
@@ -1323,5 +1532,34 @@ impl AppState {
                 None
             }
         })
+    }
+}
+
+/// Rewrite the style bytes `[start, end)` (clamped to the buffer) with `f`.
+/// Returns whether anything changed. Style chars are ASCII; a non-ASCII run
+/// (never written by FerrisPad) is left alone.
+fn rewrite_styles(
+    style_buf: &mut TextBuffer,
+    start: i32,
+    end: i32,
+    f: impl FnOnce(&mut [u8]),
+) -> bool {
+    let end = end.clamp(0, style_buf.length());
+    let start = start.clamp(0, end);
+    if start == end {
+        return false;
+    }
+    let old = text_range_no_leak(style_buf, start, end);
+    if !old.is_ascii() || old.len() != (end - start) as usize {
+        return false;
+    }
+    let mut bytes = old.clone().into_bytes();
+    f(&mut bytes);
+    match String::from_utf8(bytes) {
+        Ok(new) if new != old => {
+            style_buf.replace(start, end, &new);
+            true
+        }
+        _ => false,
     }
 }

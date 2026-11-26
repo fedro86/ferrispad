@@ -33,6 +33,44 @@ pub fn buffer_text_no_leak(buf: &fltk::text::TextBuffer) -> String {
     }
 }
 
+/// Read the raw bytes of `[start, end)` from an FLTK TextBuffer without
+/// leaking the C-allocated copy (fltk-rs's `text_range` never frees it, the
+/// same leak as `text()`). Raw bytes, not a lossy `String`: a range that
+/// cuts a UTF-8 character must not shift later offsets. The range is clamped
+/// to the buffer. An embedded NUL truncates the C string, so callers that
+/// rely on offsets must check the returned length.
+pub fn text_range_bytes_no_leak(buf: &fltk::text::TextBuffer, start: i32, end: i32) -> Vec<u8> {
+    unsafe extern "C" {
+        fn Fl_Text_Buffer_text_range(
+            buf: *const std::ffi::c_void,
+            start: std::ffi::c_int,
+            end: std::ffi::c_int,
+        ) -> *mut std::ffi::c_char;
+        fn free(ptr: *mut std::ffi::c_void);
+    }
+    let len = buf.length();
+    let end = end.clamp(0, len);
+    let start = start.clamp(0, end);
+    // SAFETY: same contract as `buffer_text_no_leak`: FLTK returns a
+    // malloc'd, null-terminated copy of the (clamped) range, copied out here
+    // and then released with free().
+    unsafe {
+        let ptr = Fl_Text_Buffer_text_range(buf.as_ptr() as *const std::ffi::c_void, start, end);
+        if ptr.is_null() {
+            return Vec::new();
+        }
+        let bytes = std::ffi::CStr::from_ptr(ptr).to_bytes().to_vec();
+        free(ptr as *mut std::ffi::c_void);
+        bytes
+    }
+}
+
+/// `text_range_bytes_no_leak` as a `String` (lossy), for ASCII-only buffers
+/// such as the style buffer.
+pub fn text_range_no_leak(buf: &fltk::text::TextBuffer, start: i32, end: i32) -> String {
+    String::from_utf8_lossy(&text_range_bytes_no_leak(buf, start, end)).into_owned()
+}
+
 /// Read the selected text from an FLTK TextBuffer without leaking the C-allocated copy.
 /// Same leak pattern as `text()` — see `buffer_text_no_leak` for details.
 pub fn selection_text_no_leak(buf: &fltk::text::TextBuffer) -> String {

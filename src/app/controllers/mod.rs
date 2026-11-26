@@ -18,6 +18,7 @@ pub mod plugin;
 pub mod preview;
 pub mod session;
 pub mod tabs;
+pub mod theme_manager;
 pub mod update;
 pub mod view;
 pub mod widget;

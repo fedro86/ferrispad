@@ -478,6 +478,11 @@ pub fn builtin_menu_entries(
             Message::ToggleWordWrap,
         ),
         toggle(
+            "View/Toggle Current Line Highlight",
+            settings.highlight_current_line,
+            Message::ToggleCurrentLineHighlight,
+        ),
+        toggle(
             "View/Toggle Dark Mode",
             initial_dark_mode,
             Message::ToggleDarkMode,

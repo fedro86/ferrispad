@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use crate::app::infrastructure::error::AppError;
 use crate::app::services::session::SessionRestore;
@@ -170,6 +171,149 @@ impl SyntaxTheme {
             Self::InspiredGitHub,
         ]
     }
+
+    /// The name this theme is stored under in `settings.json` (its serde
+    /// variant name, e.g. `"SolarizedDark"`).
+    pub fn setting_name(&self) -> &'static str {
+        match self {
+            Self::Base16OceanDark => "Base16OceanDark",
+            Self::Base16OceanLight => "Base16OceanLight",
+            Self::Base16EightiesDark => "Base16EightiesDark",
+            Self::Base16MochaDark => "Base16MochaDark",
+            Self::SolarizedDark => "SolarizedDark",
+            Self::SolarizedLight => "SolarizedLight",
+            Self::InspiredGitHub => "InspiredGitHub",
+        }
+    }
+
+    /// The built-in theme stored as `name` in `settings.json`, if any.
+    pub fn from_setting_name(name: &str) -> Option<Self> {
+        Self::all()
+            .iter()
+            .copied()
+            .find(|t| t.setting_name() == name)
+    }
+}
+
+/// Prefix of a custom-theme reference in `settings.json`: `"custom:<id>"`.
+pub const CUSTOM_THEME_PREFIX: &str = "custom:";
+
+/// Longest custom-theme id body (the part after `t-`), in bytes.
+pub const CUSTOM_THEME_ID_MAX_LEN: usize = 64;
+
+/// Whether `id` is a well-formed custom-theme id: `t-` followed by 1 to 64 of
+/// `[a-z0-9-]`. Ids are file names (`themes/<id>.json`), so this alone rules
+/// out `/`, `\`, `..`, empty names and Windows reserved names (`CON`, ...).
+pub fn is_valid_custom_theme_id(id: &str) -> bool {
+    let Some(body) = id.strip_prefix("t-") else {
+        return false;
+    };
+    (1..=CUSTOM_THEME_ID_MAX_LEN).contains(&body.len())
+        && body
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// A light/dark syntax-theme slot: a built-in theme or a custom one (T0079).
+///
+/// Stored in `settings.json` as the built-in's variant name (`"SolarizedDark"`,
+/// unchanged from before custom themes existed) or as `"custom:<id>"`. Read
+/// back leniently, per slot (see `lenient_theme_ref`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ThemeRef {
+    Builtin(SyntaxTheme),
+    Custom(String),
+}
+
+impl ThemeRef {
+    /// Parse a stored slot value. `None` for anything that is neither a
+    /// built-in name nor `custom:` followed by a valid id.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.strip_prefix(CUSTOM_THEME_PREFIX) {
+            Some(id) => is_valid_custom_theme_id(id).then(|| Self::Custom(id.to_string())),
+            None => SyntaxTheme::from_setting_name(value).map(Self::Builtin),
+        }
+    }
+
+    /// The value stored in `settings.json` for this slot.
+    pub fn setting_value(&self) -> String {
+        match self {
+            Self::Builtin(theme) => theme.setting_name().to_string(),
+            Self::Custom(id) => format!("{CUSTOM_THEME_PREFIX}{id}"),
+        }
+    }
+
+    /// The key this theme has in the syntect `ThemeSet`.
+    pub fn theme_key(&self) -> String {
+        match self {
+            Self::Builtin(theme) => theme.theme_key().to_string(),
+            Self::Custom(_) => self.setting_value(),
+        }
+    }
+}
+
+impl From<SyntaxTheme> for ThemeRef {
+    fn from(theme: SyntaxTheme) -> Self {
+        Self::Builtin(theme)
+    }
+}
+
+impl Serialize for ThemeRef {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.setting_value())
+    }
+}
+
+/// Deserialize a theme slot without ever failing: a value that is not a
+/// valid reference (wrong type, unknown name, malformed `custom:` id) becomes
+/// `default` with a warning, so one bad slot never rejects the whole
+/// `settings.json`. A reference to a custom theme that is merely missing is
+/// kept here and falls back when the theme is applied.
+fn lenient_theme_ref<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+    default: SyntaxTheme,
+    slot: &str,
+) -> Result<ThemeRef, D::Error> {
+    // Buffers any JSON value, so the only error left is malformed JSON.
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Raw {
+        Text(String),
+        Other(serde::de::IgnoredAny),
+    }
+    let parsed = match Raw::deserialize(deserializer)? {
+        Raw::Text(value) => ThemeRef::parse(&value),
+        Raw::Other(_) => None,
+    };
+    Ok(parsed.unwrap_or_else(|| {
+        eprintln!(
+            "[settings] invalid {slot}, using '{}'",
+            default.display_name()
+        );
+        default.into()
+    }))
+}
+
+fn de_syntax_theme_light<'de, D: serde::Deserializer<'de>>(d: D) -> Result<ThemeRef, D::Error> {
+    lenient_theme_ref(d, DEFAULT_SYNTAX_THEME_LIGHT, "syntax_theme_light")
+}
+
+fn de_syntax_theme_dark<'de, D: serde::Deserializer<'de>>(d: D) -> Result<ThemeRef, D::Error> {
+    lenient_theme_ref(d, DEFAULT_SYNTAX_THEME_DARK, "syntax_theme_dark")
+}
+
+/// The main window's last *normal* (un-maximized) rect, in FLTK units, plus
+/// whether it was maximized. `x`/`y` are the client-area origin, as FLTK
+/// reports them. Hand-editable, so always validated before use (see
+/// `services::window_geometry`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowGeometry {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    #[serde(default)]
+    pub maximized: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -214,12 +358,18 @@ pub struct AppSettings {
     pub preview_enabled: bool,
 
     /// Syntax theme for light mode
-    #[serde(default = "default_syntax_theme_light")]
-    pub syntax_theme_light: SyntaxTheme,
+    #[serde(
+        default = "default_syntax_theme_light",
+        deserialize_with = "de_syntax_theme_light"
+    )]
+    pub syntax_theme_light: ThemeRef,
 
     /// Syntax theme for dark mode
-    #[serde(default = "default_syntax_theme_dark")]
-    pub syntax_theme_dark: SyntaxTheme,
+    #[serde(
+        default = "default_syntax_theme_dark",
+        deserialize_with = "de_syntax_theme_dark"
+    )]
+    pub syntax_theme_dark: ThemeRef,
 
     /// Tab size in spaces (default 4)
     #[serde(default = "default_tab_size")]
@@ -273,6 +423,70 @@ pub struct AppSettings {
     /// File size (MB) above which editing is blocked — read-only/tail only (default 150)
     #[serde(default = "default_max_editable_size_mb")]
     pub max_editable_size_mb: u32,
+
+    /// Main window geometry saved on a confirmed close (`None` = 640×480).
+    /// Deserialized leniently: a malformed object is dropped on its own
+    /// instead of failing the whole file (which would reset every setting).
+    #[serde(
+        default,
+        deserialize_with = "deserialize_lenient_geometry",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub window: Option<WindowGeometry>,
+
+    /// Highlight the line holding the cursor (T0081). On by default, also
+    /// for an older settings.json without the field.
+    #[serde(default = "default_true")]
+    pub highlight_current_line: bool,
+}
+
+/// Anything but a well-formed `window` object (wrong types, out-of-range
+/// numbers, missing fields, `null`, an array) yields `None`; the rest of the
+/// settings still load.
+fn deserialize_lenient_geometry<'de, D>(deserializer: D) -> Result<Option<WindowGeometry>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    if !value.is_object() {
+        return Ok(None);
+    }
+    Ok(serde_json::from_value(value).ok())
+}
+
+/// Write `contents` to `path` atomically: a temp file in the same directory,
+/// flushed to disk, then renamed over the target. A crash mid-write leaves
+/// either the old file or the new one, never a truncated one.
+///
+/// A symlinked `settings.json` (dotfiles repo, stow, home-manager) is
+/// followed: the temp file is renamed onto the link's *target*, so the link
+/// survives. The existing file's permissions are carried over.
+fn write_atomic(path: &Path, contents: &[u8]) -> Result<(), AppError> {
+    // canonicalize() fails when the file does not exist yet: write `path`.
+    let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let dir = target.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = target
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "settings.json".to_string());
+    // The pid keeps two instances closing at once from sharing a temp file.
+    let tmp = dir.join(format!(".{}.{}.tmp", file_name, std::process::id()));
+    let permissions = fs::metadata(&target).ok().map(|m| m.permissions());
+
+    let result = (|| -> std::io::Result<()> {
+        let mut file = fs::File::create(&tmp)?;
+        if let Some(permissions) = permissions {
+            file.set_permissions(permissions)?;
+        }
+        file.write_all(contents)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&tmp, &target)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result.map_err(AppError::from)
 }
 
 fn default_line_numbers() -> bool {
@@ -307,12 +521,26 @@ fn default_update_channel() -> UpdateChannel {
     UpdateChannel::Stable
 }
 
-fn default_syntax_theme_light() -> SyntaxTheme {
-    SyntaxTheme::Base16OceanLight
+/// The light-mode slot's default (and fallback) built-in theme.
+pub const DEFAULT_SYNTAX_THEME_LIGHT: SyntaxTheme = SyntaxTheme::Base16OceanLight;
+/// The dark-mode slot's default (and fallback) built-in theme.
+pub const DEFAULT_SYNTAX_THEME_DARK: SyntaxTheme = SyntaxTheme::Base16OceanDark;
+
+/// The default built-in theme of the light (`is_dark == false`) or dark slot.
+pub fn default_syntax_theme(is_dark: bool) -> SyntaxTheme {
+    if is_dark {
+        DEFAULT_SYNTAX_THEME_DARK
+    } else {
+        DEFAULT_SYNTAX_THEME_LIGHT
+    }
 }
 
-fn default_syntax_theme_dark() -> SyntaxTheme {
-    SyntaxTheme::Base16OceanDark
+fn default_syntax_theme_light() -> ThemeRef {
+    DEFAULT_SYNTAX_THEME_LIGHT.into()
+}
+
+fn default_syntax_theme_dark() -> ThemeRef {
+    DEFAULT_SYNTAX_THEME_DARK.into()
 }
 
 fn default_tab_size() -> u32 {
@@ -370,6 +598,8 @@ impl Default for AppSettings {
             shortcut_overrides: HashMap::new(),
             large_file_warning_mb: default_large_file_warning_mb(),
             max_editable_size_mb: default_max_editable_size_mb(),
+            window: None,
+            highlight_current_line: true,
         }
     }
 }
@@ -391,49 +621,97 @@ impl AppSettings {
     }
 
     /// Get the syntax theme for the current mode
-    pub fn current_syntax_theme(&self, is_dark: bool) -> SyntaxTheme {
+    pub fn current_syntax_theme(&self, is_dark: bool) -> ThemeRef {
         if is_dark {
-            self.syntax_theme_dark
+            self.syntax_theme_dark.clone()
         } else {
-            self.syntax_theme_light
+            self.syntax_theme_light.clone()
         }
     }
 
     /// Load settings from disk, or create default if not exists
     pub fn load() -> Self {
-        let config_path = Self::get_config_path();
+        Self::load_from(&Self::get_config_path())
+    }
 
-        match fs::read_to_string(&config_path) {
-            Ok(contents) => match serde_json::from_str(&contents) {
-                Ok(settings) => settings,
-                Err(e) => {
-                    eprintln!("Failed to parse settings: {}. Using defaults.", e);
-                    Self::default()
-                }
-            },
+    /// Load settings from `path`. A missing file yields defaults (and tries to
+    /// write them there); an unparseable one yields defaults without writing.
+    pub fn load_from(path: &Path) -> Self {
+        match fs::read_to_string(path) {
+            Ok(contents) => Self::from_json_or_default(&contents),
             Err(_) => {
                 // File doesn't exist, use defaults
                 let default = Self::default();
                 // Try to save defaults for next time
-                let _ = default.save();
+                let _ = default.save_to(path);
                 default
             }
         }
     }
 
+    /// Parse `settings.json` contents. A file that does not parse at all
+    /// yields the defaults (logged); individual fields such as the syntax
+    /// theme slots fall back on their own without rejecting the rest.
+    pub fn from_json_or_default(contents: &str) -> Self {
+        serde_json::from_str(contents).unwrap_or_else(|e| {
+            eprintln!("Failed to parse settings: {}. Using defaults.", e);
+            Self::default()
+        })
+    }
+
     /// Save settings to disk
     pub fn save(&self) -> Result<(), AppError> {
-        let config_path = Self::get_config_path();
+        self.save_to(&Self::get_config_path())
+    }
 
+    /// Save settings to `path`.
+    pub fn save_to(&self, path: &Path) -> Result<(), AppError> {
         // Ensure parent directory exists
-        if let Some(parent) = config_path.parent() {
+        if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
 
         let json = serde_json::to_string_pretty(self)?;
-        fs::write(&config_path, json)?;
+        write_atomic(path, json.as_bytes())
+    }
 
-        Ok(())
+    /// Close-time save of the window geometry to the real config file.
+    pub fn save_window_geometry(&self, geometry: WindowGeometry) -> Result<(), AppError> {
+        self.save_window_geometry_to(&Self::get_config_path(), geometry)
+    }
+
+    /// Close-time save of the window geometry to `path`.
+    ///
+    /// Re-reads the file and replaces only its `window` object, so settings
+    /// another instance saved since this one started are kept. If the file
+    /// does not parse as a JSON object nothing is written (startup fell back
+    /// to defaults; writing them now would destroy the user's file). Only a
+    /// missing file is created from `self`.
+    pub fn save_window_geometry_to(
+        &self,
+        path: &Path,
+        geometry: WindowGeometry,
+    ) -> Result<(), AppError> {
+        let contents = match fs::read_to_string(path) {
+            Ok(contents) => contents,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let mut settings = self.clone();
+                settings.window = Some(geometry);
+                return settings.save_to(path);
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let mut value: serde_json::Value = serde_json::from_str(&contents)?;
+        let Some(object) = value.as_object_mut() else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "settings file is not a JSON object; window geometry not saved",
+            )
+            .into());
+        };
+        object.insert("window".to_string(), serde_json::to_value(geometry)?);
+        let json = serde_json::to_string_pretty(&value)?;
+        write_atomic(path, json.as_bytes())
     }
 
     /// Get config file path (cross-platform)

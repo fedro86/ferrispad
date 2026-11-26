@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use fltk::{
     app::Sender,
@@ -13,10 +13,12 @@ use fltk::{
 use super::tabs::TabManager;
 use crate::app::domain::document::DocumentId;
 use crate::app::domain::messages::Message;
-use crate::app::domain::settings::SyntaxTheme;
+use crate::app::domain::settings::{SyntaxTheme, ThemeRef, default_syntax_theme};
 use crate::app::infrastructure::buffer::buffer_text_no_leak;
 use crate::app::infrastructure::defer::defer_send;
+use crate::app::services::custom_themes::CustomTheme;
 use crate::app::services::syntax::SyntaxHighlighter;
+use crate::ui::theme::{EditorColors, derived_editor_colors, effective_editor_colors};
 
 const LARGE_FILE_THRESHOLD: usize = 5000;
 
@@ -30,6 +32,15 @@ pub struct HighlightWidgets<'a> {
 
 pub struct HighlightController {
     highlighter: SyntaxHighlighter,
+    /// Custom themes loaded at startup (T0079), by id.
+    custom_themes: BTreeMap<String, CustomTheme>,
+    /// Missing custom themes already reported on stderr: the theme is set
+    /// several times at startup (and on every toggle), one line is enough.
+    reported_missing: BTreeSet<String>,
+    /// The editor colors of the active theme.
+    editor_colors: EditorColors,
+    /// The theme last asked for (before any fallback).
+    active: ThemeRef,
     pub pending_rehighlight: Option<(DocumentId, i32)>,
     pub rehighlight_timer_active: bool,
     pub highlight_queue: Vec<DocumentId>,
@@ -38,8 +49,15 @@ pub struct HighlightController {
 
 impl HighlightController {
     pub fn new(theme: SyntaxTheme, font: Font, font_size: i32, highlighting_enabled: bool) -> Self {
+        let editor_colors = derived_editor_colors(theme.background(), theme.foreground());
+        let mut highlighter = SyntaxHighlighter::new(theme, font, font_size);
+        highlighter.set_current_line_bg(editor_colors.current_line);
         Self {
-            highlighter: SyntaxHighlighter::new(theme, font, font_size),
+            highlighter,
+            custom_themes: BTreeMap::new(),
+            reported_missing: BTreeSet::new(),
+            editor_colors,
+            active: theme.into(),
             pending_rehighlight: None,
             rehighlight_timer_active: false,
             highlight_queue: Vec::new(),
@@ -58,8 +76,69 @@ impl HighlightController {
         self.highlighter.style_table()
     }
 
-    pub fn set_theme(&mut self, theme: SyntaxTheme) {
-        self.highlighter.set_theme(theme);
+    /// Switch to the theme a light/dark slot references. A custom theme
+    /// that is not loaded (deleted, or its file unreadable) falls back to
+    /// the mode's default built-in; the slot itself is left as is.
+    pub fn set_theme(&mut self, theme: &ThemeRef, is_dark: bool) {
+        self.active = theme.clone();
+        let builtin = match theme {
+            ThemeRef::Builtin(builtin) => *builtin,
+            ThemeRef::Custom(id) => match self.custom_themes.get(id) {
+                Some(custom) => {
+                    let colors = effective_editor_colors(&custom.theme, false);
+                    self.highlighter.set_theme_key(
+                        &theme.theme_key(),
+                        colors.background,
+                        colors.text,
+                    );
+                    self.editor_colors = colors;
+                    self.highlighter.set_current_line_bg(colors.current_line);
+                    return;
+                }
+                None => {
+                    let fallback = default_syntax_theme(is_dark);
+                    if self.reported_missing.insert(id.clone()) {
+                        eprintln!(
+                            "[theme] custom theme '{id}' is not available, using the mode default ('{}')",
+                            fallback.display_name()
+                        );
+                    }
+                    fallback
+                }
+            },
+        };
+        self.highlighter.set_theme(builtin);
+        self.editor_colors = derived_editor_colors(builtin.background(), builtin.foreground());
+        self.highlighter
+            .set_current_line_bg(self.editor_colors.current_line);
+    }
+
+    /// The theme the editor was last asked to show (a Settings preview
+    /// included), before any fallback for a missing custom theme.
+    pub fn active_theme(&self) -> &ThemeRef {
+        &self.active
+    }
+
+    /// The editor colors of the active theme.
+    pub fn editor_colors(&self) -> EditorColors {
+        self.editor_colors
+    }
+
+    /// Replace the loaded custom themes. Call [`Self::set_theme`] afterwards
+    /// to show a changed active theme.
+    pub fn set_custom_themes(&mut self, themes: Vec<CustomTheme>) {
+        self.highlighter.set_custom_themes(
+            themes
+                .iter()
+                .map(|t| (ThemeRef::Custom(t.id.clone()).theme_key(), t.theme.clone()))
+                .collect(),
+        );
+        self.custom_themes = themes.into_iter().map(|t| (t.id.clone(), t)).collect();
+    }
+
+    /// The loaded custom themes, by id.
+    pub fn custom_themes(&self) -> &BTreeMap<String, CustomTheme> {
+        &self.custom_themes
     }
 
     pub fn font(&self) -> Font {
@@ -171,7 +250,7 @@ impl HighlightController {
             if line_count <= LARGE_FILE_THRESHOLD {
                 let result = self.highlighter.highlight_full(&text, name);
                 if let Some(doc) = tab_manager.doc_by_id_mut(id) {
-                    doc.style_buffer.set_text(&result.style_string);
+                    doc.set_style_text(&result.style_string);
                     doc.checkpoints = result.checkpoints;
                 }
             } else {
@@ -244,7 +323,7 @@ impl HighlightController {
         if let Some(doc) = tab_manager.doc_by_id_mut(id) {
             let start = result.byte_start as i32;
             let end = start + result.style_chars.len() as i32;
-            doc.style_buffer.replace(start, end, &result.style_chars);
+            doc.replace_styles(start, end, &result.style_chars);
             doc.checkpoints = checkpoints;
         }
 
@@ -338,7 +417,7 @@ impl HighlightController {
             if let Some(doc) = tab_manager.doc_by_id_mut(doc_id) {
                 let start = output.byte_start as i32;
                 let end = start + output.style_chars.len() as i32;
-                doc.style_buffer.replace(start, end, &output.style_chars);
+                doc.replace_styles(start, end, &output.style_chars);
             }
 
             if is_active {
@@ -394,7 +473,7 @@ impl HighlightController {
             if line_count <= LARGE_FILE_THRESHOLD {
                 let result = self.highlighter.highlight_full(&text, &syntax_name);
                 if let Some(doc) = tab_manager.doc_by_id_mut(id) {
-                    doc.style_buffer.set_text(&result.style_string);
+                    doc.set_style_text(&result.style_string);
                     doc.checkpoints = result.checkpoints;
                 }
                 if tab_manager.active_id() == Some(id) {
@@ -443,7 +522,7 @@ impl HighlightController {
             if line_count <= LARGE_FILE_THRESHOLD {
                 let result = self.highlighter.highlight_full(&text, &syntax_name);
                 if let Some(doc) = tab_manager.doc_by_id_mut(id) {
-                    doc.style_buffer.set_text(&result.style_string);
+                    doc.set_style_text(&result.style_string);
                     doc.checkpoints = result.checkpoints;
                 }
             } else {
@@ -474,7 +553,7 @@ impl HighlightController {
                 doc.checkpoints.clear();
                 let len = doc.buffer.length() as usize;
                 let plain = "A".repeat(len);
-                doc.style_buffer.set_text(&plain);
+                doc.set_style_text(&plain);
             }
         }
     }
@@ -508,6 +587,8 @@ impl HighlightController {
         };
         let mut style_buf = doc.style_buffer.clone();
         let buf = doc.buffer.clone();
+        // Marker writes below may overwrite the current-line twin (T0081).
+        doc.mark_style_stale();
 
         let get_marker_char = |highlight: &mut Self, color: &AnnotationColor| -> char {
             match color {
@@ -621,7 +702,7 @@ impl HighlightController {
         let result = self.highlight_full(&text, &syntax_name);
 
         if let Some(doc) = tab_manager.active_doc_mut() {
-            doc.style_buffer.set_text(&result.style_string);
+            doc.set_style_text(&result.style_string);
             doc.checkpoints = result.checkpoints;
         }
 
@@ -631,5 +712,62 @@ impl HighlightController {
             let table = self.style_table();
             editor.set_highlight_data_ext(style_buf, table);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::services::custom_themes::ThemeStore;
+    use tempfile::tempdir;
+
+    fn controller() -> HighlightController {
+        HighlightController::new(SyntaxTheme::Base16OceanLight, Font::Courier, 14, true)
+    }
+
+    /// A slot pointing at a custom theme that is not loaded (deleted or
+    /// unreadable) shows the mode's default built-in; the reference itself is
+    /// untouched (nothing rewrites settings.json).
+    #[test]
+    fn custom_theme_missing_reference_falls_back_to_mode_default() {
+        let mut hc = controller();
+        let missing = ThemeRef::Custom("t-gone".to_string());
+        for (is_dark, default) in [
+            (true, SyntaxTheme::Base16OceanDark),
+            (false, SyntaxTheme::Base16OceanLight),
+        ] {
+            hc.set_theme(&missing, is_dark);
+            assert_eq!(hc.active_theme(), &missing, "the request is remembered");
+            assert_eq!(hc.highlighter().theme_key(), default.theme_key());
+            // Reported once, however often the theme is set.
+            assert_eq!(hc.reported_missing.len(), 1);
+            assert_eq!(
+                hc.editor_colors(),
+                derived_editor_colors(default.background(), default.foreground())
+            );
+        }
+        assert_eq!(missing, ThemeRef::Custom("t-gone".to_string()));
+    }
+
+    #[test]
+    fn custom_theme_loaded_reference_is_applied() {
+        let dir = tempdir().unwrap();
+        let mut store = ThemeStore::empty(dir.path().to_path_buf());
+        let id = store
+            .clone_from(&SyntaxTheme::SolarizedLight.into(), "Paper")
+            .unwrap();
+        store
+            .set_color(
+                &id,
+                crate::app::services::custom_themes::EditorColorField::Background,
+                (1, 2, 3),
+            )
+            .unwrap();
+        let mut hc = controller();
+        hc.set_custom_themes(store.into_themes());
+        hc.set_theme(&ThemeRef::Custom(id.clone()), false);
+        assert_eq!(hc.highlighter().theme_key(), format!("custom:{id}"));
+        assert_eq!(hc.editor_colors().background, (1, 2, 3));
+        assert_eq!(hc.highlighter().theme_background(), (1, 2, 3));
     }
 }
