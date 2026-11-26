@@ -1,7 +1,7 @@
 ---
 id: T0077
 title: Remember the main window's size, position and maximized state across restarts
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-25
 severity: ~             # severe | moderate | minor   (for audit-derived tickets)
 area: ui                # security | robustness | ui | process
@@ -193,19 +193,20 @@ For Linux, record whether the session was **Wayland or X11**
 
 - [ ] On macOS, Windows and X11 the window reopens with the same size and
       position (within a few pixels) after resize, move and close.
-- [ ] On Wayland the size and maximized state are restored. The position is
+      (X11: yes, Xvfb. Windows/macOS: optional, still to run.)
+- [x] On Wayland the size and maximized state are restored. The position is
       left to the compositor, and a stored X11 position is not overwritten.
-- [ ] A window closed maximized reopens maximized and un-maximizes to its
+- [x] A window closed maximized reopens maximized and un-maximizes to its
       normal size. A window closed minimized does not corrupt the geometry.
-- [ ] Off-screen, oversized, undersized or malformed geometry is corrected or
+- [x] Off-screen, oversized, undersized or malformed geometry is corrected or
       ignored without affecting any other setting.
-- [ ] Closing never reverts settings changed by another instance and never
+- [x] Closing never reverts settings changed by another instance and never
       overwrites an unparseable `settings.json`. The write is atomic.
 - [x] All tests listed above exist and pass; the malformed-field and
       patch-only-geometry tests were seen failing before the fix.
 - [x] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
       and `cargo fmt --check` pass.
-- [ ] The ticket records the manual check per available platform (Wayland or
+- [x] The ticket records the manual check per available platform (Wayland or
       X11 stated for Linux).
 
 ## What was actually done
@@ -460,3 +461,10 @@ FLTK_BACKEND=x11 XDG_CONFIG_HOME=/tmp/fp-cfg nix develop -c cargo run   # X11 pa
   write on resize (0% CPU idle rule).
 - Restore order: create the window at the normal rect → `show()` → `maximize()`.
   A brief flash at the normal size before maximizing is acceptable.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland), build `ab9ed45`
+(T0077–T0083 together): every checklist step passed, including W2–W3 (size
+and maximized state on Wayland). Windows 11 and macOS are optional and still
+to run on the 0.9.10-rc.1 release candidate.
