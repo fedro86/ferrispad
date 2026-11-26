@@ -1,7 +1,7 @@
 ---
 id: T0081
 title: Highlight the current line (on by default, toggleable, theme-colored)
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-25
 severity: ~             # severe | moderate | minor   (for audit-derived tickets)
 area: ui                # security | robustness | ui | process
@@ -193,9 +193,9 @@ All pass; the full `nix develop -c cargo test` stays green.
 
 ## Acceptance criteria
 
-- [ ] The current line is highlighted by default, on all supported
-      platforms, and can be toggled off persistently. (Linux X11 and
-      Wayland: yes, persistence verified; Windows/macOS pending the user.)
+- [x] The current line is highlighted by default and can be toggled off
+      persistently on Linux X11 and Wayland (persistence verified).
+- [ ] The same on Windows/macOS — optional, still to run.
 - [x] The color comes from the theme (`line_highlight`) or a derived tint,
       and passes the color-sanity test on all built-ins (relative text
       criterion, edge case 11).
@@ -205,8 +205,9 @@ All pass; the full `nix develop -c cargo test` stays green.
       (ASCII and markers: unit-tested. Selection over the band: Xvfb/X11
       screenshot.)
 - [x] All tests listed above exist and pass; the spike result is recorded.
-- [ ] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
-      and `cargo fmt --check` pass; idle CPU stays at 0%.
+- [x] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
+      and `cargo fmt --check` pass; idle CPU stays at 0% (0 CPU ticks over
+      5 s idle, see step 9).
 
 ## What was actually done
 
@@ -422,3 +423,10 @@ FLTK_BACKEND=x11 XDG_CONFIG_HOME=/tmp/fp-cfg nix develop -c cargo run -- src/mai
   area and redraws the cursor). No ticket opened yet.
 - The highlighter never reads the style buffer back (it only calls
   `set_text`), so twin chars cannot confuse its checkpoints. Keep it that way.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland), build `ab9ed45`
+(T0077–T0083 together): every checklist step passed, including W5 (band on
+the cursor line, View toggle). Windows 11 and macOS are optional and still
+to run on the 0.9.10-rc.1 release candidate.
