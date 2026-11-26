@@ -84,6 +84,27 @@ unsafe extern "C" {
     );
 }
 
+// A `DirtyChanged` is queued and not yet handled (T0093). Every document's
+// modify callback runs on the UI thread and shares it, so N clean -> dirty
+// flips in one step (e.g. a tab-size change touching every buffer) queue one
+// refresh, not N.
+thread_local! {
+    static DIRTY_REFRESH_QUEUED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Called by the `DirtyChanged` handler before it refreshes: later flips
+/// queue a new refresh.
+pub fn dirty_refresh_handled() {
+    DIRTY_REFRESH_QUEUED.with(|q| q.set(false));
+}
+
+/// Queue a `DirtyChanged` unless one is already waiting.
+fn queue_dirty_refresh(sender: &Sender<Message>, doc_id: DocumentId) {
+    if !DIRTY_REFRESH_QUEUED.with(|q| q.replace(true)) {
+        sender.send(Message::DirtyChanged(doc_id));
+    }
+}
+
 /// Box the closure and register it via FFI.  Returns the `cbArg` pointer
 /// that must be stored for later cleanup.
 fn register_modify_callback(
@@ -129,7 +150,7 @@ fn register_modify_callback(
                     deleted,
                 });
                 if was_clean {
-                    sender.send(Message::DirtyChanged(doc_id));
+                    queue_dirty_refresh(&sender, doc_id);
                 }
             }
         },
@@ -441,14 +462,15 @@ impl Drop for Document {
 mod tests {
     use super::*;
 
-    /// How many `DirtyChanged` messages for `id` are waiting. fltk-rs
+    /// How many `DirtyChanged` messages for `ids` are waiting. fltk-rs
     /// channels share one global queue: drain it and filter by this test's
-    /// own id. (No other test reads the channel; main.rs is the only
-    /// consumer.)
-    fn dirty_flips(receiver: &fltk::app::Receiver<Message>, id: DocumentId) -> usize {
+    /// own ids. This test is the ONLY drainer of the channel (main.rs is the
+    /// only other consumer): extend it rather than adding another test that
+    /// drains, which would race it under parallel libtest.
+    fn dirty_flips(receiver: &fltk::app::Receiver<Message>, ids: &[DocumentId]) -> usize {
         let mut n = 0;
         while let Some(msg) = receiver.recv() {
-            if matches!(msg, Message::DirtyChanged(m) if m == id) {
+            if matches!(msg, Message::DirtyChanged(m) if ids.contains(&m)) {
                 n += 1;
             }
         }
@@ -456,26 +478,51 @@ mod tests {
     }
 
     /// T0093: the first edit of a clean document reports the clean → dirty
-    /// flip exactly once, so the title and the tab bar can show it; later
-    /// edits do not; after a save (mark_clean) the next edit does again.
+    /// flip once, so the title and the tab bar can show it; later edits do
+    /// not; after a save (mark_clean) and the handler run, the next edit does
+    /// again. N documents flipping in one step (a tab-size change touches
+    /// every buffer) queue ONE refresh, i.e. one tab-bar rebuild, not N.
     #[test]
     fn dirty_flip_is_reported_once() {
         let (sender, receiver) = fltk::app::channel::<Message>();
+        dirty_refresh_handled();
         let id = DocumentId(930_093);
         let mut doc = Document::new_untitled(id, 1, sender);
         assert!(!doc.is_dirty());
 
         doc.buffer.insert(0, "x");
         assert!(doc.is_dirty());
-        assert_eq!(dirty_flips(&receiver, id), 1, "first edit");
+        assert_eq!(dirty_flips(&receiver, &[id]), 1, "first edit");
+        dirty_refresh_handled();
 
         doc.buffer.insert(1, "y");
         doc.buffer.remove(0, 1);
-        assert_eq!(dirty_flips(&receiver, id), 0, "already dirty");
+        assert_eq!(dirty_flips(&receiver, &[id]), 0, "already dirty");
 
         doc.mark_clean();
         doc.buffer.insert(0, "z");
-        assert_eq!(dirty_flips(&receiver, id), 1, "dirty again after save");
+        assert_eq!(dirty_flips(&receiver, &[id]), 1, "dirty again after save");
+        dirty_refresh_handled();
         doc.cleanup();
+
+        // Ten clean documents flipping before the handler runs: one message.
+        let ids: Vec<DocumentId> = (0..10).map(|i| DocumentId(930_100 + i)).collect();
+        let mut docs: Vec<Document> = ids
+            .iter()
+            .map(|&id| Document::new_untitled(id, 1, sender))
+            .collect();
+        for doc in &mut docs {
+            doc.buffer.insert(0, "t");
+        }
+        assert!(docs.iter().all(Document::is_dirty));
+        assert_eq!(dirty_flips(&receiver, &ids), 1, "coalesced");
+        // Once handled, the next flip queues a new refresh.
+        dirty_refresh_handled();
+        docs[3].mark_clean();
+        docs[3].buffer.insert(0, "u");
+        assert_eq!(dirty_flips(&receiver, &ids), 1, "next refresh");
+        for doc in &mut docs {
+            doc.cleanup();
+        }
     }
 }

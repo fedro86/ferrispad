@@ -403,6 +403,8 @@ pub fn handle_highlight(msg: Message, state: &mut AppState) {
             state.session.mark_dirty();
         }
         Message::DirtyChanged(_) => {
+            // One message stands for every flip since the last refresh.
+            crate::app::domain::document::dirty_refresh_handled();
             state.update_window_title();
             state.rebuild_tab_bar();
         }

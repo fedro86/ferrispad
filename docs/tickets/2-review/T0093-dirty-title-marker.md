@@ -69,7 +69,11 @@ inactive dirty tab, but not on the active tab being typed into.
 nix develop -c cargo test dirty_
 ```
 
-- `domain::document::tests::dirty_flip_is_reported_once`
+- `domain::document::tests::dirty_flip_is_reported_once`, extended with
+  coalescing: ten clean documents flipping before the handler runs give one
+  `DirtyChanged`, and after the handler the next flip gives a new one.
+  Red with the flag bypassed: `coalesced  left: 10  right: 1`. The test is
+  the only drainer of the global channel, which its comment says.
   - A clean document; insert text into its buffer. Exactly one
     `DirtyChanged(id)` is sent for it.
   - A second edit sends none.
@@ -147,6 +151,19 @@ temp path. Window title after each step:
   before the edit, and after `BufferModified` sends one
   `Message::DirtyChanged(id)` on the clean → dirty flip. Later edits send
   nothing extra.
+- **Coalesced** (review follow-up, orchestrator and ferrispad-a3). A
+  tab-size change (`set_all_tab_distance`) fires the modify callback of
+  every buffer, so every clean document flips and is restored with
+  `mark_clean`. One message per flip meant N tab-bar rebuilds, O(tabs²).
+  - A thread-local `DIRTY_REFRESH_QUEUED` flag is shared by all modify
+    callbacks (they run on the UI thread).
+  - The first flip sets it and sends `DirtyChanged`; later flips send
+    nothing.
+  - The handler clears it (`dirty_refresh_handled()`) before refreshing,
+    so N flips in one step cost one title update and one tab-bar rebuild.
+  - The main loop takes one message per iteration, so a per-iteration
+    "pending" flag would still rebuild N times; deduplicating at send time
+    avoids that, without a timer.
 - `main.rs` routes `DirtyChanged` with the buffer messages;
   `dispatch::handle_highlight` calls `update_window_title()` +
   `rebuild_tab_bar()`.
