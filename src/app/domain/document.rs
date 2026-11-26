@@ -201,10 +201,14 @@ impl Document {
         self.mark_style_stale();
     }
 
-    /// Rewrite part of the style buffer (incremental highlight, markers).
+    /// Rewrite part of the style buffer (incremental highlight, chunks) with
+    /// the same number of style bytes. Only a rewrite that touches the
+    /// twinned current line makes the twin stale (T0096).
     pub fn replace_styles(&mut self, start: i32, end: i32, styles: &str) {
         self.style_buffer.replace(start, end, styles);
-        self.mark_style_stale();
+        let mut twin = self.current_line.get();
+        twin.mark_stale_in(start, end);
+        self.current_line.set(twin);
     }
 
     /// The style bytes were rewritten: twin chars there may be gone.
