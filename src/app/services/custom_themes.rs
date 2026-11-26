@@ -139,6 +139,11 @@ impl EditorColorField {
         }
     }
 
+    /// Store `rgb` (opaque) as this field of `settings`.
+    pub fn set(self, settings: &mut ThemeSettings, rgb: (u8, u8, u8)) {
+        *self.slot(settings) = Some(opaque(rgb));
+    }
+
     fn slot(self, settings: &mut ThemeSettings) -> &mut Option<Color> {
         match self {
             Self::Background => &mut settings.background,
@@ -240,6 +245,12 @@ fn opaque((r, g, b): (u8, u8, u8)) -> Color {
     Color { r, g, b, a: 0xFF }
 }
 
+/// The colors "reset to base" restores for a theme cloned from `base`: the
+/// base built-in's effective editor colors.
+pub fn base_colors(base: SyntaxTheme) -> EditorColors {
+    derived_editor_colors(base.background(), base.foreground())
+}
+
 /// The loaded custom themes and the directory they live in.
 pub struct ThemeStore {
     dir: PathBuf,
@@ -329,12 +340,23 @@ impl ThemeStore {
                 (src.theme.clone(), colors, src.based_on)
             }
         };
-        let name = normalize_name(name);
         for &field in EditorColorField::all() {
-            *field.slot(&mut theme.settings) = Some(opaque(field.of(&colors)));
+            field.set(&mut theme.settings, field.of(&colors));
         }
-        theme.name = Some(name.clone());
+        self.add(name, based_on, theme)
+    }
 
+    /// Add `theme` as a new custom theme named `name`, save it, and return
+    /// its fresh id. Nothing is kept if saving fails.
+    pub fn add(
+        &mut self,
+        name: &str,
+        based_on: Option<SyntaxTheme>,
+        mut theme: Theme,
+    ) -> Result<String, ThemeError> {
+        let name = normalize_name(name);
+        theme.name = Some(name.clone());
+        fill_default_colors(&mut theme);
         let id = self.new_id(&name);
         self.themes.insert(
             id.clone(),
@@ -350,6 +372,17 @@ impl ThemeStore {
             return Err(e);
         }
         Ok(id)
+    }
+
+    /// Replace the editor/UI settings of theme `id` in memory (call
+    /// [`Self::save`] to keep them). Name and scopes are untouched.
+    pub fn set_settings(&mut self, id: &str, settings: ThemeSettings) -> Result<(), ThemeError> {
+        let theme = self
+            .themes
+            .get_mut(id)
+            .ok_or_else(|| ThemeError::NotFound(id.to_string()))?;
+        theme.theme.settings = settings;
+        Ok(())
     }
 
     /// A fresh, unique id for `name` (unique among loaded themes and files
@@ -457,7 +490,7 @@ impl ThemeStore {
             .themes
             .get_mut(id)
             .ok_or_else(|| ThemeError::NotFound(id.to_string()))?;
-        *field.slot(&mut theme.theme.settings) = Some(opaque(rgb));
+        field.set(&mut theme.theme.settings, rgb);
         Ok(())
     }
 
@@ -470,10 +503,204 @@ impl ThemeStore {
             .get_mut(id)
             .ok_or_else(|| ThemeError::NotFound(id.to_string()))?;
         let base = theme.based_on.ok_or(ThemeError::NoBase)?;
-        let colors = derived_editor_colors(base.background(), base.foreground());
-        *field.slot(&mut theme.theme.settings) = Some(opaque(field.of(&colors)));
+        field.set(&mut theme.theme.settings, field.of(&base_colors(base)));
         Ok(())
     }
+}
+
+/// Deepest plist nesting an imported `.tmTheme` may have. A real theme
+/// needs 4–6 (plist → dict → settings array → rule dict → settings dict).
+/// Anything deeper is refused before a `plist::Value` tree is built:
+/// dropping (or walking) a tree nested tens of thousands of levels deep
+/// overflows the stack, and a 1 MiB file can nest 65 000 arrays.
+const MAX_PLIST_DEPTH: usize = 32;
+
+/// Most plist events (values, collection starts and ends) an imported
+/// `.tmTheme` may have, so a flat but huge file cannot make the import do
+/// unbounded work either. Real themes have a few thousand.
+const MAX_PLIST_EVENTS: usize = 200_000;
+
+// The shape check runs through plist's stable serde API: plist reads events
+// iteratively, and serde descends one level per nested value only as far
+// as this visitor allows, so the check needs a bounded stack and builds no
+// tree. (plist's raw event reader is behind an unstable feature.) serde's
+// `Deserialize` takes no state, so the counters are thread-local and reset
+// for every check.
+thread_local! {
+    static PLIST_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static PLIST_EVENTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// A plist value whose shape is checked and then discarded.
+struct PlistShape;
+
+impl PlistShape {
+    fn event<E: serde::de::Error>() -> Result<(), E> {
+        let events = PLIST_EVENTS.with(|n| {
+            n.set(n.get() + 1);
+            n.get()
+        });
+        if events > MAX_PLIST_EVENTS {
+            return Err(E::custom(format!(
+                "the file has more than {MAX_PLIST_EVENTS} entries"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Enter a collection: one more level, refused past the limit.
+    fn enter<E: serde::de::Error>() -> Result<(), E> {
+        Self::event()?;
+        let depth = PLIST_DEPTH.with(|d| {
+            d.set(d.get() + 1);
+            d.get()
+        });
+        if depth > MAX_PLIST_DEPTH {
+            return Err(E::custom("the file is nested too deeply"));
+        }
+        Ok(())
+    }
+
+    fn leave() {
+        PLIST_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+    }
+}
+
+impl<'de> Deserialize<'de> for PlistShape {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(PlistShapeVisitor)
+    }
+}
+
+struct PlistShapeVisitor;
+
+impl<'de> serde::de::Visitor<'de> for PlistShapeVisitor {
+    type Value = PlistShape;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("a property list")
+    }
+
+    fn visit_bool<E: serde::de::Error>(self, _: bool) -> Result<PlistShape, E> {
+        PlistShape::event().map(|()| PlistShape)
+    }
+    fn visit_i64<E: serde::de::Error>(self, _: i64) -> Result<PlistShape, E> {
+        PlistShape::event().map(|()| PlistShape)
+    }
+    fn visit_u64<E: serde::de::Error>(self, _: u64) -> Result<PlistShape, E> {
+        PlistShape::event().map(|()| PlistShape)
+    }
+    fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<PlistShape, E> {
+        PlistShape::event().map(|()| PlistShape)
+    }
+    fn visit_str<E: serde::de::Error>(self, _: &str) -> Result<PlistShape, E> {
+        PlistShape::event().map(|()| PlistShape)
+    }
+    fn visit_bytes<E: serde::de::Error>(self, _: &[u8]) -> Result<PlistShape, E> {
+        PlistShape::event().map(|()| PlistShape)
+    }
+    fn visit_unit<E: serde::de::Error>(self) -> Result<PlistShape, E> {
+        PlistShape::event().map(|()| PlistShape)
+    }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<PlistShape, A::Error> {
+        PlistShape::enter()?;
+        while seq.next_element::<PlistShape>()?.is_some() {}
+        PlistShape::leave();
+        Ok(PlistShape)
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<PlistShape, A::Error> {
+        PlistShape::enter()?;
+        while map.next_key::<PlistShape>()?.is_some() {
+            map.next_value::<PlistShape>()?;
+        }
+        PlistShape::leave();
+        Ok(PlistShape)
+    }
+}
+
+/// Check a plist's shape before any tree is built (XML and binary alike):
+/// nesting at most [`MAX_PLIST_DEPTH`], at most [`MAX_PLIST_EVENTS`] values.
+/// Stops at the first violation or parse error.
+fn check_plist_shape(bytes: &[u8]) -> Result<(), String> {
+    PLIST_DEPTH.with(|d| d.set(0));
+    PLIST_EVENTS.with(|n| n.set(0));
+    plist::from_bytes::<PlistShape>(bytes)
+        .map(|_| ())
+        .map_err(|e| format!("not a valid .tmTheme file ({e})"))
+}
+
+/// Every string stored under a `scope` key anywhere in `value` — the only
+/// place syntect reads scope selectors from a `.tmTheme` (each one a
+/// selector text, see `scope_atoms::tm_selector_scopes`).
+fn plist_scope_strings<'a>(
+    value: &'a plist::Value,
+    depth: usize,
+    out: &mut Vec<&'a str>,
+) -> Result<(), String> {
+    if depth > MAX_PLIST_DEPTH {
+        return Err("the file is nested too deeply".into());
+    }
+    match value {
+        plist::Value::Dictionary(dict) => {
+            for (key, item) in dict {
+                if let (true, plist::Value::String(scope)) = (key == "scope", item) {
+                    out.push(scope);
+                } else {
+                    plist_scope_strings(item, depth + 1, out)?;
+                }
+            }
+        }
+        plist::Value::Array(items) => {
+            for item in items {
+                plist_scope_strings(item, depth + 1, out)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// Read a `.tmTheme` file for import, treating it as untrusted. In order:
+/// 1. over 1 MiB (checked before reading, and the read is capped) or not a
+///    regular file → error;
+/// 2. streaming shape check ([`check_plist_shape`]): depth and event count,
+///    before any tree exists;
+/// 3. parsed with `plist`, and its scopes checked against the process-wide
+///    [`ScopeAtomBudget`] before syntect sees them;
+/// 4. parsed by syntect; a missing foreground/background is filled in.
+pub fn read_tm_theme(path: &Path) -> Result<Theme, String> {
+    let meta = fs::metadata(path).map_err(|e| e.to_string())?;
+    if !meta.is_file() {
+        return Err("not a regular file".into());
+    }
+    let too_big = || {
+        format!(
+            "the file is larger than {} KiB",
+            MAX_THEME_FILE_BYTES / 1024
+        )
+    };
+    if meta.len() > MAX_THEME_FILE_BYTES {
+        return Err(too_big());
+    }
+    let mut bytes = Vec::new();
+    File::open(path)
+        .and_then(|f| f.take(MAX_THEME_FILE_BYTES + 1).read_to_end(&mut bytes))
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > MAX_THEME_FILE_BYTES {
+        return Err(too_big());
+    }
+    check_plist_shape(&bytes)?;
+    let plist = plist::Value::from_reader(io::Cursor::new(&bytes))
+        .map_err(|e| format!("not a valid .tmTheme file ({e})"))?;
+    let mut scopes = Vec::new();
+    plist_scope_strings(&plist, 0, &mut scopes)?;
+    with_process_atom_budget(|budget| budget.admit_tm_selectors(scopes))?;
+    let mut theme = ThemeSet::load_from_reader(&mut io::Cursor::new(bytes))
+        .map_err(|e| format!("not a valid .tmTheme file ({e})"))?;
+    fill_default_colors(&mut theme);
+    Ok(theme)
 }
 
 /// Read and validate one theme file; the error is a human-readable reason.

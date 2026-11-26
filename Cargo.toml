@@ -29,6 +29,9 @@ ureq = { version = "3.4", default-features = false, features = ["rustls"] }
 semver = "1.0"
 open = "5.4"
 syntect = { version = "5", default-features = false, features = ["default-onig"] }
+# Already in the tree through syntect (plist-load): parses an imported
+# .tmTheme for the scope-atom pre-scan before syntect sees it (T0080)
+plist = "1.8"
 thiserror = "2"
 pulldown-cmark = "0.13"
 regex-lite = "0.1"
