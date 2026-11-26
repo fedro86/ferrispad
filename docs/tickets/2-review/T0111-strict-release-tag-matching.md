@@ -111,6 +111,19 @@ Run `release.yml` from the Actions tab (or with `gh workflow run`) on
 - every build job is green;
 - `sign-binaries`, `create-release` and `flatpark` are skipped.
 
+Done:
+[run 45904265691](https://github.com/fedro86/ferrispad/actions/runs/45904265691)
+on 0962449, `gh workflow run release.yml --ref ticket/T0111`. The run
+**succeeded**:
+- `release-gate`: notice "branch 'ticket/T0111' is not a version tag:
+  build only, no signing, no release, no FlatPark";
+- `build-linux` (amd64, arm64), `build-windows` and `build-macos`:
+  success, with 8 unsigned artifacts uploaded;
+- `sign-binaries`, `create-release` and `flatpark`: **skipped**.
+
+A real tag push cannot be tried without publishing. The table test covers
+which tags would start a run and which would publish.
+
 ## Acceptance criteria
 
 - [x] The gate and `bump-version.sh` accept exactly `X.Y.Z` and
@@ -120,7 +133,7 @@ Run `release.yml` from the Actions tab (or with `gh workflow run`) on
       `1.2.3-`, `1.2.3-foo.1` and `1.2.3-rc`.
 - [x] Every existing tag in the repo is still a valid version (36/36).
 - [x] actionlint is clean.
-- [ ] The manual run is green and publishes nothing.
+- [x] The manual run is green and publishes nothing.
 - [x] Regression test added; it failed before the fix.
 - [x] `cargo test`, `cargo clippy --all-targets --all-features`, and
       `cargo fmt --check` all pass with zero warnings.
