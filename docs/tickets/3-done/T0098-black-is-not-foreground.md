@@ -1,7 +1,7 @@
 ---
 id: T0098
 title: Draw pure black (#000000) as black, not as FLTK's foreground color
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: minor
 area: ui
@@ -49,11 +49,11 @@ Light; the Caret swatch must be black.
 
 ## Acceptance criteria
 
-- [ ] `fltk_rgb(0,0,0)` is not palette index 0, and every other RGB keeps
+- [x] `fltk_rgb(0,0,0)` is not palette index 0, and every other RGB keeps
       its encoding.
-- [ ] No direct `Color::from_rgb(` is left in `src/` (guard test).
-- [ ] The swatch is black in dark mode (Xvfb).
-- [ ] Red tests failed before; full gates green.
+- [x] No direct `Color::from_rgb(` is left in `src/` (guard test).
+- [x] The swatch is black in dark mode (Xvfb).
+- [x] Red tests failed before; full gates green.
 
 ## Affected files
 
@@ -108,3 +108,7 @@ test ui::color::tests::no_direct_color_from_rgb_outside_fltk_rgb ... FAILED
 | Editor, dark app, Ocean Light as dark syntax theme: darkest pixel in the caret cell | 0 (black) | 0 (black) |
 
 The screenshot was inspected edge by edge: only the swatch changed.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland) with the rc.3 integration build `verify/rc3` (checklist VERIFICA-RC3.md, item 2.3): in dark mode the theme manager's Caret #000000 swatch of Base16 Ocean Light is black.
