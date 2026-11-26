@@ -83,7 +83,7 @@ every recalc** (not fixed: known limitation, see below).
   - `highlight_plan` is `Synchronous` only for ≤ 5000 lines **and**
     ≤ `SYNC_HIGHLIGHT_MAX_BYTES` (1 MiB).
   - A chunk ends after `CHUNK_SIZE` (2000) lines **or** `CHUNK_BYTES`
-    (256 KiB), whichever comes first. A chunk's `done` is now "the text is
+    (64 KiB), whichever comes first. A chunk's `done` is now "the text is
     consumed" instead of "fewer than 2000 lines were processed".
   - Computing the plan is one pass over the text:
     `str::split_inclusive('\n')` finds each newline with a memchr-style
@@ -94,16 +94,35 @@ every recalc** (not fixed: known limitation, see below).
   just under the limit (64 lines × 16 000 bytes = 1 000 KiB, cut from the
   fixture), `highlight_full` in a release standalone benchmark:
   - 1 MiB synchronous: **3.7 s**;
-  - one 256 KiB chunk step: **0.93 s**, i.e. about 3.66 µs/byte;
+  - a 256 KiB chunk: 0.93 s, i.e. about 3.66 µs/byte;
   - a second run on the loaded machine took twice as long.
-  - Normal code (0.54 µs/byte) costs about 0.55 s synchronous and 0.14 s per
-    chunk.
-  - So the bounds cap a stall at about 4 s in the worst case for synchronous
-    work. Before this ticket, the same file was also highlighted
-    synchronously, so this is not a regression. The 1 MiB / 256 KiB values
-    are the approved ones. Lowering them, e.g. to 256 KiB / 64 KiB (≤ 1 s /
-    0.25 s worst case), would send more normal files down the chunked path
-    with its banner; that is a tuning decision left open.
+
+  | Bound | Value | Worst case (dense, 3.66 µs/B) | Normal code (0.54 µs/B) |
+  |---|---|---|---|
+  | Synchronous highlight | 1 MiB | ≈ 3.7 s | ≈ 0.55 s |
+  | One chunk step | 64 KiB (+ ≤ 16 KiB line) | ≈ 0.23 s (≤ 0.3 s) | ≈ 0.035 s |
+
+  - **Synchronous bound kept at 1 MiB** (orchestrator decision). It decides
+    which files show the "Highlighting large file…" banner; lowering it would
+    flash the banner on ordinary 5000-line files. The 3.7 s worst case (dense
+    lines just under 16 KiB) is not a regression: that file was highlighted
+    synchronously before this ticket too. It is a known bound to revisit
+    with T0095/T0096.
+  - **Chunk budget lowered from 256 KiB to 64 KiB** (orchestrator decision,
+    during review). It has no visible effect: no banner change. It cuts the
+    worst per-chunk freeze while chunked highlighting runs from ≈ 0.93 s to
+    ≈ 0.23 s.
+    - Cost: about 4× more `ContinueHighlight` rounds, each rebinding the
+      style table and repainting the editor.
+    - Measured on the 8 MB multi-line file (66 667 lines of 120 columns), hl
+      on, wrap on, release, interleaved: idle after 6.8 / 7.5 s with 256 KiB
+      against 8.7 / 9.3 s with 64 KiB, about +1.8 s (+25 %) of total
+      highlight time. The machine was heavily loaded (load 8–14); a first
+      pair taken at load 17–22 is discarded.
+    - The UI stays responsive between chunks; keystroke costs are unchanged
+      (0.08–0.09 s).
+    - The 1 MB one-line file, on the synchronous path, is unchanged (1.0 s
+      both).
 - **Deliberate change from the approved scope** (agreed with the
   orchestrator during the work). The scope as first approved counted all
   bytes. That would send the 8 MB one-line file down the chunked path, which
@@ -121,8 +140,13 @@ every recalc** (not fixed: known limitation, see below).
     `ClearAnnotations::{Nothing, Restyled, Chunked(id)}`.
   - The dispatch applies it: `Restyled` rebinds the editor
     (`bind_active_styles`); `Chunked(id)` calls `queue_chunked`.
-  - A chunked run already under way for that document is cancelled first,
-    because it may already have passed the annotated regions.
+  - A chunked run already under way for that document is restarted in place
+    from the top (`ClearAnnotations::Restarted`), because it may already
+    have passed the annotated regions. It goes through `start_chunked` with
+    the fresh text, and the `ContinueHighlight` already pending drives it.
+    A first version cancelled the run and queued it again; that started a
+    second message chain driving the same run, i.e. two chunks per
+    event-loop round (review nit, ferrispad-a3).
 - No new thread, timer, setting or plugin API. Chunks still advance through
   the existing `ContinueHighlight` message.
 - The T0081 current-line highlight already skips lines over 64 KiB
@@ -265,6 +289,9 @@ in other modules, which stay green):
   - 6000 short lines (over the plan's bound): `clear_annotations` returns
     `Chunked(id)` and leaves the style buffer untouched (no synchronous
     pass).
+  - The same document with its chunked run already in flight:
+    `Restarted`, the run restarts from byte 0, and nothing is queued (one
+    message chain).
   - A small document: `Restyled`, with exactly the styles of a full
     highlight.
   - Red before the fold-in: `left: Restyled, right: Chunked(DocumentId(1))`.
@@ -296,9 +323,9 @@ in other modules, which stay green):
   matches the original styles.
 - `…::long_line_chunks_are_bounded_in_bytes`
   - 60 lines of 10 KiB (600 KiB) take at least 3 chunks, and the first one
-    holds ≤ 256 KiB plus one line.
+    holds ≤ `CHUNK_BYTES` (64 KiB) plus one line.
   - 17 lines of exactly 16 KiB (tokenized, counted in full): the first chunk
-    stops at ≤ 256 KiB plus one line.
+    stops at ≤ `CHUNK_BYTES` plus one line.
   - A skipped 600 KiB line does not use up the budget.
 - `controllers::highlight::tests::long_line_highlight_plan_bounds_lines_and_bytes`
   - 1025 lines of 1 KiB are `Chunked`; 1024 are `Synchronous`.

@@ -49,6 +49,10 @@ pub enum ClearAnnotations {
     /// for a chunked highlight ([`HighlightController::queue_chunked`]),
     /// which restyles (and rebinds) as it goes.
     Chunked(DocumentId),
+    /// The document's chunked highlight was already running: it restarted
+    /// from the top in place, driven by the `ContinueHighlight` already
+    /// pending. Nothing to do.
+    Restarted,
 }
 
 /// The one decision between a synchronous and a chunked highlight, shared by
@@ -738,9 +742,11 @@ impl HighlightController {
 
         if highlight_plan(&text) == HighlightPlan::Chunked {
             // A chunked run already under way may have passed annotated
-            // regions: start it over.
+            // regions: start it over in place. Its pending ContinueHighlight
+            // drives the new run, so no second message chain is started.
             if self.highlighter.chunked_doc_id() == Some(id) {
-                self.highlighter.cancel_chunked();
+                self.highlighter.start_chunked(id, text, &syntax_name);
+                return ClearAnnotations::Restarted;
             }
             return ClearAnnotations::Chunked(id);
         }
@@ -830,6 +836,19 @@ mod tests {
         let outcome = hc.clear_annotations(&mut tabs);
         assert_eq!(outcome, ClearAnnotations::Chunked(id));
         assert_eq!(style_text(&tabs, id), before, "no synchronous pass");
+
+        // Its chunked run already in flight: restarted in place from the
+        // top, not queued a second time (one ContinueHighlight chain).
+        hc.highlighter.start_chunked(id, big.clone(), "JavaScript");
+        hc.highlighter
+            .process_chunk()
+            .expect("chunked highlight is active");
+        let outcome = hc.clear_annotations(&mut tabs);
+        assert_eq!(outcome, ClearAnnotations::Restarted);
+        assert_eq!(hc.highlighter.chunked_doc_id(), Some(id));
+        assert!(hc.highlight_queue.is_empty());
+        let first = hc.highlighter.process_chunk().unwrap();
+        assert_eq!(first.byte_start, 0, "from the top");
 
         // Within the plan: restyled at once, as before.
         let small = "var x = 1;\nfunction f(a) { return a; }\n";

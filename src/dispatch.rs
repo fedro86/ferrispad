@@ -637,7 +637,7 @@ pub fn handle_annotation(msg: Message, state: &mut AppState) {
         }
         Message::AnnotationsClear => {
             match state.highlight.clear_annotations(&mut state.tab_manager) {
-                ClearAnnotations::Nothing => {}
+                ClearAnnotations::Nothing | ClearAnnotations::Restarted => {}
                 ClearAnnotations::Restyled => state
                     .highlight
                     .bind_active_styles(&state.tab_manager, &mut state.editor),

@@ -25,7 +25,7 @@ const CHUNK_SIZE: usize = 2000;
 /// …or once it has handed syntect this many bytes, whichever comes first
 /// (T0087), so that one chunk's work is bounded in bytes too. Lines skipped
 /// by [`is_long_line`] do not count.
-pub const CHUNK_BYTES: usize = 256 * 1024;
+pub const CHUNK_BYTES: usize = 64 * 1024;
 
 const TOML_SYNTAX: &str = include_str!("../../../../assets/syntaxes/TOML.sublime-syntax");
 
