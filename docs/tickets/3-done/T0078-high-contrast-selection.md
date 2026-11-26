@@ -332,7 +332,7 @@ scope foreground, focused + unfocused).
       — Xvfb/X11, driven by Claude.
 - [x] System default under a real GNOME appearance switch, on a real
       Wayland compositor (user, 2026-11-26).
-- [ ] Windows/macOS — optional, still to run.
+- [x] Windows/macOS (user, 2026-11-26, on 0.9.10-rc.2: Windows 11 and macOS).
 
 ## Affected files
 
