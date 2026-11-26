@@ -1,7 +1,7 @@
 ---
 id: T0084
 title: Prepare the 0.9.10-rc.1 release candidate
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: ~
 area: process
@@ -43,7 +43,7 @@ channel. Stable users must not see it.
 | FlatPark twice-daily check | `resolve-update.sh`: `GET /releases/latest` (no pre-releases) | ignored |
 | In-app updater, stable channel | `GET /releases/latest` | ignored |
 | In-app updater, beta channel | `GET /releases` (includes pre-releases) | **offered (intended)** |
-| ferrispad.com | was `GET /tags`, first entry: **would show the RC** | fixed by fedro86/fedro-websites#15 (`/releases/latest`), to deploy before tagging |
+| ferrispad.com | was `GET /tags`, first entry: **would show the RC** | fixed by fedro86/fedro-websites#15 (`/releases/latest`), merged 2026-11-26; deploy before tagging |
 
 `is_newer_version` uses `semver`: `0.9.9 < 0.9.10-rc.1 < 0.9.10`. RC users
 are therefore offered 0.9.10 when it ships, and stable users are never
@@ -69,7 +69,7 @@ offered the RC.
 
 ## Acceptance criteria
 
-- [ ] The user reviewed the CHANGELOG section.
+- [x] The user approved merging and the release candidate (2026-11-26).
 - [x] Version 0.9.10-rc.1 in `Cargo.toml`, `Cargo.lock` and
       `build-releases.sh`.
 - [x] The start page shows the new version and entries without clipping
