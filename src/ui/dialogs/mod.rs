@@ -61,6 +61,9 @@ pub struct DialogTheme {
     pub accent_hover: Color,
     /// Selected row of a dialog list (T0097): >= 3:1 against `input_bg`
     pub list_selection_bg: Color,
+    /// 1 px border of text fields and lists (T0105): >= 3:1 against `bg`
+    /// (WCAG 1.4.11, so an empty field stays easy to locate)
+    pub input_border: Color,
     /// Text of the selected row: >= 4.5:1 on `list_selection_bg`
     pub list_selection_text: Color,
     /// Scrollbar track background
@@ -210,6 +213,9 @@ pub fn register_dialog_list_selection(theme_bg: (u8, u8, u8)) {
 /// Minimum WCAG contrast of a dialog list's selected row against the list
 /// background (T0097).
 const LIST_SELECTION_CONTRAST: f64 = 3.0;
+/// Minimum WCAG contrast of a text field's border against the dialog
+/// (WCAG 1.4.11, non-text contrast).
+const INPUT_BORDER_CONTRAST: f64 = 3.0;
 /// Minimum WCAG contrast of the selected row's text.
 const LIST_TEXT_CONTRAST: f64 = 4.5;
 
@@ -226,34 +232,8 @@ pub(crate) fn list_selection_colors(
     text: ThemeRgb,
     is_dark: bool,
 ) -> (ThemeRgb, ThemeRgb) {
-    use super::color::wcag_contrast;
-    let reaches = |c: ThemeRgb| {
-        wcag_contrast(c.to_fltk().to_rgb(), list_bg.to_fltk().to_rgb()) >= LIST_SELECTION_CONTRAST
-    };
-    let step = |c: ThemeRgb, lighter: bool| {
-        if lighter {
-            c.lighten(0.06)
-        } else {
-            c.darken(0.94)
-        }
-    };
-    let search = |lighter: bool| {
-        let mut c = base;
-        for _ in 0..120 {
-            if reaches(c) {
-                return Some(c);
-            }
-            c = step(c, lighter);
-        }
-        reaches(c).then_some(c)
-    };
-    let row = search(is_dark)
-        .or_else(|| search(!is_dark))
-        .unwrap_or(if is_dark {
-            ThemeRgb::WHITE
-        } else {
-            ThemeRgb::new(0, 0, 0)
-        });
+    use super::color::{push_to_contrast, wcag_contrast};
+    let row = push_to_contrast(base, list_bg, LIST_SELECTION_CONTRAST, is_dark);
     let rgb = |c: ThemeRgb| (c.r, c.g, c.b);
     let text = if wcag_contrast(rgb(text), rgb(row)) >= LIST_TEXT_CONTRAST {
         text
@@ -398,6 +378,13 @@ impl DialogTheme {
             accent_hover,
             list_selection_bg: list_selection_bg.to_fltk(),
             list_selection_text: list_selection_text.to_fltk(),
+            input_border: super::color::push_to_contrast(
+                btn_rgb,
+                bg_rgb,
+                INPUT_BORDER_CONTRAST,
+                is_dark,
+            )
+            .to_fltk(),
             scroll_track,
             scroll_thumb,
             is_dark,

@@ -22,6 +22,7 @@ use ferris_pad::app::services::custom_themes::ThemeStore;
 use ferris_pad::ui::dialogs::DialogTheme;
 use ferris_pad::ui::dialogs::build_themed_input;
 use ferris_pad::ui::dialogs::color_picker::build_color_picker;
+use ferris_pad::ui::dialogs::session_picker::build_session_picker;
 use ferris_pad::ui::dialogs::settings_dialog::build_settings_dialog;
 use ferris_pad::ui::dialogs::theme_manager::{SWATCH_TOOLTIP, build_theme_manager};
 use fltk::prelude::*;
@@ -156,5 +157,38 @@ fn new_dialog_windows_build() {
         "settings light",
         &light,
     ));
+
+    // Sessions picker (T0105): layout, themed inputs, and its button row
+    // must not run past the list's right edge (it ended 5 px past it).
+    let sessions = vec![
+        "default".to_string(),
+        "notes".to_string(),
+        "work".to_string(),
+    ];
+    for (name, theme) in [("sessions dark", &dark), ("sessions light", &light)] {
+        let ui = build_session_picker(theme, "default", &sessions);
+        failures.extend(layout_failures(&ui.dialog_win, name, everything));
+        failures.extend(unthemed_inputs(&ui.dialog_win, name, theme));
+        let list_right = ui.browser.x() + ui.browser.w();
+        for b in [
+            &ui.switch_btn,
+            &ui.new_win_btn,
+            &ui.delete_btn,
+            &ui.cancel_btn,
+        ] {
+            if b.x() + b.w() > list_right {
+                failures.push(format!(
+                    "{name}: button {:?} ends at {} past the list edge {list_right}",
+                    b.label(),
+                    b.x() + b.w()
+                ));
+            }
+        }
+        if ui.cancel_btn.x() + ui.cancel_btn.w() != list_right {
+            failures.push(format!(
+                "{name}: button row not aligned to the list's right edge"
+            ));
+        }
+    }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

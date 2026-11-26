@@ -433,13 +433,43 @@ pub fn unthemed_inputs(
     );
     let mut failures = Vec::new();
     for (path, w) in widgets {
+        if let Some(list) = fltk::browser::HoldBrowser::from_dyn_widget(&w) {
+            use ferris_pad::ui::dialogs::widgets::INPUT_FRAME;
+            if list.frame() != INPUT_FRAME || list.selection_color() != theme.list_selection_bg {
+                failures.push(format!("{path}: list not styled as a themed list"));
+            }
+            continue;
+        }
         let Some(input) = fltk::input::Input::from_dyn_widget(&w) else {
             continue;
         };
+        use ferris_pad::ui::dialogs::widgets::{INPUT_FRAME, input_border_for};
+        if input.frame() != INPUT_FRAME {
+            failures.push(format!(
+                "{path}: input frame {:?} != INPUT_FRAME",
+                input.frame()
+            ));
+        }
+        if input_border_for(input.color()) != Some(theme.input_border) {
+            failures.push(format!(
+                "{path}: input border {:?} != theme {:?}",
+                input_border_for(input.color()).map(|c| c.to_rgb()),
+                theme.input_border.to_rgb()
+            ));
+        }
         let checks = [
             ("background", input.color(), theme.input_bg),
             ("text", input.text_color(), theme.text),
-            ("cursor", input.cursor_color(), theme.text),
+            // A read-only field draws no caret (cursor in the field color).
+            (
+                "cursor",
+                input.cursor_color(),
+                if input.readonly() {
+                    theme.input_bg
+                } else {
+                    theme.text
+                },
+            ),
             (
                 "selection",
                 input.selection_color(),
