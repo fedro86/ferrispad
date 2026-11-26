@@ -1,7 +1,7 @@
 ---
 id: T0082
 title: Closing the main window from the title bar must go through the unsaved-changes prompt
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-25
 severity: severe        # severe | moderate | minor   (for audit-derived tickets)
 area: robustness        # security | robustness | ui | process
@@ -255,3 +255,10 @@ wmctrl -c FerrisPad; sleep 2; wmctrl -l     # expect an "Unsaved Changes" window
     `if (grab() || (modal() && window != modal())) return 0;`).
   Edge cases 2–3 and manual steps 4–5 were rewritten accordingly. Edge case 7,
   manual step 9 and the source guard were added.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland), build `ab9ed45`
+(T0077–T0083 together): every checklist step passed, including W1 (× and
+Alt+F4 go through the save prompt). Windows 11 and macOS are optional and
+still to run on the 0.9.10-rc.1 release candidate.
