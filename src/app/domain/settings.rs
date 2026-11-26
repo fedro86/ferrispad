@@ -41,6 +41,35 @@ impl Default for ShortcutOverride {
     }
 }
 
+/// Read `shortcut_overrides`, dropping malformed entries (T0100). An entry
+/// without a "shortcut" key would otherwise parse as "" = unbound and
+/// silently remove a working shortcut; it is ignored instead, so the
+/// built-in shortcut stays. Explicit unbinding is `"shortcut": ""`.
+fn deserialize_shortcut_overrides<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<String, ShortcutOverride>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = HashMap::<String, serde_json::Value>::deserialize(deserializer)?;
+    Ok(raw
+        .into_iter()
+        .filter_map(|(id, value)| {
+            if value.get("shortcut").is_none() {
+                eprintln!("[settings] Ignoring the override for \"{id}\": no \"shortcut\" key.");
+                return None;
+            }
+            match serde_json::from_value::<ShortcutOverride>(value) {
+                Ok(ovr) => Some((id, ovr)),
+                Err(e) => {
+                    eprintln!("[settings] Ignoring the override for \"{id}\": {e}.");
+                    None
+                }
+            }
+        })
+        .collect())
+}
+
 /// Per-plugin configuration (stored in settings.json)
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)] // missing keys take `Default` (T0100)
@@ -399,6 +428,7 @@ pub struct AppSettings {
 
     /// Centralized shortcut overrides (command_id -> override)
     /// Keys: "File/Save" for built-ins, "plugin:name:action" for plugins
+    #[serde(deserialize_with = "deserialize_shortcut_overrides")]
     pub shortcut_overrides: HashMap<String, ShortcutOverride>,
 
     /// File size (MB) above which a warning is shown before loading (default 50)
@@ -634,10 +664,33 @@ impl AppSettings {
     /// yields the defaults (logged); individual fields such as the syntax
     /// theme slots fall back on their own without rejecting the rest.
     pub fn from_json_or_default(contents: &str) -> Self {
-        serde_json::from_str(contents).unwrap_or_else(|e| {
-            eprintln!("Failed to parse settings: {}. Using defaults.", e);
-            Self::default()
-        })
+        serde_json::from_str(contents).unwrap_or_else(|e| Self::salvage(contents, &e))
+    }
+
+    /// `contents` did not parse as a whole (T0100): keep every key that is
+    /// valid on its own, on top of the defaults, and drop (log) the rest, so
+    /// one bad value never resets every other setting. Not JSON at all, or
+    /// not an object: all defaults. Only runs on this error path.
+    fn salvage(contents: &str, error: &serde_json::Error) -> Self {
+        use serde_json::Value;
+        let (Ok(Value::Object(user)), Ok(Value::Object(mut merged))) = (
+            serde_json::from_str::<Value>(contents),
+            serde_json::to_value(Self::default()),
+        ) else {
+            eprintln!("Failed to parse settings: {error}. Using defaults.");
+            return Self::default();
+        };
+        for (key, value) in user {
+            let previous = merged.insert(key.clone(), value);
+            if serde_json::from_value::<Self>(Value::Object(merged.clone())).is_err() {
+                eprintln!("[settings] Ignoring an invalid value for \"{key}\"; using the default.");
+                match previous {
+                    Some(previous) => merged.insert(key, previous),
+                    None => merged.remove(&key),
+                };
+            }
+        }
+        serde_json::from_value(Value::Object(merged)).unwrap_or_default()
     }
 
     /// Save settings to disk
@@ -752,6 +805,42 @@ mod tests {
                 )
             })
             .collect()
+    }
+
+    /// One invalid key never resets the others: an unknown enum value, a
+    /// partial window geometry or a wrong type drops only that key (logged);
+    /// every other key of the file is kept.
+    #[test]
+    fn settings_one_bad_key_keeps_the_others() {
+        let s = AppSettings::from_json_or_default(
+            r#"{"theme_mode":"Purple","font_size":17,"window":{"x":1},
+                "tabs_enabled":false,"tab_size":"wide","word_wrap_enabled":false}"#,
+        );
+        let d = AppSettings::default();
+        assert_eq!(s.theme_mode, d.theme_mode, "invalid enum -> default");
+        assert_eq!(s.tab_size, d.tab_size, "wrong type -> default");
+        assert_eq!(s.window, None, "partial geometry -> dropped");
+        assert_eq!(s.font_size, 17, "valid keys kept");
+        assert!(!s.tabs_enabled);
+        assert!(!s.word_wrap_enabled);
+    }
+
+    /// A shortcut override without a "shortcut" key is malformed: it is
+    /// ignored, so the built-in shortcut stays. Explicit unbinding is
+    /// `"shortcut": ""`.
+    #[test]
+    fn settings_shortcut_override_without_key_is_ignored() {
+        use crate::app::services::shortcut_registry::ShortcutRegistry;
+        let s = AppSettings::from_json_or_default(
+            r#"{"font_size":17,"shortcut_overrides":{
+                "File/Save":{"enabled":true},
+                "File/Open...":{"shortcut":"","enabled":true}}}"#,
+        );
+        assert_eq!(s.font_size, 17, "the rest of the file is kept");
+        assert!(!s.shortcut_overrides.contains_key("File/Save"));
+        let reg = ShortcutRegistry::from_settings(&s.shortcut_overrides);
+        assert_eq!(reg.effective_shortcut("File/Save", "Ctrl+S"), "Ctrl+S");
+        assert_eq!(reg.effective_shortcut("File/Open...", "Ctrl+O"), "");
     }
 
     /// WindowGeometry is deliberately strict: without its coordinates a

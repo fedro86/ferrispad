@@ -130,6 +130,36 @@ After the fix it passes. All 25 settings unit tests and
     `ShortcutOverride: {} does not parse: missing field shortcut`.
 - New test `settings_missing_keys_take_the_defaults` compares all fields.
 
+- **One invalid key never resets the others** (orchestrator condition on
+  the strict `WindowGeometry`, generalised to every field).
+  - Before, *any* value that failed to parse reset the whole file to
+    defaults: an unknown enum (`"theme_mode": "Purple"`), a wrong type
+    (`"tab_size": "wide"`), or a `ShortcutOverride` without `shortcut`.
+  - `from_json_or_default` now falls back, only on that error path, to
+    `salvage()`. It starts from the defaults, adds the user's keys one at a
+    time, keeps each one that still parses, and drops (and logs) each one
+    that does not.
+  - This needs no per-field annotation, so a new field is covered
+    automatically. A file that is not JSON, or not an object, still yields
+    all defaults.
+  - Test `settings_one_bad_key_keeps_the_others`. Red:
+    `valid keys kept  left: 16  right: 17` (the whole file had been reset).
+- **A shortcut override without a "shortcut" key is ignored** (orchestrator
+  decision on ferrispad-a3's note).
+  - With the container default it would have parsed as `""`, i.e.
+    *unbound*, silently removing a working shortcut.
+  - `shortcut_overrides` now goes through a lenient map deserializer that
+    drops such entries, and entries that fail to parse, with a log line. The
+    built-in shortcut stays.
+  - Explicit unbinding is still `"shortcut": ""`.
+  - Test `settings_shortcut_override_without_key_is_ignored`: File/Save
+    without the key keeps Ctrl+S, File/Open… with `""` is unbound, and the
+    other keys of the file are kept. Red: the entry was kept.
+- **Proposed CHANGELOG line** for the release that ships this: "Settings:
+  one invalid or incomplete value in settings.json (e.g. a shortcut
+  override without its key) no longer resets every setting to its default;
+  only that value is ignored."
+
 ## Acceptance criteria
 
 - [x] `{}` parses to exactly `AppSettings::default()` (test).
