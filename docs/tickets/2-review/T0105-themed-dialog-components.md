@@ -128,3 +128,29 @@ nix shell nixpkgs#xvfb-run -c xvfb-run -a env FERRISPAD_REQUIRE_UI_TESTS=1 \
   lines) removed 158 lines, all listed in the PR for review; site-specific
   deviations (a dimmed placeholder color, text sizes, a disabled plugin's
   dimmed label) were kept.
+
+### Xvfb campaign (Claude): text selected in every dialog input, dark and light
+
+Montage: `ferrispad-wt/uitest-T0105/montage/t0105-inputs.png` (one row per
+input, dark | light; crops and full screenshots in `uitest-T0105/run/`,
+driver `campaign.sh` / `viewer.sh` / `picker.sh`). Each input was focused,
+filled when empty, and selected with End, Shift+Home (the shortcut field,
+which captures keys, with a triple click):
+
+- Settings: Font, Font size, Large Files warning and max. **Before**
+  (T0097 base): the Large Files fields select in FLTK's **navy** in both
+  modes, and Font / Font size use the old low-contrast `button_bg`.
+  **After**: all four use the shared selection.
+- Find, Replace (both fields), Go to Line, New Session Window name, Sessions
+  "New:", font picker search and size, key-shortcut field, Duplicate name
+  prompt, color picker hex **and** its value fields, Plugin Manager search,
+  large-file "Open Lines" start / end, and the read-only viewer's page /
+  line / search fields plus a text selection in its view.
+
+After the fix every field selects in the shared bar (light gray in dark,
+mid-gray in light) with readable dark text, and draws its cursor in the
+text color: no more black caret on a dark field. Found and fixed during
+the campaign: the color chooser's FLTK value fields still selected in
+`button_bg`; `style_color_chooser` now gives them the shared selection
+(its mode menu keeps the button color). Inspected edge by edge: no layout
+change, nothing clipped.

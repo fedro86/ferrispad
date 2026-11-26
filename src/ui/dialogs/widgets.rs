@@ -133,10 +133,18 @@ impl DialogTheme {
         for i in 0..chooser.children() {
             if let Some(mut part) = chooser.child(i) {
                 part.set_color(self.input_bg);
-                part.set_selection_color(self.button_bg);
                 part.set_label_color(self.text);
+                // The value fields select text like every other input; the
+                // mode choice highlights its menu in the button color.
+                let field = fltk::valuator::ValueInput::from_dyn_widget(&part).is_some();
+                part.set_selection_color(if field {
+                    self.list_selection_bg
+                } else {
+                    self.button_bg
+                });
             }
         }
+        crate::ui::contrast::register_list_selection(self.list_selection_bg.to_rgb());
     }
 
     /// The text-field colors (background, text, cursor, shared selection)
