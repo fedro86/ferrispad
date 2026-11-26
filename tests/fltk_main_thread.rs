@@ -20,6 +20,7 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::ExitCode;
 
+use ferris_pad::app::controllers::highlight::main_thread_checks as highlight;
 use ferris_pad::ui::dialogs::main_thread_checks as dialogs;
 use ferris_pad::ui::scrollbar::main_thread_checks as scrollbar;
 
@@ -28,6 +29,10 @@ const CHECKS: &[(&str, fn())] = &[
     (
         "child_index_invariant_matches_bundled_fltk",
         scrollbar::child_index_invariant_matches_bundled_fltk,
+    ),
+    (
+        "long_line_clear_annotations_follows_the_plan",
+        highlight::long_line_clear_annotations_follows_the_plan,
     ),
 ];
 
