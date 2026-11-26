@@ -101,6 +101,17 @@ gutter:
   `x` + Enter → line 100000 appears and the gutter widens to fit it;
   Backspace → back to 5 digits.
 
+Screenshots (on the dev host, `/home/fedro/Code/personal/ferrispad-wt/uitest-T0087/`;
+each is a 200×120 crop at the window's bottom-left, gutter plus text, at the
+end of the file after Ctrl+End):
+- `gut-master-{9999,100000,1000000}.png`, strip `gut-master.png`: master, cut;
+- `gut-off-{…}.png`, strip `gut-off.png`: fixed, tabs off;
+- `gut-on-{…}.png`, strip `gut-on.png`: fixed, tabs on;
+- `gut-compare.png`: the three strips stacked (master / off / on);
+- `type-before.png` → `type-after.png` → `type-back.png`, strip
+  `type-compare.png`: 99 998 lines, then `x` + Enter (line 100000, wider
+  gutter), then Backspace (narrow again).
+
 ## What was done
 
 - `ui::line_numbers` (new):
