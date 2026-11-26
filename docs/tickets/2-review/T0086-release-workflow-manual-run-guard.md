@@ -173,3 +173,22 @@ No release and no tag were created (`gh release list` still ends at
 `0.9.10-rc.2`). This confirms the Goal: the guard was a third-party
 action's internal check, the branch build itself was broken, and a branch
 run already reached the signing step with the release key loaded.
+
+### Green run (this change, 2a3465c)
+
+`gh workflow run release.yml --ref ticket/T0086`: run **45868685796**,
+conclusion **success**.
+
+- `release-gate`: success, with the notice
+  `branch 'ticket/T0086' is not a version tag: build only, no signing, no release, no FlatPark.`
+- build-linux amd64 / arm64, build-windows, build-macos: **success**.
+- `sign-binaries`, `create-release`, `flatpark`: **skipped**.
+- Workflow artifacts (unsigned, for testing only): `linux-bin-amd64`,
+  `linux-bin-arm64`, `linux-deb-amd64`, `linux-deb-arm64`, `windows-bin`,
+  `windows-zip`, `macos-bin`, `macos-dmg`. The files are named
+  `FerrisPad-v0.9.10-rc.2-dev.2a3465c-{linux-amd64,linux-arm64,ubuntu-amd64.deb,ubuntu-arm64.deb,windows-x64.exe,windows-x64.zip,macos-universal,macos.dmg}`.
+- `gh release list` still ends at `0.9.10-rc.2`: no new release, no new tag.
+
+Still to check on the next real tag (0.9.10-rc.3): the tag path publishes as
+before (signed assets, pre-release flag, no FlatPark for `-rc`). Record that
+run here.
