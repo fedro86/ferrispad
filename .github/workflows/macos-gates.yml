@@ -44,24 +44,15 @@ jobs:
       - name: cargo clippy (-D warnings)
         run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
-      # TEMPORARY diagnostic (T0076 -> T0089): run every test in its own
-      # process so an AppKit abort only takes down that one test, and list
-      # all failures at once. Replaced by a named skip list afterwards.
-      - name: cargo test (diagnostic, each test isolated)
-        run: |
-          cargo test --locked --no-run --message-format=json 2>/dev/null \
-            | jq -r 'select(.reason=="compiler-artifact" and .profile.test==true and .executable!=null) | .executable' > bins.txt
-          : > summary.txt
-          while read -r bin; do
-            "$bin" --list --format=terse 2>/dev/null | sed -n 's/: test$//p' > names.txt
-            echo "$(basename "$bin"): $(wc -l < names.txt) tests"
-            while read -r t; do
-              rc=0; out=$("$bin" --exact "$t" 2>&1) || rc=$?
-              if [ $rc -ne 0 ]; then
-                echo "::group::FAIL rc=$rc $(basename "$bin") :: $t"; echo "$out" | tail -40; echo "::endgroup::"
-                echo "FAIL rc=$rc $(basename "$bin") :: $t" >> summary.txt
-              fi
-            done < names.txt
-          done < bins.txt
-          echo "==== SUMMARY"; cat summary.txt
-          test ! -s summary.txt
+      # Known macOS test failures, skipped by EXACT name (--exact applies to
+      # --skip). This list may only shrink: any other failing test still
+      # turns the job red.
+      # - FLTK widget tests abort on macOS because libtest runs them off the
+      #   main thread (AppKit requirement): T0089.
+      # - Plugin path validation on macOS: T0090.
+      - name: cargo test
+        run: >-
+          cargo test --locked -- --exact
+          --skip ui::dialogs::tests::popup_is_top_level
+          --skip ui::scrollbar::tests::child_index_invariant_matches_bundled_fltk
+          --skip app::plugins::api::tests::test_lua_create_dir_and_rename

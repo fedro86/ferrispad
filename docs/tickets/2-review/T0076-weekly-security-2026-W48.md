@@ -240,3 +240,53 @@ same label as `release.yml`'s `build-macos` job. The job name drops "arm64"
 (`build + clippy + test (macos)`) because the image behind `macos-latest` is
 moved by GitHub over time; it is currently Apple Silicon (arm64). Triggers,
 commands and permissions are unchanged; no other workflow is touched.
+
+## Brought up to date with master + first real macOS gate (2026-11-26)
+
+### Merge with master (7ea980d: T0077–T0085, fltk 1.5.24)
+
+`origin/master` merged into the branch (merge commit 1e3b2dd, no rebase, no
+force-push). No textual conflict; `Cargo.lock` was checked rather than
+trusted: its delta against master is byte-identical to the branch's original
+delta (serde/serde_core/serde_derive 1.0.229 + syn 3.0.10 via serde_derive,
+similar 3.2.1, serde_json 1.0.154, sha2 0.11.1, objc2 0.6.5, objc-sys gone),
+on top of master's fltk/fltk-sys 1.5.24 set, and `cargo tree --locked`
+accepts it unchanged (nothing else moved). Gates on the merge (Nix dev shell,
+Xvfb, `FERRISPAD_REQUIRE_UI_TESTS=1`): fmt, clippy `-D warnings`, full suite
+(lib 581 passed, every integration binary green).
+
+### Pre-existing macOS defects exposed by the first real macOS run
+
+The 2026-11-25 macOS run (45684116682) never got a runner (queue timeout), so
+run 45857601075 was the first time the gate ran at all. Its clippy found two
+macOS-only defects that were already on master, fixed in 608fb44:
+
+- `DialogTheme::apply_titlebar` (`src/ui/dialogs/mod.rs`): `window` unused on
+  macOS → explicit, commented no-op for macOS.
+- `detect_system_dark_mode` macOS branch (`src/app/infrastructure/platform.rs`):
+  `clippy::collapsible_if` → let chain.
+
+`cargo test` on macOS then aborted (SIGABRT) the whole lib test binary. A
+temporary per-test diagnostic step (01ff0f4, 96101d9: every test in its own
+process) listed **all** macOS failures in one run (45861376873); there are
+exactly three, all pre-existing on master and unrelated to the bumps:
+
+| Test | Failure | Follow-up |
+|---|---|---|
+| `ui::dialogs::tests::popup_is_top_level` | SIGABRT: AppKit `nextEventMatchingMask should only be called from the Main Thread!` (FLTK widgets built on a libtest worker thread) | T0089 |
+| `ui::scrollbar::tests::child_index_invariant_matches_bundled_fltk` | same abort | T0089 |
+| `app::plugins::api::tests::test_lua_create_dir_and_rename` | `create_dir should succeed: Path outside project root` | T0090 |
+
+Every other test (lib 579 + all integration binaries) passes on macOS.
+`macos-gates.yml` now skips exactly these three by name (`--exact --skip`),
+with a comment pointing at T0089/T0090; the list may only shrink, and any new
+macOS failure still turns the job red. The diagnostic step is gone.
+
+### CI on the final head
+
+See the PR checks for the head commit: fmt + clippy + test, test (linux
+arm64), build (windows x64), the README-deps build and
+`build + clippy + test (macos)`.
+
+Still pending user verification on a Mac: the objc2 0.6 recipe above (title
+bar colours/title, debug build encoding check).
