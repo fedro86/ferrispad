@@ -402,6 +402,10 @@ pub fn handle_highlight(msg: Message, state: &mut AppState) {
             state.schedule_text_change_hook(id, pos, inserted, deleted);
             state.session.mark_dirty();
         }
+        Message::DirtyChanged(_) => {
+            state.update_window_title();
+            state.rebuild_tab_bar();
+        }
         Message::DoRehighlight => {
             state.do_pending_rehighlight();
         }
@@ -711,6 +715,8 @@ pub fn handle_deferred(
             {
                 let id = doc.id;
                 state.tab_manager.remove(id);
+                // No document now: the title drops "Untitled" (T0093).
+                state.update_window_title();
             }
 
             if tabs_enabled {

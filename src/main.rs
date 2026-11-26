@@ -637,7 +637,8 @@ fn main() {
                 }
 
                 // Syntax highlighting (skip if no tabs — no buffer)
-                Message::BufferModified { .. }
+                Message::DirtyChanged(_)
+                | Message::BufferModified { .. }
                 | Message::DoRehighlight
                 | Message::ContinueHighlight
                 | Message::DoTextChangeHook => {

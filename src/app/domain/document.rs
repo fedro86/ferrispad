@@ -105,6 +105,9 @@ fn register_modify_callback(
               _restyled: i32,
               _deleted_text: *const std::ffi::c_char| {
             if inserted > 0 || deleted > 0 {
+                // Report the clean -> dirty flip once, so the window title
+                // and the tab bar show it (T0093); later edits don't.
+                let was_clean = !changes.get();
                 changes.set(true);
                 if inserted > 0 {
                     let filler = "A".repeat(inserted as usize);
@@ -125,6 +128,9 @@ fn register_modify_callback(
                     inserted,
                     deleted,
                 });
+                if was_clean {
+                    sender.send(Message::DirtyChanged(doc_id));
+                }
             }
         },
     );
@@ -428,5 +434,48 @@ impl Document {
 impl Drop for Document {
     fn drop(&mut self) {
         self.cleanup();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// How many `DirtyChanged` messages for `id` are waiting. fltk-rs
+    /// channels share one global queue: drain it and filter by this test's
+    /// own id. (No other test reads the channel; main.rs is the only
+    /// consumer.)
+    fn dirty_flips(receiver: &fltk::app::Receiver<Message>, id: DocumentId) -> usize {
+        let mut n = 0;
+        while let Some(msg) = receiver.recv() {
+            if matches!(msg, Message::DirtyChanged(m) if m == id) {
+                n += 1;
+            }
+        }
+        n
+    }
+
+    /// T0093: the first edit of a clean document reports the clean → dirty
+    /// flip exactly once, so the title and the tab bar can show it; later
+    /// edits do not; after a save (mark_clean) the next edit does again.
+    #[test]
+    fn dirty_flip_is_reported_once() {
+        let (sender, receiver) = fltk::app::channel::<Message>();
+        let id = DocumentId(930_093);
+        let mut doc = Document::new_untitled(id, 1, sender);
+        assert!(!doc.is_dirty());
+
+        doc.buffer.insert(0, "x");
+        assert!(doc.is_dirty());
+        assert_eq!(dirty_flips(&receiver, id), 1, "first edit");
+
+        doc.buffer.insert(1, "y");
+        doc.buffer.remove(0, 1);
+        assert_eq!(dirty_flips(&receiver, id), 0, "already dirty");
+
+        doc.mark_clean();
+        doc.buffer.insert(0, "z");
+        assert_eq!(dirty_flips(&receiver, id), 1, "dirty again after save");
+        doc.cleanup();
     }
 }
