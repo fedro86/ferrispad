@@ -837,8 +837,6 @@ mod tests {
     use super::*;
     use fltk::group::Group;
 
-    /// Theme backgrounds to check: every built-in syntax theme plus a sweep
-    /// of grays and tinted colors, standing in for custom themes.
     /// T0105: the user-chosen field border reads at >= 3:1 against the
     /// dialog background (WCAG 1.4.11) on every theme.
     #[test]
@@ -883,6 +881,8 @@ mod tests {
         }
     }
 
+    /// Theme backgrounds to check: every built-in syntax theme plus a sweep
+    /// of grays and tinted colors, standing in for custom themes.
     fn dialog_list_test_backgrounds() -> Vec<(String, (u8, u8, u8))> {
         use crate::app::domain::settings::SyntaxTheme;
         let mut bgs: Vec<(String, (u8, u8, u8))> = SyntaxTheme::all()
