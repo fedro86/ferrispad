@@ -74,8 +74,10 @@ fn file_type_menus_follow_the_active_document() {
         instance_id: Some("1".to_string()),
     };
     let dir = session_dir("default");
-    fs::create_dir_all(&dir).unwrap();
+    // Before touching anything: on a platform whose dirs ignore XDG_* this
+    // would be the user's real session dir.
     assert!(dir.starts_with(root.path()), "session dir is the temp one");
+    fs::create_dir_all(&dir).unwrap();
     fs::write(
         dir.join("session.json"),
         serde_json::to_string_pretty(&session).unwrap(),
