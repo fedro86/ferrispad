@@ -233,6 +233,18 @@ highlighting.**
 Gates after the fixes: 672 passed (twice), clippy `-D warnings` and fmt
 clean.
 
+**Review nit (non-blocking, applied): a displaced floor is not lost.**
+- `pending_floor` holds one document, like `pending_rehighlight`. A fold for
+  document B while A's floor was still pending would have dropped A's floor,
+  so A's folded pass could converge early and keep a stale tail.
+- The fold is now `fold_pause(id, pos)`, a pure method returning the
+  displaced document. `schedule_rehighlight` hands that document to
+  `queue_chunked`, for a full chunked pass, as `set_incremental_resume`
+  already does for a displaced pause.
+- Test `incremental_budget_displaced_floor_is_not_lost`. Red with the
+  displacement ignored: `A's floor goes to a chunked pass`. Gates: 673
+  passed.
+
 ## Acceptance criteria
 
 - [x] A keystroke never re-highlights more than `CHUNK_BYTES` (+ one line)

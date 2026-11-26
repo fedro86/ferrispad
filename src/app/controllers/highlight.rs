@@ -333,6 +333,34 @@ impl HighlightController {
             || !self.highlight_queue.is_empty()
     }
 
+    /// A new edit of `id` at `pos` supersedes a pause of the same document
+    /// (T0096). Its unfinished part restarts with the edit, from whichever
+    /// comes first, and its chain-break line becomes the convergence floor
+    /// of that pass. Returns the start position, and another document whose
+    /// pending floor this one displaced (one slot): the caller gives that
+    /// one a full chunked pass, so no stale tail survives.
+    fn fold_pause(&mut self, id: DocumentId, pos: i32) -> (i32, Option<DocumentId>) {
+        let Some(paused) = self.incremental_resume.take() else {
+            return (pos, None);
+        };
+        if paused.id != id {
+            self.incremental_resume = Some(paused);
+            return (pos, None);
+        }
+        let pos = pos.min(i32::try_from(paused.resume.byte).unwrap_or(i32::MAX));
+        let floor = (
+            id,
+            paused.resume.chain_break_line(),
+            paused.resume.total_lines(),
+        );
+        let displaced = self
+            .pending_floor
+            .replace(floor)
+            .map(|(other, _, _)| other)
+            .filter(|other| *other != id);
+        (pos, displaced)
+    }
+
     /// Record a paused incremental re-highlight of `id` (T0096). The slot
     /// holds one document: another document's pending continuation becomes
     /// a full chunked pass, so its remainder is never lost.
@@ -558,18 +586,9 @@ impl HighlightController {
         // A paused re-highlight of this document is superseded by the new
         // edit; its unfinished part restarts with it, from whichever comes
         // first (T0096).
-        let mut pos = pos;
-        if let Some(paused) = self.incremental_resume.take() {
-            if paused.id == id {
-                pos = pos.min(i32::try_from(paused.resume.byte).unwrap_or(i32::MAX));
-                self.pending_floor = Some((
-                    id,
-                    paused.resume.chain_break_line(),
-                    paused.resume.total_lines(),
-                ));
-            } else {
-                self.incremental_resume = Some(paused);
-            }
+        let (pos, displaced) = self.fold_pause(id, pos);
+        if let Some(other) = displaced {
+            self.queue_chunked(other, sender);
         }
 
         if self.highlighter.chunked_doc_id() == Some(id) {
@@ -1082,6 +1101,57 @@ mod tests {
             deleted: 0,
         });
         assert!(!hc.claim_continue(), "other messages leave the flag alone");
+    }
+
+    /// T0096 (review nit): the floor slot holds one document. A fold for
+    /// document B while A's floor is still pending hands A back for a full
+    /// chunked pass instead of silently dropping its floor.
+    #[test]
+    fn incremental_budget_displaced_floor_is_not_lost() {
+        let mut hc = controller();
+        let text: String = (0..3000)
+            .map(|i| format!("var v{i} = \"s{i}\"; // line {i} of filler text\n"))
+            .collect();
+        let opened = format!("/*{text}");
+        let pause_of = |hc: &mut HighlightController| {
+            let mut cps = hc
+                .highlighter
+                .highlight_full(&text, "JavaScript")
+                .checkpoints;
+            hc.highlighter
+                .highlight_incremental(&opened, 0, &mut cps, "JavaScript", 0)
+                .resume
+                .expect("paused")
+        };
+        let (a, b) = (DocumentId(1), DocumentId(2));
+
+        // A pauses, then A is edited: A's floor is pending.
+        let resume = pause_of(&mut hc);
+        hc.incremental_resume = Some(PausedHighlight {
+            id: a,
+            resume,
+            text: opened.clone(),
+            syntax_name: "JavaScript".into(),
+        });
+        assert_eq!(hc.fold_pause(a, 5), (5, None));
+        assert!(hc.pending_floor.is_some_and(|(d, _, _)| d == a));
+
+        // Before A's re-highlight runs, B pauses and is edited.
+        let resume = pause_of(&mut hc);
+        let b_byte = resume.byte as i32;
+        hc.incremental_resume = Some(PausedHighlight {
+            id: b,
+            resume,
+            text: opened.clone(),
+            syntax_name: "JavaScript".into(),
+        });
+        let (pos, displaced) = hc.fold_pause(b, i32::MAX);
+        assert_eq!(pos, b_byte);
+        assert_eq!(displaced, Some(a), "A's floor goes to a chunked pass");
+        assert!(hc.pending_floor.is_some_and(|(d, _, _)| d == b));
+
+        // No pause of another document: nothing changes.
+        assert_eq!(hc.fold_pause(a, 7), (7, None));
     }
 
     fn controller() -> HighlightController {
