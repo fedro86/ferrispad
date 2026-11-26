@@ -120,13 +120,12 @@ pub fn show_permission_dialog(
 
     let mut checkboxes: Vec<CheckButton> = Vec::new();
     for (i, cmd) in request.commands.iter().enumerate() {
-        let mut cb = CheckButton::default()
+        let mut cb = theme
+            .check_button()
             .with_pos(MARGIN + 10, y + (i as i32 * ITEM_HEIGHT))
             .with_size(col_width - 20, ITEM_HEIGHT)
             .with_label(cmd);
         cb.set_value(true);
-        cb.set_label_color(theme.text);
-        cb.set_color(theme.bg);
         checkboxes.push(cb);
     }
     cb_group.end();

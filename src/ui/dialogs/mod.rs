@@ -16,6 +16,7 @@ pub mod settings_layout;
 pub mod shortcut_dialog;
 pub mod theme_manager;
 pub mod update;
+pub mod widgets;
 
 use fltk::{
     app,
@@ -415,16 +416,6 @@ impl DialogTheme {
         (self.list_selection_bg, self.list_selection_text)
     }
 
-    /// Give a dialog list (a browser) the shared list colors: `input_bg`
-    /// background and the readable selected row of [`Self::list_selection`],
-    /// registered with FerrisPad's contrast rule so FLTK draws the selected
-    /// row's text in `list_selection_text` (T0097).
-    pub fn style_list<B: WidgetExt>(&self, list: &mut B) {
-        list.set_color(self.input_bg);
-        list.set_selection_color(self.list_selection_bg);
-        crate::ui::contrast::register_list_selection(self.list_selection_bg.to_rgb());
-    }
-
     /// The syntax theme background this theme was derived from — what the
     /// themed popups ([`show_themed_message`] & co.) take.
     pub fn theme_bg(&self) -> (u8, u8, u8) {
@@ -679,7 +670,6 @@ fn build_themed_popup(
         enums::{Align, Event, Key},
         frame::Frame,
         group::{Flex, FlexType},
-        input::Input,
     };
     use std::cell::Cell;
     use std::rc::Rc;
@@ -711,13 +701,8 @@ fn build_themed_popup(
     msg_frame.set_align(Align::Left | Align::Inside | Align::Wrap | Align::Clip);
 
     let input = input_default.map(|text| {
-        let mut input = Input::default();
+        let mut input = theme.input();
         input.set_value(text);
-        input.set_color(theme.input_bg);
-        input.set_text_color(theme.text);
-        input.set_cursor_color(theme.text);
-        input.set_selection_color(theme.button_bg);
-        input.set_frame(FrameType::FlatBox);
         column.fixed(&input, POPUP_ROW_HEIGHT);
         input
     });

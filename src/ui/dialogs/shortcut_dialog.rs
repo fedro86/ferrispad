@@ -86,9 +86,7 @@ pub fn show_shortcut_dialog(
     let mut tabs = Tabs::default()
         .with_pos(PADDING, tabs_y)
         .with_size(DIALOG_WIDTH - PADDING * 2, tabs_height);
-    tabs.set_frame(FrameType::FlatBox);
-    tabs.set_color(theme.row_bg);
-    tabs.set_selection_color(theme.tab_active_bg);
+    theme.style_tabs(&mut tabs);
 
     let content_y = tabs_y + TAB_HEIGHT;
     let content_h = tabs_height - TAB_HEIGHT;
@@ -511,13 +509,11 @@ fn create_shortcut_row(
 
     // Shortcut input
     let input_x = LABEL_WIDTH + PADDING;
-    let mut input = Input::default()
+    let mut input = theme
+        .input()
         .with_pos(input_x, 4)
         .with_size(INPUT_WIDTH, 24);
     input.set_value(effective);
-    input.set_color(theme.input_bg);
-    input.set_text_color(theme.text);
-    input.set_selection_color(theme.button_bg);
     input.set_text_size(12);
 
     // Capture key combinations directly

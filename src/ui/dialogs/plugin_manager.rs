@@ -110,10 +110,7 @@ fn create_placeholder_input(
     placeholder: &str,
     theme: &DialogTheme,
 ) -> Input {
-    let mut input = Input::default().with_pos(x, y).with_size(w, h);
-    input.set_frame(FrameType::FlatBox);
-    input.set_color(theme.input_bg);
-    input.set_text_color(theme.text);
+    let mut input = theme.input().with_pos(x, y).with_size(w, h);
 
     // Enable FLTK's base class draw (renders input background, text, cursor),
     // then overlay placeholder text on top when the input is empty.
@@ -227,12 +224,7 @@ pub fn show_plugin_manager_dialog(
     let mut tabs = Tabs::default()
         .with_pos(PADDING, tabs_y)
         .with_size(DIALOG_WIDTH - PADDING * 2, tabs_height);
-    // Use flat frame to avoid GTK scheme overriding colors
-    tabs.set_frame(FrameType::FlatBox);
-    // Inactive tabs use Tabs widget's color - use row_bg for subtle difference
-    tabs.set_color(theme.row_bg);
-    // Active tab uses Tabs widget's selection_color
-    tabs.set_selection_color(theme.tab_active_bg);
+    theme.style_tabs(&mut tabs);
 
     // ============ INSTALLED TAB ============
     let mut installed_group = Group::default()

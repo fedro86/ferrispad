@@ -10,7 +10,6 @@ use fltk::{
     enums::{Align, Event, Font, FrameType, Key},
     frame::Frame,
     group::Flex,
-    input::Input,
     prelude::*,
     text::{TextBuffer, TextDisplay, WrapMode},
     window::Window,
@@ -414,11 +413,8 @@ pub fn show_readonly_viewer(
     toolbar.set_type(fltk::group::FlexType::Row);
     toolbar.set_spacing(5);
 
-    let mut page_input = Input::default();
+    let mut page_input = theme.input();
     page_input.set_tooltip("Page number (e.g., 5)");
-    page_input.set_color(theme.input_bg);
-    page_input.set_text_color(theme.text);
-    page_input.set_frame(FrameType::FlatBox);
     toolbar.fixed(&page_input, 60);
 
     let mut page_btn = Button::default().with_label("Go to Page");
@@ -431,11 +427,8 @@ pub fn show_readonly_viewer(
     spacer_page.set_frame(FrameType::FlatBox);
     spacer_page.set_color(theme.bg);
 
-    let mut goto_input = Input::default();
+    let mut goto_input = theme.input();
     goto_input.set_tooltip("Line number or range (e.g., 100 or 100-200)");
-    goto_input.set_color(theme.input_bg);
-    goto_input.set_text_color(theme.text);
-    goto_input.set_frame(FrameType::FlatBox);
     toolbar.fixed(&goto_input, 100);
 
     let mut goto_btn = Button::default().with_label("Go to Line");
@@ -448,11 +441,8 @@ pub fn show_readonly_viewer(
     spacer2.set_frame(FrameType::FlatBox);
     spacer2.set_color(theme.bg);
 
-    let mut search_input = Input::default();
+    let mut search_input = theme.input();
     search_input.set_tooltip("Search text");
-    search_input.set_color(theme.input_bg);
-    search_input.set_text_color(theme.text);
-    search_input.set_frame(FrameType::FlatBox);
     toolbar.fixed(&search_input, 150);
 
     let mut search_btn = Button::default().with_label("Find");
@@ -480,7 +470,7 @@ pub fn show_readonly_viewer(
     main_flex.fixed(&toolbar, 30);
 
     // Text display area with line numbers
-    let mut display = TextDisplay::default();
+    let mut display = theme.text_display();
     let buffer = TextBuffer::default();
     display.set_buffer(buffer.clone());
     display.set_text_font(code_font);

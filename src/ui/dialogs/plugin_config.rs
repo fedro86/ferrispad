@@ -143,7 +143,6 @@ pub fn show_plugin_config_dialog(
     let bg_color = theme.bg;
     let text_color = theme.text;
     let text_dim = theme.text_dim;
-    let input_bg = theme.input_bg;
     let button_bg = theme.button_bg;
     let error_color = theme.error_color();
 
@@ -197,14 +196,12 @@ pub fn show_plugin_config_dialog(
 
         match def.param_type.as_str() {
             "boolean" => {
-                let mut cb = button::CheckButton::default()
+                let mut cb = theme
+                    .check_button()
                     .with_pos(FIELD_X, field_y)
                     .with_size(FIELD_WIDTH, 25)
                     .with_label("Enabled");
                 cb.set_value(current_value.eq_ignore_ascii_case("true"));
-                cb.set_label_color(text_color);
-                cb.set_color(bg_color);
-                cb.set_selection_color(button_bg);
                 param_widgets.borrow_mut().push(ParamWidgetInfo {
                     key: def.key.clone(),
                     label: def.label.clone(),
@@ -215,12 +212,10 @@ pub fn show_plugin_config_dialog(
                 });
             }
             "choice" => {
-                let mut choice = menu::Choice::default()
+                let mut choice = theme
+                    .choice()
                     .with_pos(FIELD_X, field_y)
                     .with_size(FIELD_WIDTH, 25);
-                choice.set_color(input_bg);
-                choice.set_text_color(text_color);
-                choice.set_selection_color(button_bg);
 
                 // Parse options and add to choice widget
                 let mut option_values: Vec<String> = Vec::new();
@@ -251,13 +246,11 @@ pub fn show_plugin_config_dialog(
             }
             param_type => {
                 // "string" or "number" - use Input widget
-                let mut inp = input::Input::default()
+                let mut inp = theme
+                    .input()
                     .with_pos(FIELD_X, field_y)
                     .with_size(FIELD_WIDTH, 25);
                 inp.set_value(&current_value);
-                inp.set_color(input_bg);
-                inp.set_text_color(text_color);
-                inp.set_selection_color(button_bg);
 
                 // Show placeholder if available and value is empty
                 if current_value.is_empty()

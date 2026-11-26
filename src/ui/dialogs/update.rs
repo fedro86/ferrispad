@@ -4,9 +4,8 @@ use fltk::{
     enums::{Color, Font, FrameType},
     frame::Frame,
     group::Flex,
-    misc::Progress,
     prelude::*,
-    text::{TextBuffer, TextEditor, WrapMode},
+    text::{TextBuffer, WrapMode},
     window::Window,
 };
 use std::cell::RefCell;
@@ -138,24 +137,16 @@ pub fn show_update_available_dialog(
     notes_label.set_color(dialog_bg);
     flex.fixed(&notes_label, 25);
 
-    let mut notes_editor = TextEditor::default();
+    let mut notes_editor = theme.text_editor();
     notes_editor.set_buffer(TextBuffer::default());
     notes_editor.buffer().unwrap().set_text(&release.body);
     notes_editor.wrap_mode(WrapMode::AtBounds, 0);
-    notes_editor.set_color(theme.input_bg);
-    notes_editor.set_text_color(theme.text);
-    notes_editor.set_cursor_color(theme.text);
-    notes_editor.set_selection_color(theme.button_bg);
-    notes_editor.set_frame(FrameType::FlatBox);
     notes_editor.set_scrollbar_size(super::SCROLLBAR_SIZE);
 
     // Progress bar (initially hidden)
-    let mut progress = Progress::default().with_size(0, 25);
+    let mut progress = theme.progress().with_size(0, 25);
     progress.set_minimum(0.0);
     progress.set_maximum(1.0);
-    progress.set_color(theme.input_bg);
-    progress.set_selection_color(theme.button_bg);
-    progress.set_label_color(theme.text);
     progress.hide();
     flex.fixed(&progress, 25);
 

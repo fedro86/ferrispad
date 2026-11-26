@@ -338,12 +338,11 @@ fn build_window(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Window, Ct
 
     let list_y = PADDING + 25;
     let list_h = 300;
-    let mut browser = HoldBrowser::default()
+    let mut browser = theme
+        .list()
         .with_pos(PADDING, list_y)
         .with_size(list_w, list_h);
-    theme.style_list(&mut browser);
     // Item text uses FLTK's foreground, the dialog text color here.
-    browser.set_frame(FrameType::FlatBox);
     browser.set_scrollbar_size(SCROLLBAR_SIZE);
     style_scrollbars(&browser, theme.scroll_track, theme.scroll_thumb);
 

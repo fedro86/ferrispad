@@ -2,11 +2,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use fltk::{
-    browser::HoldBrowser,
     button::Button,
-    enums::{CallbackTrigger, FrameType},
+    enums::CallbackTrigger,
     frame::Frame,
-    input::Input,
     prelude::{BrowserExt, GroupExt, InputExt, WidgetExt, WindowExt},
     window::Window,
 };
@@ -62,9 +60,7 @@ pub fn show_session_picker(
     title.set_label_color(theme.text);
 
     // Session list browser
-    let mut browser = HoldBrowser::default().with_pos(20, 40).with_size(320, 160);
-    theme.style_list(&mut browser);
-    browser.set_frame(FrameType::FlatBox);
+    let mut browser = theme.list().with_pos(20, 40).with_size(320, 160);
 
     // Populate session list (use @C format code for text color on dark themes)
     let sessions = session::list_sessions();
@@ -92,10 +88,7 @@ pub fn show_session_picker(
         .with_size(40, 30)
         .with_label("New:");
     new_label.set_label_color(theme.text);
-    let mut new_input = Input::default().with_pos(65, 210).with_size(275, 30);
-    new_input.set_color(theme.input_bg);
-    new_input.set_text_color(theme.text);
-    new_input.set_selection_color(theme.button_bg);
+    let mut new_input = theme.input().with_pos(65, 210).with_size(275, 30);
 
     // Buttons row
     let btn_y = 255;
@@ -304,10 +297,7 @@ pub fn show_new_session_dialog(parent: &Window, theme_bg: (u8, u8, u8)) -> Optio
         .with_label("Session name:");
     label.set_label_color(theme.text);
 
-    let mut name_input = Input::default().with_pos(130, 15).with_size(150, 30);
-    name_input.set_color(theme.input_bg);
-    name_input.set_text_color(theme.text);
-    name_input.set_selection_color(theme.button_bg);
+    let mut name_input = theme.input().with_pos(130, 15).with_size(150, 30);
 
     let mut status = Frame::default()
         .with_pos(20, 50)
