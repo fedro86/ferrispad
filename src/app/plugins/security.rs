@@ -216,7 +216,8 @@ pub fn is_existing_executable(path: &Path) -> bool {
 /// The user's home directory as a trusted place for plugin programs (T0094),
 /// or `None`. Fails closed: unset, empty, relative or uncanonicalizable means
 /// "no home", and so does a home that is the filesystem root (`HOME=/` in some
-/// services and containers), which would trust every directory.
+/// services and containers), which would trust every directory, or a
+/// world-writable one (`HOME=/tmp`), where anyone can drop a binary.
 pub fn trusted_home(value: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
     let value = value.filter(|v| !v.is_empty())?;
     let path = Path::new(value);
@@ -224,7 +225,38 @@ pub fn trusted_home(value: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
         return None;
     }
     let canonical = std::fs::canonicalize(path).ok()?;
-    canonical.parent().is_some().then_some(canonical)
+    if canonical.parent().is_none() || is_world_writable(&canonical) {
+        return None;
+    }
+    Some(canonical)
+}
+
+/// A directory anyone may write to (Unix: the `o+w` bit, sticky or not).
+fn is_world_writable(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).map_or(true, |m| m.permissions().mode() & 0o002 != 0)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        false
+    }
+}
+
+/// A Windows program path that is neither absolute nor plainly relative:
+/// drive-relative (`C:ruff`, resolved against that drive's own current
+/// directory) or root-relative (`\ruff`, `/ruff`: the current drive's root).
+/// Joining either to the project root would replace the root, so they are
+/// refused as ambiguous. UNC paths (`\\server\share`) are absolute.
+pub fn is_ambiguous_windows_program(cmd: &str) -> bool {
+    let b = cmd.as_bytes();
+    let sep = |c: u8| c == b'/' || c == b'\\';
+    let drive_relative =
+        b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' && !(b.len() >= 3 && sep(b[2]));
+    let root_relative = !b.is_empty() && sep(b[0]) && !(b.len() >= 2 && sep(b[1]));
+    drive_relative || root_relative
 }
 
 /// [`trusted_home`] from the environment: `USERPROFILE` on Windows, `HOME`
@@ -265,6 +297,11 @@ pub fn resolve_plugin_program(
     windows: bool,
     pathext: Option<&str>,
 ) -> Result<PathBuf, String> {
+    // A path the OS itself calls absolute is never ambiguous; on Windows,
+    // `C:ruff`, `\\ruff` and `/ruff` are not absolute.
+    if windows && !Path::new(cmd).is_absolute() && is_ambiguous_windows_program(cmd) {
+        return Err("ambiguous program path (drive- or root-relative)".into());
+    }
     let requested = Path::new(cmd);
     let mut program = if requested.is_absolute() {
         requested.to_path_buf()
@@ -432,6 +469,16 @@ mod tests {
             trusted_home(Some(dir.path().as_os_str())),
             Some(fs::canonicalize(dir.path()).unwrap())
         );
+        // A world-writable home (HOME=/tmp in services, containers, CI).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for mode in [0o1777, 0o777, 0o757] {
+                fs::set_permissions(dir.path(), fs::Permissions::from_mode(mode)).unwrap();
+                assert_eq!(trusted_home(Some(dir.path().as_os_str())), None, "{mode:o}");
+            }
+            fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        }
     }
 
     #[test]
@@ -469,6 +516,27 @@ mod tests {
         assert!(resolve_plugin_program(&abs, None, None, true, None).is_err());
         let home = fs::canonicalize(root).unwrap();
         assert!(resolve_plugin_program(&abs, None, Some(&home), true, None).is_ok());
+        // Drive- and root-relative programs are ambiguous on Windows.
+        for ambiguous in ["C:ruff", "c:tools/ruff", "\\ruff", "/ruff", "\\tools\\ruff"] {
+            assert!(is_ambiguous_windows_program(ambiguous), "{ambiguous}");
+            // ("/ruff" is absolute on the host running this test, so only
+            // the pure rule applies to it here; on Windows it is not.)
+            if !Path::new(ambiguous).is_absolute() {
+                assert!(
+                    resolve_plugin_program(ambiguous, Some(root), Some(&home), true, None).is_err(),
+                    "{ambiguous}"
+                );
+            }
+        }
+        for clear in [
+            "C:/x/ruff",
+            "C:\\x\\ruff",
+            "\\\\server\\share\\ruff",
+            "tools/ruff",
+            "ruff",
+        ] {
+            assert!(!is_ambiguous_windows_program(clear), "{clear}");
+        }
     }
 
     // ── T0092 name rules (pure: tested on every platform) ─────────────

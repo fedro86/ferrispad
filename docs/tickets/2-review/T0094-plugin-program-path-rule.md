@@ -133,3 +133,23 @@ test …plugin_run_accepts_venv_symlink_to_system_binary ... ok   (guard: must s
   `bare_program_names` and `program_rule_windows_naming`.
 - Full suite under Xvfb (`FERRISPAD_REQUIRE_UI_TESTS=1`): lib 611 passed,
   every integration binary green. fmt and clippy `-D warnings` clean.
+
+## Review hardening (a3 non-blocking notes, folded in by the orchestrator)
+
+- **World-writable home:** `trusted_home` also returns `None` when the
+  canonical home is world-writable (Unix `mode & 0o002`, sticky or not),
+  e.g. `HOME=/tmp` for services, containers and some CI. Otherwise `/tmp/x/ruff`
+  would pass as "inside home", which is exactly the shared-dir drop the rule
+  targets. Unreadable metadata counts as unsafe. Test:
+  `trusted_home_fails_closed` with modes 1777, 777 and 757.
+- **Ambiguous Windows program paths:** `is_ambiguous_windows_program` (a
+  plain string function, tested on every platform) flags drive-relative
+  (`C:ruff`, `c:tools/ruff`) and root-relative (`\ruff`, `/ruff`,
+  `\tools\ruff`) forms. `root.join` would *replace* the root for them, and
+  they resolve against the drive's own cwd. `resolve_plugin_program`
+  refuses them with `windows` set when the OS does not consider the path
+  absolute. `C:/x/ruff`, `C:\x\ruff` and UNC `\\server\share\ruff` are
+  absolute and unaffected. Before this, they were still not an escape: the
+  trust check ran on the canonical parent of the path actually used. But the
+  "relative → anchored at the root" statement did not hold for them. Test:
+  `program_rule_windows_naming`.
