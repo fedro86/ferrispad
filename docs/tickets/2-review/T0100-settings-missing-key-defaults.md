@@ -106,6 +106,28 @@ After the fix it passes. All 25 settings unit tests and
   their lenient deserializers.
 - The `default_*` functions stay: `AppSettings::default()` uses them, so
   there is one source of each value.
+- **The same rule for the nested settings types** (review note from
+  ferrispad-a3, generalised by the orchestrator):
+  - `PluginApprovals` and `PluginConfig` get a container
+    `#[serde(default)]`; their field-level defaults are removed and the
+    derived `Default` matches.
+  - `ShortcutOverride` was a latent trap. Its derived `Default` had
+    `enabled = false`, while a missing key gave `true`
+    (`default = "default_true"`). And `{}` did not parse at all
+    (`shortcut` was required), so one malformed override reset the *whole*
+    settings file to defaults.
+  - It now has a container default and a hand-written `Default` (unbound,
+    enabled). `default_true` is gone.
+  - `WindowGeometry` is **deliberately strict**: no container default,
+    because a geometry without coordinates is meaningless. A partial
+    object is dropped by the lenient `window` deserializer (the window opens
+    at 640×480) rather than defaulted to 0×0. Only `maximized` may be
+    missing. Pinned by `settings_window_geometry_is_strict` and documented
+    on the struct.
+  - The test now runs the `{}` == `Default` comparison on `AppSettings`,
+    `PluginApprovals`, `ShortcutOverride` and `PluginConfig`. Red on the
+    old code:
+    `ShortcutOverride: {} does not parse: missing field shortcut`.
 - New test `settings_missing_keys_take_the_defaults` compares all fields.
 
 ## Acceptance criteria
@@ -119,8 +141,10 @@ After the fix it passes. All 25 settings unit tests and
 
 ## Affected files
 
-- `src/app/domain/settings.rs` — `#[serde(default)]` on `AppSettings`;
-  field attributes removed; test
+- `src/app/domain/settings.rs` — `#[serde(default)]` on `AppSettings`,
+  `PluginApprovals`, `ShortcutOverride` (with a hand-written `Default`) and
+  `PluginConfig`; field attributes removed; `WindowGeometry` documented as
+  strict; tests
 
 ## Notes
 

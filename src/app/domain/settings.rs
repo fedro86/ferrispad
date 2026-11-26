@@ -11,36 +11,42 @@ use crate::app::services::updater::UpdateChannel;
 /// Per-plugin permission approvals stored in settings.
 /// Tracks which commands the user has approved or denied for each plugin.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)] // missing keys take `Default` (T0100)
 pub struct PluginApprovals {
     /// Commands the user has approved for this plugin
-    #[serde(default)]
     pub approved_commands: Vec<String>,
     /// Commands the user has explicitly denied
-    #[serde(default)]
     pub denied_commands: Vec<String>,
 }
 
 /// A shortcut override entry stored in settings.
 /// Used by the centralized ShortcutRegistry to override default shortcuts.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)] // missing keys take `Default` (T0100)
 pub struct ShortcutOverride {
     /// Normalized shortcut string (e.g., "Ctrl+Shift+S"), empty = unbound
     pub shortcut: String,
     /// Whether this shortcut is enabled
-    #[serde(default = "default_true")]
     pub enabled: bool,
 }
 
-fn default_true() -> bool {
-    true
+/// Unbound and enabled. Hand-written: a derived `Default` would make
+/// `enabled` false, unlike an entry that just omits the key.
+impl Default for ShortcutOverride {
+    fn default() -> Self {
+        Self {
+            shortcut: String::new(),
+            enabled: true,
+        }
+    }
 }
 
 /// Per-plugin configuration (stored in settings.json)
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)] // missing keys take `Default` (T0100)
 pub struct PluginConfig {
     /// Plugin-specific parameters as key-value pairs
     /// e.g., {"max_line_length": "120", "ignore_rules": "E501,W503"}
-    #[serde(default)]
     pub params: HashMap<String, String>,
 }
 
@@ -306,6 +312,10 @@ fn de_syntax_theme_dark<'de, D: serde::Deserializer<'de>>(d: D) -> Result<ThemeR
 /// whether it was maximized. `x`/`y` are the client-area origin, as FLTK
 /// reports them. Hand-editable, so always validated before use (see
 /// `services::window_geometry`).
+///
+/// Deliberately strict (T0100): no container default, since a geometry
+/// without its coordinates is meaningless. A partial object is dropped by
+/// the lenient `window` deserializer. Only `maximized` may be missing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowGeometry {
     pub x: i32,
@@ -705,22 +715,57 @@ mod tests {
     /// does not.
     #[test]
     fn settings_missing_keys_take_the_defaults() {
-        let parsed = serde_json::to_value(AppSettings::from_json_or_default("{}")).unwrap();
-        let default = serde_json::to_value(AppSettings::default()).unwrap();
+        let mut mismatched = Vec::new();
+        mismatched.extend(missing_keys_mismatches::<AppSettings>("AppSettings"));
+        mismatched.extend(missing_keys_mismatches::<PluginApprovals>(
+            "PluginApprovals",
+        ));
+        mismatched.extend(missing_keys_mismatches::<ShortcutOverride>(
+            "ShortcutOverride",
+        ));
+        mismatched.extend(missing_keys_mismatches::<PluginConfig>("PluginConfig"));
+        assert!(mismatched.is_empty(), "\n{}", mismatched.join("\n"));
+    }
+
+    /// Parse `{}` as `T` and list every field whose value differs from
+    /// `T::default()` (or the parse error).
+    fn missing_keys_mismatches<T>(name: &str) -> Vec<String>
+    where
+        T: Default + Serialize + serde::de::DeserializeOwned,
+    {
+        let parsed: T = match serde_json::from_str("{}") {
+            Ok(parsed) => parsed,
+            Err(e) => return vec![format!("{name}: {{}} does not parse: {e}")],
+        };
+        let parsed = serde_json::to_value(parsed).unwrap();
+        let default = serde_json::to_value(T::default()).unwrap();
         let (parsed, default) = (parsed.as_object().unwrap(), default.as_object().unwrap());
-        let mismatched: Vec<String> = default
+        default
             .iter()
             .filter(|(key, value)| parsed.get(*key) != Some(value))
             .map(|(key, value)| {
                 format!(
-                    "{key}: missing -> {}, default {value}",
+                    "{name}.{key}: missing -> {}, default {value}",
                     parsed
                         .get(key)
                         .map_or("<absent>".to_string(), |v| v.to_string())
                 )
             })
-            .collect();
-        assert!(mismatched.is_empty(), "\n{}", mismatched.join("\n"));
+            .collect()
+    }
+
+    /// WindowGeometry is deliberately strict: without its coordinates a
+    /// geometry is meaningless, so a partial object is dropped (the window
+    /// opens at 640×480) rather than defaulted to 0×0. Only `maximized` may
+    /// be missing (→ false).
+    #[test]
+    fn settings_window_geometry_is_strict() {
+        let s = AppSettings::from_json_or_default(r#"{"window":{}}"#);
+        assert_eq!(s.window, None);
+        let s = AppSettings::from_json_or_default(
+            r#"{"window":{"x":1,"y":2,"width":800,"height":600}}"#,
+        );
+        assert_eq!(s.window.map(|w| (w.width, w.maximized)), Some((800, false)));
     }
 
     #[test]
