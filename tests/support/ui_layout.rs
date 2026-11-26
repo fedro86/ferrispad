@@ -193,6 +193,48 @@ pub fn sibling_overlaps(
     failures
 }
 
+/// Active buttons whose label is drawn in `dim` (the dialog's dimmed text
+/// color): they look disabled while they are not. FLTK dims inactive
+/// widgets' labels by itself.
+pub fn active_buttons_looking_disabled(
+    window: &Window,
+    title: &str,
+    dim: fltk::enums::Color,
+) -> Vec<String> {
+    let mut widgets = Vec::new();
+    walk(
+        &window.as_group().unwrap(),
+        title,
+        &mut widgets,
+        &mut Vec::new(),
+    );
+    widgets
+        .into_iter()
+        .filter(|(_, w)| fltk::button::Button::from_dyn_widget(w).is_some())
+        .filter(|(_, w)| w.active() && !w.label().is_empty() && w.label_color() == dim)
+        .map(|(path, _)| format!("{path}: active button drawn in the dimmed text color"))
+        .collect()
+}
+
+/// Widgets with tooltip `tooltip` drawn with a flat or no frame (a color
+/// swatch must keep a visible border).
+pub fn flat_widgets_with_tooltip(window: &Window, title: &str, tooltip: &str) -> Vec<String> {
+    use fltk::enums::FrameType;
+    let mut widgets = Vec::new();
+    walk(
+        &window.as_group().unwrap(),
+        title,
+        &mut widgets,
+        &mut Vec::new(),
+    );
+    widgets
+        .into_iter()
+        .filter(|(_, w)| w.tooltip().as_deref() == Some(tooltip))
+        .filter(|(_, w)| matches!(w.frame(), FrameType::FlatBox | FrameType::NoBox))
+        .map(|(path, _)| format!("{path}: drawn without a border"))
+        .collect()
+}
+
 /// Every layout failure of `window` for the widgets passing `only`:
 /// labels at the normal size and at +2 pt, and sibling overlaps.
 pub fn layout_failures(

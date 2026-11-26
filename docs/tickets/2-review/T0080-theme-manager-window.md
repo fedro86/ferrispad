@@ -548,6 +548,46 @@ No text touched or crossed a border in any of the 16 screenshots. The
 font-size setting changes the editor font only; dialog labels use FLTK's
 label size, which the +2 pt check covers.
 
+## Visual fixes after review — enabled buttons, swatch borders
+
+1. **Enabled buttons looked disabled.** Cancel (manager and picker) and the
+   enabled Reset buttons used the dialog's dimmed text color (`text_dim`),
+   the same look as a disabled button. All dialog buttons now go through
+   one helper, `ui::dialogs::style_dialog_button` (flat rounded,
+   `button_bg`, label in `text` — exactly the Settings dialog's Cancel);
+   FLTK dims a deactivated button's label by itself. Guard:
+   `active_buttons_looking_disabled` (shared `tests/support/ui_layout.rs`),
+   applied to the manager, both pickers and the name prompt. Red on the
+   previous code:
+   ```
+   theme manager/11:"Reset": active button drawn in the dimmed text color
+   theme manager/16:"Reset": active button drawn in the dimmed text color
+   theme manager/21:"Reset": active button drawn in the dimmed text color
+   theme manager/26:"Reset": active button drawn in the dimmed text color
+   theme manager/31:"Reset": active button drawn in the dimmed text color
+   theme manager/36:"Reset": active button drawn in the dimmed text color
+   theme manager/41:"Reset": active button drawn in the dimmed text color
+   theme manager/45:"Cancel": active button drawn in the dimmed text color
+   picker dark/4:"Cancel": active button drawn in the dimmed text color
+   picker light/4:"Cancel": active button drawn in the dimmed text color
+   ```
+2. **Swatches without a border.** A swatch close to the dialog background
+   almost vanished (dark "Background" `#101820` on the dark dialog was
+   1.21:1). Swatches now get a 1 px border in the dialog's `text_dim`
+   (FLTK's own `BorderBox` border is black, invisible on dark themes, so the
+   border is drawn by a small custom draw over a `BorderBox`); they carry the
+   tooltip "Current color". Guard: `flat_widgets_with_tooltip` — all 7
+   swatches must have a non-flat frame. Red with `FlatBox` put back: all 7
+   reported "drawn without a border".
+
+Screenshots (DejaVu, `ferrispad-wt/uitest-T0080/`): `montage-B-manager.png`
+(dark and light), `montage-B-picker.png`, zooms `B-zoom-dark-rows.png`,
+`B-zoom-light-rows.png`, and `B-dark-builtin-disabled-crop.png` (a built-in
+selected: the deactivated Pick…/Reset/Rename/Delete are dimmed by FLTK,
+while OK/Cancel/Duplicate/Import stay at full text color). Checked: Cancel
+and Reset read like OK in both modes; every swatch shows its border, the
+dark `#101820`/`#182028` ones and the white Caret one included.
+
 ## Acceptance criteria
 
 - [x] Duplicate, rename, delete, import and per-color edit/reset work as
