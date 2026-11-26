@@ -1,7 +1,7 @@
 ---
 id: T0078
 title: Use a high-contrast blue text selection on every editor syntax theme
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-25
 severity: ~             # severe | moderate | minor   (for audit-derived tickets)
 area: ui                # security | robustness | ui | process
@@ -330,8 +330,9 @@ scope foreground, focused + unfocused).
 - [x] The ticket records the manual check (light, dark, all syntax themes,
       Find-dialog focus, selected-text color, tree git-status colors, Cancel)
       — Xvfb/X11, driven by Claude.
-- [ ] System default under a real OS appearance switch, a real Wayland
-      compositor, Windows/macOS — **pending user verification**.
+- [x] System default under a real GNOME appearance switch, on a real
+      Wayland compositor (user, 2026-11-26).
+- [ ] Windows/macOS — optional, still to run.
 
 ## Affected files
 
@@ -365,3 +366,10 @@ scope foreground, focused + unfocused).
   rule. That is harmless (it only makes text more readable).
 - `src/ui/split_panel.rs` editors set no selection color, so they are not
   registered and keep FLTK's default behaviour (out of scope, as above).
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland), build `ab9ed45`
+(T0077–T0083 together): every checklist step passed, including W4 and P1
+(blue selection in light and dark, OS appearance switch). Windows 11 and
+macOS are optional and still to run on the 0.9.10-rc.1 release candidate.
