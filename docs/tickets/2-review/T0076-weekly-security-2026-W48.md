@@ -284,9 +284,11 @@ macOS failure still turns the job red. The diagnostic step is gone.
 
 ### CI on the final head
 
-See the PR checks for the head commit: fmt + clippy + test, test (linux
-arm64), build (windows x64), the README-deps build and
-`build + clippy + test (macos)`.
+All green on a9ad0f0 (the code head; later commits are docs-only):
+`ci.yml` run 45862294769 — fmt + clippy + test, test (linux arm64),
+build (windows x64); `build-deps-check.yml` run 45862294742 — README-deps
+build; `macos-gates.yml` run 45862294938 — build + clippy + test (macos),
+with the three named skips.
 
 Still pending user verification on a Mac: the objc2 0.6 recipe above (title
 bar colours/title, debug build encoding check).
