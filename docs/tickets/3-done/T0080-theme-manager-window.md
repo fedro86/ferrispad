@@ -1,7 +1,7 @@
 ---
 id: T0080
 title: Theme manager window — duplicate, rename, delete, edit colors, import .tmTheme
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-25
 severity: ~             # severe | moderate | minor   (for audit-derived tickets)
 area: ui                # security | robustness | ui | process
@@ -607,9 +607,9 @@ dark `#101820`/`#182028` ones and the white Caret one included.
       and `cargo fmt --check` pass.
 - [x] The ticket records the manual check in light and dark mode (Xvfb/X11,
       driven by Claude).
-- [ ] System-default mode under a real OS appearance switch, a real Wayland
-      compositor, the GTK/zenity file dialog, Windows/macOS — **pending user
-      verification**.
+- [x] System-default mode under a real GNOME appearance switch, a real
+      Wayland compositor and the GTK/zenity file dialog (user, 2026-11-26).
+- [ ] Windows/macOS title bars — optional, still to run.
 
 ## Affected files
 
@@ -633,3 +633,10 @@ dark `#101820`/`#182028` ones and the white Caret one included.
   `handle_settings` already does.
 - Consistent look is a requirement, not a preference: see the first In-scope
   bullet, edge case 8 and manual steps 9–11.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland), build `ab9ed45`
+(T0077–T0083 together): every checklist step passed, including W6, W7 and P2
+(manager, look after the layout fixes, portal import). Windows 11 and macOS
+are optional and still to run on the 0.9.10-rc.1 release candidate.
