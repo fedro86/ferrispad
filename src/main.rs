@@ -368,19 +368,12 @@ fn main() {
         defer_send(sender, delay, Message::FileNew);
     }
 
-    // Window event handler for close and resize.
-    // Using handle() with Event::Close to catch close even when menu is open.
+    // Window event handler for resize and focus. A window close does not come
+    // through here: see the main window callback in ui::main_window.
     w.wind.handle({
         let s = sender;
-        move |wind, event| {
+        move |_wind, event| {
             match event {
-                fltk::enums::Event::Close => {
-                    fltk::app::program_should_quit(true);
-                    s.send(Message::WindowClose);
-                    // Hide the window to break out of any modal loops (like open menus)
-                    wind.hide();
-                    true
-                }
                 fltk::enums::Event::Resize => {
                     s.send(Message::WindowResize);
                     false // Let FLTK handle the resize too

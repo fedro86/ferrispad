@@ -1,7 +1,7 @@
 ---
 id: T0079
 title: Custom editor themes — syntect-based model, persistence and theme references
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-25
 severity: ~             # severe | moderate | minor   (for audit-derived tickets)
 area: ui                # security | robustness | ui | process
@@ -430,8 +430,8 @@ twice (observed above). It now reports each id once
 - [x] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
       and `cargo fmt --check` pass.
 - [x] Manual check 1–3 — Xvfb/X11, driven by Claude (see results below).
-- [ ] Manual check 4 (side by side with the previous release) — **pending
-      user verification**.
+- [x] Manual check 4 (side by side with the previous release) — user,
+      2026-11-26.
 
 ## Affected files
 
@@ -462,3 +462,10 @@ twice (observed above). It now reports each id once
   applies `fl_contrast` to selected text.
 - Settings dialog's Cancel and preview logic must handle `custom:` keys too;
   this is covered by T0080's manual check.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland), build `ab9ed45`
+(T0077–T0083 together): every checklist step passed, including P3 (built-in
+themes side by side with 0.9.9). Windows 11 and macOS are optional and still
+to run on the 0.9.10-rc.1 release candidate.
