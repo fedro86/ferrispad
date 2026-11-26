@@ -193,6 +193,8 @@ impl SessionController {
                         if temp_content != content {
                             doc.buffer.set_text(&temp_content);
                         }
+                        // Keep the session identity: save back to this file.
+                        doc.restored_temp_file = Some(temp_file.clone());
                     }
 
                     if let Some(doc) = tab_manager.doc_by_id_mut(id) {
@@ -212,6 +214,8 @@ impl SessionController {
                 let id = tab_manager.add_untitled();
                 if let Some(doc) = tab_manager.doc_by_id_mut(id) {
                     doc.buffer.set_text(&temp_content);
+                    // Keep the session identity: save back to this file.
+                    doc.restored_temp_file = Some(temp_file.clone());
                     doc.cursor_position = doc_session.cursor_position;
                     doc.group_id = group_id;
                 }

@@ -184,6 +184,10 @@ pub struct Document {
     pub partial_info: PartialFileInfo,
     /// Current-line twin state (T0081), shared with the modify callback.
     pub current_line: Rc<Cell<CurrentLineTwin>>,
+    /// The session temp file this document's unsaved text was restored
+    /// from (T0099): saving the session writes back to it, so the document
+    /// keeps one identity across restarts.
+    pub restored_temp_file: Option<String>,
     /// Pointer to the heap-allocated closure passed to FLTK's modify callback.
     /// Must be freed in cleanup() after removing the callback.
     modify_cb_data: *mut c_void,
@@ -250,6 +254,7 @@ impl Document {
             disambiguated_name: None,
             partial_info: PartialFileInfo::Full,
             current_line,
+            restored_temp_file: None,
             modify_cb_data,
         }
     }
@@ -301,6 +306,7 @@ impl Document {
             disambiguated_name: None,
             partial_info: PartialFileInfo::Full,
             current_line,
+            restored_temp_file: None,
             modify_cb_data,
         }
     }
@@ -364,6 +370,7 @@ impl Document {
             disambiguated_name: None,
             partial_info: PartialFileInfo::Full,
             current_line,
+            restored_temp_file: None,
             modify_cb_data,
         }
     }

@@ -267,6 +267,7 @@ pub fn save_session(
         })
         .collect();
 
+    let instance_id = std::process::id().to_string();
     let mut doc_sessions = Vec::new();
 
     for doc in docs {
@@ -300,11 +301,13 @@ pub fn save_session(
                 }
 
                 let temp_file = if is_dirty || !has_path {
-                    // Use file_path if available (stable across sessions),
-                    // otherwise fall back to display_name + id (stable within session)
                     let hash_key = doc.file_path.as_deref().unwrap_or(&doc.display_name);
-                    let hash = make_hash(hash_key, doc.id.0);
-                    let filename = format!("{:016x}.tmp", hash);
+                    let filename = temp_file_name(
+                        hash_key,
+                        doc.id.0,
+                        &instance_id,
+                        doc.restored_temp_file.as_deref(),
+                    );
                     let temp_path = dir.join(&filename);
                     fs::write(&temp_path, &content)?;
                     Some(filename)
@@ -325,7 +328,6 @@ pub fn save_session(
         }
     }
 
-    let instance_id = std::process::id().to_string();
     merge_and_persist(
         doc_sessions,
         active_index,
@@ -383,11 +385,6 @@ fn merge_and_persist(
             .iter()
             .filter_map(|d| d.temp_file.clone())
             .collect();
-        let our_untitled_names: HashSet<String> = doc_sessions
-            .iter()
-            .filter(|d| d.file_path.is_none())
-            .map(|d| d.display_name.clone())
-            .collect();
 
         for doc in existing.documents {
             match &doc.file_path {
@@ -396,16 +393,16 @@ fn merge_and_persist(
                     doc_sessions.push(doc);
                 }
                 None if mode == SessionRestore::Full && doc.temp_file.is_some() => {
-                    // Untitled doc from another instance — only keep if not a duplicate
-                    // Check both temp file and display name to catch the same doc
-                    // that may have gotten a new temp file hash due to id change
+                    // Untitled doc from another instance: the same document
+                    // only if it is the same temp file (T0099). A document we
+                    // restored writes back to its original temp file, so it
+                    // matches here; two different documents that merely share
+                    // a display name ("Untitled") are both kept.
                     let temp_dup = doc
                         .temp_file
                         .as_ref()
                         .is_some_and(|tf| our_temp_files.contains(tf));
-                    let name_dup = our_untitled_names.contains(&doc.display_name);
-
-                    if !temp_dup && !name_dup {
+                    if !temp_dup {
                         doc_sessions.push(doc);
                     }
                 }
@@ -486,14 +483,39 @@ pub fn read_temp_file(temp_file: &str, session_name: &str) -> Option<String> {
     fs::read_to_string(&path).ok()
 }
 
-/// Create a stable hash for temp file naming.
-/// Uses only name and id - NOT timestamp - so the same document
-/// always gets the same temp filename across auto-saves.
-fn make_hash(name: &str, id: u64) -> u64 {
+/// The temp file holding a document's unsaved text in the session (T0099).
+/// The temp file IS the document's identity in the session:
+/// - a document restored from a temp file keeps writing to that file, so a
+///   restart (new process, new document id) does not create a second copy;
+/// - a new document's name hashes the instance id along with `hash_key`
+///   (its file path, or the display name of an untitled document) and its
+///   per-process `doc_id`: ids start at 1 in every instance, so without
+///   the instance two instances' "Untitled" #2 would share one file.
+///
+/// The restored name comes from `session.json`, so it is only reused when
+/// it is a plain `*.tmp` file name (no path); anything else gets a fresh
+/// name.
+pub(crate) fn temp_file_name(
+    hash_key: &str,
+    doc_id: u64,
+    instance_id: &str,
+    restored_temp_file: Option<&str>,
+) -> String {
+    if let Some(name) = restored_temp_file.filter(|n| is_plain_temp_name(n)) {
+        return name.to_string();
+    }
     let mut hasher = DefaultHasher::new();
-    name.hash(&mut hasher);
-    id.hash(&mut hasher);
-    hasher.finish()
+    hash_key.hash(&mut hasher);
+    doc_id.hash(&mut hasher);
+    instance_id.hash(&mut hasher);
+    format!("{:016x}.tmp", hasher.finish())
+}
+
+/// A bare `*.tmp` file name: no directory part, no `..`.
+fn is_plain_temp_name(name: &str) -> bool {
+    name.ends_with(".tmp")
+        && !name.starts_with('.')
+        && Path::new(name).file_name().and_then(|f| f.to_str()) == Some(name)
 }
 
 #[cfg(test)]
@@ -623,6 +645,324 @@ mod tests {
     fn test_list_sessions_returns_vec() {
         // Just verify it doesn't panic; actual sessions depend on environment
         let _ = list_sessions();
+    }
+
+    // --- T0099: the identity of an unsaved document is its temp file ---
+
+    fn untitled(temp_file: &str) -> DocumentSession {
+        DocumentSession {
+            file_path: None,
+            display_name: "Untitled".to_string(),
+            cursor_position: 0,
+            temp_file: Some(temp_file.to_string()),
+            was_dirty: true,
+            group_index: None,
+        }
+    }
+
+    fn persisted(dir: &Path) -> SessionData {
+        serde_json::from_str(&fs::read_to_string(dir.join("session.json")).unwrap()).unwrap()
+    }
+
+    /// Two instances, each with an unsaved "Untitled" of different text:
+    /// after the second one saves, both texts are still in the session.
+    #[test]
+    fn session_identity_foreign_untitled_survives_merge() {
+        let dir = tempfile::tempdir().unwrap();
+        let dir_path = dir.path();
+        // Instance 111 persisted its untitled document first.
+        fs::write(dir_path.join("aaaa.tmp"), "from instance 111").unwrap();
+        let first = SessionData {
+            version: CURRENT_SESSION_VERSION,
+            active_index: 0,
+            documents: vec![untitled("aaaa.tmp")],
+            last_open_directory: None,
+            groups: vec![],
+            instance_id: Some("111".to_string()),
+        };
+        fs::write(
+            dir_path.join("session.json"),
+            serde_json::to_string_pretty(&first).unwrap(),
+        )
+        .unwrap();
+
+        // Instance 222 saves its own, different, untitled document.
+        fs::write(dir_path.join("bbbb.tmp"), "from instance 222").unwrap();
+        merge_and_persist(
+            vec![untitled("bbbb.tmp")],
+            0,
+            None,
+            Vec::new(),
+            SessionRestore::Full,
+            dir_path,
+            "222",
+        )
+        .unwrap();
+
+        let temps: Vec<_> = persisted(dir_path)
+            .documents
+            .iter()
+            .filter_map(|d| d.temp_file.clone())
+            .collect();
+        assert!(
+            temps.contains(&"aaaa.tmp".to_string()),
+            "instance 111's unsaved text was dropped from the session: {temps:?}"
+        );
+        assert!(temps.contains(&"bbbb.tmp".to_string()));
+        assert_eq!(
+            fs::read_to_string(dir_path.join("aaaa.tmp"))
+                .ok()
+                .as_deref(),
+            Some("from instance 111"),
+            "instance 111's temp file was deleted"
+        );
+    }
+
+    /// Document ids start at 1 in every process: the same name and id in two
+    /// instances must not share a temp file.
+    #[test]
+    fn session_identity_temp_names_differ_across_instances() {
+        let a = temp_file_name("Untitled", 2, "111", None);
+        let b = temp_file_name("Untitled", 2, "222", None);
+        assert_ne!(a, b);
+        // Stable within one instance (auto-saves overwrite the same file).
+        assert_eq!(a, temp_file_name("Untitled", 2, "111", None));
+        assert!(a.ends_with(".tmp"));
+    }
+
+    /// A document restored from a temp file writes back to it (whatever this
+    /// process's id for it), so the merge recognises it and does not keep
+    /// a second copy.
+    #[test]
+    fn session_identity_restored_doc_keeps_its_temp_file() {
+        assert_eq!(
+            temp_file_name("Untitled", 7, "333", Some("xyz.tmp")),
+            "xyz.tmp"
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let dir_path = dir.path();
+        fs::write(dir_path.join("xyz.tmp"), "restored").unwrap();
+        let earlier = SessionData {
+            version: CURRENT_SESSION_VERSION,
+            active_index: 0,
+            documents: vec![untitled("xyz.tmp")],
+            last_open_directory: None,
+            groups: vec![],
+            instance_id: Some("111".to_string()),
+        };
+        fs::write(
+            dir_path.join("session.json"),
+            serde_json::to_string_pretty(&earlier).unwrap(),
+        )
+        .unwrap();
+        let name = temp_file_name("Untitled", 7, "333", Some("xyz.tmp"));
+        merge_and_persist(
+            vec![untitled(&name)],
+            0,
+            None,
+            Vec::new(),
+            SessionRestore::Full,
+            dir_path,
+            "333",
+        )
+        .unwrap();
+        assert_eq!(persisted(dir_path).documents.len(), 1, "no duplicate");
+    }
+
+    /// A restored name from session.json is only reused when it is a plain
+    /// `*.tmp` name; a path is never written to.
+    #[test]
+    fn session_identity_restored_name_must_be_plain() {
+        for bad in [
+            "../evil.tmp",
+            "/tmp/x.tmp",
+            "sub/x.tmp",
+            "..",
+            ".tmp",
+            "x.txt",
+        ] {
+            let name = temp_file_name("Untitled", 1, "1", Some(bad));
+            assert_ne!(name, bad);
+            assert!(is_plain_temp_name(&name), "{bad} -> {name}");
+        }
+    }
+
+    /// Several simulated runs of one session: each run restores the unsaved
+    /// documents (reusing their temp files), maybe adds or closes one, and
+    /// saves. The temp dir never holds more files than the session lists.
+    #[test]
+    fn session_identity_no_temp_file_leak_over_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let dir_path = dir.path();
+        // One "run": the documents the instance holds -> what it saves.
+        let save = |instance: &str, docs: &[(&str, u64, Option<String>, &str)]| {
+            let sessions: Vec<DocumentSession> = docs
+                .iter()
+                .map(|(name, id, restored, text)| {
+                    let file = temp_file_name(name, *id, instance, restored.as_deref());
+                    fs::write(dir_path.join(&file), text).unwrap();
+                    DocumentSession {
+                        display_name: name.to_string(),
+                        ..untitled(&file)
+                    }
+                })
+                .collect();
+            merge_and_persist(
+                sessions,
+                0,
+                None,
+                Vec::new(),
+                SessionRestore::Full,
+                dir_path,
+                instance,
+            )
+            .unwrap();
+        };
+        let tmp_count = || {
+            fs::read_dir(dir_path)
+                .unwrap()
+                .filter(|e| {
+                    e.as_ref()
+                        .unwrap()
+                        .file_name()
+                        .to_string_lossy()
+                        .ends_with(".tmp")
+                })
+                .count()
+        };
+        let restored = || -> Vec<String> {
+            persisted(dir_path)
+                .documents
+                .iter()
+                .filter_map(|d| d.temp_file.clone())
+                .collect()
+        };
+
+        // Run 1 (pid 100): two new unsaved documents.
+        save(
+            "100",
+            &[("Untitled", 1, None, "a"), ("Untitled 2", 2, None, "b")],
+        );
+        assert_eq!(tmp_count(), 2);
+        // Runs 2-4 (new pids, new ids): restore both and save again.
+        for (run, pid) in ["200", "300", "400"].iter().enumerate() {
+            let r = restored();
+            save(
+                pid,
+                &[
+                    ("Untitled", 10 + run as u64, Some(r[0].clone()), "a"),
+                    ("Untitled 2", 20 + run as u64, Some(r[1].clone()), "b"),
+                ],
+            );
+            assert_eq!(tmp_count(), 2, "run {pid}: no new files for restored docs");
+            assert_eq!(
+                persisted(dir_path).documents.len(),
+                2,
+                "run {pid}: no duplicates"
+            );
+        }
+        // Run 5: one more document; run 6: the user closed one.
+        let r = restored();
+        save(
+            "500",
+            &[
+                ("Untitled", 1, Some(r[0].clone()), "a"),
+                ("Untitled 2", 2, Some(r[1].clone()), "b"),
+                ("Untitled 3", 3, None, "c"),
+            ],
+        );
+        assert_eq!(tmp_count(), 3);
+        // Run 6: restores all three; its first (auto-)save makes the session
+        // its own; then the user closes one and it saves again.
+        let r = restored();
+        let all = [
+            ("Untitled", 1, Some(r[0].clone()), "a"),
+            ("Untitled 2", 2, Some(r[1].clone()), "b"),
+            ("Untitled 3", 3, Some(r[2].clone()), "c"),
+        ];
+        save("600", &all);
+        assert_eq!(tmp_count(), 3);
+        save("600", &[all[0].clone(), all[2].clone()]);
+        assert_eq!(tmp_count(), 2, "the closed document's temp file is removed");
+        assert_eq!(persisted(dir_path).documents.len(), 2);
+    }
+
+    /// A session written by 0.9.9 / 0.9.10-rc.2: old-style temp names
+    /// (hash of name + id only), no instance in them. It restores as before,
+    /// and the first save after the upgrade keeps exactly those documents
+    /// and files: no loss, no duplicate.
+    #[test]
+    fn session_identity_old_session_upgrades_cleanly() {
+        let dir = tempfile::tempdir().unwrap();
+        let dir_path = dir.path();
+        let old_json = r#"{
+  "version": 1,
+  "active_index": 1,
+  "documents": [
+    {"file_path": null, "display_name": "Untitled 2", "cursor_position": 3,
+     "temp_file": "6cbb5b99cd7f50b2.tmp", "was_dirty": true, "group_index": null},
+    {"file_path": null, "display_name": "Untitled 3", "cursor_position": 0,
+     "temp_file": "620ea35db537a593.tmp", "was_dirty": true, "group_index": null}
+  ],
+  "last_open_directory": null,
+  "groups": [],
+  "instance_id": "4242"
+}"#;
+        fs::write(dir_path.join("session.json"), old_json).unwrap();
+        fs::write(dir_path.join("6cbb5b99cd7f50b2.tmp"), "first unsaved").unwrap();
+        fs::write(dir_path.join("620ea35db537a593.tmp"), "second unsaved").unwrap();
+
+        // Restore: the old format parses, and each temp file is readable.
+        let old: SessionData = persisted(dir_path);
+        let texts: Vec<String> = old
+            .documents
+            .iter()
+            .map(|d| fs::read_to_string(dir_path.join(d.temp_file.as_ref().unwrap())).unwrap())
+            .collect();
+        assert_eq!(texts, ["first unsaved", "second unsaved"]);
+
+        // First save by the new version (new pid, new ids, T0091 names):
+        // each restored document writes back to its old temp file.
+        let sessions: Vec<DocumentSession> = old
+            .documents
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let name = if i == 0 { "Untitled" } else { "Untitled 2" };
+                let file = temp_file_name(name, i as u64 + 1, "777", d.temp_file.as_deref());
+                fs::write(dir_path.join(&file), &texts[i]).unwrap();
+                DocumentSession {
+                    display_name: name.to_string(),
+                    ..untitled(&file)
+                }
+            })
+            .collect();
+        merge_and_persist(
+            sessions,
+            1,
+            None,
+            Vec::new(),
+            SessionRestore::Full,
+            dir_path,
+            "777",
+        )
+        .unwrap();
+        let after = persisted(dir_path);
+        let files: Vec<_> = after
+            .documents
+            .iter()
+            .filter_map(|d| d.temp_file.clone())
+            .collect();
+        assert_eq!(files, ["6cbb5b99cd7f50b2.tmp", "620ea35db537a593.tmp"]);
+        assert_eq!(
+            fs::read_to_string(dir_path.join("6cbb5b99cd7f50b2.tmp")).unwrap(),
+            "first unsaved"
+        );
+        assert_eq!(
+            fs::read_to_string(dir_path.join("620ea35db537a593.tmp")).unwrap(),
+            "second unsaved"
+        );
     }
 
     // Regression (T0015, audit M6): an instance with nothing to contribute must
