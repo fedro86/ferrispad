@@ -112,3 +112,14 @@ The screenshot was inspected edge by edge: only the swatch changed.
 ## User verification
 
 2026-11-26, by the user on Fedora GNOME (Wayland) with the rc.3 integration build `verify/rc3` (checklist VERIFICA-RC3.md, item 2.3): in dark mode the theme manager's Caret #000000 swatch of Base16 Ocean Light is black.
+
+## Landing fix (2026-11-27): macOS build
+
+The first macOS gate run of this branch (at landing time) failed:
+`cannot find function fltk_rgb` in `src/ui/main_window.rs`. The script
+that rewrote the call sites had inserted `use crate::ui::color::fltk_rgb;`
+between the `#[cfg(not(target_os = "macos"))]` attribute and the
+`use fltk::image::PngImage;` it guarded. The attribute then applied to the
+new import instead, so macOS lost `fltk_rgb` and kept an unused
+`PngImage`. The import is now unconditional and the attribute is back on
+`PngImage`. No other `cfg`-guarded import of `fltk_rgb` exists.

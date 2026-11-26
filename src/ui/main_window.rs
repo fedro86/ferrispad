@@ -1,5 +1,5 @@
-#[cfg(not(target_os = "macos"))]
 use crate::ui::color::fltk_rgb;
+#[cfg(not(target_os = "macos"))]
 use fltk::image::PngImage;
 use fltk::{
     app::Sender,
