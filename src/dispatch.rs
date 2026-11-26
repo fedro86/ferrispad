@@ -386,6 +386,13 @@ pub fn handle_settings(msg: Message, state: &mut AppState, lw: &mut LayoutWidget
 // Syntax Highlighting
 // ---------------------------------------------------------------------------
 
+/// `DirtyChanged`: refresh the window title and the tab bar (T0093). One
+/// message stands for every flip since the last one was dequeued.
+pub fn refresh_dirty_markers(state: &mut AppState) {
+    state.update_window_title();
+    state.rebuild_tab_bar();
+}
+
 pub fn handle_highlight(msg: Message, state: &mut AppState) {
     match msg {
         Message::BufferModified {
@@ -401,12 +408,6 @@ pub fn handle_highlight(msg: Message, state: &mut AppState) {
             state.schedule_rehighlight(id, pos);
             state.schedule_text_change_hook(id, pos, inserted, deleted);
             state.session.mark_dirty();
-        }
-        Message::DirtyChanged(_) => {
-            // One message stands for every flip since the last refresh.
-            crate::app::domain::document::dirty_refresh_handled();
-            state.update_window_title();
-            state.rebuild_tab_bar();
         }
         Message::DoRehighlight => {
             state.do_pending_rehighlight();

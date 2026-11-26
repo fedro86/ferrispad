@@ -92,10 +92,20 @@ thread_local! {
     static DIRTY_REFRESH_QUEUED: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Called by the `DirtyChanged` handler before it refreshes: later flips
-/// queue a new refresh.
+/// The queued `DirtyChanged` was taken off the queue: later flips queue a
+/// new refresh.
 pub fn dirty_refresh_handled() {
     DIRTY_REFRESH_QUEUED.with(|q| q.set(false));
+}
+
+/// Called by the main loop for every message it takes off the queue, before
+/// dispatch. Clearing the flag here, not in the handler, keeps the reset
+/// independent of whether the handler runs; otherwise one skipped handler
+/// would leave the flag set and silence every later flip.
+pub fn note_dequeued(msg: &Message) {
+    if matches!(msg, Message::DirtyChanged(_)) {
+        dirty_refresh_handled();
+    }
 }
 
 /// Queue a `DirtyChanged` unless one is already waiting.
@@ -521,6 +531,18 @@ mod tests {
         docs[3].mark_clean();
         docs[3].buffer.insert(0, "u");
         assert_eq!(dirty_flips(&receiver, &ids), 1, "next refresh");
+
+        // The main loop takes the message off the queue but never reaches
+        // the refresh handler (e.g. it is skipped with 0 tabs): the next
+        // flip must still send, or "*" is gone for the rest of the process.
+        note_dequeued(&Message::DirtyChanged(ids[3]));
+        docs[4].mark_clean();
+        docs[4].buffer.insert(0, "w");
+        assert_eq!(
+            dirty_flips(&receiver, &ids),
+            1,
+            "after an unhandled dequeue"
+        );
         for doc in &mut docs {
             doc.cleanup();
         }

@@ -565,6 +565,7 @@ fn main() {
     // Main event loop with message dispatch
     while app.wait() {
         if let Some(msg) = receiver.recv() {
+            ferris_pad::app::domain::document::note_dequeued(&msg);
             let result = match msg {
                 // File
                 Message::FileNew
@@ -636,9 +637,15 @@ fn main() {
                     dispatch::DispatchResult::Continue
                 }
 
+                // Dirty marker refresh: safe with no document (the title
+                // falls back to the app name, the tab bar to no tabs).
+                Message::DirtyChanged(_) => {
+                    dispatch::refresh_dirty_markers(&mut state);
+                    dispatch::DispatchResult::Continue
+                }
+
                 // Syntax highlighting (skip if no tabs — no buffer)
-                Message::DirtyChanged(_)
-                | Message::BufferModified { .. }
+                Message::BufferModified { .. }
                 | Message::DoRehighlight
                 | Message::ContinueHighlight
                 | Message::DoTextChangeHook => {

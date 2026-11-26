@@ -164,6 +164,18 @@ temp path. Window title after each step:
   - The main loop takes one message per iteration, so a per-iteration
     "pending" flag would still rebuild N times; deduplicating at send time
     avoids that, without a timer.
+  - **The flag is cleared where the message leaves the queue**
+    (`document::note_dequeued`, called by `main.rs` for every message
+    before dispatch), not inside the handler. Review finding
+    (ferrispad-a3): `DirtyChanged` was routed in the "skip when there are 0
+    tabs" group and the flag was cleared only in its handler. One
+    `DirtyChanged` dequeued with no document open would have left the flag
+    set, and "*" would have been silently gone for the rest of the process.
+    `DirtyChanged` now also has its own route outside that guard; its
+    handler is safe with no document (title → app name, tab bar → empty).
+    Red: `after an unhandled dequeue  left: 0  right: 1`. Xvfb: type in a
+    tab, close it (Discard) → "🦀 FerrisPad", Ctrl+T, type → "*Untitled
+    3 - …".
 - `main.rs` routes `DirtyChanged` with the buffer messages;
   `dispatch::handle_highlight` calls `update_window_title()` +
   `rebuild_tab_bar()`.
