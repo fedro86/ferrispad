@@ -1,6 +1,5 @@
 use crate::ui::color::fltk_rgb;
 use fltk::{
-    button::Button,
     enums::{Font, FrameType},
     frame::Frame,
     group::Flex,
@@ -84,10 +83,7 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
     flex.fixed(&info_frame, 120);
 
     // Close button
-    let mut close_btn = Button::default().with_label("Close");
-    close_btn.set_frame(FrameType::RFlatBox);
-    close_btn.set_color(theme.button_bg);
-    close_btn.set_label_color(theme.text);
+    let mut close_btn = theme.button().with_label("Close");
     flex.fixed(&close_btn, 35);
 
     flex.end();

@@ -22,6 +22,7 @@ use ferris_pad::app::services::custom_themes::ThemeStore;
 use ferris_pad::ui::dialogs::DialogTheme;
 use ferris_pad::ui::dialogs::build_themed_input;
 use ferris_pad::ui::dialogs::color_picker::build_color_picker;
+use ferris_pad::ui::dialogs::session_picker::build_session_picker;
 use ferris_pad::ui::dialogs::settings_dialog::build_settings_dialog;
 use ferris_pad::ui::dialogs::theme_manager::{SWATCH_TOOLTIP, build_theme_manager};
 use fltk::prelude::*;
@@ -29,7 +30,7 @@ use fltk::widget::Widget;
 use fltk::window::Window;
 use support::ui_layout::{
     active_buttons_looking_disabled, count_matching, display_available, everything,
-    flat_widgets_with_tooltip, layout_failures,
+    flat_widgets_with_tooltip, layout_failures, unthemed_inputs,
 };
 
 /// The Settings rows T0079/T0080 added: the syntax-theme choices (and their
@@ -133,5 +134,61 @@ fn new_dialog_windows_build() {
         "settings",
         settings_theme_rows,
     ));
+    // Every text input uses the theme's input colors, incl. the shared
+    // selection color (T0105), in the dark and the light dialogs.
+    let dark = DialogTheme::from_theme_bg((43, 48, 59));
+    let light = DialogTheme::from_theme_bg((239, 241, 245));
+    let settings_light = build_settings_dialog(
+        &AppSettings::default(),
+        (239, 241, 245),
+        &[(ThemeRef::Custom("t-a".into()), "A custom theme".into())],
+    );
+    for (name, window) in &windows {
+        let theme = if name.contains("light") {
+            &light
+        } else {
+            &dark
+        };
+        failures.extend(unthemed_inputs(window, name, theme));
+    }
+    failures.extend(unthemed_inputs(&settings.dialog, "settings dark", &dark));
+    failures.extend(unthemed_inputs(
+        &settings_light.dialog,
+        "settings light",
+        &light,
+    ));
+
+    // Sessions picker (T0105): layout, themed inputs, and its button row
+    // must not run past the list's right edge (it ended 5 px past it).
+    let sessions = vec![
+        "default".to_string(),
+        "notes".to_string(),
+        "work".to_string(),
+    ];
+    for (name, theme) in [("sessions dark", &dark), ("sessions light", &light)] {
+        let ui = build_session_picker(theme, "default", &sessions);
+        failures.extend(layout_failures(&ui.dialog_win, name, everything));
+        failures.extend(unthemed_inputs(&ui.dialog_win, name, theme));
+        let list_right = ui.browser.x() + ui.browser.w();
+        for b in [
+            &ui.switch_btn,
+            &ui.new_win_btn,
+            &ui.delete_btn,
+            &ui.cancel_btn,
+        ] {
+            if b.x() + b.w() > list_right {
+                failures.push(format!(
+                    "{name}: button {:?} ends at {} past the list edge {list_right}",
+                    b.label(),
+                    b.x() + b.w()
+                ));
+            }
+        }
+        if ui.cancel_btn.x() + ui.cancel_btn.w() != list_right {
+            failures.push(format!(
+                "{name}: button row not aligned to the list's right edge"
+            ));
+        }
+    }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
