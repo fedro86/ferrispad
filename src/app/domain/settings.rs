@@ -738,6 +738,8 @@ impl AppSettings {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn theme_mode_resolve_dark_detects_only_for_system_default() {
         let never = || -> bool { panic!("explicit modes must not query the desktop") };
@@ -746,8 +748,6 @@ mod tests {
         assert!(ThemeMode::SystemDefault.resolve_dark(|| true));
         assert!(!ThemeMode::SystemDefault.resolve_dark(|| false));
     }
-
-    use super::*;
 
     #[test]
     fn test_default_settings() {

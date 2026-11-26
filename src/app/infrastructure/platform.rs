@@ -51,10 +51,15 @@ pub fn detect_system_dark_mode() -> bool {
     }
 
     // Linux: the XDG desktop portal first, then GNOME's gsettings (T0088).
+    // Every probe runs under one hard deadline, so a wedged session bus or a
+    // stuck command delays startup / Save by at most DETECT_BUDGET.
     #[cfg(target_os = "linux")]
     {
         use crate::app::services::system_appearance::prefers_dark;
-        if prefers_dark(read_portal_color_scheme(), gsettings_prefers_dark) {
+        use std::time::Instant;
+        let start = Instant::now();
+        let portal = read_portal_color_scheme(start + PORTAL_BUDGET);
+        if prefers_dark(portal, || gsettings_prefers_dark(start + DETECT_BUDGET)) {
             return true;
         }
     }
@@ -81,14 +86,28 @@ pub fn detect_system_dark_mode() -> bool {
     false
 }
 
-/// Ask the XDG desktop portal for `org.freedesktop.appearance` /
-/// `color-scheme` with one `gdbus call` (1 s D-Bus timeout). `gdbus` ships
-/// with the same glib package as `gsettings`. `None` when there is no session
-/// bus, no portal, or an unreadable answer.
+/// Hard limit for the whole Linux dark-mode detection (portal + gsettings).
 #[cfg(target_os = "linux")]
-fn read_portal_color_scheme() -> Option<crate::app::services::system_appearance::ColorScheme> {
+const DETECT_BUDGET: std::time::Duration = std::time::Duration::from_millis(1500);
+
+/// Part of [`DETECT_BUDGET`] the portal may use; the rest stays for the
+/// gsettings fallback, which reads dconf directly and does not need the bus.
+#[cfg(target_os = "linux")]
+const PORTAL_BUDGET: std::time::Duration = std::time::Duration::from_millis(1200);
+
+/// Ask the XDG desktop portal for `org.freedesktop.appearance` /
+/// `color-scheme` with `gdbus call` (`gdbus` ships with the same glib package
+/// as `gsettings`). Both calls share `deadline`: `gdbus --timeout` only
+/// bounds the method call, not connecting to the bus, so the hard deadline is
+/// what guarantees it returns. `None` when there is no session bus, no
+/// portal, no answer in time, or an unreadable answer.
+#[cfg(target_os = "linux")]
+fn read_portal_color_scheme(
+    deadline: std::time::Instant,
+) -> Option<crate::app::services::system_appearance::ColorScheme> {
+    use super::probe::run_bounded;
     use crate::app::services::system_appearance::{parse_portal_reply, session_bus_reachable};
-    use std::process::{Command, Output, Stdio};
+    use std::process::{Command, Output};
 
     // Without a bus GIO would autolaunch a dbus-daemon; never do that here.
     let runtime_bus = std::env::var_os("XDG_RUNTIME_DIR")
@@ -99,8 +118,8 @@ fn read_portal_color_scheme() -> Option<crate::app::services::system_appearance:
     }
 
     let call = |method: &str| -> Option<Output> {
-        Command::new("gdbus")
-            .args([
+        run_bounded(
+            Command::new("gdbus").args([
                 "call",
                 "--session",
                 "--timeout",
@@ -113,10 +132,9 @@ fn read_portal_color_scheme() -> Option<crate::app::services::system_appearance:
                 method,
                 "org.freedesktop.appearance",
                 "color-scheme",
-            ])
-            .stdin(Stdio::null())
-            .output()
-            .ok()
+            ]),
+            deadline,
+        )
     };
     let out = call("org.freedesktop.portal.Settings.ReadOne")?;
     if out.status.success() {
@@ -133,19 +151,21 @@ fn read_portal_color_scheme() -> Option<crate::app::services::system_appearance:
 }
 
 /// GNOME's `gtk-theme` / `color-scheme` keys, as before T0088. Fails to
-/// "light" when `gsettings` is missing or cannot see the user's dconf.
+/// "light" when `gsettings` is missing, cannot see the user's dconf, or does
+/// not answer before `deadline`.
 #[cfg(target_os = "linux")]
-fn gsettings_prefers_dark() -> bool {
+fn gsettings_prefers_dark(deadline: std::time::Instant) -> bool {
+    use super::probe::run_bounded;
     use crate::app::services::system_appearance::gsettings_prefers_dark as decide;
-    use std::process::{Command, Stdio};
+    use std::process::Command;
 
     let get = |key: &str| {
-        Command::new("gsettings")
-            .args(["get", "org.gnome.desktop.interface", key])
-            .stdin(Stdio::null())
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-            .unwrap_or_default()
+        run_bounded(
+            Command::new("gsettings").args(["get", "org.gnome.desktop.interface", key]),
+            deadline,
+        )
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default()
     };
     let gtk_theme = get("gtk-theme");
     // Same short-circuit as before: color-scheme only when the theme is light.

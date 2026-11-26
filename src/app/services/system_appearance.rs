@@ -65,9 +65,15 @@ pub fn prefers_dark(portal: Option<ColorScheme>, gsettings: impl FnOnce() -> boo
 /// Whether asking the session bus is safe: an explicit
 /// `DBUS_SESSION_BUS_ADDRESS`, or the standard `$XDG_RUNTIME_DIR/bus` socket.
 /// Without either, GIO would try to *autolaunch* a bus daemon, a side effect
-/// a theme lookup must not have.
+/// a theme lookup must not have; so is an address list that names the
+/// `autolaunch:` transport anywhere (GIO tries the entries in order).
 pub fn session_bus_reachable(bus_address: Option<&str>, runtime_bus_exists: bool) -> bool {
-    bus_address.is_some_and(|a| !a.trim().is_empty()) || runtime_bus_exists
+    match bus_address.map(str::trim).filter(|a| !a.is_empty()) {
+        Some(address) => !address
+            .split(';')
+            .any(|entry| entry.trim_start().starts_with("autolaunch:")),
+        None => runtime_bus_exists,
+    }
 }
 
 #[cfg(test)]
@@ -158,5 +164,11 @@ mod tests {
         assert!(session_bus_reachable(None, true));
         assert!(!session_bus_reachable(None, false));
         assert!(!session_bus_reachable(Some("  "), false));
+        // An explicit autolaunch: address would spawn a daemon.
+        assert!(!session_bus_reachable(Some("autolaunch:"), true));
+        assert!(!session_bus_reachable(
+            Some("unix:path=/nonexistent;autolaunch:scope=x"),
+            true
+        ));
     }
 }

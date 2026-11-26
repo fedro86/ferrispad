@@ -89,8 +89,10 @@ nix develop -c cargo test system_appearance
       `'default'`, System default resolves to dark (startup and Save).
 - [ ] Portal prefer-light resolves to light; no portal / no preference keeps
       today's `gsettings` behaviour.
-- [ ] A missing or hung portal never blocks more than the 1 s `gdbus`
-      timeout; no panic on any reply text.
+- [ ] No probe can hang startup or Save: the whole Linux detection (portal
+      + gsettings) is bounded by a 1.5 s hard deadline, even with a wedged
+      session bus; no child process is left behind; no panic on any reply
+      text.
 - [ ] Regression test added and green; it failed before the fix.
 - [ ] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
       and `cargo fmt --check` pass.
@@ -101,7 +103,8 @@ nix develop -c cargo test system_appearance
 ## Affected files
 
 - `src/app/services/system_appearance.rs` (new) — pure parser + decision.
-- `src/app/services/mod.rs` — module registration.
+- `src/app/services/mod.rs`, `src/app/infrastructure/mod.rs` — module registration.
+- `src/app/infrastructure/probe.rs` (new) — `run_bounded`, the hard deadline for every external probe.
 - `src/app/infrastructure/platform.rs` — Linux branch of
   `detect_system_dark_mode()` asks the portal first.
 - `src/app/domain/settings.rs` — `ThemeMode::resolve_dark(detect)`, the one
@@ -153,7 +156,7 @@ test result: FAILED. 4 passed; 2 failed
 ```
 
 After the fix: `nix develop -c cargo test system_appearance` → 6 passed.
-Full suite under Xvfb (`FERRISPAD_REQUIRE_UI_TESTS=1`): lib 588 passed,
+Full suite under Xvfb (`FERRISPAD_REQUIRE_UI_TESTS=1`): lib 592 passed,
 all integration binaries green; clippy `-D warnings` and `fmt --check` clean.
 
 ### Xvfb campaign (Claude-driven, the user's setup reproduced)
@@ -211,10 +214,40 @@ System default:
 | bus present, portal not activatable (`ServiceUnknown`) | immediate error → gsettings |
 | portal hung (mock that never answers) — before the single-query fix | 2067 / 2058 ms |
 | portal hung — after (one query) | 1065 / 1042 ms |
+| **wedged bus** (socket accepts, never speaks) — 2739695 | **no window after 10 s**, `gdbus` child still alive |
+| wedged bus — after `run_bounded` (review fix) | 1278 / 1284 ms, no `gdbus` left |
 
-Worst case is therefore one D-Bus timeout (1 s) before the first paint and
-the same 1 s freeze on Settings → Save, only when a portal exists on the bus
-but never answers. A portal v1 (`ReadOne` unknown) costs two quick calls
+### Review fix: a hard deadline for every probe
+
+Review (a3) found that `gdbus --timeout 1` only bounds the method call: the
+connect / auth / `Hello` handshake has no timeout, so a bus socket that
+accepts and never speaks (stopped or wedged dbus-daemon/broker, a stale
+forwarded address) made `Command::output()` wait forever — before the window
+is built, so FerrisPad never appeared. Reproduced above (red: no window after
+10 s with the 2739695 build).
+
+Fix: `src/app/infrastructure/probe.rs::run_bounded(cmd, deadline)` — stdin
+null, stdout/stderr piped, `try_wait` polled every 10 ms until the deadline,
+then `kill()` + `wait()` (reaped, no zombie); output read only after exit,
+capped at 4 KiB (probes answer a few bytes, far below the pipe buffer; a
+flooding child blocks and is killed at the deadline). **Every** probe uses it:
+both `gdbus` calls and both `gsettings` calls. One budget for the whole
+detection: the portal may use the first 1.2 s (`PORTAL_BUDGET`), gsettings
+whatever is left of 1.5 s (`DETECT_BUDGET`). gsettings still runs after a
+portal timeout because it reads dconf directly and does not need the bus.
+Tests: `probe_past_the_deadline_is_killed_and_reaped` (`sleep 5` → `None`
+in 1.5 s, its `/proc/<pid>` is gone), `probe_that_floods_its_pipe_is_still_bounded`,
+`probe_returns_the_output_of_a_quick_command`, `probe_missing_command_is_none`.
+
+Also from review: an explicit `DBUS_SESSION_BUS_ADDRESS` naming the
+`autolaunch:` transport (anywhere in the `;` list) now counts as unreachable,
+so the guard never lets GIO spawn a daemon; the `resolve_dark` test moved
+below `use super::*;`.
+
+**Worst case** (startup before the first paint, and the Save freeze): 1.5 s,
+reached only when the bus or portal is wedged *and* gsettings is slow too;
+with a wedged bus and a working gsettings it is ≈1.3 s; normally 40–90 ms.
+A portal v1 (`ReadOne` unknown) costs two quick calls inside the same budget
 (the `UnknownMethod` error is immediate). Moving detection off the UI thread
 would need a deferred re-theme after the first paint (a visible light→dark
 flash on every start for the common case), so it is left as is; the user can
