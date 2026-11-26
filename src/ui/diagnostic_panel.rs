@@ -41,6 +41,8 @@ pub struct DiagnosticPanel {
     sender: Sender<Message>,
     /// Shared diagnostics for hover handler
     shared_diagnostics: Option<Rc<RefCell<Vec<Diagnostic>>>>,
+    /// Text color of each level on the current background (T0104)
+    level_colors: [(u8, u8, u8); 4],
 }
 
 impl DiagnosticPanel {
@@ -79,6 +81,7 @@ impl DiagnosticPanel {
             expanded: false,
             sender,
             shared_diagnostics: None,
+            level_colors: diagnostic_level_colors((40, 40, 40)),
         }
     }
 
@@ -174,12 +177,13 @@ impl DiagnosticPanel {
 
             // Populate browser with diagnostic entries
             for diag in &self.diagnostics {
-                let (icon, color) = match diag.level {
-                    DiagnosticLevel::Error => ("\u{2718}", "@C88"), // Red X
-                    DiagnosticLevel::Warning => ("\u{26A0}", "@C94"), // Orange warning
-                    DiagnosticLevel::Info => ("\u{2139}", "@C12"),  // Blue info
-                    DiagnosticLevel::Hint => ("\u{2022}", "@C8"),   // Gray dot
+                let (icon, level) = match diag.level {
+                    DiagnosticLevel::Error => ("\u{2718}", 0),   // Red X
+                    DiagnosticLevel::Warning => ("\u{26A0}", 1), // Orange warning
+                    DiagnosticLevel::Info => ("\u{2139}", 2),    // Blue info
+                    DiagnosticLevel::Hint => ("\u{2022}", 3),    // Gray dot
                 };
+                let color = color_code(self.level_colors[level]);
 
                 let col_info = if let Some(col) = diag.column {
                     format!(":{}", col)
@@ -370,10 +374,110 @@ impl DiagnosticPanel {
 
 impl Themeable for DiagnosticPanel {
     fn apply_theme(&mut self, theme: PanelTheme) {
-        if theme.is_dark {
-            self.browser.set_color(Color::from_rgb(40, 40, 40));
-        } else {
-            self.browser.set_color(Color::from_rgb(250, 250, 250));
+        // The list follows the theme (T0104): the editor background, and the
+        // level colors re-derived to stay readable on it.
+        let (r, g, b) = diagnostic_panel_bg(theme.bg);
+        self.browser.set_color(Color::from_rgb(r, g, b));
+        self.level_colors = diagnostic_level_colors((r, g, b));
+        if !self.diagnostics.is_empty() {
+            self.refresh_display();
         }
+    }
+}
+
+/// The diagnostic list's background for a theme whose editor background is
+/// `editor_bg`: the editor's own, like the file tree (T0104).
+pub fn diagnostic_panel_bg(editor_bg: (u8, u8, u8)) -> (u8, u8, u8) {
+    editor_bg
+}
+
+/// The hue of each diagnostic level (error, warning, info, hint): FLTK's
+/// palette colors the list used before (indexes 88, 94, 12 and 8).
+pub const DIAGNOSTIC_LEVEL_BASES: [(u8, u8, u8); 4] =
+    [(255, 0, 0), (255, 218, 0), (113, 113, 198), (85, 85, 85)];
+
+/// Minimum WCAG contrast of a diagnostic line on the list.
+const DIAGNOSTIC_TEXT_CONTRAST: f64 = 4.5;
+
+/// The text color of each diagnostic level on the list background `bg`: its
+/// hue, made readable (>= 4.5:1) on `bg` by changing only its lightness
+/// (T0104).
+pub fn diagnostic_level_colors(bg: (u8, u8, u8)) -> [(u8, u8, u8); 4] {
+    use crate::ui::color::{ThemeRgb, readable_variant};
+    DIAGNOSTIC_LEVEL_BASES.map(|base| {
+        let c = readable_variant(
+            ThemeRgb::from_tuple(base),
+            ThemeRgb::from_tuple(bg),
+            DIAGNOSTIC_TEXT_CONTRAST,
+        );
+        (c.r, c.g, c.b)
+    })
+}
+
+/// FLTK's `@C<n>` browser format code for an RGB color (`0xRRGGBB00`).
+fn color_code((r, g, b): (u8, u8, u8)) -> String {
+    format!(
+        "@C{}",
+        u32::from(r) << 24 | u32::from(g) << 16 | u32::from(b) << 8
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::domain::settings::SyntaxTheme;
+    use crate::ui::color::wcag_contrast;
+
+    /// Hue in degrees, or `None` for a gray.
+    fn hue((r, g, b): (u8, u8, u8)) -> Option<f64> {
+        let (r, g, b) = (f64::from(r), f64::from(g), f64::from(b));
+        let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+        let d = max - min;
+        if d < 8.0 {
+            return None;
+        }
+        let h = if max == r {
+            ((g - b) / d).rem_euclid(6.0)
+        } else if max == g {
+            (b - r) / d + 2.0
+        } else {
+            (r - g) / d + 4.0
+        };
+        Some(h * 60.0)
+    }
+
+    /// T0104: the diagnostic list follows the theme (its background is the
+    /// editor's, never a fixed gray), and every level color stays readable on
+    /// it (>= 4.5:1) while keeping its hue.
+    #[test]
+    fn diagnostic_panel_follows_the_theme() {
+        let reference = DIAGNOSTIC_LEVEL_BASES;
+        let mut failures = Vec::new();
+        for theme in SyntaxTheme::all() {
+            let editor_bg = theme.background();
+            let bg = diagnostic_panel_bg(editor_bg);
+            if bg != editor_bg {
+                failures.push(format!(
+                    "{theme:?}: panel bg {bg:?} != editor bg {editor_bg:?}"
+                ));
+            }
+            for (i, color) in diagnostic_level_colors(bg).into_iter().enumerate() {
+                let ratio = wcag_contrast(color, bg);
+                let same_hue = match (hue(color), hue(reference[i])) {
+                    (Some(a), Some(b)) => {
+                        let d = (a - b).abs();
+                        d.min(360.0 - d) <= 12.0
+                    }
+                    (None, None) => true,
+                    _ => false,
+                };
+                if ratio < 4.5 || !same_hue {
+                    failures.push(format!(
+                        "{theme:?}: level {i} {color:?} on {bg:?} = {ratio:.2}:1, hue kept: {same_hue}"
+                    ));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "\n{}", failures.join("\n"));
     }
 }

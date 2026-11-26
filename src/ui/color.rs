@@ -73,6 +73,36 @@ impl ThemeRgb {
     }
 }
 
+/// `base` moved toward white (on a dark `bg`) or toward black (on a light
+/// one), keeping its hue, until it reads at `min` WCAG contrast on `bg`; the
+/// other direction when that one cannot get there (T0104).
+pub fn readable_variant(base: ThemeRgb, bg: ThemeRgb, min: f64) -> ThemeRgb {
+    let rgb = |c: ThemeRgb| (c.r, c.g, c.b);
+    let reaches = |c: ThemeRgb| wcag_contrast(rgb(c), rgb(bg)) >= min;
+    let search = |lighter: bool| {
+        let mut c = base;
+        for _ in 0..120 {
+            if reaches(c) {
+                return Some(c);
+            }
+            c = if lighter {
+                c.lighten(0.06)
+            } else {
+                c.darken(0.94)
+            };
+        }
+        reaches(c).then_some(c)
+    };
+    let dark_bg = bg.brightness() < 128;
+    search(dark_bg)
+        .or_else(|| search(!dark_bg))
+        .unwrap_or(if dark_bg {
+            ThemeRgb::WHITE
+        } else {
+            ThemeRgb::new(0, 0, 0)
+        })
+}
+
 /// WCAG 2 relative luminance of an sRGB color, from 0.0 (black) to 1.0
 /// (white).
 pub fn wcag_luminance((r, g, b): (u8, u8, u8)) -> f64 {
