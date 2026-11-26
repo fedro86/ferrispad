@@ -142,6 +142,9 @@ After the fix it passes. All 25 settings unit tests and
   - This needs no per-field annotation, so a new field is covered
     automatically. A file that is not JSON, or not an object, still yields
     all defaults.
+  - Where a dropped value goes: invalid keys are logged once at load, and
+    the next settings save writes the file without them (normalised to the
+    default).
   - Test `settings_one_bad_key_keeps_the_others`. Red:
     `valid keys kept  left: 16  right: 17` (the whole file had been reset).
 - **A shortcut override without a "shortcut" key is ignored** (orchestrator
