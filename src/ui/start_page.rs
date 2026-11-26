@@ -469,8 +469,15 @@ impl StartPage {
         // new width (and at least the new height); crossing the column
         // threshold rebuilds the page (T0108).
         let mut content_follow = content.clone();
+        // One request per build: a window drag across the threshold fires a
+        // resize per motion event, and each request rebuilds the page (and
+        // re-reads the session and recent-file lists). The rebuild installs
+        // a new callback with a fresh flag.
+        let relayout_requested = std::cell::Cell::new(false);
         scroll.resize_callback(move |scroll, x, y, w, h| {
-            if page_columns(w, h, column_w, two_h, bar_w) != columns {
+            if page_columns(w, h, column_w, two_h, bar_w) != columns
+                && !relayout_requested.replace(true)
+            {
                 sender.send(Message::StartPageRelayout);
             }
             let bar = if content_h > h { bar_w } else { 0 };

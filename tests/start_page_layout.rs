@@ -132,6 +132,21 @@ fn start_page_fits_every_width() {
     for (w, h) in [(500, 600), (1100, 760), (420, 380)] {
         window.resize(0, 0, w, h);
         column.resize(0, 0, w, h);
+        // A drag fires several resizes before the request is handled: one
+        // request per build.
+        for dw in [1, 2, 3] {
+            window.resize(0, 0, w + dw, h);
+            column.resize(0, 0, w + dw, h);
+            lay_out(&window);
+        }
+        let mut requests = 0;
+        while let Some(msg) = receiver.recv() {
+            requests += usize::from(matches!(msg, Message::StartPageRelayout));
+        }
+        assert!(requests <= 1, "{requests} relayout requests for one build");
+        if requests == 1 {
+            page.show(sender, DARK, "default");
+        }
         settle(&mut page, &window, sender, &receiver, DARK);
         failures.extend(clipped(&window, &format!("resized to {w}x{h}")));
     }

@@ -142,6 +142,25 @@ inspected edge by edge:
   path does. `sync_start_page` applies the minimum after each layout of
   the page. No timer.
 
+## Review note (ferrispad-a3, applied): one relayout request per build
+
+- A window drag across the threshold fires one resize per motion event.
+  Each sent a `StartPageRelayout`, and each rebuilt the page, including
+  `session::list_sessions()` and `gather_recent_files()` reading the disk.
+- The resize callback now sends at most one request per build, using a flag
+  captured in the closure.
+- The flag cannot stick:
+  - `StartPageRelayout` is routed unconditionally;
+  - while the page is visible, handling it rebuilds the page, which
+    installs a new callback with a fresh flag;
+  - while the page is hidden no relayout is needed, and the next `show()`
+    rebuilds anyway.
+  So it needs no clearing on dequeue. This branch is based on `master`,
+  which does not have T0096's `AppState::note_dequeued`.
+- Test: in the resize phase, three more resizes past the threshold before
+  the request is handled give **one** request. Red with the flag bypassed:
+  `10 relayout requests for one build`.
+
 ## Acceptance criteria
 
 - [x] Nothing is clipped at any width down to the start-page minimum; one
