@@ -10,6 +10,20 @@ use crate::app::domain::settings::SyntaxTheme;
 use super::checkpoint::{CHECKPOINT_INTERVAL, SparseCheckpoints};
 use super::style_map::StyleMap;
 
+/// Lines longer than this (in bytes, line ending included) are not handed to
+/// syntect (T0087). syntect's cost on one long line is about 2 µs per byte,
+/// and the line would be re-parsed on every keystroke: such a line is styled
+/// as one plain run instead, and the parse state carries over unchanged to
+/// the next line. VS Code applies the same rule (20 000 characters).
+pub const LONG_LINE_BYTES: usize = 16 * 1024;
+
+/// True for a line (line ending included) that is not handed to syntect.
+/// Highlight work is budgeted in the bytes of the other lines: a skipped line
+/// costs syntect nothing.
+pub fn is_long_line(line: &str) -> bool {
+    line.len() > LONG_LINE_BYTES
+}
+
 pub struct FullResult {
     pub style_string: String,
     pub checkpoints: SparseCheckpoints,
@@ -68,14 +82,15 @@ pub fn highlight_full(
         if line_idx % CHECKPOINT_INTERVAL == 0 {
             checkpoints.push(parse_state.clone(), highlight_state.clone());
         }
-        let ops = parse_state.parse_line(line, syntax_set).unwrap_or_default();
-        let iter = HighlightIterator::new(&mut highlight_state, &ops, line, &highlighter);
-        for (style, piece) in iter {
-            let ch = style_to_char(style, style_map);
-            for _ in 0..piece.len() {
-                style_string.push(ch);
-            }
-        }
+        highlight_line(
+            line,
+            &mut parse_state,
+            &mut highlight_state,
+            &highlighter,
+            syntax_set,
+            style_map,
+            &mut style_string,
+        );
     }
 
     FullResult {
@@ -159,14 +174,15 @@ pub fn highlight_incremental(
             }
         }
 
-        let ops = parse_state.parse_line(line, syntax_set).unwrap_or_default();
-        let iter = HighlightIterator::new(&mut highlight_state, &ops, line, &highlighter);
-        for (style, piece) in iter {
-            let ch = style_to_char(style, style_map);
-            for _ in 0..piece.len() {
-                style_chars.push(ch);
-            }
-        }
+        highlight_line(
+            line,
+            &mut parse_state,
+            &mut highlight_state,
+            &highlighter,
+            syntax_set,
+            style_map,
+            &mut style_chars,
+        );
 
         line_idx += 1;
     }
@@ -183,6 +199,32 @@ pub fn highlight_incremental(
     IncrementalResult {
         byte_start,
         style_chars,
+    }
+}
+
+/// Highlight one line (with its line ending), appending one style char per
+/// byte of `line` to `out`. The one per-line step of every highlight path
+/// (full, incremental, chunked). A line longer than [`LONG_LINE_BYTES`] is
+/// not tokenized: it gets the plain style ('A') and leaves both states as
+/// they are.
+pub(super) fn highlight_line(
+    line: &str,
+    parse_state: &mut ParseState,
+    highlight_state: &mut HighlightState,
+    highlighter: &Highlighter,
+    syntax_set: &SyntaxSet,
+    style_map: &mut StyleMap,
+    out: &mut String,
+) {
+    if is_long_line(line) {
+        out.extend(std::iter::repeat_n('A', line.len()));
+        return;
+    }
+    let ops = parse_state.parse_line(line, syntax_set).unwrap_or_default();
+    let iter = HighlightIterator::new(highlight_state, &ops, line, highlighter);
+    for (style, piece) in iter {
+        let ch = style_to_char(style, style_map);
+        out.extend(std::iter::repeat_n(ch, piece.len()));
     }
 }
 

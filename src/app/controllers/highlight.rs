@@ -17,10 +17,42 @@ use crate::app::domain::settings::{SyntaxTheme, ThemeRef, default_syntax_theme};
 use crate::app::infrastructure::buffer::buffer_text_no_leak;
 use crate::app::infrastructure::defer::defer_send;
 use crate::app::services::custom_themes::CustomTheme;
-use crate::app::services::syntax::SyntaxHighlighter;
+use crate::app::services::syntax::{SyntaxHighlighter, is_long_line};
 use crate::ui::theme::{EditorColors, derived_editor_colors, effective_editor_colors};
 
+/// Documents with more lines than this are highlighted in chunks.
 const LARGE_FILE_THRESHOLD: usize = 5000;
+/// Documents that would hand syntect more bytes than this are highlighted in
+/// chunks (T0087). Lines syntect skips ([`is_long_line`]) do not count.
+pub const SYNC_HIGHLIGHT_MAX_BYTES: usize = 1024 * 1024;
+
+/// How a document's whole-text highlight runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HighlightPlan {
+    /// At once, inside the current event-loop step.
+    Synchronous,
+    /// In chunks, one per `ContinueHighlight` message, yielding to the
+    /// event loop in between.
+    Chunked,
+}
+
+/// The one decision between a synchronous and a chunked highlight, shared by
+/// every path that highlights a whole document. Bounded in lines and in the
+/// bytes handed to syntect (T0087): a few long lines can be as much work as
+/// many short ones.
+pub fn highlight_plan(text: &str) -> HighlightPlan {
+    let (mut lines, mut tokenized) = (0, 0);
+    for line in text.split_inclusive('\n') {
+        lines += 1;
+        if !is_long_line(line) {
+            tokenized += line.len();
+        }
+        if lines > LARGE_FILE_THRESHOLD || tokenized > SYNC_HIGHLIGHT_MAX_BYTES {
+            return HighlightPlan::Chunked;
+        }
+    }
+    HighlightPlan::Synchronous
+}
 
 /// Borrowed UI widgets needed by highlight operations.
 pub struct HighlightWidgets<'a> {
@@ -237,17 +269,12 @@ impl HighlightController {
                 doc.syntax_name = syntax_name.clone();
             }
 
-            let (text, line_count) = {
-                if let Some(doc) = tab_manager.doc_by_id(id) {
-                    let text = buffer_text_no_leak(&doc.buffer);
-                    let line_count = text.lines().count();
-                    (text, line_count)
-                } else {
-                    return;
-                }
+            let text = match tab_manager.doc_by_id(id) {
+                Some(doc) => buffer_text_no_leak(&doc.buffer),
+                None => return,
             };
 
-            if line_count <= LARGE_FILE_THRESHOLD {
+            if highlight_plan(&text) == HighlightPlan::Synchronous {
                 let result = self.highlighter.highlight_full(&text, name);
                 if let Some(doc) = tab_manager.doc_by_id_mut(id) {
                     doc.set_style_text(&result.style_string);
@@ -290,19 +317,16 @@ impl HighlightController {
             }
         };
 
-        if checkpoints_empty {
-            let line_count = text.lines().count();
-            if line_count > LARGE_FILE_THRESHOLD {
-                if !self.highlight_queue.contains(&id) {
-                    let was_empty = self.highlight_queue.is_empty()
-                        && self.highlighter.chunked_doc_id().is_none();
-                    self.highlight_queue.push(id);
-                    if was_empty {
-                        defer_send(*sender, 0.0, Message::ContinueHighlight);
-                    }
+        if checkpoints_empty && highlight_plan(&text) == HighlightPlan::Chunked {
+            if !self.highlight_queue.contains(&id) {
+                let was_empty =
+                    self.highlight_queue.is_empty() && self.highlighter.chunked_doc_id().is_none();
+                self.highlight_queue.push(id);
+                if was_empty {
+                    defer_send(*sender, 0.0, Message::ContinueHighlight);
                 }
-                return;
             }
+            return;
         }
 
         let mut checkpoints = {
@@ -453,14 +477,10 @@ impl HighlightController {
         while let Some(id) = self.highlight_queue.first().copied() {
             self.highlight_queue.remove(0);
 
-            let (syntax_name, text, line_count) = {
+            let (syntax_name, text) = {
                 if let Some(doc) = tab_manager.doc_by_id(id) {
                     match doc.syntax_name {
-                        Some(ref name) => {
-                            let text = buffer_text_no_leak(&doc.buffer);
-                            let line_count = text.lines().count();
-                            (name.clone(), text, line_count)
-                        }
+                        Some(ref name) => (name.clone(), buffer_text_no_leak(&doc.buffer)),
                         // No syntax — skip this doc and try next (loop continues)
                         None => continue,
                     }
@@ -470,7 +490,7 @@ impl HighlightController {
                 }
             };
 
-            if line_count <= LARGE_FILE_THRESHOLD {
+            if highlight_plan(&text) == HighlightPlan::Synchronous {
                 let result = self.highlighter.highlight_full(&text, &syntax_name);
                 if let Some(doc) = tab_manager.doc_by_id_mut(id) {
                     doc.set_style_text(&result.style_string);
@@ -518,8 +538,7 @@ impl HighlightController {
                 }
             };
 
-            let line_count = text.lines().count();
-            if line_count <= LARGE_FILE_THRESHOLD {
+            if highlight_plan(&text) == HighlightPlan::Synchronous {
                 let result = self.highlighter.highlight_full(&text, &syntax_name);
                 if let Some(doc) = tab_manager.doc_by_id_mut(id) {
                     doc.set_style_text(&result.style_string);
@@ -720,6 +739,26 @@ mod tests {
     use super::*;
     use crate::app::services::custom_themes::ThemeStore;
     use tempfile::tempdir;
+
+    /// T0087: the synchronous/chunked decision bounds bytes as well as lines.
+    #[test]
+    fn long_line_highlight_plan_bounds_lines_and_bytes() {
+        let normal = "fn main() {}\n".repeat(100);
+        assert_eq!(highlight_plan(&normal), HighlightPlan::Synchronous);
+        let many_lines = "x\n".repeat(LARGE_FILE_THRESHOLD + 1);
+        assert_eq!(highlight_plan(&many_lines), HighlightPlan::Chunked);
+        // Few lines, over the byte bound: the line count alone says "small".
+        let line = format!("{}\n", "a".repeat(1023));
+        let over = line.repeat(SYNC_HIGHLIGHT_MAX_BYTES / 1024 + 1);
+        assert_eq!(highlight_plan(&over), HighlightPlan::Chunked);
+        let at_bound = line.repeat(SYNC_HIGHLIGHT_MAX_BYTES / 1024);
+        assert_eq!(highlight_plan(&at_bound), HighlightPlan::Synchronous);
+        // A line syntect skips costs it nothing: one 8 MB line plus a few
+        // short ones is synchronous (no "Highlighting large file" banner and
+        // its relayouts).
+        let huge = format!("{}\nvar x = 1;\n", "a".repeat(8 * 1024 * 1024));
+        assert_eq!(highlight_plan(&huge), HighlightPlan::Synchronous);
+    }
 
     fn controller() -> HighlightController {
         HighlightController::new(SyntaxTheme::Base16OceanLight, Font::Courier, 14, true)
