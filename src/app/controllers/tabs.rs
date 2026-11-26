@@ -94,7 +94,6 @@ pub struct TabManager {
     documents: Vec<Document>,
     active_id: Option<DocumentId>,
     next_id: u64,
-    untitled_counter: u32,
     sender: Sender<Message>,
     groups: Vec<TabGroup>,
     next_group_id: u64,
@@ -106,7 +105,6 @@ impl TabManager {
             documents: Vec::new(),
             active_id: None,
             next_id: 1,
-            untitled_counter: 0,
             sender,
             groups: Vec::new(),
             next_group_id: 1,
@@ -119,13 +117,30 @@ impl TabManager {
         id
     }
 
+    /// Add an empty untitled document, numbered with the lowest number no
+    /// open untitled document holds (T0091): the first is "Untitled", and a
+    /// closed or saved one frees its number for the next.
     pub fn add_untitled(&mut self) -> DocumentId {
-        self.untitled_counter += 1;
+        let number = self.lowest_free_untitled_number();
         let id = self.next_document_id();
-        let doc = Document::new_untitled(id, self.untitled_counter, self.sender);
+        let doc = Document::new_untitled(id, number, self.sender);
         self.documents.push(doc);
         self.active_id = Some(id);
         id
+    }
+
+    /// The smallest `n >= 1` that no open untitled document holds.
+    pub fn lowest_free_untitled_number(&self) -> u32 {
+        let used: std::collections::BTreeSet<u32> = self
+            .documents
+            .iter()
+            .filter_map(Document::untitled_number)
+            .collect();
+        let mut n = 1;
+        while used.contains(&n) {
+            n += 1;
+        }
+        n
     }
 
     pub fn add_from_file(&mut self, path: String, content: &str) -> DocumentId {
@@ -623,6 +638,60 @@ impl TabManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- T0091: untitled numbering ---
+    // (No FLTK runtime here: TabManager and Document only hold buffers.)
+
+    fn tabs() -> TabManager {
+        let (sender, _receiver) = fltk::app::channel::<Message>();
+        TabManager::new(sender)
+    }
+
+    fn name(tabs: &TabManager, id: DocumentId) -> String {
+        tabs.doc_by_id(id).unwrap().display_name.clone()
+    }
+
+    /// Startup creates the default untitled document and removes it for the
+    /// start page; the user's first new tab must still be "Untitled".
+    #[test]
+    fn untitled_first_new_after_startup_is_untitled() {
+        let mut tabs = tabs();
+        let default = tabs.add_untitled();
+        tabs.remove(default);
+        let first = tabs.add_untitled();
+        assert_eq!(name(&tabs, first), "Untitled");
+        let second = tabs.add_untitled();
+        assert_eq!(name(&tabs, second), "Untitled 2");
+    }
+
+    #[test]
+    fn untitled_reuses_lowest_free_number() {
+        let mut tabs = tabs();
+        let ids: Vec<_> = (0..3).map(|_| tabs.add_untitled()).collect();
+        let names: Vec<_> = ids.iter().map(|&id| name(&tabs, id)).collect();
+        assert_eq!(names, ["Untitled", "Untitled 2", "Untitled 3"]);
+        tabs.remove(ids[1]);
+        let again = tabs.add_untitled();
+        assert_eq!(name(&tabs, again), "Untitled 2");
+        for id in [ids[0], ids[2], again] {
+            tabs.remove(id);
+        }
+        let fresh = tabs.add_untitled();
+        assert_eq!(name(&tabs, fresh), "Untitled");
+    }
+
+    /// Saving an untitled document gives it a path: its number is free.
+    #[test]
+    fn untitled_saved_doc_frees_its_number() {
+        let mut tabs = tabs();
+        let first = tabs.add_untitled();
+        let doc = tabs.doc_by_id_mut(first).unwrap();
+        doc.file_path = Some("/tmp/t0091/notes.txt".to_string());
+        doc.update_display_name();
+        assert_eq!(name(&tabs, first), "notes.txt");
+        let next = tabs.add_untitled();
+        assert_eq!(name(&tabs, next), "Untitled");
+    }
 
     #[test]
     fn test_group_color_to_rgb() {
