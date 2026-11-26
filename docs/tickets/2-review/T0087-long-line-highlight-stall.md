@@ -63,6 +63,9 @@ every recalc** (not fixed: known limitation, see below).
   `line_count <= LARGE_FILE_THRESHOLD` in `detect_and_highlight`,
   `rehighlight_document`, `start_next_queued_highlight` and
   `rehighlight_all_documents`.
+- One `queue_chunked(id, sender)` replaces the three copies of "push on the
+  queue, and start `ContinueHighlight` if idle". It also never queues a
+  document twice; two of the three copies did not check that.
 
 **The rule, in those two places.**
 - `LONG_LINE_BYTES` = 16 KiB (`services/syntax/highlighter.rs`). A line
@@ -87,6 +90,20 @@ every recalc** (not fixed: known limitation, see below).
     search and yields borrowed slices. There is no per-line allocation, and
     the pass stops as soon as either bound is crossed. Before, the check was
     `text.lines().count()`, also one pass.
+- **Worst-case cost of the bounds, measured.** Dense minified JavaScript
+  just under the limit (64 lines × 16 000 bytes = 1 000 KiB, cut from the
+  fixture), `highlight_full` in a release standalone benchmark:
+  - 1 MiB synchronous: **3.7 s**;
+  - one 256 KiB chunk step: **0.93 s**, i.e. about 3.66 µs/byte;
+  - a second run on the loaded machine took twice as long.
+  - Normal code (0.54 µs/byte) costs about 0.55 s synchronous and 0.14 s per
+    chunk.
+  - So the bounds cap a stall at about 4 s in the worst case for synchronous
+    work. Before this ticket, the same file was also highlighted
+    synchronously, so this is not a regression. The 1 MiB / 256 KiB values
+    are the approved ones. Lowering them, e.g. to 256 KiB / 64 KiB (≤ 1 s /
+    0.25 s worst case), would send more normal files down the chunked path
+    with its banner; that is a tuning decision left open.
 - **Deliberate change from the approved scope** (agreed with the
   orchestrator during the work). The scope as first approved counted all
   bytes. That would send the 8 MB one-line file down the chunked path, which
@@ -96,6 +113,16 @@ every recalc** (not fixed: known limitation, see below).
   8 MB line (about 2.3 s, cause B). Measured on the 8 MB file, hl on, wrap
   on: idle after 14.5 s with all bytes counted, against the hl-off floor of
   about 8.7 s.
+- **`clear_annotations` follows the same plan** (folded in at the
+  orchestrator's request during review). It used to run one synchronous full
+  highlight of the active document whenever a plugin cleared its
+  annotations, which would stall a large multi-line file.
+  - It now returns an action, in the controller's usual style:
+    `ClearAnnotations::{Nothing, Restyled, Chunked(id)}`.
+  - The dispatch applies it: `Restyled` rebinds the editor
+    (`bind_active_styles`); `Chunked(id)` calls `queue_chunked`.
+  - A chunked run already under way for that document is cancelled first,
+    because it may already have passed the annotated regions.
 - No new thread, timer, setting or plugin API. Chunks still advance through
   the existing `ContinueHighlight` message.
 - The T0081 current-line highlight already skips lines over 64 KiB
@@ -217,10 +244,11 @@ slow"); it is not built here.
 - Changing the user's word-wrap setting automatically for files with long
   lines.
 - The large-file (≥ 50 MB) streaming path, which already skips highlighting.
-- `HighlightController::clear_annotations` still runs a synchronous full
-  highlight, as before. It is now bounded per line by the rule above, but not
-  routed through `highlight_plan`. It only runs when a plugin clears its
-  annotations.
+- `highlight_incremental` has no total-bytes bound. An edit whose parse
+  state never converges (e.g. typing an unclosed `/*` near the top of a
+  large file) still re-parses to the end of the file synchronously. This
+  ticket only bounds the per-line cost there. Follow-up: T0096.
+- Restyling without a full repaint (Known limitation): follow-up T0095.
 
 ## How to test
 
@@ -230,8 +258,21 @@ slow"); it is not built here.
 nix develop -c cargo test --lib long_line
 ```
 
-The seven T0087 tests (the filter also matches three older long-line tests
+The eight T0087 tests (the filter also matches three older long-line tests
 in other modules, which stay green):
+
+- `controllers::highlight::tests::long_line_clear_annotations_follows_the_plan`
+  - 6000 short lines (over the plan's bound): `clear_annotations` returns
+    `Chunked(id)` and leaves the style buffer untouched (no synchronous
+    pass).
+  - A small document: `Restyled`, with exactly the styles of a full
+    highlight.
+  - Red before the fold-in: `left: Restyled, right: Chunked(DocumentId(1))`.
+  - The test must not reach `defer_send`. `fltk::app::add_timeout3` asserts
+    fltk-rs's "UI thread" and pins it to the calling test thread, after which
+    `ui::dialogs::tests::popup_is_top_level`, on another thread, fails. A
+    first version that queued from inside the controller did exactly that.
+    Returning the action keeps the test free of the FLTK runtime.
 
 - `services::syntax::tests::long_line_boundary_is_inclusive`
   - A 16 384-byte line is tokenized; a 16 385-byte line is plain.
@@ -256,9 +297,13 @@ in other modules, which stay green):
 - `…::long_line_chunks_are_bounded_in_bytes`
   - 60 lines of 10 KiB (600 KiB) take at least 3 chunks, and the first one
     holds ≤ 256 KiB plus one line.
+  - 17 lines of exactly 16 KiB (tokenized, counted in full): the first chunk
+    stops at ≤ 256 KiB plus one line.
   - A skipped 600 KiB line does not use up the budget.
 - `controllers::highlight::tests::long_line_highlight_plan_bounds_lines_and_bytes`
   - 1025 lines of 1 KiB are `Chunked`; 1024 are `Synchronous`.
+  - 64 lines of exactly `LONG_LINE_BYTES` (= 1 MiB, all tokenized) are
+    `Synchronous`; 65 are `Chunked`.
   - Over 5000 lines is `Chunked`.
   - One 8 MB line plus short lines is `Synchronous`.
 
@@ -345,7 +390,11 @@ After the fix all six pass, and the full suite is green.
   has the `CHUNK_BYTES` budget, and computes `done` from the consumed text.
   T0087 tests.
 - `src/app/controllers/highlight.rs` — `HighlightPlan` / `highlight_plan`
-  replace four line-count checks. Plan test.
+  replace four line-count checks; `queue_chunked` replaces three queueing
+  copies; `clear_annotations` returns a `ClearAnnotations` action;
+  `bind_active_styles`. Plan and clear-annotations tests.
+- `src/dispatch.rs` — `AnnotationsClear` applies the `ClearAnnotations`
+  action.
 
 ## Notes
 

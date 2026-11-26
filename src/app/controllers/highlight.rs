@@ -17,6 +17,8 @@ use crate::app::domain::settings::{SyntaxTheme, ThemeRef, default_syntax_theme};
 use crate::app::infrastructure::buffer::buffer_text_no_leak;
 use crate::app::infrastructure::defer::defer_send;
 use crate::app::services::custom_themes::CustomTheme;
+#[cfg(test)]
+use crate::app::services::syntax::LONG_LINE_BYTES;
 use crate::app::services::syntax::{SyntaxHighlighter, is_long_line};
 use crate::ui::theme::{EditorColors, derived_editor_colors, effective_editor_colors};
 
@@ -34,6 +36,19 @@ pub enum HighlightPlan {
     /// In chunks, one per `ContinueHighlight` message, yielding to the
     /// event loop in between.
     Chunked,
+}
+
+/// What [`HighlightController::clear_annotations`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClearAnnotations {
+    /// No active document, or it has no syntax: nothing to restore.
+    Nothing,
+    /// Styles rewritten at once: the editor must be rebound to them.
+    Restyled,
+    /// Too much syntect work for one step: the caller queues the document
+    /// for a chunked highlight ([`HighlightController::queue_chunked`]),
+    /// which restyles (and rebinds) as it goes.
+    Chunked(DocumentId),
 }
 
 /// The one decision between a synchronous and a chunked highlight, shared by
@@ -248,6 +263,20 @@ impl HighlightController {
         defer_send(*sender, 0.0, Message::ContinueHighlight);
     }
 
+    /// Queue `id` for a chunked highlight (once), and start the
+    /// `ContinueHighlight` loop if nothing is running.
+    pub fn queue_chunked(&mut self, id: DocumentId, sender: &Sender<Message>) {
+        if self.highlight_queue.contains(&id) {
+            return;
+        }
+        let was_idle =
+            self.highlight_queue.is_empty() && self.highlighter.chunked_doc_id().is_none();
+        self.highlight_queue.push(id);
+        if was_idle {
+            defer_send(*sender, 0.0, Message::ContinueHighlight);
+        }
+    }
+
     pub fn detect_and_highlight(
         &mut self,
         id: DocumentId,
@@ -281,12 +310,7 @@ impl HighlightController {
                     doc.checkpoints = result.checkpoints;
                 }
             } else {
-                let was_empty =
-                    self.highlight_queue.is_empty() && self.highlighter.chunked_doc_id().is_none();
-                self.highlight_queue.push(id);
-                if was_empty {
-                    defer_send(*sender, 0.0, Message::ContinueHighlight);
-                }
+                self.queue_chunked(id, sender);
             }
         } else if let Some(doc) = tab_manager.doc_by_id_mut(id) {
             doc.syntax_name = None;
@@ -318,14 +342,7 @@ impl HighlightController {
         };
 
         if checkpoints_empty && highlight_plan(&text) == HighlightPlan::Chunked {
-            if !self.highlight_queue.contains(&id) {
-                let was_empty =
-                    self.highlight_queue.is_empty() && self.highlighter.chunked_doc_id().is_none();
-                self.highlight_queue.push(id);
-                if was_empty {
-                    defer_send(*sender, 0.0, Message::ContinueHighlight);
-                }
-            }
+            self.queue_chunked(id, sender);
             return;
         }
 
@@ -545,12 +562,7 @@ impl HighlightController {
                     doc.checkpoints = result.checkpoints;
                 }
             } else {
-                let was_empty =
-                    self.highlight_queue.is_empty() && self.highlighter.chunked_doc_id().is_none();
-                self.highlight_queue.push(id);
-                if was_empty {
-                    defer_send(*sender, 0.0, Message::ContinueHighlight);
-                }
+                self.queue_chunked(id, sender);
             }
         }
     }
@@ -708,15 +720,30 @@ impl HighlightController {
     }
 
     /// Clear line annotations by re-highlighting the active document only.
-    /// This restores the original syntax highlighting without annotation overlays.
-    pub fn clear_annotations(&mut self, tab_manager: &mut TabManager, editor: &mut TextEditor) {
+    /// This restores the original syntax highlighting without annotation
+    /// overlays. The re-highlight follows [`highlight_plan`] like every
+    /// other whole-document highlight (T0087): a large document goes to the
+    /// chunked path instead of one synchronous pass. The caller applies the
+    /// outcome: rebind the editor ([`Self::bind_active_styles`]) or queue
+    /// the chunked highlight ([`Self::queue_chunked`]).
+    pub fn clear_annotations(&mut self, tab_manager: &mut TabManager) -> ClearAnnotations {
         let Some(doc) = tab_manager.active_doc() else {
-            return;
+            return ClearAnnotations::Nothing;
         };
         let Some(syntax_name) = doc.syntax_name.clone() else {
-            return;
+            return ClearAnnotations::Nothing;
         };
+        let id = doc.id;
         let text = buffer_text_no_leak(&doc.buffer);
+
+        if highlight_plan(&text) == HighlightPlan::Chunked {
+            // A chunked run already under way may have passed annotated
+            // regions: start it over.
+            if self.highlighter.chunked_doc_id() == Some(id) {
+                self.highlighter.cancel_chunked();
+            }
+            return ClearAnnotations::Chunked(id);
+        }
 
         let result = self.highlight_full(&text, &syntax_name);
 
@@ -724,8 +751,12 @@ impl HighlightController {
             doc.set_style_text(&result.style_string);
             doc.checkpoints = result.checkpoints;
         }
+        ClearAnnotations::Restyled
+    }
 
-        // Rebind to editor
+    /// Bind the active document's style buffer and the style table to the
+    /// editor.
+    pub fn bind_active_styles(&self, tab_manager: &TabManager, editor: &mut TextEditor) {
         if let Some(doc) = tab_manager.active_doc() {
             let style_buf = doc.style_buffer.clone();
             let table = self.style_table();
@@ -753,11 +784,62 @@ mod tests {
         assert_eq!(highlight_plan(&over), HighlightPlan::Chunked);
         let at_bound = line.repeat(SYNC_HIGHLIGHT_MAX_BYTES / 1024);
         assert_eq!(highlight_plan(&at_bound), HighlightPlan::Synchronous);
+        // Many lines just under the long-line limit are all tokenized and
+        // all count: 64 lines of exactly LONG_LINE_BYTES are exactly 1 MiB.
+        let at_limit = format!("{}\n", "a".repeat(LONG_LINE_BYTES - 1));
+        assert_eq!(64 * LONG_LINE_BYTES, SYNC_HIGHLIGHT_MAX_BYTES);
+        assert_eq!(
+            highlight_plan(&at_limit.repeat(64)),
+            HighlightPlan::Synchronous
+        );
+        assert_eq!(highlight_plan(&at_limit.repeat(65)), HighlightPlan::Chunked);
         // A line syntect skips costs it nothing: one 8 MB line plus a few
         // short ones is synchronous (no "Highlighting large file" banner and
         // its relayouts).
         let huge = format!("{}\nvar x = 1;\n", "a".repeat(8 * 1024 * 1024));
         assert_eq!(highlight_plan(&huge), HighlightPlan::Synchronous);
+    }
+
+    /// A tab manager holding one active JavaScript document with `text`.
+    /// (Nothing here may touch the FLTK runtime, e.g. `defer_send`: it pins
+    /// fltk-rs's UI thread to this test's thread.)
+    fn js_tab(text: &str) -> (TabManager, DocumentId) {
+        let (sender, _receiver) = fltk::app::channel::<Message>();
+        let mut tabs = TabManager::new(sender);
+        let id = tabs.add_untitled();
+        let doc = tabs.doc_by_id_mut(id).unwrap();
+        doc.buffer.set_text(text);
+        doc.syntax_name = Some("JavaScript".to_string());
+        (tabs, id)
+    }
+
+    fn style_text(tabs: &TabManager, id: DocumentId) -> String {
+        buffer_text_no_leak(&tabs.doc_by_id(id).unwrap().style_buffer)
+    }
+
+    /// T0087: clearing a plugin's annotations re-highlights through the same
+    /// plan as every other path. A document over the plan's bound goes to
+    /// the chunked highlight instead of one synchronous full pass.
+    #[test]
+    fn long_line_clear_annotations_follows_the_plan() {
+        // Over the line bound: 6000 short lines.
+        let big = "var x = 1;\n".repeat(LARGE_FILE_THRESHOLD + 1000);
+        let (mut tabs, id) = js_tab(&big);
+        let before = style_text(&tabs, id);
+        let mut hc = controller();
+        let outcome = hc.clear_annotations(&mut tabs);
+        assert_eq!(outcome, ClearAnnotations::Chunked(id));
+        assert_eq!(style_text(&tabs, id), before, "no synchronous pass");
+
+        // Within the plan: restyled at once, as before.
+        let small = "var x = 1;\nfunction f(a) { return a; }\n";
+        let (mut tabs, id) = js_tab(small);
+        let outcome = hc.clear_annotations(&mut tabs);
+        assert_eq!(outcome, ClearAnnotations::Restyled);
+        assert_eq!(
+            style_text(&tabs, id),
+            hc.highlight_full(small, "JavaScript").style_string
+        );
     }
 
     fn controller() -> HighlightController {

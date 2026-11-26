@@ -751,6 +751,15 @@ mod tests {
         assert_eq!(styles.len(), text.len());
         assert!(chunks >= 3, "{chunks} chunks");
 
+        // Lines just under the long-line limit are tokenized and count in
+        // full: 17 × 16 KiB stop the first chunk at the budget.
+        let at_limit = format!("{}\n", "w".repeat(LONG_LINE_BYTES - 1));
+        let text = at_limit.repeat(17);
+        h.start_chunked(DocumentId(1), text.clone(), "Plain Text");
+        let first = h.process_chunk().expect("chunked highlight is active");
+        assert!(!first.done);
+        assert!(first.style_chars.len() <= CHUNK_BYTES + at_limit.len());
+
         // A skipped long line costs syntect nothing: it does not use up the
         // budget, so it and the short lines after it fit one chunk.
         let skipped = format!("{}\n{}", "w".repeat(600 * 1024), line.repeat(3));
