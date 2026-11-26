@@ -98,3 +98,22 @@ jobs:
         env:
           FERRISPAD_REQUIRE_UI_TESTS: "1"
         run: xvfb-run -a cargo test --locked
+
+  # release.yml builds the Windows binary only after a tag is pushed. Build it
+  # on every pull request too, so a toolchain or dependency change that breaks
+  # Windows (T0085: MSVC 14.52 vs fltk-sys 1.5.14) shows up before a tag.
+  windows-build:
+    name: build (windows x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      # The same build release.yml runs; --locked also fails on Cargo.lock drift.
+      - name: cargo build --release
+        run: cargo build --release --locked
