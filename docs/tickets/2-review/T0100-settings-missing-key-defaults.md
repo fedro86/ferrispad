@@ -26,7 +26,7 @@ config.
   `AppSettings::default()` says `true`. The two diverged in e6cb050
   (Feb 2026), which changed the fresh-install value to `true` but not the
   serde fallback.
-- The other 30 fields agree today, each by hand. Nothing stops the next
+- Every other field agrees today, each by hand. Nothing stops the next
   field from diverging the same way.
 
 ## In scope
@@ -100,7 +100,7 @@ After the fix it passes. All 25 settings unit tests and
 ## What was done
 
 - `#[serde(default)]` on `AppSettings`, with a comment giving the rule.
-- Every field-level `default` / `default = "…"` attribute was removed (26
+- Every field-level `default` / `default = "…"` attribute was removed (30
   attributes), including the `default` inside the `deserialize_with`
   attributes of the two theme slots and the window geometry. Those keep
   their lenient deserializers.
