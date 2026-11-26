@@ -26,12 +26,15 @@ use super::controllers::widget::WidgetController;
 use super::domain::document::DocumentId;
 use super::domain::messages::Message;
 use super::domain::settings::{self, AppSettings, ThemeMode, ThemeRef, default_syntax_theme};
-use super::infrastructure::buffer::buffer_text_no_leak;
+use super::infrastructure::buffer::{
+    buffer_text_no_leak, text_range_bytes_no_leak, text_range_no_leak,
+};
 use super::infrastructure::defer::defer_send;
 use super::infrastructure::platform::detect_system_dark_mode;
 use super::mcp::McpResponses;
 use super::plugins::HookResult;
 use super::plugins::{PluginHook, PluginManager, get_plugin_dir};
+use super::services::current_line::{cursor_line, twin_bytes, untwin_bytes};
 use super::services::custom_themes::{ThemeStore, themes_dir};
 use super::services::session;
 use super::services::shortcut_registry::ShortcutRegistry;
@@ -1165,6 +1168,12 @@ impl AppState {
             self.editor.wrap_mode(WrapMode::None, 0);
         }
         self.update_menu_checkbox("View/Toggle Word Wrap", self.view.word_wrap);
+        self.update_menu_checkbox(
+            "View/Toggle Current Line Highlight",
+            new_settings.highlight_current_line,
+        );
+        // Re-apply (or clear) the current-line twin everywhere.
+        self.mark_all_styles_stale();
 
         // Apply tab size to all document buffers
         self.tab_manager
@@ -1197,6 +1206,86 @@ impl AppState {
             self.highlight
                 .rehighlight_all_documents(&mut self.tab_manager, &self.sender);
             self.bind_active_buffer();
+        }
+    }
+
+    /// View > Toggle Current Line Highlight (T0081): flip and persist the
+    /// setting. The next main-loop update applies or clears the band.
+    pub fn toggle_current_line_highlight(&mut self) {
+        let enabled = {
+            let mut settings = self.settings.borrow_mut();
+            settings.highlight_current_line = !settings.highlight_current_line;
+            settings.highlight_current_line
+        };
+        if let Err(e) = self.settings.borrow().save() {
+            eprintln!("Failed to save settings: {}", e);
+        }
+        self.update_menu_checkbox("View/Toggle Current Line Highlight", enabled);
+        self.mark_all_styles_stale();
+    }
+
+    /// Every document's current-line twin must be re-applied or cleared on
+    /// its next update (setting toggled, theme or table changed).
+    fn mark_all_styles_stale(&self) {
+        for doc in self.tab_manager.documents() {
+            doc.mark_style_stale();
+        }
+    }
+
+    /// Current-line highlight (T0081). Runs on every main-loop iteration,
+    /// like the status bar, so there is no timer. O(1) while the cursor stays
+    /// put and nothing was edited or restyled; otherwise it rewrites the style
+    /// bytes of at most two lines (the old one and the new one, each capped at
+    /// `MAX_LINE_BYTES`).
+    pub fn update_current_line_highlight(&mut self) {
+        let enabled = self
+            .settings
+            .try_borrow()
+            .is_ok_and(|s| s.highlight_current_line);
+        let Some(doc) = self.tab_manager.active_doc() else {
+            return;
+        };
+        let cursor = self.editor.insert_position();
+        let mut twin = doc.current_line.get();
+        if (enabled && twin.is_current(cursor)) || (!enabled && twin.twinned().is_none()) {
+            return;
+        }
+        // No style buffer bound (huge read-only / tail views): silent no-op.
+        let len = doc.buffer.length();
+        if doc.style_buffer.length() != len {
+            return;
+        }
+
+        // Bounded window around the cursor, never FLTK's unbounded
+        // line_start / findchar_forward (O(line) on a one-line minified file).
+        let line = if enabled {
+            cursor_line(len, cursor, |start, end| {
+                text_range_bytes_no_leak(&doc.buffer, start, end)
+            })
+        } else {
+            None
+        };
+        let Some(plan) = twin.plan(line) else {
+            twin.applied(twin.twinned(), Some(cursor));
+            doc.current_line.set(twin);
+            return;
+        };
+
+        let mut style_buf = doc.style_buffer.clone();
+        let mut changed = false;
+        if let Some(range) = plan.untwin {
+            changed |= rewrite_styles(&mut style_buf, range.start, range.end, untwin_bytes);
+        }
+        if let Some(range) = plan.twin {
+            let twinnable = self.highlight.highlighter().twinnable_styles();
+            changed |= rewrite_styles(&mut style_buf, range.start, range.end, |bytes| {
+                twin_bytes(bytes, &twinnable)
+            });
+        }
+        twin.applied(plan.twin, Some(cursor));
+        doc.current_line.set(twin);
+        if changed {
+            self.editor.redraw();
         }
     }
 
@@ -1419,5 +1508,34 @@ impl AppState {
                 None
             }
         })
+    }
+}
+
+/// Rewrite the style bytes `[start, end)` (clamped to the buffer) with `f`.
+/// Returns whether anything changed. Style chars are ASCII; a non-ASCII run
+/// (never written by FerrisPad) is left alone.
+fn rewrite_styles(
+    style_buf: &mut TextBuffer,
+    start: i32,
+    end: i32,
+    f: impl FnOnce(&mut [u8]),
+) -> bool {
+    let end = end.clamp(0, style_buf.length());
+    let start = start.clamp(0, end);
+    if start == end {
+        return false;
+    }
+    let old = text_range_no_leak(style_buf, start, end);
+    if !old.is_ascii() || old.len() != (end - start) as usize {
+        return false;
+    }
+    let mut bytes = old.clone().into_bytes();
+    f(&mut bytes);
+    match String::from_utf8(bytes) {
+        Ok(new) if new != old => {
+            style_buf.replace(start, end, &new);
+            true
+        }
+        _ => false,
     }
 }

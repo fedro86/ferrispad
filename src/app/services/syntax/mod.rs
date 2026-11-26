@@ -116,6 +116,9 @@ pub struct SyntaxHighlighter {
     style_map: StyleMap,
     font: Font,
     font_size: i32,
+    /// Background of the current-line twins (T0081), from the controller's
+    /// `editor_colors().current_line`.
+    current_line_bg: (u8, u8, u8),
 }
 
 /// Result of a full highlight operation.
@@ -144,6 +147,7 @@ impl SyntaxHighlighter {
             style_map,
             font,
             font_size,
+            current_line_bg: theme.background(),
         }
     }
 
@@ -305,9 +309,22 @@ impl SyntaxHighlighter {
         self.style_map.update_font(font, size);
     }
 
-    /// Get the style table for FLTK's set_highlight_data_ext.
+    /// Get the style table for FLTK's set_highlight_data_ext: the primaries
+    /// plus their current-line twins (T0081, `StyleMap::table_with_twins`).
     pub fn style_table(&self) -> Vec<StyleTableEntryExt> {
-        self.style_map.entries().to_vec()
+        let (r, g, b) = self.current_line_bg;
+        self.style_map
+            .table_with_twins(fltk::enums::Color::from_rgb(r, g, b))
+    }
+
+    /// Set the current-line band color used by the twins in `style_table`.
+    pub fn set_current_line_bg(&mut self, color: (u8, u8, u8)) {
+        self.current_line_bg = color;
+    }
+
+    /// Which primary style chars may be twinned on the cursor line.
+    pub fn twinnable_styles(&self) -> [bool; crate::app::services::current_line::PRIMARY_STYLES] {
+        self.style_map.twinnable()
     }
 
     /// Returns true if new style entries were added since the last reset.

@@ -7,6 +7,7 @@
 //! - Syntax highlighting
 //! - Plugin registry
 
+pub mod current_line;
 pub mod custom_themes;
 pub mod editor_context;
 pub mod file_size;

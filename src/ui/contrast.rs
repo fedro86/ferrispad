@@ -81,6 +81,10 @@ pub struct EditorSelectionBgs {
     /// FLTK's blend of editor background and selection (unfocused editor,
     /// e.g. a Find match while the Find dialog has focus).
     pub unfocused: Option<(u8, u8, u8)>,
+    /// The same blend on the current-line band (T0081): for a twin style
+    /// char, FLTK blends the selection with the char's `BgColorExt` color
+    /// (`clear_rect`'s `bgbasecolor`), not with the editor background.
+    pub unfocused_on_line: Option<(u8, u8, u8)>,
 }
 
 impl EditorSelectionBgs {
@@ -92,11 +96,23 @@ impl EditorSelectionBgs {
                 selection,
                 UNFOCUSED_SELECTION_WEIGHT,
             )),
+            unfocused_on_line: None,
         }
     }
 
+    /// Also treat the unfocused selection drawn on the current-line band
+    /// `line_bg` as a selection background.
+    pub fn with_current_line(mut self, line_bg: (u8, u8, u8)) -> Self {
+        self.unfocused_on_line = self
+            .focused
+            .map(|selection| fltk_color_average(line_bg, selection, UNFOCUSED_SELECTION_WEIGHT));
+        self
+    }
+
     fn contains(&self, rgb: (u8, u8, u8)) -> bool {
-        self.focused == Some(rgb) || self.unfocused == Some(rgb)
+        self.focused == Some(rgb)
+            || self.unfocused == Some(rgb)
+            || self.unfocused_on_line == Some(rgb)
     }
 }
 
@@ -131,6 +147,7 @@ pub fn ferrispad_contrast(fg: Color, bg: Color, selection: EditorSelectionBgs) -
 // inside a callback invoked from C during drawing.
 static FOCUSED_BG: AtomicU32 = AtomicU32::new(0);
 static UNFOCUSED_BG: AtomicU32 = AtomicU32::new(0);
+static UNFOCUSED_LINE_BG: AtomicU32 = AtomicU32::new(0);
 const PRESENT: u32 = 1 << 24;
 
 fn pack(rgb: Option<(u8, u8, u8)>) -> u32 {
@@ -146,18 +163,25 @@ fn unpack(bits: u32) -> Option<(u8, u8, u8)> {
     })
 }
 
-/// Record the main editor's background and selection color, so selected text
-/// is drawn readable on them. Called wherever the editor selection is set.
-pub fn register_editor_selection(editor_bg: (u8, u8, u8), selection: (u8, u8, u8)) {
-    let bgs = EditorSelectionBgs::new(editor_bg, selection);
+/// Record the main editor's background, selection and current-line colors,
+/// so selected text is drawn readable on them (including on the current-line
+/// band, T0081). Called wherever the editor selection is set.
+pub fn register_editor_selection(
+    editor_bg: (u8, u8, u8),
+    selection: (u8, u8, u8),
+    current_line: (u8, u8, u8),
+) {
+    let bgs = EditorSelectionBgs::new(editor_bg, selection).with_current_line(current_line);
     FOCUSED_BG.store(pack(bgs.focused), Ordering::Relaxed);
     UNFOCUSED_BG.store(pack(bgs.unfocused), Ordering::Relaxed);
+    UNFOCUSED_LINE_BG.store(pack(bgs.unfocused_on_line), Ordering::Relaxed);
 }
 
 fn registered_editor_selection() -> EditorSelectionBgs {
     EditorSelectionBgs {
         focused: unpack(FOCUSED_BG.load(Ordering::Relaxed)),
         unfocused: unpack(UNFOCUSED_BG.load(Ordering::Relaxed)),
+        unfocused_on_line: unpack(UNFOCUSED_LINE_BG.load(Ordering::Relaxed)),
     }
 }
 
@@ -305,7 +329,7 @@ mod tests {
     /// 56); off the selection, the CIELAB port keeps it.
     #[test]
     fn contrast_callback_plumbs_raw_color_bits() {
-        register_editor_selection((239, 241, 245), (0, 120, 215));
+        register_editor_selection((239, 241, 245), (0, 120, 215), (225, 228, 235));
         let fg = rgb((79, 91, 102)).bits();
         assert_eq!(
             contrast_callback(fg, 0x0078_D700, 0, 14),
@@ -314,6 +338,49 @@ mod tests {
         assert_eq!(Color::Black.bits(), 56);
         // An indexed background (FL_WHITE, 255) resolves via the colormap.
         assert_eq!(contrast_callback(fg, Color::White.bits(), 0, 14), fg);
+    }
+
+    /// T0081 edge case 12: a Find match on the cursor line while the Find
+    /// dialog has focus is drawn on `fl_color_average(line, selection, 0.4)`.
+    /// That blend must get the readable-text rule like the plain unfocused
+    /// blend: a fg that FLTK's level-10 rule keeps but that is not WCAG
+    /// readable there becomes black or white.
+    #[test]
+    fn current_line_unfocused_selection_blend_registered() {
+        use crate::app::domain::settings::SyntaxTheme;
+        use crate::ui::theme::derived_editor_colors;
+
+        let mut exercised = 0;
+        for theme in SyntaxTheme::all() {
+            let colors = derived_editor_colors(theme.background(), theme.foreground());
+            let plain = EditorSelectionBgs::new(colors.background, colors.selection);
+            let with_line = plain.with_current_line(colors.current_line);
+            let blend = fltk_color_average(
+                colors.current_line,
+                colors.selection,
+                UNFOCUSED_SELECTION_WEIGHT,
+            );
+            assert_eq!(with_line.unfocused_on_line, Some(blend), "{theme:?}");
+            assert!(with_line.contains(blend), "{theme:?}");
+
+            // A grey that the CIELAB rule keeps on the blend but that is
+            // below 4.5:1 there: registered → replaced by black/white.
+            let kept_but_unreadable = (0..=255u8).map(|g| (g, g, g)).find(|&fg| {
+                fltk_cielab_contrast(rgb(fg), rgb(blend), FLTK_CONTRAST_LEVEL) == rgb(fg)
+                    && wcag_contrast(fg, blend) < READABLE_CONTRAST
+            });
+            let Some(fg) = kept_but_unreadable else {
+                continue;
+            };
+            let out = ferrispad_contrast(rgb(fg), rgb(blend), with_line);
+            assert!(out == Color::Black || out == Color::White, "{theme:?}");
+            assert!(
+                wcag_contrast(out.to_rgb(), blend) >= READABLE_CONTRAST,
+                "{theme:?}"
+            );
+            exercised += 1;
+        }
+        assert!(exercised > 0, "no theme exercised the readable-text rule");
     }
 
     #[test]

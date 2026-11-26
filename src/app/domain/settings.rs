@@ -408,6 +408,11 @@ pub struct AppSettings {
     /// File size (MB) above which editing is blocked — read-only/tail only (default 150)
     #[serde(default = "default_max_editable_size_mb")]
     pub max_editable_size_mb: u32,
+
+    /// Highlight the line holding the cursor (T0081). On by default, also
+    /// for an older settings.json without the field.
+    #[serde(default = "default_true")]
+    pub highlight_current_line: bool,
 }
 
 fn default_line_numbers() -> bool {
@@ -519,6 +524,7 @@ impl Default for AppSettings {
             shortcut_overrides: HashMap::new(),
             large_file_warning_mb: default_large_file_warning_mb(),
             max_editable_size_mb: default_max_editable_size_mb(),
+            highlight_current_line: true,
         }
     }
 }
