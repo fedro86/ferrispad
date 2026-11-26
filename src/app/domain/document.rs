@@ -468,15 +468,19 @@ impl Drop for Document {
     }
 }
 
-#[cfg(test)]
-mod tests {
+/// Checks that build documents (hence FLTK `TextBuffer`s), so they must run
+/// on the process main thread: on macOS the first `Fl::lock()` opens the
+/// display through AppKit, which aborts off the main thread, where libtest
+/// runs unit tests. Called by the `harness = false` test binary
+/// `tests/fltk_main_thread.rs` (T0089); not part of the public API.
+#[doc(hidden)]
+pub mod main_thread_checks {
     use super::*;
 
     /// How many `DirtyChanged` messages for `ids` are waiting. fltk-rs
     /// channels share one global queue: drain it and filter by this test's
-    /// own ids. This test is the ONLY drainer of the channel (main.rs is the
-    /// only other consumer): extend it rather than adding another test that
-    /// drains, which would race it under parallel libtest.
+    /// own ids. This check is the ONLY drainer of the channel (main.rs is the
+    /// only other consumer): extend it rather than adding another drainer.
     fn dirty_flips(receiver: &fltk::app::Receiver<Message>, ids: &[DocumentId]) -> usize {
         let mut n = 0;
         while let Some(msg) = receiver.recv() {
@@ -492,8 +496,7 @@ mod tests {
     /// not; after a save (mark_clean) and the handler run, the next edit does
     /// again. N documents flipping in one step (a tab-size change touches
     /// every buffer) queue ONE refresh, i.e. one tab-bar rebuild, not N.
-    #[test]
-    fn dirty_flip_is_reported_once() {
+    pub fn dirty_flip_is_reported_once() {
         let (sender, receiver) = fltk::app::channel::<Message>();
         dirty_refresh_handled();
         let id = DocumentId(930_093);

@@ -21,6 +21,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::ExitCode;
 
 use ferris_pad::app::controllers::highlight::main_thread_checks as highlight;
+use ferris_pad::app::domain::document::main_thread_checks as document;
 use ferris_pad::ui::dialogs::main_thread_checks as dialogs;
 use ferris_pad::ui::scrollbar::main_thread_checks as scrollbar;
 
@@ -33,6 +34,10 @@ const CHECKS: &[(&str, fn())] = &[
     (
         "long_line_clear_annotations_follows_the_plan",
         highlight::long_line_clear_annotations_follows_the_plan,
+    ),
+    (
+        "dirty_flip_is_reported_once",
+        document::dirty_flip_is_reported_once,
     ),
 ];
 
