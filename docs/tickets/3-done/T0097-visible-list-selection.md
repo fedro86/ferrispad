@@ -1,7 +1,7 @@
 ---
 id: T0097
 title: Make the selected row of dialog lists clearly visible in light and dark themes
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: minor
 area: ui
@@ -68,11 +68,11 @@ with focus on another widget. Inspect each one edge by edge.
 
 ## Acceptance criteria
 
-- [ ] The selected row reaches ≥ 3:1 against the list background in every
+- [x] The selected row reaches ≥ 3:1 against the list background in every
       built-in theme (light and dark), focused or not.
-- [ ] The text on it reaches ≥ 4.5:1.
-- [ ] All four dialog lists use the shared colors; no per-dialog color.
-- [ ] Red test failed before; full gates green; Xvfb screenshots inspected.
+- [x] The text on it reaches ≥ 4.5:1.
+- [x] All four dialog lists use the shared colors; no per-dialog color.
+- [x] Red test failed before; full gates green; Xvfb screenshots inspected.
 
 ## Affected files
 
@@ -179,3 +179,7 @@ selected) and pixel-measured ratios:
 `ratios.txt` (in the `ferrispad-wt` worktree directory, not in the repo).
 
 **The user chose A, 2026-11-26.** The experiment branch was deleted.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland) with the rc.3 integration build `verify/rc3` (checklist VERIFICA-RC3.md, section 2): the selected row of every dialog list (theme manager, font picker, sessions) is clearly visible, in light and dark.
