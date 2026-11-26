@@ -213,3 +213,32 @@ GitHub). Their builders hold the moved code verbatim, apart from
 - Full suite under Xvfb (`FERRISPAD_REQUIRE_UI_TESTS=1`): lib 585, every
   binary green.
 - fmt and clippy `-D warnings` clean.
+
+## Review round 1 (a3, 2026-11-26): CI fonts
+
+**Blocking:** CI was red. `KNOWN_LAYOUT_DEFECTS` pinned exact pixel strings,
+and label widths depend on the installed fonts. CI measures wider than this
+desktop:
+
+- "Find what:" needs 89 px there and 86 px here;
+- "Session name:" needs 112 px at +0 pt there;
+- CI reports defects that don't show here: "Remind Later", "Open Lines:",
+  "Install Anyway", "e.g. Ctrl+Shift+L", "(case folding: ASCII only)";
+- the two overlaps show here and not on CI.
+
+Fix (orchestrator's option (a)):
+
+- Each known defect is now listed by a **pixel-free identity**: the
+  failure minus its theme mode and measurements (`defect_identity`; e.g.
+  `find/0:"Find what:": clipped label`, `permissions: "" overlaps "Deny"`).
+  The list is the **union** of this desktop's and CI's: 29 identities
+  (local 21, CI 25).
+- A defect whose identity is not listed fails.
+- The "a listed defect is gone" check is dropped. Which listed defects
+  reproduce depends on the fonts, so it could not hold on both machines.
+  T0110 empties the list anyway.
+- Test: `defect_identity_drops_measurements` (a CI string, a local one and
+  an overlap).
+
+**Lesson for T0110:** frame widths must be measured at build time, so they
+fit any font.

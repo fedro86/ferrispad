@@ -204,75 +204,74 @@ fn new_dialog_windows_build() {
         }
     }
     // Layout defects these dialogs had before T0106 made them testable,
-    // fixed by T0110: any other defect fails, and so does a listed one that
-    // is gone (remove it from the list).
+    // fixed by T0110. A defect is known by its identity (dialog, widget path,
+    // kind) with no pixel numbers, because label widths depend on the fonts
+    // installed: CI measures wider than a desktop, so some defects show on
+    // one machine only. Any defect whose identity is not listed fails.
     for defect in &layout {
-        if !KNOWN_LAYOUT_DEFECTS.contains(&defect.as_str()) {
-            failures.push(defect.clone());
-        }
-    }
-    for known in KNOWN_LAYOUT_DEFECTS {
-        if !layout.iter().any(|d| d == known) {
-            failures.push(format!("fixed, remove from KNOWN_LAYOUT_DEFECTS: {known}"));
+        if !KNOWN_LAYOUT_DEFECTS.contains(&defect_identity(defect).as_str()) {
+            failures.push(format!("new layout defect: {defect}"));
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// A layout failure without its measurements and theme mode: the same
+/// defect on any machine, at any font size, in dark and light.
+fn defect_identity(failure: &str) -> String {
+    let rules = [
+        (r"^(.*?) (?:dark|light)([/:])", "$1$2"),
+        (
+            r": label needs \d+px at \+\d+pt, widget is \d+px",
+            ": clipped label",
+        ),
+        (r" at \+\d+pt", ""),
+        (r"Rect \{[^}]*\}", ""),
+        (r"\(-?\d+, -?\d+, -?\d+, -?\d+\)", ""),
+        (r"\s+", " "),
+    ];
+    let mut id = failure.to_string();
+    for (pattern, with) in rules {
+        let re = regex_lite::Regex::new(pattern).expect("identity pattern");
+        id = re.replace_all(&id, with).into_owned();
+    }
+    id.trim().to_string()
+}
+
 /// Layout defects of the run-only dialogs, present before T0106 made them
-/// testable, exactly as `layout_failures` reports them. T0110 fixes them and
-/// empties this list; it may only shrink.
+/// testable, by [`defect_identity`]: the union of what a desktop and CI
+/// report (which of them reproduce depends on the installed fonts). T0110
+/// fixes them and removes this list.
 const KNOWN_LAYOUT_DEFECTS: &[&str] = &[
-    "find dark/0:\"Find what:\": label needs 86px at +2pt, widget is 80px",
-    "find dark/3:\"Use regex\": label needs 105px at +2pt, widget is 100px",
-    "replace dark/0:\"Find what:\": label needs 86px at +2pt, widget is 80px",
-    "replace dark/5:\"Use regex\": label needs 105px at +2pt, widget is 100px",
-    "go to line dark/0:\"Line number:\": label needs 108px at +2pt, widget is 100px",
-    "font picker dark/0:\"Search:\": label needs 63px at +2pt, widget is 60px",
-    "new session dark/0:\"Session name:\": label needs 105px at +0pt, widget is 100px",
-    "new session dark/0:\"Session name:\": label needs 117px at +2pt, widget is 100px",
-    "shortcuts dark/0:\"\"/0:\"FerrisPad\"/0:\"\"/0:\"\"/22:\"\"/0:\"Plugins > General > Run All Checks\": label needs 242px at +2pt, widget is 220px",
-    "shortcuts, no plugins dark/0:\"\"/0:\"FerrisPad\"/0:\"\"/0:\"\"/19:\"\"/0:\"Plugins > General > Run All Checks\": label needs 242px at +2pt, widget is 220px",
-    "update dark/0:\"\"/4:\"\"/2:\"Skip This Version\": label needs 122px at +0pt, widget is 112px",
-    "update dark/0:\"\"/4:\"\"/1:\"View on GitHub\": label needs 126px at +2pt, widget is 113px",
-    "update dark/0:\"\"/4:\"\"/2:\"Skip This Version\": label needs 136px at +2pt, widget is 112px",
-    "update, manual only dark/0:\"\"/4:\"\"/0:\"Manual Update Only\": label needs 147px at +0pt, widget is 113px",
-    "update, manual only dark/0:\"\"/4:\"\"/2:\"Skip This Version\": label needs 122px at +0pt, widget is 112px",
-    "update, manual only dark/0:\"\"/4:\"\"/0:\"Manual Update Only\": label needs 163px at +2pt, widget is 113px",
-    "update, manual only dark/0:\"\"/4:\"\"/1:\"View on GitHub\": label needs 126px at +2pt, widget is 113px",
-    "update, manual only dark/0:\"\"/4:\"\"/2:\"Skip This Version\": label needs 136px at +2pt, widget is 112px",
-    "read-only viewer dark/0:\"\"/0:\"\"/1:\"Go to Page\": label needs 92px at +2pt, widget is 90px",
-    "read-only viewer dark/0:\"\"/0:\"\"/4:\"Go to Line\": label needs 85px at +2pt, widget is 80px",
-    "read-only viewer dark/0:\"\"/3:\"\"/1:\"Next Page  @>\": label needs 115px at +2pt, widget is 110px",
-    "permissions dark: \"\" (10, 10, 380, 152) overlaps \"Deny\" (215, 159, 80, 28)",
-    "permissions dark: \"\" (10, 10, 380, 152) overlaps \"Allow\" (305, 159, 80, 28)",
-    "plugin manager dark/0:\"\"/1:\"Official\"/1:\"\"/0:\"\"/0:\"\": \"python-lint  v1.3.0\" (63, 85, 384, 18) overlaps \"Details\" (387, 99, 60, 22)",
-    "plugin manager dark/0:\"\"/1:\"Official\"/1:\"\"/0:\"\"/0:\"\": \"Lints\" (63, 103, 384, 16) overlaps \"Details\" (387, 99, 60, 22)",
-    "find light/0:\"Find what:\": label needs 86px at +2pt, widget is 80px",
-    "find light/3:\"Use regex\": label needs 105px at +2pt, widget is 100px",
-    "replace light/0:\"Find what:\": label needs 86px at +2pt, widget is 80px",
-    "replace light/5:\"Use regex\": label needs 105px at +2pt, widget is 100px",
-    "go to line light/0:\"Line number:\": label needs 108px at +2pt, widget is 100px",
-    "font picker light/0:\"Search:\": label needs 63px at +2pt, widget is 60px",
-    "new session light/0:\"Session name:\": label needs 105px at +0pt, widget is 100px",
-    "new session light/0:\"Session name:\": label needs 117px at +2pt, widget is 100px",
-    "shortcuts light/0:\"\"/0:\"FerrisPad\"/0:\"\"/0:\"\"/22:\"\"/0:\"Plugins > General > Run All Checks\": label needs 242px at +2pt, widget is 220px",
-    "shortcuts, no plugins light/0:\"\"/0:\"FerrisPad\"/0:\"\"/0:\"\"/19:\"\"/0:\"Plugins > General > Run All Checks\": label needs 242px at +2pt, widget is 220px",
-    "update light/0:\"\"/4:\"\"/2:\"Skip This Version\": label needs 122px at +0pt, widget is 112px",
-    "update light/0:\"\"/4:\"\"/1:\"View on GitHub\": label needs 126px at +2pt, widget is 113px",
-    "update light/0:\"\"/4:\"\"/2:\"Skip This Version\": label needs 136px at +2pt, widget is 112px",
-    "update, manual only light/0:\"\"/4:\"\"/0:\"Manual Update Only\": label needs 147px at +0pt, widget is 113px",
-    "update, manual only light/0:\"\"/4:\"\"/2:\"Skip This Version\": label needs 122px at +0pt, widget is 112px",
-    "update, manual only light/0:\"\"/4:\"\"/0:\"Manual Update Only\": label needs 163px at +2pt, widget is 113px",
-    "update, manual only light/0:\"\"/4:\"\"/1:\"View on GitHub\": label needs 126px at +2pt, widget is 113px",
-    "update, manual only light/0:\"\"/4:\"\"/2:\"Skip This Version\": label needs 136px at +2pt, widget is 112px",
-    "read-only viewer light/0:\"\"/0:\"\"/1:\"Go to Page\": label needs 92px at +2pt, widget is 90px",
-    "read-only viewer light/0:\"\"/0:\"\"/4:\"Go to Line\": label needs 85px at +2pt, widget is 80px",
-    "read-only viewer light/0:\"\"/3:\"\"/1:\"Next Page  @>\": label needs 115px at +2pt, widget is 110px",
-    "permissions light: \"\" (10, 10, 380, 152) overlaps \"Deny\" (215, 159, 80, 28)",
-    "permissions light: \"\" (10, 10, 380, 152) overlaps \"Allow\" (305, 159, 80, 28)",
-    "plugin manager light/0:\"\"/1:\"Official\"/1:\"\"/0:\"\"/0:\"\": \"python-lint  v1.3.0\" (63, 85, 384, 18) overlaps \"Details\" (387, 99, 60, 22)",
-    "plugin manager light/0:\"\"/1:\"Official\"/1:\"\"/0:\"\"/0:\"\": \"Lints\" (63, 103, 384, 16) overlaps \"Details\" (387, 99, 60, 22)",
+    "community install, indexed/2:\"Install Anyway\": clipped label",
+    "community install, manual/2:\"Install Anyway\": clipped label",
+    "file too large/0:\"\"/3:\"\"/0:\"Open Lines:\": clipped label",
+    "find/0:\"Find what:\": clipped label",
+    "find/3:\"Use regex\": clipped label",
+    "find/4:\"(case folding: ASCII only)\": clipped label",
+    "font picker/0:\"Search:\": clipped label",
+    "go to line/0:\"Line number:\": clipped label",
+    "new session/0:\"Session name:\": clipped label",
+    "permissions: \"\" overlaps \"Allow\"",
+    "permissions: \"\" overlaps \"Deny\"",
+    "plugin manager/0:\"\"/1:\"Official\"/1:\"\"/0:\"\"/0:\"\": \"Lints\" overlaps \"Details\"",
+    "plugin manager/0:\"\"/1:\"Official\"/1:\"\"/0:\"\"/0:\"\": \"python-lint v1.3.0\" overlaps \"Details\"",
+    "plugin settings/5:\"e.g. Ctrl+Shift+L\": clipped label",
+    "read-only viewer/0:\"\"/0:\"\"/1:\"Go to Page\": clipped label",
+    "read-only viewer/0:\"\"/0:\"\"/4:\"Go to Line\": clipped label",
+    "read-only viewer/0:\"\"/3:\"\"/1:\"Next Page @>\": clipped label",
+    "replace/0:\"Find what:\": clipped label",
+    "replace/5:\"Use regex\": clipped label",
+    "replace/6:\"(case folding: ASCII only)\": clipped label",
+    "shortcuts, no plugins/0:\"\"/0:\"FerrisPad\"/0:\"\"/0:\"\"/19:\"\"/0:\"Plugins > General > Run All Checks\": clipped label",
+    "shortcuts/0:\"\"/0:\"FerrisPad\"/0:\"\"/0:\"\"/22:\"\"/0:\"Plugins > General > Run All Checks\": clipped label",
+    "update, manual only/0:\"\"/4:\"\"/0:\"Manual Update Only\": clipped label",
+    "update, manual only/0:\"\"/4:\"\"/1:\"View on GitHub\": clipped label",
+    "update, manual only/0:\"\"/4:\"\"/2:\"Skip This Version\": clipped label",
+    "update, manual only/0:\"\"/4:\"\"/3:\"Remind Later\": clipped label",
+    "update/0:\"\"/4:\"\"/1:\"View on GitHub\": clipped label",
+    "update/0:\"\"/4:\"\"/2:\"Skip This Version\": clipped label",
+    "update/0:\"\"/4:\"\"/3:\"Remind Later\": clipped label",
 ];
 
 /// The dialogs that build and run in one `show_*` call, built through their
@@ -504,4 +503,25 @@ fn plugin_dialogs(theme: &DialogTheme) -> Vec<(&'static str, Window)> {
             build_plugin_manager_dialog(theme, &installed, Err("Network error: offline")).dialog,
         ),
     ]
+}
+
+/// The same defect has one identity on any machine (CI measures wider), at
+/// +0 and +2 pt, in dark and light.
+#[test]
+fn defect_identity_drops_measurements() {
+    for failure in [
+        "find dark/0:\"Find what:\": label needs 89px at +2pt, widget is 80px",
+        "find light/0:\"Find what:\": label needs 86px at +0pt, widget is 80px",
+    ] {
+        assert_eq!(
+            defect_identity(failure),
+            "find/0:\"Find what:\": clipped label"
+        );
+    }
+    assert_eq!(
+        defect_identity(
+            "permissions dark: \"\" (10, 10, 380, 152) overlaps \"Deny\" (215, 159, 80, 28)"
+        ),
+        "permissions: \"\" overlaps \"Deny\""
+    );
 }
