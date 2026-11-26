@@ -3,7 +3,7 @@
 //! Provides path validation, command sanitization, and other security
 //! primitives to protect against malicious plugins.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 /// Default timeout for a single external command (15 seconds).
@@ -29,79 +29,42 @@ pub enum PathValidation {
     Valid(PathBuf),
     /// Path is outside project root
     OutsideProjectRoot,
-    /// Path does not exist
-    NotFound,
-    /// Path canonicalization failed
+    /// The path or the project root cannot be resolved (fail closed)
     InvalidPath(String),
 }
 
-/// Validate and canonicalize a path, ensuring it's within the project root.
+/// Validate and resolve a plugin-supplied path, ensuring it stays within the
+/// project root. This is the **one** path rule of the plugin sandbox (T0090);
+/// every plugin filesystem entry point goes through it.
 ///
 /// # Arguments
-/// * `path` - The path to validate (can be relative or absolute)
+/// * `path` - The path to validate (relative to the project root, or absolute)
 /// * `project_root` - The project root directory (files must be within this)
 ///
 /// # Returns
-/// * `PathValidation::Valid(canonical_path)` if path is safe
-/// * Error variant otherwise
+/// * `PathValidation::Valid(path)`: the physical path to operate on. It may
+///   not exist yet (files and directories a write op will create).
+/// * `OutsideProjectRoot` / `InvalidPath` otherwise.
 ///
-/// # Security
-/// - Uses `fs::canonicalize()` to resolve symlinks and `..` components
-/// - Checks that the canonical path starts with the project root
-/// - Prevents path traversal attacks like `../../etc/passwd`
+/// # Rule (physical, never lexical)
+/// 1. Raw path: absolute input as-is, relative input joined to the root.
+/// 2. Its longest ancestor that exists as a directory entry (`lstat`, so a
+///    dangling symlink *is* an existing entry, never part of the new tail).
+/// 3. Canonicalize that ancestor: the kernel resolves every symlink and `..`
+///    in it. Failure (e.g. a dangling link) rejects the path.
+/// 4. The not-yet-existing tail may only hold plain names; `..`, `.`, a root
+///    or a prefix there rejects the path.
+/// 5. `ancestor + tail` must start with the canonical root.
+///
+/// So a write can only ever create plain new names under a directory that
+/// physically is inside the root: an in-root symlink to the outside (with or
+/// without missing intermediate directories) and a dangling in-root symlink
+/// are both rejected, while an absolute path under a symlinked alias of the
+/// root (macOS `/var` → `/private/var`) is accepted.
+///
+/// Out of scope: a symlink created or swapped between this check and the
+/// operation (TOCTOU).
 pub fn validate_path(path: &str, project_root: &Path) -> PathValidation {
-    // Quick check for obvious traversal patterns
-    if path.contains("..") {
-        // Could be legitimate (e.g., "../sibling/file.txt" from subdir)
-        // We'll let canonicalize handle it, but log for awareness
-    }
-
-    // Convert to Path
-    let input_path = Path::new(path);
-
-    // If relative, resolve against project root
-    let full_path = if input_path.is_absolute() {
-        input_path.to_path_buf()
-    } else {
-        project_root.join(input_path)
-    };
-
-    // Canonicalize to resolve symlinks and .. components
-    let canonical = match std::fs::canonicalize(&full_path) {
-        Ok(p) => p,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            // File doesn't exist - check if parent is valid
-            // This allows checking paths for files that will be created
-            if let Some(parent) = full_path.parent() {
-                match std::fs::canonicalize(parent) {
-                    Ok(canonical_parent) => {
-                        // Verify parent is within project root
-                        let canonical_root = match std::fs::canonicalize(project_root) {
-                            Ok(r) => r,
-                            Err(e) => {
-                                return PathValidation::InvalidPath(format!(
-                                    "Cannot canonicalize project root: {}",
-                                    e
-                                ));
-                            }
-                        };
-                        if !canonical_parent.starts_with(&canonical_root) {
-                            return PathValidation::OutsideProjectRoot;
-                        }
-                        // Parent is valid, construct full path
-                        if let Some(file_name) = full_path.file_name() {
-                            return PathValidation::Valid(canonical_parent.join(file_name));
-                        }
-                    }
-                    Err(_) => return PathValidation::NotFound,
-                }
-            }
-            return PathValidation::NotFound;
-        }
-        Err(e) => return PathValidation::InvalidPath(e.to_string()),
-    };
-
-    // Canonicalize project root for comparison
     let canonical_root = match std::fs::canonicalize(project_root) {
         Ok(r) => r,
         Err(e) => {
@@ -109,9 +72,38 @@ pub fn validate_path(path: &str, project_root: &Path) -> PathValidation {
         }
     };
 
-    // Check that canonical path is within project root
-    if canonical.starts_with(&canonical_root) {
-        PathValidation::Valid(canonical)
+    let input_path = Path::new(path);
+    let raw = if input_path.is_absolute() {
+        input_path.to_path_buf()
+    } else {
+        project_root.join(input_path)
+    };
+
+    // Longest ancestor that exists as an entry (symlinks not followed).
+    let Some(existing) = raw
+        .ancestors()
+        .find(|a| !a.as_os_str().is_empty() && std::fs::symlink_metadata(a).is_ok())
+    else {
+        return PathValidation::InvalidPath(format!("No existing ancestor: {}", path));
+    };
+    let base = match std::fs::canonicalize(existing) {
+        Ok(b) => b,
+        Err(e) => return PathValidation::InvalidPath(e.to_string()),
+    };
+
+    let Ok(tail) = raw.strip_prefix(existing) else {
+        return PathValidation::InvalidPath(format!("Cannot split path: {}", path));
+    };
+    let mut resolved = base;
+    for component in tail.components() {
+        match component {
+            Component::Normal(name) => resolved.push(name),
+            _ => return PathValidation::OutsideProjectRoot,
+        }
+    }
+
+    if resolved.starts_with(&canonical_root) {
+        PathValidation::Valid(resolved)
     } else {
         PathValidation::OutsideProjectRoot
     }
@@ -255,8 +247,7 @@ mod tests {
         // Absolute path outside project should fail
         match validate_path("/etc/passwd", root) {
             PathValidation::OutsideProjectRoot => (),
-            PathValidation::NotFound => (), // On some systems /etc/passwd might not exist
-            other => panic!("Expected OutsideProjectRoot or NotFound, got {:?}", other),
+            other => panic!("Expected OutsideProjectRoot, got {:?}", other),
         }
     }
 
