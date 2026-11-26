@@ -7,6 +7,7 @@ use fltk::prelude::*;
 
 use ferris_pad::split_parent;
 
+use crate::app::controllers::highlight::ClearAnnotations;
 use crate::app::controllers::plugin::PluginController;
 use crate::app::controllers::update::BannerWidgets;
 use crate::app::domain::messages::Message;
@@ -642,9 +643,13 @@ pub fn handle_annotation(msg: Message, state: &mut AppState) {
                 .update_annotations(annotations, &state.tab_manager, &mut state.editor);
         }
         Message::AnnotationsClear => {
-            state
-                .highlight
-                .clear_annotations(&mut state.tab_manager, &mut state.editor);
+            match state.highlight.clear_annotations(&mut state.tab_manager) {
+                ClearAnnotations::Nothing | ClearAnnotations::Restarted => {}
+                ClearAnnotations::Restyled => state
+                    .highlight
+                    .bind_active_styles(&state.tab_manager, &mut state.editor),
+                ClearAnnotations::Chunked(id) => state.highlight.queue_chunked(id, &state.sender),
+            }
         }
         Message::ManualHighlight => {
             state.request_manual_highlight();

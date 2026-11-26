@@ -1,3 +1,4 @@
+use crate::ui::color::fltk_rgb;
 use std::collections::HashMap;
 
 use fltk::enums::{Color, Font};
@@ -72,9 +73,9 @@ impl StyleMap {
         // Style 'B' - Added (green background)
         // Use TextAttr::BgColor to enable the bgcolor field
         let added_bg = if self.is_dark {
-            Color::from_rgb(20, 60, 20)
+            fltk_rgb(20, 60, 20)
         } else {
-            Color::from_rgb(200, 255, 200)
+            fltk_rgb(200, 255, 200)
         };
         self.entries.push(StyleTableEntryExt {
             color: fg,
@@ -86,9 +87,9 @@ impl StyleMap {
 
         // Style 'C' - Deleted (red background)
         let deleted_bg = if self.is_dark {
-            Color::from_rgb(60, 20, 20)
+            fltk_rgb(60, 20, 20)
         } else {
-            Color::from_rgb(255, 200, 200)
+            fltk_rgb(255, 200, 200)
         };
         self.entries.push(StyleTableEntryExt {
             color: fg,
@@ -100,9 +101,9 @@ impl StyleMap {
 
         // Style 'D' - Modified (yellow background)
         let modified_bg = if self.is_dark {
-            Color::from_rgb(60, 50, 10)
+            fltk_rgb(60, 50, 10)
         } else {
-            Color::from_rgb(255, 255, 200)
+            fltk_rgb(255, 255, 200)
         };
         self.entries.push(StyleTableEntryExt {
             color: fg,
@@ -114,9 +115,9 @@ impl StyleMap {
 
         // Style 'E' - Error (red background, more intense)
         let error_bg = if self.is_dark {
-            Color::from_rgb(85, 0, 0)
+            fltk_rgb(85, 0, 0)
         } else {
-            Color::from_rgb(255, 180, 180)
+            fltk_rgb(255, 180, 180)
         };
         self.entries.push(StyleTableEntryExt {
             color: fg,
@@ -128,9 +129,9 @@ impl StyleMap {
 
         // Style 'F' - Warning (orange background)
         let warning_bg = if self.is_dark {
-            Color::from_rgb(70, 40, 0)
+            fltk_rgb(70, 40, 0)
         } else {
-            Color::from_rgb(255, 230, 180)
+            fltk_rgb(255, 230, 180)
         };
         self.entries.push(StyleTableEntryExt {
             color: fg,
@@ -142,9 +143,9 @@ impl StyleMap {
 
         // Style 'G' - Info (blue background)
         let info_bg = if self.is_dark {
-            Color::from_rgb(0, 30, 60)
+            fltk_rgb(0, 30, 60)
         } else {
-            Color::from_rgb(200, 220, 255)
+            fltk_rgb(200, 220, 255)
         };
         self.entries.push(StyleTableEntryExt {
             color: fg,
@@ -174,7 +175,7 @@ impl StyleMap {
         }
         let ch = (b'A' + idx as u8) as char;
         self.entries.push(StyleTableEntryExt {
-            color: Color::from_rgb(color.r, color.g, color.b),
+            color: fltk_rgb(color.r, color.g, color.b),
             font: self.font,
             size: self.font_size,
             attr: TextAttr::None,
@@ -229,7 +230,7 @@ impl StyleMap {
             font: self.font,
             size: self.font_size,
             attr: TextAttr::BgColor,
-            bgcolor: Color::from_rgb(r, g, b),
+            bgcolor: fltk_rgb(r, g, b),
         });
 
         // We don't add to color_to_char since that's for syntax colors
@@ -355,7 +356,7 @@ mod tests {
         }
         assert_eq!(map.entries().len(), PRIMARY_STYLES);
 
-        let line_bg = Color::from_rgb(1, 2, 3);
+        let line_bg = fltk_rgb(1, 2, 3);
         let table = map.table_with_twins(line_bg);
         assert_eq!(table.len(), 2 * PRIMARY_STYLES);
         assert!(table.len() <= 63);
@@ -383,7 +384,7 @@ mod tests {
     #[test]
     fn current_line_table_pads_a_small_map() {
         let map = StyleMap::new(Font::Courier, 14);
-        let table = map.table_with_twins(Color::from_rgb(9, 9, 9));
+        let table = map.table_with_twins(fltk_rgb(9, 9, 9));
         assert_eq!(table.len(), 2 * PRIMARY_STYLES);
         // Unused primary slots are copies of 'A' but never twinnable.
         let mask = map.twinnable();

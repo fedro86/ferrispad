@@ -1,8 +1,6 @@
 use fltk::{
-    button::{Button, CheckButton},
     enums::{Align, CallbackTrigger},
     frame::Frame,
-    input::Input,
     prelude::*,
     text::{TextBuffer, TextEditor},
     window::Window,
@@ -238,68 +236,53 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
         .with_size(80, 30)
         .with_label("Find what:");
     find_label.set_label_color(theme.text);
-    let mut find_input = Input::default().with_pos(110, 20).with_size(270, 30);
-    find_input.set_color(theme.input_bg);
-    find_input.set_text_color(theme.text);
-    find_input.set_selection_color(theme.button_bg);
+    let find_input = theme.input().with_pos(110, 20).with_size(270, 30);
 
     let mut replace_label = Frame::default()
         .with_pos(20, 60)
         .with_size(80, 30)
         .with_label("Replace:");
     replace_label.set_label_color(theme.text);
-    let mut replace_input = Input::default().with_pos(110, 60).with_size(270, 30);
-    replace_input.set_color(theme.input_bg);
-    replace_input.set_text_color(theme.text);
-    replace_input.set_selection_color(theme.button_bg);
+    let replace_input = theme.input().with_pos(110, 60).with_size(270, 30);
 
-    let mut case_check = CheckButton::default()
+    let case_check = theme
+        .check_button()
         .with_pos(110, 100)
         .with_size(200, 25)
         .with_label("Match case");
-    case_check.set_label_color(theme.text);
-    case_check.set_color(theme.bg);
-    case_check.set_selection_color(theme.button_bg);
 
-    let mut regex_check = CheckButton::default()
+    let regex_check = theme
+        .check_button()
         .with_pos(110, 125)
         .with_size(REGEX_CHECK_W, 25)
         .with_label("Use regex");
-    regex_check.set_label_color(theme.text);
-    regex_check.set_color(theme.bg);
-    regex_check.set_selection_color(theme.button_bg);
     regex_case_folding_hint(110 + REGEX_CHECK_W, 125, &theme);
 
-    let mut find_prev_btn = Button::default()
+    let mut find_prev_btn = theme
+        .button()
         .with_pos(20, 160)
         .with_size(90, 30)
         .with_label("Find Prev");
-    find_prev_btn.set_color(theme.button_bg);
-    find_prev_btn.set_label_color(theme.text);
-    let mut find_btn = Button::default()
+    let mut find_btn = theme
+        .button()
         .with_pos(120, 160)
         .with_size(90, 30)
         .with_label("Find Next");
-    find_btn.set_color(theme.button_bg);
-    find_btn.set_label_color(theme.text);
-    let mut replace_btn = Button::default()
+    let mut replace_btn = theme
+        .button()
         .with_pos(220, 160)
         .with_size(90, 30)
         .with_label("Replace");
-    replace_btn.set_color(theme.button_bg);
-    replace_btn.set_label_color(theme.text);
-    let mut replace_all_btn = Button::default()
+    let mut replace_all_btn = theme
+        .button()
         .with_pos(20, 205)
         .with_size(100, 30)
         .with_label("Replace All");
-    replace_all_btn.set_color(theme.button_bg);
-    replace_all_btn.set_label_color(theme.text);
-    let mut close_btn = Button::default()
+    let mut close_btn = theme
+        .button()
         .with_pos(300, 205)
         .with_size(90, 30)
         .with_label("Close");
-    close_btn.set_color(theme.button_bg);
-    close_btn.set_label_color(theme.text);
 
     dialog_win.end();
     drop(top_level);
@@ -519,46 +502,36 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: 
         .with_size(80, 30)
         .with_label("Find what:");
     find_label.set_label_color(theme.text);
-    let mut find_input = Input::default().with_pos(110, 20).with_size(270, 30);
-    find_input.set_color(theme.input_bg);
-    find_input.set_text_color(theme.text);
-    find_input.set_selection_color(theme.button_bg);
+    let find_input = theme.input().with_pos(110, 20).with_size(270, 30);
 
-    let mut case_check = CheckButton::default()
+    let case_check = theme
+        .check_button()
         .with_pos(110, 60)
         .with_size(200, 25)
         .with_label("Match case");
-    case_check.set_label_color(theme.text);
-    case_check.set_color(theme.bg);
-    case_check.set_selection_color(theme.button_bg);
 
-    let mut regex_check = CheckButton::default()
+    let regex_check = theme
+        .check_button()
         .with_pos(110, 87)
         .with_size(REGEX_CHECK_W, 25)
         .with_label("Use regex");
-    regex_check.set_label_color(theme.text);
-    regex_check.set_color(theme.bg);
-    regex_check.set_selection_color(theme.button_bg);
     regex_case_folding_hint(110 + REGEX_CHECK_W, 87, &theme);
 
-    let mut find_prev_btn2 = Button::default()
+    let mut find_prev_btn2 = theme
+        .button()
         .with_pos(110, 125)
         .with_size(90, 30)
         .with_label("Find Prev");
-    find_prev_btn2.set_color(theme.button_bg);
-    find_prev_btn2.set_label_color(theme.text);
-    let mut find_btn = Button::default()
+    let mut find_btn = theme
+        .button()
         .with_pos(210, 125)
         .with_size(90, 30)
         .with_label("Find Next");
-    find_btn.set_color(theme.button_bg);
-    find_btn.set_label_color(theme.text);
-    let mut close_btn = Button::default()
+    let mut close_btn = theme
+        .button()
         .with_pos(310, 125)
         .with_size(80, 30)
         .with_label("Close");
-    close_btn.set_color(theme.button_bg);
-    close_btn.set_label_color(theme.text);
 
     dialog_win.end();
     drop(top_level);
