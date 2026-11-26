@@ -1,12 +1,12 @@
 ---
 id: T0086
 title: Stop a manual run of the release workflow from publishing a release
-status: todo            # todo | review | done
+status: review          # todo | review | done
 created: 2026-11-26
 severity: minor
 area: process
 depends-on: []
-issue: ~
+issue: 175
 ---
 
 ## Goal
@@ -40,6 +40,11 @@ only a version tag can publish a release or notify FlatPark.
   workflow artifacts.
 - `release.yml`: the `flatpark` job requires a tag ref as well as no `-` in
   its name, so it never runs for a branch, whatever the branch is called.
+- `release.yml`, the three build jobs: on a non-tag ref, name the artifacts
+  `<Cargo.toml version>-dev.<short SHA>` instead of the branch-derived
+  "version" (`refs/heads/…`, with slashes, which breaks the Linux `.deb`
+  rename). The tag path stays byte-identical. *(Added after the red run,
+  orchestrator.)*
 - `docs/guides/RELEASE_PROCESS.md` → *Manual Trigger*: describe what a
   manual run does (artifacts on the run page, no release, no FlatPark), and
   that a manual run on a tag behaves like the tag push.
@@ -107,3 +112,64 @@ safe: it is the behaviour described in the Goal.
   The signatures carry the branch-derived version and are only uploaded as
   artifacts once `create-release` is skipped. Decide during implementation
   whether signing should also be tag-only.
+
+## What was done (2026-11-26)
+
+Decision on the open note (orchestrator): **signing is tag-only too.** The
+release key should only sign binaries that go into a published release; a
+branch run's signatures would carry a branch-derived "version" nobody needs.
+
+- `release.yml`: new first job `release-gate` (no checkout, no secrets).
+  `publish=true` only when `github.ref_type == 'tag'` **and** the tag name
+  matches the `on.push.tags` patterns, mirrored as the bash regex
+  `^(v[^/]*|[0-9]+\.[0-9]+\.[0-9]+(-[^/]*)?)$`. Otherwise it is
+  `publish=false` with a `::notice::` saying the run is build-only.
+  - `sign-binaries`: `needs` + `release-gate`;
+    `if: always() && needs.release-gate.outputs.publish == 'true'`.
+  - `create-release`: the same.
+  - `flatpark`: `needs: [release-gate, create-release]`;
+    `if: publish == 'true' && !contains(github.ref_name, '-')`.
+  - The four build jobs (Linux amd64/arm64, Windows, macOS) are unchanged
+    and still upload their artifacts on any run.
+- Tag path, unchanged in behaviour: on a version tag `publish=true`, so the
+  three gated jobs keep their old conditions (`always()` for sign and
+  create, no `-` for FlatPark). The only difference is the extra
+  `release-gate` job (a few seconds).
+- Regex checked locally against: `0.9.10-rc.2`, `0.9.9`, `v1.0` and
+  `1.2.3-beta.1` → publish; `master`, `ticket/T0086`, `1.2`, `1.2.3.4` and
+  `1.2.3-x/y` → build only.
+- Build jobs (Linux ×2, Windows, macOS), "Get version from tag": on a tag
+  the same two lines as before; otherwise
+  `VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)-dev.${GITHUB_SHA::7}"`,
+  e.g. `0.9.10-rc.2-dev.7ea980d`. That is a valid file name on every
+  platform. On a branch it also lands in the macOS `Info.plist` version
+  strings, which nothing validates at build time. `sign-binaries` and
+  `create-release` keep the old step verbatim, since they now run only on
+  tags.
+- `docs/guides/RELEASE_PROCESS.md` → *Manual Trigger*: says what a branch
+  run does (artifacts only, unsigned, no release, no FlatPark; the
+  auto-updater would refuse unsigned binaries) and that a manual run on a
+  version tag behaves like the tag push.
+- `actionlint`: no findings from this change. The 9 `SC2086` info-level
+  notes it prints are all in unchanged steps and identical on `master`
+  (checked on master's file). They are left alone so the tag path stays
+  byte-identical.
+
+### Red run (unchanged workflow, `ticket/T0086` == master 7ea980d)
+
+`gh workflow run release.yml --ref ticket/T0086`: run **45866964468**, never
+from master. Conclusion: **failure**.
+
+| Job | Result | Why |
+|---|---|---|
+| build-linux amd64 / arm64 | failure | `mv: cannot move 'target/debian/ferrispad_0.9.10~rc.2-1_amd64.deb' to 'FerrisPad-vrefs/heads/ticket/T0086-ubuntu-amd64.deb': No such file or directory`; the branch-derived "version" `refs/heads/ticket/T0086` has slashes |
+| build-macos | failure | the same cause in "Prepare raw binary (universal)": `cp: FerrisPad-vrefs/heads/ticket/T0086-macos-universal: No such file or directory` |
+| build-windows | success | uploaded `windows-bin` and `windows-zip`, unsigned. **Not to be used.** |
+| sign-binaries | failure | it decoded the release key, then "Download macOS binary" failed (`Artifact not found for name: macos-bin`), so **"Sign binaries" was skipped: nothing was signed** |
+| create-release | failure | `⚠️ GitHub Releases requires a tag` (the only guard today) |
+| flatpark | skipped | `needs: create-release` failed |
+
+No release and no tag were created (`gh release list` still ends at
+`0.9.10-rc.2`). This confirms the Goal: the guard was a third-party
+action's internal check, the branch build itself was broken, and a branch
+run already reached the signing step with the release key loaded.
