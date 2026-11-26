@@ -1,7 +1,7 @@
 ---
 id: T0096
 title: Bound the synchronous re-highlight of an edit; continue a non-converging one in chunks
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: moderate
 area: robustness
@@ -255,7 +255,7 @@ clean.
       up work.
 - [x] Regression tests added; they failed before the fix.
 - [x] Gates pass with zero warnings; Xvfb measurements before/after.
-- [ ] Pending user verification: the manual recipe on a real desktop.
+- [x] User verification: the manual recipe on a real desktop.
 
 ## Affected files
 
@@ -271,3 +271,8 @@ clean.
 
 - Found by ferrispad-a3 in the T0087 review; assigned by the orchestrator
   (ferrispad-5a). An rc.3 candidate.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland) with the rc.3 integration
+build `verify/rc3` (checklist `VERIFICA-RC3.md`).
