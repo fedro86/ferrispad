@@ -32,23 +32,25 @@ const FLTK_IN_TESTS: &str = concat!(
     r"|\bbuild_themed_(popup|input|message|choice)\(",
 );
 
-/// The `#[cfg(test)]` modules of `source`, each as (first line number,
-/// body text), with nested `main_thread_checks` modules blanked out.
+/// The test modules of `source` (`#[cfg(test)]`, and any `#[cfg(...)]`
+/// whose predicate names `test`, e.g. `all(test, unix)`), each as (first
+/// line number, body text), with nested `main_thread_checks` modules
+/// blanked out.
 fn test_module_bodies(source: &str) -> Vec<(usize, String)> {
+    let cfg_test =
+        regex_lite::Regex::new(r"#\[cfg\([^\]]*\btest\b[^\]]*\)\]").expect("cfg pattern");
+    let header =
+        regex_lite::Regex::new(r"^(\s*#\[[^\]]*\])*\s*(pub(\([^)]*\))?\s+)?mod\s+\w+\s*\{")
+            .expect("module header pattern");
     let mut bodies = Vec::new();
     let mut rest = 0;
-    while let Some(at) = source[rest..].find("#[cfg(test)]") {
-        let attr = rest + at;
-        rest = attr + "#[cfg(test)]".len();
-        // Only `#[cfg(test)]` on a module, possibly after more attributes.
-        let after = source[rest..].trim_start();
-        let after = after.trim_start_matches("pub ").trim_start();
-        if !after.starts_with("mod ") {
+    while let Some(found) = cfg_test.find_at(source, rest) {
+        rest = found.end();
+        // Only on a module, possibly after more attributes and a `pub`.
+        let Some(head) = header.find(&source[rest..]) else {
             continue;
-        }
-        let Some(open) = source[rest..].find('{').map(|i| rest + i) else {
-            break;
         };
+        let open = rest + head.end() - 1;
         let Some(close) = matching_brace(source, open) else {
             break;
         };
@@ -142,6 +144,20 @@ fn guard_flags_t0087_js_tab() {
     let hits = fltk_lines_in_tests(T0087_JS_TAB);
     assert_eq!(hits.len(), 1, "{hits:?}");
     assert!(hits[0].contains("tabs.add_untitled()"), "{hits:?}");
+}
+
+/// a3: `#[cfg(all(test, unix))]` modules run on macOS too (unix), after
+/// further attributes and with a `pub(crate)`.
+#[test]
+fn guard_scans_compound_cfg_test_modules() {
+    let unix_only = "#[cfg(all(test, unix))]\n#[allow(dead_code)]\npub(crate) mod t {\n    \
+        fn f() {\n        let b = TextBuffer::default();\n    }\n}\n";
+    let hits = fltk_lines_in_tests(unix_only);
+    assert_eq!(hits.len(), 1, "{hits:?}");
+    assert!(hits[0].starts_with("5: "), "line number: {hits:?}");
+    // Not a test predicate: `testing` is not `test`.
+    let not_test = "#[cfg(feature = \"testing\")]\nmod t {\n    fn f() { let b = TextBuffer::default(); }\n}\n";
+    assert_eq!(fltk_lines_in_tests(not_test), Vec::<String>::new());
 }
 
 #[test]

@@ -1,7 +1,7 @@
 ---
 id: T0113
 title: Guard: no library unit test builds FLTK objects
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-27
 severity: minor
 area: process
@@ -41,8 +41,10 @@ Windows can't catch this class at runtime.
 - A helper **outside** `#[cfg(test)]` that builds FLTK objects and is
   called from a test (one indirection). Keep such helpers in the test
   module or in `main_thread_checks`.
-- Integration tests in `tests/`: those build windows behind
-  `display_available()`, which is skipped on macOS.
+- Integration tests in `tests/`: those binaries also run tests on libtest
+  worker threads. Today every one that builds widgets is gated on
+  `display_available()`, which is false on macOS CI, but a non-gated
+  `TextBuffer` there would abort the same way. Not scanned (a3).
 
 ## How to test
 
@@ -60,12 +62,12 @@ nix develop -c cargo test --lib fltk_test_guard
 
 ## Acceptance criteria
 
-- [ ] The guard flags T0087's pre-fix `js_tab`, and a planted
+- [x] The guard flags T0087's pre-fix `js_tab`, and a planted
       `TextBuffer::default()` in a real test module, with the pointer to
       `main_thread_checks`.
-- [ ] It passes on master, where every FLTK check is in
+- [x] It passes on master, where every FLTK check is in
       `main_thread_checks`.
-- [ ] Full gates green, including the macOS gate.
+- [x] Full gates green, including the macOS gate.
 
 ## Affected files
 
@@ -107,3 +109,22 @@ As in *In scope*.
 
 - On master 689b469 (all of rc.3's landed tickets), the guard and its two
   self-tests pass.
+
+## Review (a3, 2026-11-27): approved, two recommendations done
+
+- **Compound `cfg`**: the scan found only the literal `#[cfg(test)]`, so
+  `#[cfg(all(test, unix))]` modules were missed. Those run on macOS too;
+  master has three (`probe.rs`, `pty.rs`, `terminal_panel.rs`). The guard
+  now matches any `#[cfg(...)]` whose predicate has the `test` token (not
+  `testing`). It also skips further attributes and a `pub` / `pub(crate)`
+  before `mod`.
+  - Self-test: `guard_scans_compound_cfg_test_modules`.
+  - Real red: a `TextBuffer::default()` planted in `terminal_panel.rs`'s
+    `cfg(all(test, unix))` module failed the guard at
+    `terminal_panel.rs:844`; it was then removed.
+- **Integration tests' limit** is now noted under *Out of scope*.
+
+## User verification
+
+Test-only change with no user-visible behaviour, verified by CI on every
+OS: the macOS gates, Linux and Windows. a3 approved it on 2026-11-27.
