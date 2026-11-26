@@ -5,6 +5,16 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.10-rc.2] - 2026-11-26
+
+Second release candidate, published as a GitHub pre-release only. It has the same features and fixes as [0.9.10-rc.1](https://github.com/fedro86/ferrispad/releases/tag/0.9.10-rc.1) (custom editor themes, current-line highlight, remembered window size, blue selection, save prompt on title-bar close, Settings layout) and adds the Windows build that rc.1 was missing. The website, FlatPark and the in-app updater on the stable channel stay on 0.9.9.
+
+### Fixed
+- **Windows Build**: The Windows binaries are back. GitHub's Windows build machines moved to a newer Microsoft C++ compiler (MSVC 14.52), which could not compile the FLTK version FerrisPad used, so 0.9.10-rc.1 shipped without Windows downloads.
+
+### Changed
+- **FLTK 1.5.24**: The GUI toolkit is updated from fltk-rs 1.5.14 to 1.5.24. It brings FLTK 1.4 maintenance fixes, including safer memory handling of widget callbacks, and drops the unmaintained `ttf-parser` dependency. On X11, text may sit slightly lower (less than a pixel) than in rc.1.
+
 ## [0.9.10-rc.1] - 2026-11-26
 
 Release candidate: it is published as a GitHub pre-release only. The website, FlatPark and the in-app updater on the stable channel stay on 0.9.9.
