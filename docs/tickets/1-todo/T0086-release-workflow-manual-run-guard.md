@@ -3,7 +3,7 @@ id: T0086
 title: Stop a manual run of the release workflow from publishing a release
 status: todo            # todo | review | done
 created: 2026-11-26
-severity: moderate
+severity: minor
 area: process
 depends-on: []
 issue: ~
@@ -12,19 +12,25 @@ issue: ~
 ## Goal
 
 `release.yml` also runs on `workflow_dispatch`. Started by hand from a branch
-(for example `master`), it builds every platform and then publishes a real,
-non-draft GitHub Release named after the branch, and the `flatpark` job
-notifies FlatPark. The version every job derives is
-`${GITHUB_REF#refs/tags/}`, which on a branch is the whole ref
-(`refs/heads/master`). `create-release` uses `prerelease: false` and
-`draft: false`, and the `flatpark` guard `!contains(github.ref_name, '-')`
-passes for `master`. A test run could therefore reach the in-app updater's
-stable channel and FlatPark users with a broken version string.
-`docs/guides/RELEASE_PROCESS.md` → *Manual Trigger* says the same action
-"will create draft releases you can test", which is not what the workflow
-does. After this ticket, a manual run can build and sign binaries for
-testing, but only a pushed version tag can publish a release or notify
-FlatPark.
+(for example `master`), it builds and **signs** every platform with the
+release key, and every job derives the version as `${GITHUB_REF#refs/tags/}`,
+which on a branch is the whole ref (`refs/heads/master`). The run then fails
+in `create-release`: `softprops/action-gh-release` v3 throws "GitHub Releases
+requires a tag" when the ref is not a tag and neither `tag_name` nor `draft`
+is set (`src/run.ts`). Because `flatpark` has `needs: create-release`
+without `always()`, it is skipped.
+
+So today nothing is published, but only by accident: the only guard is an
+internal check of a third-party action, the run ends red, and the
+`flatpark` condition (`!contains(github.ref_name, '-')`) would pass for a
+branch like `master`. Adding `tag_name:` or `draft:` to the release step one
+day would remove the guard silently. `docs/guides/RELEASE_PROCESS.md` →
+*Manual Trigger* also says a manual run "will create draft releases you can
+test", which is not what happens.
+
+After this ticket, the workflow itself decides: a manual run on a branch
+builds and uploads the binaries as workflow artifacts and ends green, and
+only a version tag can publish a release or notify FlatPark.
 
 ## In scope
 
@@ -53,11 +59,11 @@ the `ticket/T0086` branch, before merge.
 
 ### Red check (current `master`)
 
-Read `release.yml` on `master`: for `github.ref = refs/heads/master`,
-`create-release` has `if: always()` and `flatpark` has
-`!contains('master', '-')` = true, so both would run. Record this reasoning
-here. Do **not** start a manual run on `master` to prove it, since that
-would publish a release.
+Start the workflow by hand on the `ticket/T0086` branch **before** changing
+`release.yml` (`gh workflow run release.yml --ref ticket/T0086`). Expect the
+run to fail in `create-release` with "GitHub Releases requires a tag", with
+`flatpark` skipped and no release created. Record the run ID here. This is
+safe: it is the behaviour described in the Goal.
 
 ### On the branch
 
@@ -94,8 +100,9 @@ would publish a release.
 
 - Found while fixing the missing Windows build of 0.9.10-rc.1 (T0085). A
   manual run was considered as a way to test the Windows build before
-  tagging, and dropped because of this hazard; T0085 added a Windows build
-  to `ci.yml` instead.
+  tagging; T0085 added a Windows build to `ci.yml` instead. At first the
+  manual run looked able to publish a branch-named release and notify
+  FlatPark; reading `action-gh-release` showed it fails first.
 - `sign-binaries` also runs on a manual run and signs with the release key.
   The signatures carry the branch-derived version and are only uploaded as
   artifacts once `create-release` is skipped. Decide during implementation
