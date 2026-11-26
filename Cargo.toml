@@ -68,6 +68,12 @@ winres = "0.1"
 [dev-dependencies]
 tempfile = "3.27.0"
 
+# FLTK widget checks that must run on the main thread (AppKit on macOS), so
+# this binary has its own main() instead of libtest (T0089).
+[[test]]
+name = "fltk_main_thread"
+harness = false
+
 [package.metadata.deb]
 maintainer = "FerrisPad Contributors <fc@ferrispad.com>"
 copyright = "2025, FerrisPad Contributors"

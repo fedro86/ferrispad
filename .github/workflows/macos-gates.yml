@@ -47,12 +47,10 @@ jobs:
       # Known macOS test failures, skipped by EXACT name (--exact applies to
       # --skip). This list may only shrink: any other failing test still
       # turns the job red.
-      # - FLTK widget tests abort on macOS because libtest runs them off the
-      #   main thread (AppKit requirement): T0089.
       # - Plugin path validation on macOS: T0090.
+      # (FLTK widget checks run on the main thread in tests/fltk_main_thread.rs,
+      # T0089, so they no longer need skipping.)
       - name: cargo test
         run: >-
           cargo test --locked -- --exact
-          --skip ui::dialogs::tests::popup_is_top_level
-          --skip ui::scrollbar::tests::child_index_invariant_matches_bundled_fltk
           --skip app::plugins::api::tests::test_lua_create_dir_and_rename
