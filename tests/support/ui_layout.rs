@@ -415,6 +415,80 @@ pub fn layout_failures(
     failures
 }
 
+/// Text inputs of `window` not styled with `theme`'s input colors (T0105):
+/// background, text, cursor and the shared selection color, so selected text
+/// reads like a selected list row in every dialog.
+pub fn unthemed_inputs(
+    window: &Window,
+    title: &str,
+    theme: &ferris_pad::ui::dialogs::DialogTheme,
+) -> Vec<String> {
+    use fltk::prelude::InputExt;
+    let mut widgets = Vec::new();
+    walk(
+        &window.as_group().unwrap(),
+        title,
+        &mut widgets,
+        &mut Vec::new(),
+    );
+    let mut failures = Vec::new();
+    for (path, w) in widgets {
+        if let Some(list) = fltk::browser::HoldBrowser::from_dyn_widget(&w) {
+            use ferris_pad::ui::dialogs::widgets::INPUT_FRAME;
+            if list.frame() != INPUT_FRAME || list.selection_color() != theme.list_selection_bg {
+                failures.push(format!("{path}: list not styled as a themed list"));
+            }
+            continue;
+        }
+        let Some(input) = fltk::input::Input::from_dyn_widget(&w) else {
+            continue;
+        };
+        use ferris_pad::ui::dialogs::widgets::{INPUT_FRAME, input_border_for};
+        if input.frame() != INPUT_FRAME {
+            failures.push(format!(
+                "{path}: input frame {:?} != INPUT_FRAME",
+                input.frame()
+            ));
+        }
+        if input_border_for(input.color()) != Some(theme.input_border) {
+            failures.push(format!(
+                "{path}: input border {:?} != theme {:?}",
+                input_border_for(input.color()).map(|c| c.to_rgb()),
+                theme.input_border.to_rgb()
+            ));
+        }
+        let checks = [
+            ("background", input.color(), theme.input_bg),
+            ("text", input.text_color(), theme.text),
+            // A read-only field draws no caret (cursor in the field color).
+            (
+                "cursor",
+                input.cursor_color(),
+                if input.readonly() {
+                    theme.input_bg
+                } else {
+                    theme.text
+                },
+            ),
+            (
+                "selection",
+                input.selection_color(),
+                theme.list_selection_bg,
+            ),
+        ];
+        for (what, got, want) in checks {
+            if got != want {
+                failures.push(format!(
+                    "{path}: input {what} {:?} != theme {:?}",
+                    got.to_rgb(),
+                    want.to_rgb()
+                ));
+            }
+        }
+    }
+    failures
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

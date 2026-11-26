@@ -1,9 +1,7 @@
 use fltk::{
-    button::{Button, CheckButton, RadioRoundButton},
     enums::{CallbackTrigger, FrameType},
     frame::Frame,
     group::{Group, Scroll, ScrollType},
-    input::{Input, IntInput},
     menu::Choice,
     prelude::*,
     window::Window,
@@ -263,24 +261,21 @@ pub fn build_settings_dialog(
         .with_pos(LEFT_COL + 10, y)
         .with_size(m.left_w - 10, ITEM_HEIGHT * 3);
     theme_group.set_color(theme.bg);
-    let mut theme_light = RadioRoundButton::default()
+    let mut theme_light = theme
+        .radio()
         .with_pos(LEFT_COL + 10, y)
         .with_size(m.left_w - 10, ITEM_HEIGHT)
         .with_label("Light");
-    theme_light.set_label_color(theme.text);
-    theme_light.set_color(theme.bg);
-    let mut theme_dark = RadioRoundButton::default()
+    let mut theme_dark = theme
+        .radio()
         .with_pos(LEFT_COL + 10, y + ITEM_HEIGHT)
         .with_size(m.left_w - 10, ITEM_HEIGHT)
         .with_label("Dark");
-    theme_dark.set_label_color(theme.text);
-    theme_dark.set_color(theme.bg);
-    let mut theme_system = RadioRoundButton::default()
+    let mut theme_system = theme
+        .radio()
         .with_pos(LEFT_COL + 10, y + ITEM_HEIGHT * 2)
         .with_size(m.left_w - 10, ITEM_HEIGHT)
         .with_label("System Default");
-    theme_system.set_label_color(theme.text);
-    theme_system.set_color(theme.bg);
     theme_group.end();
     y += ITEM_HEIGHT * 3 + SECTION_GAP;
 
@@ -299,13 +294,10 @@ pub fn build_settings_dialog(
     stl_label.set_label_color(theme.text);
     y += LABEL_HEIGHT + 3;
 
-    let mut theme_light_choice = Choice::default()
+    let mut theme_light_choice = theme
+        .choice()
         .with_pos(LEFT_COL + 10, y)
         .with_size(m.left_w - 20, 25);
-    theme_light_choice.set_color(theme.input_bg);
-    theme_light_choice.set_text_color(theme.text);
-    theme_light_choice.set_label_color(theme.text);
-    theme_light_choice.set_selection_color(theme.button_bg);
     for (_, label) in light_choices.borrow().iter() {
         theme_light_choice.add_choice(&choice_label(label));
     }
@@ -324,13 +316,10 @@ pub fn build_settings_dialog(
     std_label.set_label_color(theme.text);
     y += LABEL_HEIGHT + 3;
 
-    let mut theme_dark_choice = Choice::default()
+    let mut theme_dark_choice = theme
+        .choice()
         .with_pos(LEFT_COL + 10, y)
         .with_size(m.left_w - 20, 25);
-    theme_dark_choice.set_color(theme.input_bg);
-    theme_dark_choice.set_text_color(theme.text);
-    theme_dark_choice.set_label_color(theme.text);
-    theme_dark_choice.set_selection_color(theme.button_bg);
     for (_, label) in dark_choices.borrow().iter() {
         theme_dark_choice.add_choice(&choice_label(label));
     }
@@ -340,13 +329,11 @@ pub fn build_settings_dialog(
     ));
     y += 30;
 
-    let mut manage_btn = Button::default()
+    let mut manage_btn = theme
+        .button()
         .with_pos(LEFT_COL + 10, y)
         .with_size(m.left_w - 20, 25)
         .with_label("Manage themes…");
-    manage_btn.set_frame(FrameType::RFlatBox);
-    manage_btn.set_color(theme.button_bg);
-    manage_btn.set_label_color(theme.text);
     let pending_manage = Rc::new(Cell::new(false));
     let pending_manage_btn = pending_manage.clone();
     manage_btn.set_callback(move |_| pending_manage_btn.set(true));
@@ -387,22 +374,17 @@ pub fn build_settings_dialog(
     font_label.set_label_color(theme.text);
     y += LABEL_HEIGHT + 5;
 
-    let mut font_value = Input::default()
+    let mut font_value = theme
+        .readonly_input()
         .with_pos(LEFT_COL + 10, y)
         .with_size(m.left_w - 10 - m.change_w - 10, ITEM_HEIGHT);
-    font_value.set_frame(FrameType::FlatBox);
     font_value.set_value(&current_settings.font);
-    font_value.set_readonly(true);
-    font_value.set_color(theme.input_bg);
-    font_value.set_text_color(theme.text);
-    font_value.set_selection_color(theme.button_bg);
 
-    let mut change_font_btn = Button::default()
+    let mut change_font_btn = theme
+        .button()
         .with_pos(LEFT_COL + m.left_w - m.change_w, y)
         .with_size(m.change_w, ITEM_HEIGHT)
         .with_label("Change...");
-    change_font_btn.set_color(theme.button_bg);
-    change_font_btn.set_label_color(theme.text);
     y += ITEM_HEIGHT + SECTION_GAP;
 
     // Font size section
@@ -414,14 +396,11 @@ pub fn build_settings_dialog(
     size_label.set_label_color(theme.text);
     y += LABEL_HEIGHT + 5;
 
-    let mut size_input = IntInput::default()
+    let mut size_input = theme
+        .int_input()
         .with_pos(LEFT_COL + 10, y)
         .with_size(70, ITEM_HEIGHT);
-    size_input.set_frame(FrameType::FlatBox);
     size_input.set_value(&current_settings.font_size.to_string());
-    size_input.set_color(theme.input_bg);
-    size_input.set_text_color(theme.text);
-    size_input.set_selection_color(theme.button_bg);
     size_input.set_trigger(CallbackTrigger::Changed);
     {
         let mut s = size_input.clone();
@@ -477,24 +456,21 @@ pub fn build_settings_dialog(
         .with_pos(LEFT_COL + 10, y)
         .with_size(m.left_w - 10, ITEM_HEIGHT * 3);
     tab_group.set_color(theme.bg);
-    let mut tab_2 = RadioRoundButton::default()
+    let mut tab_2 = theme
+        .radio()
         .with_pos(LEFT_COL + 10, y)
         .with_size(m.left_w - 10, ITEM_HEIGHT)
         .with_label("2 spaces");
-    tab_2.set_label_color(theme.text);
-    tab_2.set_color(theme.bg);
-    let mut tab_4 = RadioRoundButton::default()
+    let mut tab_4 = theme
+        .radio()
         .with_pos(LEFT_COL + 10, y + ITEM_HEIGHT)
         .with_size(m.left_w - 10, ITEM_HEIGHT)
         .with_label("4 spaces");
-    tab_4.set_label_color(theme.text);
-    tab_4.set_color(theme.bg);
-    let mut tab_8 = RadioRoundButton::default()
+    let mut tab_8 = theme
+        .radio()
         .with_pos(LEFT_COL + 10, y + ITEM_HEIGHT * 2)
         .with_size(m.left_w - 10, ITEM_HEIGHT)
         .with_label("8 spaces");
-    tab_8.set_label_color(theme.text);
-    tab_8.set_color(theme.bg);
     tab_group.end();
 
     match current_settings.tab_size {
@@ -504,12 +480,11 @@ pub fn build_settings_dialog(
     }
 
     y += ITEM_HEIGHT * 3 + 5;
-    let mut use_spaces = CheckButton::default()
+    let mut use_spaces = theme
+        .check_button()
         .with_pos(LEFT_COL + 10, y)
         .with_size(m.left_w - 10, ITEM_HEIGHT)
         .with_label("Use spaces instead of tabs");
-    use_spaces.set_label_color(theme.text);
-    use_spaces.set_color(theme.bg);
     use_spaces.set_value(current_settings.use_spaces);
 
     let left_bottom = y + ITEM_HEIGHT;
@@ -526,48 +501,43 @@ pub fn build_settings_dialog(
     view_label.set_label_color(theme.text);
     y += LABEL_HEIGHT + 5;
 
-    let mut check_line_numbers = CheckButton::default()
+    let mut check_line_numbers = theme
+        .check_button()
         .with_pos(m.right_x + 10, y)
         .with_size(m.right_w - 10, ITEM_HEIGHT)
         .with_label("Show Line Numbers");
-    check_line_numbers.set_label_color(theme.text);
-    check_line_numbers.set_color(theme.bg);
     check_line_numbers.set_value(current_settings.line_numbers_enabled);
     y += ITEM_HEIGHT;
 
-    let mut check_word_wrap = CheckButton::default()
+    let mut check_word_wrap = theme
+        .check_button()
         .with_pos(m.right_x + 10, y)
         .with_size(m.right_w - 10, ITEM_HEIGHT)
         .with_label("Word Wrap");
-    check_word_wrap.set_label_color(theme.text);
-    check_word_wrap.set_color(theme.bg);
     check_word_wrap.set_value(current_settings.word_wrap_enabled);
     y += ITEM_HEIGHT;
 
-    let mut check_current_line = CheckButton::default()
+    let mut check_current_line = theme
+        .check_button()
         .with_pos(m.right_x + 10, y)
         .with_size(m.right_w - 10, ITEM_HEIGHT)
         .with_label("Highlight Current Line");
-    check_current_line.set_label_color(theme.text);
-    check_current_line.set_color(theme.bg);
     check_current_line.set_value(current_settings.highlight_current_line);
     y += ITEM_HEIGHT;
 
-    let mut check_highlighting = CheckButton::default()
+    let mut check_highlighting = theme
+        .check_button()
         .with_pos(m.right_x + 10, y)
         .with_size(m.right_w - 10, ITEM_HEIGHT)
         .with_label("Syntax Highlighting");
-    check_highlighting.set_label_color(theme.text);
-    check_highlighting.set_color(theme.bg);
     check_highlighting.set_value(current_settings.highlighting_enabled);
     y += ITEM_HEIGHT;
 
-    let mut check_tabs_enabled = CheckButton::default()
+    let mut check_tabs_enabled = theme
+        .check_button()
         .with_pos(m.right_x + 10, y)
         .with_size(m.right_w - 10, ITEM_HEIGHT)
         .with_label("Tabbed editing (restart)");
-    check_tabs_enabled.set_label_color(theme.text);
-    check_tabs_enabled.set_color(theme.bg);
     check_tabs_enabled.set_value(current_settings.tabs_enabled);
     y += ITEM_HEIGHT + SECTION_GAP;
 
@@ -584,24 +554,21 @@ pub fn build_settings_dialog(
         .with_pos(m.right_x + 10, y)
         .with_size(m.right_w - 10, ITEM_HEIGHT * 3);
     session_group.set_color(theme.bg);
-    let mut session_off = RadioRoundButton::default()
+    let mut session_off = theme
+        .radio()
         .with_pos(m.right_x + 10, y)
         .with_size(m.right_w - 10, ITEM_HEIGHT)
         .with_label("Off");
-    session_off.set_label_color(theme.text);
-    session_off.set_color(theme.bg);
-    let mut session_saved = RadioRoundButton::default()
+    let mut session_saved = theme
+        .radio()
         .with_pos(m.right_x + 10, y + ITEM_HEIGHT)
         .with_size(m.right_w - 10, ITEM_HEIGHT)
         .with_label("Saved Files Only");
-    session_saved.set_label_color(theme.text);
-    session_saved.set_color(theme.bg);
-    let mut session_full = RadioRoundButton::default()
+    let mut session_full = theme
+        .radio()
         .with_pos(m.right_x + 10, y + ITEM_HEIGHT * 2)
         .with_size(m.right_w - 10, ITEM_HEIGHT)
         .with_label("Full (including unsaved)");
-    session_full.set_label_color(theme.text);
-    session_full.set_color(theme.bg);
     session_group.end();
     y += ITEM_HEIGHT * 3 + SECTION_GAP;
 
@@ -620,30 +587,27 @@ pub fn build_settings_dialog(
     updates_label.set_label_color(theme.text);
     y += LABEL_HEIGHT + 5;
 
-    let mut check_auto_update = CheckButton::default()
+    let mut check_auto_update = theme
+        .check_button()
         .with_pos(m.right_x + 10, y)
         .with_size(m.right_w - 10, ITEM_HEIGHT)
         .with_label("Auto-check for updates");
-    check_auto_update.set_label_color(theme.text);
-    check_auto_update.set_color(theme.bg);
     check_auto_update.set_value(current_settings.auto_check_updates);
     y += ITEM_HEIGHT;
 
-    let mut check_prerelease = CheckButton::default()
+    let mut check_prerelease = theme
+        .check_button()
         .with_pos(m.right_x + 10, y)
         .with_size(m.right_w - 10, ITEM_HEIGHT)
         .with_label("Include pre-releases");
-    check_prerelease.set_label_color(theme.text);
-    check_prerelease.set_color(theme.bg);
     check_prerelease.set_value(current_settings.update_channel == UpdateChannel::Beta);
     y += ITEM_HEIGHT;
 
-    let mut check_plugin_updates = CheckButton::default()
+    let mut check_plugin_updates = theme
+        .check_button()
         .with_pos(m.right_x + 10, y)
         .with_size(m.right_w - 10, ITEM_HEIGHT)
         .with_label("Auto-check plugin updates");
-    check_plugin_updates.set_label_color(theme.text);
-    check_plugin_updates.set_color(theme.bg);
     check_plugin_updates.set_value(current_settings.auto_check_plugin_updates);
     y += ITEM_HEIGHT + 10;
 
@@ -675,13 +639,11 @@ pub fn build_settings_dialog(
         .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
     warning_label.set_label_color(theme.text);
     warning_label.set_label_size(12);
-    let mut warning_input = Input::default()
+    let mut warning_input = theme
+        .input()
         .with_pos(m.right_x + 15 + m.large_label_w, y)
         .with_size(60, ITEM_HEIGHT);
     warning_input.set_value(&current_settings.large_file_warning_mb.to_string());
-    warning_input.set_color(theme.input_bg);
-    warning_input.set_text_color(theme.text);
-    warning_input.set_frame(FrameType::FlatBox);
     y += ITEM_HEIGHT + 5;
 
     let mut max_edit_label = Frame::default()
@@ -691,13 +653,11 @@ pub fn build_settings_dialog(
         .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
     max_edit_label.set_label_color(theme.text);
     max_edit_label.set_label_size(12);
-    let mut max_edit_input = Input::default()
+    let mut max_edit_input = theme
+        .input()
         .with_pos(m.right_x + 15 + m.large_label_w, y)
         .with_size(60, ITEM_HEIGHT);
     max_edit_input.set_value(&current_settings.max_editable_size_mb.to_string());
-    max_edit_input.set_color(theme.input_bg);
-    max_edit_input.set_text_color(theme.text);
-    max_edit_input.set_frame(FrameType::FlatBox);
 
     let right_bottom = y + ITEM_HEIGHT;
     vpack.end();
@@ -726,20 +686,16 @@ pub fn build_settings_dialog(
 
     // Buttons at bottom
     let btn_y = fit.dialog_h - 45;
-    let mut save_btn = Button::default()
+    let mut save_btn = theme
+        .button()
         .with_pos(dialog_w - 2 * m.button_w - 20, btn_y)
         .with_size(m.button_w, 30)
         .with_label("Save");
-    save_btn.set_frame(FrameType::RFlatBox);
-    save_btn.set_color(theme.button_bg);
-    save_btn.set_label_color(theme.text);
-    let mut cancel_btn = Button::default()
+    let mut cancel_btn = theme
+        .button()
         .with_pos(dialog_w - m.button_w - 10, btn_y)
         .with_size(m.button_w, 30)
         .with_label("Cancel");
-    cancel_btn.set_frame(FrameType::RFlatBox);
-    cancel_btn.set_color(theme.button_bg);
-    cancel_btn.set_label_color(theme.text);
 
     dialog.end();
     drop(top_level);

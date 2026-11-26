@@ -2,11 +2,12 @@ pub mod checkpoint;
 mod highlighter;
 pub mod style_map;
 
+use crate::ui::color::fltk_rgb;
 use std::path::Path;
 
 use fltk::enums::Font;
 use fltk::text::StyleTableEntryExt;
-use syntect::highlighting::{HighlightIterator, HighlightState, Highlighter, Theme, ThemeSet};
+use syntect::highlighting::{HighlightState, Highlighter, Theme, ThemeSet};
 use syntect::parsing::{
     ParseState, ScopeStack, SyntaxDefinition, SyntaxReference, SyntaxSet, SyntaxSetBuilder,
 };
@@ -18,7 +19,14 @@ use style_map::StyleMap;
 use crate::app::domain::document::DocumentId;
 use crate::app::domain::settings::SyntaxTheme;
 
+pub use highlighter::{LONG_LINE_BYTES, is_long_line};
+
+/// A chunk of a chunked highlight ends after this many lines…
 const CHUNK_SIZE: usize = 2000;
+/// …or once it has handed syntect this many bytes, whichever comes first
+/// (T0087), so that one chunk's work is bounded in bytes too. Lines skipped
+/// by [`is_long_line`] do not count.
+pub const CHUNK_BYTES: usize = 64 * 1024;
 
 const TOML_SYNTAX: &str = include_str!("../../../../assets/syntaxes/TOML.sublime-syntax");
 
@@ -258,8 +266,8 @@ impl SyntaxHighlighter {
             (u32::from(background.0) + u32::from(background.1) + u32::from(background.2)) / 3 < 128;
 
         self.style_map.set_theme_colors(
-            fltk::enums::Color::from_rgb(foreground.0, foreground.1, foreground.2),
-            fltk::enums::Color::from_rgb(background.0, background.1, background.2),
+            fltk_rgb(foreground.0, foreground.1, foreground.2),
+            fltk_rgb(background.0, background.1, background.2),
             is_dark,
         );
         self.style_map.clear();
@@ -313,8 +321,7 @@ impl SyntaxHighlighter {
     /// plus their current-line twins (T0081, `StyleMap::table_with_twins`).
     pub fn style_table(&self) -> Vec<StyleTableEntryExt> {
         let (r, g, b) = self.current_line_bg;
-        self.style_map
-            .table_with_twins(fltk::enums::Color::from_rgb(r, g, b))
+        self.style_map.table_with_twins(fltk_rgb(r, g, b))
     }
 
     /// Set the current-line band color used by the twins in `style_table`.
@@ -385,12 +392,15 @@ impl SyntaxHighlighter {
 
         let byte_start = cs.byte_offset;
         let mut style_chars = String::new();
-        let mut lines_processed = 0;
-
+        let mut tokenized = 0;
         // Start directly from byte_offset — no need to skip lines from the beginning
-        for line in LinesWithEndings::new(&cs.text[cs.byte_offset..]) {
-            if lines_processed >= CHUNK_SIZE {
+        for (lines_processed, line) in LinesWithEndings::new(&cs.text[cs.byte_offset..]).enumerate()
+        {
+            if lines_processed >= CHUNK_SIZE || tokenized >= CHUNK_BYTES {
                 break;
+            }
+            if !is_long_line(line) {
+                tokenized += line.len();
             }
 
             // Only save checkpoint at interval boundaries
@@ -399,25 +409,21 @@ impl SyntaxHighlighter {
                     .push(cs.parse_state.clone(), cs.highlight_state.clone());
             }
 
-            let ops = cs
-                .parse_state
-                .parse_line(line, syntax_set)
-                .unwrap_or_default();
-            let iter = HighlightIterator::new(&mut cs.highlight_state, &ops, line, &highlighter);
-            for (style, piece) in iter {
-                let ch = self.style_map.get_or_insert(style.foreground);
-                for _ in 0..piece.len() {
-                    style_chars.push(ch);
-                }
-            }
+            highlighter::highlight_line(
+                line,
+                &mut cs.parse_state,
+                &mut cs.highlight_state,
+                &highlighter,
+                syntax_set,
+                &mut self.style_map,
+                &mut style_chars,
+            );
 
             cs.byte_offset += line.len();
             cs.next_line += 1;
-            lines_processed += 1;
         }
 
-        // Check if we're done (no more lines)
-        let done = lines_processed < CHUNK_SIZE;
+        let done = cs.byte_offset >= cs.text.len();
 
         if done {
             Some(ChunkOutput {
@@ -524,5 +530,241 @@ mod tests {
                 theme.theme_key()
             );
         }
+    }
+    // --- T0087: lines longer than LONG_LINE_BYTES are not tokenized ---
+
+    /// One line of minified-looking JavaScript, longer than
+    /// `LONG_LINE_BYTES`, ending with `end` (e.g. "\n").
+    fn long_js_line(end: &str) -> String {
+        let mut line = String::new();
+        while line.len() <= LONG_LINE_BYTES {
+            line.push_str("var a=\"x\";function f(b){return b+1}");
+        }
+        line.push_str(end);
+        line
+    }
+
+    /// The style chars of line `idx` (line ending included).
+    fn line_styles<'a>(text: &str, styles: &'a str, idx: usize) -> &'a str {
+        let mut start = 0;
+        for (i, line) in LinesWithEndings::new(text).enumerate() {
+            if i == idx {
+                return &styles[start..start + line.len()];
+            }
+            start += line.len();
+        }
+        panic!("no line {idx}");
+    }
+
+    fn distinct_styles(styles: &str) -> usize {
+        styles
+            .chars()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+    }
+
+    fn js() -> SyntaxHighlighter {
+        SyntaxHighlighter::new(SyntaxTheme::Base16OceanDark, Font::Courier, 14)
+    }
+
+    /// The chunked path, run to the end: the concatenated style chars and
+    /// the number of chunks it took.
+    fn chunked_styles(h: &mut SyntaxHighlighter, text: &str, syntax: &str) -> (String, usize) {
+        h.start_chunked(DocumentId(1), text.to_string(), syntax);
+        let (mut styles, mut chunks) = (String::new(), 0);
+        loop {
+            let chunk = h.process_chunk().expect("chunked highlight is active");
+            assert_eq!(chunk.byte_start, styles.len(), "chunks are contiguous");
+            styles.push_str(&chunk.style_chars);
+            chunks += 1;
+            if chunk.done {
+                return (styles, chunks);
+            }
+        }
+    }
+
+    /// A long line in the middle, at the start and at the end (without a
+    /// final newline) is one plain run in all three paths, which agree; the
+    /// short lines around it are still highlighted.
+    #[test]
+    fn long_line_is_one_plain_run_in_every_path() {
+        let long = long_js_line("\n");
+        let cases = [
+            (
+                format!("var x = 1;\n{long}function g(a) {{ return a; }}\n"),
+                1,
+            ),
+            (format!("{long}function g(a) {{ return a; }}\n"), 0),
+            (
+                format!("function g(a) {{ return a; }}\n{}", long_js_line("")),
+                1,
+            ),
+        ];
+        for (text, long_idx) in cases {
+            let mut h = js();
+            let full = h.highlight_full(&text, "JavaScript").style_string;
+            assert_eq!(full.len(), text.len());
+            let plain = line_styles(&text, &full, long_idx);
+            assert!(
+                plain.bytes().all(|b| b == b'A'),
+                "line {long_idx} has {} styles",
+                distinct_styles(plain)
+            );
+            let line_count = LinesWithEndings::new(&text).count();
+            for idx in (0..line_count).filter(|&i| i != long_idx) {
+                assert!(
+                    distinct_styles(line_styles(&text, &full, idx)) > 1,
+                    "line {idx} is highlighted"
+                );
+            }
+            let mut checkpoints = SparseCheckpoints::new();
+            let incremental = h.highlight_incremental(&text, 0, &mut checkpoints, "JavaScript");
+            assert_eq!(incremental.byte_start, 0);
+            assert_eq!(incremental.style_chars, full, "incremental == full");
+            let (chunked, _) = chunked_styles(&mut h, &text, "JavaScript");
+            assert_eq!(chunked, full, "chunked == full");
+        }
+    }
+
+    /// The exact boundary: a line of LONG_LINE_BYTES bytes (line ending
+    /// included) is still tokenized; one byte more is not.
+    #[test]
+    fn long_line_boundary_is_inclusive() {
+        let line_of = |len: usize| {
+            let mut line = "var a = 1;".repeat(len / 10 + 1);
+            line.truncate(len - 1);
+            line.push('\n');
+            line
+        };
+        let at = line_of(LONG_LINE_BYTES);
+        let over = line_of(LONG_LINE_BYTES + 1);
+        assert_eq!(
+            (at.len(), over.len()),
+            (LONG_LINE_BYTES, LONG_LINE_BYTES + 1)
+        );
+        assert!(!is_long_line(&at));
+        assert!(is_long_line(&over));
+        let mut h = js();
+        let styles = h.highlight_full(&at, "JavaScript").style_string;
+        assert!(distinct_styles(&styles) > 1, "at the limit: tokenized");
+        let styles = h.highlight_full(&over, "JavaScript").style_string;
+        assert!(styles.bytes().all(|b| b == b'A'), "one byte over: plain");
+    }
+
+    /// The skipped line would have closed the block comment opened on the
+    /// line before. The parse state carries over unchanged, so the code after
+    /// it is still colored as comment: a known, accepted effect.
+    #[test]
+    fn long_line_skipped_carries_parse_state_over() {
+        let text = format!("/* open\n{}var z = 3;\n", long_js_line(" */\n"));
+        let mut h = js();
+        let full = h.highlight_full(&text, "JavaScript").style_string;
+        let comment = line_styles(&text, &full, 0);
+        assert_eq!(distinct_styles(comment), 1, "line 0 is all comment");
+        let after = line_styles(&text, &full, 2);
+        assert!(
+            after.chars().all(|c| comment.starts_with(c)),
+            "line 2 keeps the comment style: {after:?}"
+        );
+    }
+
+    /// Apply an incremental result to the old style string.
+    fn apply(old: &str, new_len: usize, result: &IncrementalHighlightResult) -> String {
+        let mut styles = String::with_capacity(new_len);
+        styles.push_str(&old[..result.byte_start]);
+        styles.push_str(&result.style_chars);
+        if styles.len() < new_len {
+            // Converged: the tail is unchanged, shifted by the edit.
+            styles.push_str(&old[old.len() - (new_len - styles.len())..]);
+        }
+        styles
+    }
+
+    /// A keystroke on the long line keeps it plain (not re-tokenized); an
+    /// edit on a normal line of the same file re-highlights exactly as a
+    /// fresh full highlight would.
+    #[test]
+    fn long_line_edits_keep_it_plain_and_normal_lines_rehighlight() {
+        let long = long_js_line("\n");
+        let before = format!("var x = 1;\n{long}var y = 2;\n");
+        let mut h = js();
+        let full = h.highlight_full(&before, "JavaScript");
+        let mut checkpoints = full.checkpoints;
+
+        // Type one character into the long line.
+        let typed = format!("var x = 1;\nq{long}var y = 2;\n");
+        let result = h.highlight_incremental(&typed, 1, &mut checkpoints, "JavaScript");
+        let styles = apply(&full.style_string, typed.len(), &result);
+        assert!(line_styles(&typed, &styles, 1).bytes().all(|b| b == b'A'));
+
+        // Edit the normal line after it.
+        let edited = format!("var x = 1;\nq{long}if (y) {{ z(); }}\n");
+        let result = h.highlight_incremental(&edited, 2, &mut checkpoints, "JavaScript");
+        let styles = apply(&styles, edited.len(), &result);
+        assert_eq!(styles, h.highlight_full(&edited, "JavaScript").style_string);
+        assert!(distinct_styles(line_styles(&edited, &styles, 2)) > 1);
+    }
+
+    /// A line pasted past the limit turns plain; shrunk back under it, it is
+    /// tokenized again.
+    #[test]
+    fn long_line_growing_past_limit_turns_plain_and_back() {
+        let mut short = String::new();
+        while short.len() + 40 < LONG_LINE_BYTES {
+            short.push_str("var a=\"x\";function f(b){return b+1}");
+        }
+        let small = format!("{short}\nvar y = 2;\n");
+        let big = format!("{short}{}\nvar y = 2;\n", "var b=2;".repeat(10));
+        assert!(small.find('\n').unwrap() < LONG_LINE_BYTES);
+        assert!(big.find('\n').unwrap() > LONG_LINE_BYTES);
+
+        let mut h = js();
+        let full = h.highlight_full(&small, "JavaScript");
+        assert!(distinct_styles(line_styles(&small, &full.style_string, 0)) > 1);
+        let mut checkpoints = full.checkpoints;
+
+        let grown = h.highlight_incremental(&big, 0, &mut checkpoints, "JavaScript");
+        let styles = apply(&full.style_string, big.len(), &grown);
+        assert!(line_styles(&big, &styles, 0).bytes().all(|b| b == b'A'));
+
+        let shrunk = h.highlight_incremental(&small, 0, &mut checkpoints, "JavaScript");
+        let styles = apply(&styles, small.len(), &shrunk);
+        assert_eq!(styles, full.style_string);
+    }
+
+    /// A chunk stops after CHUNK_BYTES even when it holds far fewer than
+    /// CHUNK_SIZE lines, so one chunk's work is bounded in bytes.
+    #[test]
+    fn long_line_chunks_are_bounded_in_bytes() {
+        let line = format!("{}\n", "w".repeat(10 * 1024));
+        let text = line.repeat(60); // 600 KiB in 60 lines
+        let mut h = js();
+        h.start_chunked(DocumentId(1), text.clone(), "Plain Text");
+        let first = h.process_chunk().expect("chunked highlight is active");
+        assert!(!first.done, "600 KiB do not fit one chunk");
+        assert!(
+            first.style_chars.len() <= CHUNK_BYTES + line.len(),
+            "first chunk took {} bytes",
+            first.style_chars.len()
+        );
+        let (styles, chunks) = chunked_styles(&mut h, &text, "Plain Text");
+        assert_eq!(styles.len(), text.len());
+        assert!(chunks >= 3, "{chunks} chunks");
+
+        // Lines just under the long-line limit are tokenized and count in
+        // full: 17 × 16 KiB stop the first chunk at the budget.
+        let at_limit = format!("{}\n", "w".repeat(LONG_LINE_BYTES - 1));
+        let text = at_limit.repeat(17);
+        h.start_chunked(DocumentId(1), text.clone(), "Plain Text");
+        let first = h.process_chunk().expect("chunked highlight is active");
+        assert!(!first.done);
+        assert!(first.style_chars.len() <= CHUNK_BYTES + at_limit.len());
+
+        // A skipped long line costs syntect nothing: it does not use up the
+        // budget, so it and the short lines after it fit one chunk.
+        let skipped = format!("{}\n{}", "w".repeat(600 * 1024), line.repeat(3));
+        let (styles, chunks) = chunked_styles(&mut h, &skipped, "Plain Text");
+        assert_eq!(styles.len(), skipped.len());
+        assert_eq!(chunks, 1);
     }
 }

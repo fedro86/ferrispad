@@ -7,6 +7,7 @@
 //! [`ThemeManagerModel`]; this file only turns clicks into model calls and
 //! hands the returned actions to the caller.
 
+use crate::ui::color::fltk_rgb;
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
@@ -24,7 +25,7 @@ use fltk::{
 use super::color_picker::show_color_picker;
 use super::{
     DialogTheme, SCROLLBAR_SIZE, label_width, max_label_width, show_themed_choice,
-    show_themed_input, show_themed_message, style_dialog_button,
+    show_themed_input, show_themed_message,
 };
 use crate::app::controllers::theme_manager::{
     ThemeEntry, ThemeManagerAction, ThemeManagerModel, format_hex_color,
@@ -207,7 +208,7 @@ impl Ctx {
             let mut row = row.clone();
             if let Some(colors) = colors {
                 let rgb = row.field.of(&colors);
-                row.swatch.set_color(Color::from_rgb(rgb.0, rgb.1, rgb.2));
+                row.swatch.set_color(fltk_rgb(rgb.0, rgb.1, rgb.2));
                 row.hex.set_label(&format_hex_color(rgb));
             }
             if entry.read_only {
@@ -229,12 +230,11 @@ impl Ctx {
 }
 
 fn button(x: i32, y: i32, w: i32, label: &str, theme: &DialogTheme) -> Button {
-    let mut b = Button::default()
+    theme
+        .button()
         .with_pos(x, y)
         .with_size(w, BUTTON_HEIGHT)
-        .with_label(label);
-    style_dialog_button(&mut b, theme);
-    b
+        .with_label(label)
 }
 
 /// Show the theme manager over `model`. `apply` receives the model and the
@@ -338,13 +338,11 @@ fn build_window(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Window, Ct
 
     let list_y = PADDING + 25;
     let list_h = 300;
-    let mut browser = HoldBrowser::default()
+    let mut browser = theme
+        .list()
         .with_pos(PADDING, list_y)
         .with_size(list_w, list_h);
-    browser.set_color(theme.input_bg);
-    browser.set_selection_color(theme.button_bg);
     // Item text uses FLTK's foreground, the dialog text color here.
-    browser.set_frame(FrameType::FlatBox);
     browser.set_scrollbar_size(SCROLLBAR_SIZE);
     style_scrollbars(&browser, theme.scroll_track, theme.scroll_thumb);
 

@@ -295,12 +295,25 @@ After signing and uploading:
 
 ## Manual Trigger
 
-You can also manually trigger a build without creating a tag:
+You can also start the workflow by hand, for a test build of every
+platform without a tag:
 
 1. Go to **Actions** tab
 2. Select "Build and Release" workflow
-3. Click "Run workflow"
-4. This will create draft releases you can test
+3. Click "Run workflow" and pick a branch (or run
+   `gh workflow run release.yml --ref <branch>`)
+
+On a branch the run builds Linux (amd64, arm64), Windows and macOS and
+uploads the binaries, `.deb`, `.zip` and `.dmg` as **workflow artifacts** on
+the run page. It does **not** sign them, create a GitHub Release or notify
+FlatPark: the `release-gate` job allows those only for a version tag (the
+same patterns as `on.push.tags`), so `sign-binaries`, `create-release` and
+`flatpark` show as skipped and the run ends green. The artifacts are
+unsigned, so the auto-updater would refuse them; they are for testing only.
+
+A manual run started on a version **tag** behaves exactly like the tag push:
+it signs, creates (or updates) that tag's release and, for a stable tag,
+notifies FlatPark.
 
 ## Troubleshooting
 
