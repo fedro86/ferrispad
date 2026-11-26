@@ -1,7 +1,7 @@
 ---
 id: T0089
 title: Run the FLTK widget tests on the main thread so they pass on macOS
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: ~
 area: process
@@ -85,12 +85,12 @@ is green, and its log shows `fltk_main_thread` → `2 passed`.
 
 ## Acceptance criteria
 
-- [ ] Both checks run and pass on macOS (CI log), and on Linux in `ci.yml`
+- [x] Both checks run and pass on macOS (CI log), and on Linux in `ci.yml`
       (under Xvfb, `FERRISPAD_REQUIRE_UI_TESTS=1`).
-- [ ] `macos-gates.yml` skips only the T0090 test.
-- [ ] A failing check fails the binary (non-zero exit); filters, `--skip`,
+- [x] `macos-gates.yml` skips only the T0090 test.
+- [x] A failing check fails the binary (non-zero exit); filters, `--skip`,
       `--exact` and `--list` behave like libtest.
-- [ ] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
+- [x] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
       and `cargo fmt --check` pass.
 
 ## Affected files
@@ -158,3 +158,7 @@ CI on 97f5404 (PR #174), all green:
 - `--ignored` now behaves like libtest: it runs only `#[ignore]`d tests,
   and none of these checks is, so nothing runs (`--list` → 0 entries);
   `--include-ignored` runs everything, as before.
+
+## User verification
+
+2026-11-26: a CI-only change (the macOS test harness), verified by CI. The macOS gates run both FLTK widget checks on the main thread and pass, the Linux CI runs them under Xvfb, and the user's rc.3 integration build `verify/rc3` (checklist VERIFICA-RC3.md, Fedora GNOME on Wayland) includes it.
