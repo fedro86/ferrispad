@@ -19,7 +19,9 @@ use crate::app::infrastructure::defer::defer_send;
 use crate::app::services::custom_themes::CustomTheme;
 #[cfg(test)]
 use crate::app::services::syntax::LONG_LINE_BYTES;
-use crate::app::services::syntax::{SyntaxHighlighter, is_long_line};
+use crate::app::services::syntax::{
+    IncrementalHighlightResult, ResumePoint, SyntaxHighlighter, is_long_line,
+};
 use crate::ui::theme::{EditorColors, derived_editor_colors, effective_editor_colors};
 
 /// Documents with more lines than this are highlighted in chunks.
@@ -36,6 +38,17 @@ pub enum HighlightPlan {
     /// In chunks, one per `ContinueHighlight` message, yielding to the
     /// event loop in between.
     Chunked,
+}
+
+/// An incremental re-highlight paused by its byte budget (T0096). It keeps
+/// the text it was computed on: any edit of the document drops it
+/// (`schedule_rehighlight`), so a continuation step never copies or rescans
+/// the buffer, it only costs its own budget.
+struct PausedHighlight {
+    id: DocumentId,
+    resume: ResumePoint,
+    text: String,
+    syntax_name: String,
 }
 
 /// What [`HighlightController::clear_annotations`] did.
@@ -96,6 +109,15 @@ pub struct HighlightController {
     pub rehighlight_timer_active: bool,
     pub highlight_queue: Vec<DocumentId>,
     pub highlighting_enabled: bool,
+    /// An incremental re-highlight paused by its byte budget (T0096). One
+    /// slot; continued one step per `ContinueHighlight`.
+    incremental_resume: Option<PausedHighlight>,
+    /// A paused pass folded into the next re-highlight of that document
+    /// (T0096): (document, chain-break line, its text's line count).
+    pending_floor: Option<(DocumentId, usize, usize)>,
+    /// A `ContinueHighlight` is queued and not yet handled: at most one
+    /// chain drives the background work (T0096).
+    continue_pending: bool,
 }
 
 impl HighlightController {
@@ -113,6 +135,9 @@ impl HighlightController {
             rehighlight_timer_active: false,
             highlight_queue: Vec::new(),
             highlighting_enabled,
+            incremental_resume: None,
+            pending_floor: None,
+            continue_pending: false,
         }
     }
 
@@ -246,7 +271,7 @@ impl HighlightController {
 
         self.highlighter.start_chunked(id, text, syntax_name);
 
-        defer_send(*sender, 0.0, Message::ContinueHighlight);
+        self.request_continue(sender);
     }
 
     pub fn start_queued_highlights(
@@ -264,20 +289,161 @@ impl HighlightController {
         widgets.flex.fixed(widgets.banner_frame, 30);
         widgets.window.redraw();
 
-        defer_send(*sender, 0.0, Message::ContinueHighlight);
+        self.request_continue(sender);
     }
 
-    /// Queue `id` for a chunked highlight (once), and start the
-    /// `ContinueHighlight` loop if nothing is running.
+    /// Queue `id` for a chunked highlight (once), and make sure the
+    /// `ContinueHighlight` chain runs.
     pub fn queue_chunked(&mut self, id: DocumentId, sender: &Sender<Message>) {
-        if self.highlight_queue.contains(&id) {
-            return;
+        if !self.highlight_queue.contains(&id) {
+            self.highlight_queue.push(id);
         }
-        let was_idle =
-            self.highlight_queue.is_empty() && self.highlighter.chunked_doc_id().is_none();
-        self.highlight_queue.push(id);
-        if was_idle {
+        self.request_continue(sender);
+    }
+
+    /// The main loop took `msg` off the queue (T0096). A message that owns a
+    /// "pending" flag clears it here, not in its handler: the main loop skips
+    /// these handlers when no tab is open, and a flag left set would stop
+    /// that work for the rest of the process.
+    pub fn note_dequeued(&mut self, msg: &Message) {
+        match msg {
+            Message::ContinueHighlight => self.continue_pending = false,
+            Message::DoRehighlight => self.rehighlight_timer_active = false,
+            _ => {}
+        }
+    }
+
+    /// Claim the single `ContinueHighlight` chain (T0096): true when the
+    /// caller must send the message, false when one is already queued.
+    fn claim_continue(&mut self) -> bool {
+        !std::mem::replace(&mut self.continue_pending, true)
+    }
+
+    /// Send `ContinueHighlight` unless one is already queued.
+    fn request_continue(&mut self, sender: &Sender<Message>) {
+        if self.claim_continue() {
             defer_send(*sender, 0.0, Message::ContinueHighlight);
+        }
+    }
+
+    /// Background highlighting is left to do.
+    fn has_background_work(&self) -> bool {
+        self.incremental_resume.is_some()
+            || self.highlighter.chunked_doc_id().is_some()
+            || !self.highlight_queue.is_empty()
+    }
+
+    /// A new edit of `id` at `pos` supersedes a pause of the same document
+    /// (T0096). Its unfinished part restarts with the edit, from whichever
+    /// comes first, and its chain-break line becomes the convergence floor
+    /// of that pass. Returns the start position, and another document whose
+    /// pending floor this one displaced (one slot): the caller gives that
+    /// one a full chunked pass, so no stale tail survives.
+    fn fold_pause(&mut self, id: DocumentId, pos: i32) -> (i32, Option<DocumentId>) {
+        let Some(paused) = self.incremental_resume.take() else {
+            return (pos, None);
+        };
+        if paused.id != id {
+            self.incremental_resume = Some(paused);
+            return (pos, None);
+        }
+        let pos = pos.min(i32::try_from(paused.resume.byte).unwrap_or(i32::MAX));
+        let floor = (
+            id,
+            paused.resume.chain_break_line(),
+            paused.resume.total_lines(),
+        );
+        let displaced = self
+            .pending_floor
+            .replace(floor)
+            .map(|(other, _, _)| other)
+            .filter(|other| *other != id);
+        (pos, displaced)
+    }
+
+    /// Record a paused incremental re-highlight of `id` (T0096). The slot
+    /// holds one document: another document's pending continuation becomes
+    /// a full chunked pass, so its remainder is never lost.
+    fn set_incremental_resume(&mut self, paused: PausedHighlight, sender: &Sender<Message>) {
+        if let Some(other) = self.incremental_resume.take()
+            && other.id != paused.id
+        {
+            self.queue_chunked(other.id, sender);
+        }
+        self.incremental_resume = Some(paused);
+        self.request_continue(sender);
+    }
+
+    /// Write an incremental result into the document's style buffer and put
+    /// its checkpoints back; repaint if it is the active document. A
+    /// keystroke's step repaints the editor as before (`full_repaint`); a
+    /// background continuation step repaints only its range: a full repaint
+    /// makes FLTK re-measure the whole buffer, once per step (T0096).
+    fn apply_incremental(
+        &mut self,
+        id: DocumentId,
+        result: &IncrementalHighlightResult,
+        checkpoints: crate::app::services::syntax::checkpoint::SparseCheckpoints,
+        tab_manager: &mut TabManager,
+        widgets: &mut HighlightWidgets,
+        full_repaint: bool,
+    ) {
+        let start = result.byte_start as i32;
+        let end = start + result.style_chars.len() as i32;
+        if let Some(doc) = tab_manager.doc_by_id_mut(id) {
+            doc.replace_styles(start, end, &result.style_chars);
+            doc.checkpoints = checkpoints;
+        }
+
+        if tab_manager.active_id() == Some(id) {
+            if self.highlighter.style_table_changed() {
+                if let Some(doc) = tab_manager.doc_by_id(id) {
+                    let style_buf = doc.style_buffer.clone();
+                    let table = self.highlighter.style_table();
+                    widgets.editor.set_highlight_data_ext(style_buf, table);
+                }
+                self.highlighter.reset_style_table_changed();
+            }
+            if full_repaint {
+                widgets.editor.redraw();
+            } else {
+                widgets.editor.redisplay_range(start, end);
+            }
+        }
+    }
+
+    /// One budgeted step of a paused incremental re-highlight (T0096).
+    fn continue_incremental(
+        &mut self,
+        tab_manager: &mut TabManager,
+        sender: &Sender<Message>,
+        widgets: &mut HighlightWidgets,
+    ) {
+        let Some(paused) = self.incremental_resume.take() else {
+            return;
+        };
+        let id = paused.id;
+        let mut checkpoints = match tab_manager.doc_by_id_mut(id) {
+            Some(doc) => std::mem::take(&mut doc.checkpoints),
+            None => return, // closed
+        };
+        let result = self.highlighter.highlight_resume(
+            &paused.text,
+            paused.resume,
+            &mut checkpoints,
+            &paused.syntax_name,
+        );
+        self.apply_incremental(id, &result, checkpoints, tab_manager, widgets, false);
+        if let Some(resume) = result.resume {
+            self.set_incremental_resume(
+                PausedHighlight {
+                    id,
+                    resume,
+                    text: paused.text,
+                    syntax_name: paused.syntax_name,
+                },
+                sender,
+            );
         }
     }
 
@@ -288,6 +454,13 @@ impl HighlightController {
         tab_manager: &mut TabManager,
         sender: &Sender<Message>,
     ) {
+        // The document is highlighted again from the top (T0096).
+        if self.incremental_resume.as_ref().is_some_and(|p| p.id == id) {
+            self.incremental_resume = None;
+        }
+        if self.pending_floor.is_some_and(|(fid, _, _)| fid == id) {
+            self.pending_floor = None;
+        }
         if !self.highlighting_enabled {
             let syntax_name = self.highlighter.detect_syntax(path);
             if let Some(doc) = tab_manager.doc_by_id_mut(id) {
@@ -358,30 +531,40 @@ impl HighlightController {
             }
         };
 
+        // A folded pause (T0096): no convergence before the line where the
+        // earlier pass's checkpoint chain broke, moved down by any lines added
+        // since. Moving it too far only costs work; too early would keep
+        // stale colours after it.
+        let floor_line = match self.pending_floor.take() {
+            Some((fid, line, old_total)) if fid == id => {
+                let total = text.split_inclusive('\n').count();
+                line + total.saturating_sub(old_total)
+            }
+            other => {
+                self.pending_floor = other;
+                0
+            }
+        };
         let result = self.highlighter.highlight_incremental(
             &text,
             edit_line,
             &mut checkpoints,
             &syntax_name,
+            floor_line,
         );
-
-        if let Some(doc) = tab_manager.doc_by_id_mut(id) {
-            let start = result.byte_start as i32;
-            let end = start + result.style_chars.len() as i32;
-            doc.replace_styles(start, end, &result.style_chars);
-            doc.checkpoints = checkpoints;
-        }
-
-        if tab_manager.active_id() == Some(id) {
-            if self.highlighter.style_table_changed() {
-                if let Some(doc) = tab_manager.doc_by_id(id) {
-                    let style_buf = doc.style_buffer.clone();
-                    let table = self.highlighter.style_table();
-                    widgets.editor.set_highlight_data_ext(style_buf, table);
-                }
-                self.highlighter.reset_style_table_changed();
-            }
-            widgets.editor.redraw();
+        self.apply_incremental(id, &result, checkpoints, tab_manager, widgets, true);
+        // Not converged within the budget: continue in the background
+        // (T0096).
+        if let Some(resume) = result.resume {
+            self.set_incremental_resume(
+                PausedHighlight {
+                    id,
+                    resume,
+                    text,
+                    syntax_name,
+                },
+                sender,
+            );
         }
     }
 
@@ -398,6 +581,14 @@ impl HighlightController {
         }
         if self.highlight_queue.contains(&id) {
             return;
+        }
+
+        // A paused re-highlight of this document is superseded by the new
+        // edit; its unfinished part restarts with it, from whichever comes
+        // first (T0096).
+        let (pos, displaced) = self.fold_pause(id, pos);
+        if let Some(other) = displaced {
+            self.queue_chunked(other, sender);
         }
 
         if self.highlighter.chunked_doc_id() == Some(id) {
@@ -443,6 +634,17 @@ impl HighlightController {
         sender: &Sender<Message>,
         widgets: &mut HighlightWidgets,
     ) {
+        // `continue_pending` was cleared when this message was dequeued
+        // (`note_dequeued`).
+        // A paused incremental re-highlight first: it is what the user just
+        // typed. One step per message, like a chunk.
+        if self.incremental_resume.is_some() {
+            self.continue_incremental(tab_manager, sender, widgets);
+            if self.has_background_work() {
+                self.request_continue(sender);
+            }
+            return;
+        }
         if self.highlighter.chunked_doc_id().is_none() {
             self.start_next_queued_highlight(tab_manager, sender, widgets);
             return;
@@ -482,7 +684,7 @@ impl HighlightController {
                 }
                 self.start_next_queued_highlight(tab_manager, sender, widgets);
             } else {
-                defer_send(*sender, 0.0, Message::ContinueHighlight);
+                self.request_continue(sender);
             }
         }
     }
@@ -527,7 +729,7 @@ impl HighlightController {
                 }
                 // Yield to event loop before processing next queued doc
                 if !self.highlight_queue.is_empty() {
-                    defer_send(*sender, 0.0, Message::ContinueHighlight);
+                    self.request_continue(sender);
                 } else {
                     self.hide_highlight_banner(widgets);
                 }
@@ -546,6 +748,10 @@ impl HighlightController {
         tab_manager: &mut TabManager,
         sender: &Sender<Message>,
     ) {
+        // Every document is highlighted again from the top: a paused
+        // re-highlight is stale (T0096).
+        self.incremental_resume = None;
+        self.pending_floor = None;
         let doc_ids: Vec<DocumentId> = tab_manager.documents().iter().map(|d| d.id).collect();
         for id in doc_ids {
             let (syntax_name, text) = {
@@ -579,6 +785,8 @@ impl HighlightController {
     ) {
         self.highlighter.cancel_chunked();
         self.highlight_queue.clear();
+        self.incremental_resume = None;
+        self.pending_floor = None;
         self.hide_highlight_banner(widgets);
         self.pending_rehighlight = None;
 
@@ -804,6 +1012,91 @@ mod tests {
         // its relayouts).
         let huge = format!("{}\nvar x = 1;\n", "a".repeat(8 * 1024 * 1024));
         assert_eq!(highlight_plan(&huge), HighlightPlan::Synchronous);
+    }
+
+    /// T0096: at most one `ContinueHighlight` chain. A second request while
+    /// one is queued sends nothing; once the handler has taken it, the next
+    /// request sends again.
+    #[test]
+    fn incremental_budget_one_continue_chain() {
+        let mut hc = controller();
+        assert!(hc.claim_continue(), "first request sends");
+        assert!(!hc.claim_continue(), "already queued: no second chain");
+        assert!(!hc.claim_continue());
+        hc.note_dequeued(&Message::ContinueHighlight); // what the main loop does
+        assert!(hc.claim_continue(), "handled: the next request sends");
+    }
+
+    /// T0096: a `ContinueHighlight` / `DoRehighlight` taken off the queue
+    /// without its handler running (no tab open) must not leave its pending
+    /// flag set, or that background work never runs again.
+    #[test]
+    fn incremental_budget_flags_cleared_on_dequeue() {
+        let mut hc = controller();
+        assert!(hc.claim_continue());
+        hc.note_dequeued(&Message::ContinueHighlight);
+        assert!(hc.claim_continue(), "the next continuation is sent again");
+        hc.rehighlight_timer_active = true;
+        hc.note_dequeued(&Message::DoRehighlight);
+        assert!(!hc.rehighlight_timer_active);
+        hc.note_dequeued(&Message::BufferModified {
+            id: DocumentId(1),
+            pos: 0,
+            inserted: 1,
+            deleted: 0,
+        });
+        assert!(!hc.claim_continue(), "other messages leave the flag alone");
+    }
+
+    /// T0096 (review nit): the floor slot holds one document. A fold for
+    /// document B while A's floor is still pending hands A back for a full
+    /// chunked pass instead of silently dropping its floor.
+    #[test]
+    fn incremental_budget_displaced_floor_is_not_lost() {
+        let mut hc = controller();
+        let text: String = (0..3000)
+            .map(|i| format!("var v{i} = \"s{i}\"; // line {i} of filler text\n"))
+            .collect();
+        let opened = format!("/*{text}");
+        let pause_of = |hc: &mut HighlightController| {
+            let mut cps = hc
+                .highlighter
+                .highlight_full(&text, "JavaScript")
+                .checkpoints;
+            hc.highlighter
+                .highlight_incremental(&opened, 0, &mut cps, "JavaScript", 0)
+                .resume
+                .expect("paused")
+        };
+        let (a, b) = (DocumentId(1), DocumentId(2));
+
+        // A pauses, then A is edited: A's floor is pending.
+        let resume = pause_of(&mut hc);
+        hc.incremental_resume = Some(PausedHighlight {
+            id: a,
+            resume,
+            text: opened.clone(),
+            syntax_name: "JavaScript".into(),
+        });
+        assert_eq!(hc.fold_pause(a, 5), (5, None));
+        assert!(hc.pending_floor.is_some_and(|(d, _, _)| d == a));
+
+        // Before A's re-highlight runs, B pauses and is edited.
+        let resume = pause_of(&mut hc);
+        let b_byte = resume.byte as i32;
+        hc.incremental_resume = Some(PausedHighlight {
+            id: b,
+            resume,
+            text: opened.clone(),
+            syntax_name: "JavaScript".into(),
+        });
+        let (pos, displaced) = hc.fold_pause(b, i32::MAX);
+        assert_eq!(pos, b_byte);
+        assert_eq!(displaced, Some(a), "A's floor goes to a chunked pass");
+        assert!(hc.pending_floor.is_some_and(|(d, _, _)| d == b));
+
+        // No pause of another document: nothing changes.
+        assert_eq!(hc.fold_pause(a, 7), (7, None));
     }
 
     fn controller() -> HighlightController {
