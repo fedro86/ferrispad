@@ -1,7 +1,7 @@
 ---
 id: T0088
 title: Detect the system dark mode via the XDG desktop portal on Linux
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: minor
 area: ui
@@ -85,18 +85,18 @@ nix develop -c cargo test system_appearance
 
 ## Acceptance criteria
 
-- [ ] With the portal answering prefer-dark and `gsettings` answering
+- [x] With the portal answering prefer-dark and `gsettings` answering
       `'default'`, System default resolves to dark (startup and Save).
-- [ ] Portal prefer-light resolves to light; no portal / no preference keeps
+- [x] Portal prefer-light resolves to light; no portal / no preference keeps
       today's `gsettings` behaviour.
-- [ ] No probe can hang startup or Save: the whole Linux detection (portal
+- [x] No probe can hang startup or Save: the whole Linux detection (portal
       + gsettings) is bounded by a 1.5 s hard deadline, even with a wedged
       session bus; no child process is left behind; no panic on any reply
       text.
-- [ ] Regression test added and green; it failed before the fix.
-- [ ] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
+- [x] Regression test added and green; it failed before the fix.
+- [x] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
       and `cargo fmt --check` pass.
-- [ ] Settings → System default → Save driven under Xvfb with the real
+- [x] Settings → System default → Save driven under Xvfb with the real
       session bus (portal dark → dark) and with a bus without a portal
       (→ gsettings fallback).
 
@@ -252,3 +252,7 @@ A portal v1 (`ReadOne` unknown) costs two quick calls inside the same budget
 would need a deferred re-theme after the first paint (a visible light→dark
 flash on every start for the common case), so it is left as is; the user can
 decide otherwise.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland) with the rc.3 integration build `verify/rc3` (checklist VERIFICA-RC3.md, section 3): with the desktop set to dark, System default follows it at startup and on Settings → Save.
