@@ -380,6 +380,10 @@ impl DialogTheme {
             };
             crate::ui::theme::set_windows_titlebar_theme(window, self.theme_bg, fg);
         }
+        // macOS: the .app bundle provides the icon and the system draws the
+        // dialog title bar, so there is nothing to apply.
+        #[cfg(target_os = "macos")]
+        let _ = window;
     }
 
     /// Apply flat themed scrollbar styling to a Scroll widget.
@@ -783,17 +787,19 @@ pub fn show_themed_input(
     }
 }
 
-#[cfg(test)]
-mod tests {
+/// FLTK widget checks that must run on the process main thread: on macOS,
+/// AppKit aborts when FLTK opens the display from another thread, which is
+/// where libtest runs unit tests. Called by the `harness = false` test binary
+/// `tests/fltk_main_thread.rs` (T0089); not part of the public API.
+#[doc(hidden)]
+pub mod main_thread_checks {
     use super::*;
     use fltk::group::Group;
 
     /// Regression for T0058: a popup built while another window's group is
     /// current (begun, not ended) must still be a top-level window, must not
     /// add itself to that group, and must leave that group current.
-    #[test]
-    fn popup_is_top_level() {
-        let _fltk = crate::ui::fltk_widget_test_lock();
+    pub fn popup_is_top_level() {
         let theme = DialogTheme::from_theme_bg((40, 44, 52));
         let previous = Group::try_current();
 
@@ -837,6 +843,11 @@ mod tests {
             "the caller's current group must be restored"
         );
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 
     #[test]
     fn scrollbar_colors_dark_darkens_track_and_lightens_thumb() {
