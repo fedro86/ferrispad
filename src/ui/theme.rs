@@ -34,6 +34,33 @@ pub struct PanelTheme {
     pub bg: (u8, u8, u8),
 }
 
+/// The selected-row color of the main-window panels (file tree, diagnostic
+/// list) for a theme whose editor background, which those panels use, is
+/// `theme_bg` (T0104).
+///
+/// The same rule as the dialog lists (T0097, variant A): the dialog button
+/// color pushed to >= 3:1 against the panel background. Labels on it are
+/// made readable by the contrast rule ([`super::contrast`]), which therefore
+/// knows this color ([`register_panel_selection`]).
+pub fn panel_selection_color(theme_bg: (u8, u8, u8)) -> (u8, u8, u8) {
+    let theme = super::dialogs::DialogTheme::from_theme_bg(theme_bg);
+    let (row, _) = super::dialogs::list_selection_colors(
+        ThemeRgb::from_tuple(theme_bg),
+        ThemeRgb::from_fltk(theme.button_bg),
+        ThemeRgb::from_fltk(theme.text),
+        theme.is_dark(),
+    );
+    (row.r, row.g, row.b)
+}
+
+/// Apply [`panel_selection_color`] to a panel widget and register it with
+/// the contrast rule, so a selected row's labels are drawn readable.
+pub fn style_panel_selection<W: WidgetExt>(widget: &mut W, theme_bg: (u8, u8, u8)) {
+    let (r, g, b) = panel_selection_color(theme_bg);
+    widget.set_selection_color(Color::from_rgb(r, g, b));
+    super::contrast::register_panel_selection((r, g, b));
+}
+
 /// A panel whose colors follow the app theme. One signature for every panel,
 /// so a theme change can iterate them all (see `LayoutWidgets::themeable_panels`).
 pub trait Themeable {
@@ -644,6 +671,53 @@ pub fn set_windows_titlebar_theme(window: &Window, theme_bg: (u8, u8, u8), theme
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T0104: the selected row of the file tree and the diagnostic list
+    /// stands out from the panel (>= 3:1), and every label drawn on it (the
+    /// theme text, git-status colors, diagnostic level colors) reads at >=
+    /// 4.5:1 there, through the contrast rule.
+    #[test]
+    fn panel_selection_stands_out_in_every_theme() {
+        use crate::app::domain::settings::SyntaxTheme;
+        use crate::ui::color::wcag_contrast;
+        use crate::ui::contrast::{EditorSelectionBgs, ferrispad_contrast};
+        use crate::ui::diagnostic_panel::diagnostic_level_colors;
+        use crate::ui::tree_panel::git_label_rgb;
+        let mut failures = Vec::new();
+        for theme in SyntaxTheme::all() {
+            let bg = theme.background();
+            let is_dark = ThemeRgb::from_tuple(bg).brightness() < 128;
+            let sel = panel_selection_color(bg);
+            let row = wcag_contrast(sel, bg);
+            if row < 3.0 {
+                failures.push(format!("{theme:?}: row {sel:?} on {bg:?} = {row:.2}:1"));
+            }
+            let mut labels = vec![(
+                "text",
+                crate::ui::dialogs::DialogTheme::from_theme_bg(bg)
+                    .text
+                    .to_rgb(),
+            )];
+            for name in ["modified", "added", "conflict", "ignored"] {
+                labels.push((name, git_label_rgb(name, is_dark).unwrap()));
+            }
+            for (i, c) in diagnostic_level_colors(bg).into_iter().enumerate() {
+                labels.push((["error", "warning", "info", "hint"][i], c));
+            }
+            let bgs = EditorSelectionBgs::default().with_panel_selection(sel);
+            let rgb = |(r, g, b): (u8, u8, u8)| Color::from_rgb(r, g, b);
+            for (name, fg) in labels {
+                let drawn = ferrispad_contrast(rgb(fg), rgb(sel), bgs).to_rgb();
+                let ratio = wcag_contrast(drawn, sel);
+                if ratio < 4.5 {
+                    failures.push(format!(
+                        "{theme:?}: {name} {drawn:?} on the selected row {sel:?} = {ratio:.2}:1"
+                    ));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+    }
 
     #[test]
     fn divider_matches_tab_bar_background() {

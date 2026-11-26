@@ -90,10 +90,6 @@ pub struct TreePanel {
     /// Current syntax theme background, shared with the context-menu callback
     /// so its input/confirm popups match the theme at click time.
     theme_bg: Rc<Cell<(u8, u8, u8)>>,
-    /// Map of FLTK tree item paths to their resolved custom colors.
-    /// Used to re-apply per-item colors after selection (FLTK's fl_contrast
-    /// can override per-item labelfgcolor for selected items).
-    colored_items: Rc<RefCell<Vec<(String, Color)>>>,
     /// Node path of the item being dragged (set on Push, used on Released)
     drag_source_path: Rc<RefCell<Option<Vec<String>>>>,
     /// Whether a drag is in progress (Push captured source, Drag detected movement)
@@ -242,7 +238,6 @@ impl TreePanel {
             current_expand_depth: 2,
             is_dark: true,
             theme_bg: Rc::new(Cell::new((30, 30, 30))),
-            colored_items: Rc::new(RefCell::new(Vec::new())),
             drag_source_path: Rc::new(RefCell::new(None)),
             dragging: Rc::new(Cell::new(false)),
             expanded_paths: Rc::new(RefCell::new(HashSet::new())),
@@ -301,7 +296,6 @@ impl TreePanel {
 
         // Clear existing tree and color tracking
         self.tree.clear();
-        self.colored_items.borrow_mut().clear();
 
         // Populate tree from root node
         if let Some(ref root) = request.root {
@@ -322,30 +316,12 @@ impl TreePanel {
     pub fn show_loading(&mut self) {
         self.header.set_label("  Loading...");
         self.tree.clear();
-        self.colored_items.borrow_mut().clear();
         self.container.redraw();
     }
 
     /// Resolve a semantic label color name to an FLTK Color, theme-aware.
     fn resolve_label_color(&self, name: &str) -> Option<Color> {
-        let (r, g, b) = if self.is_dark {
-            match name {
-                "modified" => (229, 192, 123),
-                "added" | "untracked" => (152, 195, 121),
-                "conflict" => (224, 108, 117),
-                "ignored" => (120, 120, 120),
-                _ => return None,
-            }
-        } else {
-            match name {
-                "modified" => (190, 140, 40),
-                "added" | "untracked" => (60, 140, 50),
-                "conflict" => (190, 50, 50),
-                "ignored" => (160, 160, 160),
-                _ => return None,
-            }
-        };
-        Some(Color::from_rgb(r, g, b))
+        git_label_rgb(name, self.is_dark).map(|(r, g, b)| Color::from_rgb(r, g, b))
     }
 
     /// Add a node to the tree recursively.
@@ -375,13 +351,6 @@ impl TreePanel {
                 .and_then(|name| self.resolve_label_color(name));
             let fg = custom_color.unwrap_or(self.item_fg);
             item.set_label_fgcolor(fg);
-
-            // Track custom-colored items for re-apply after selection
-            if let Some(color) = custom_color {
-                self.colored_items
-                    .borrow_mut()
-                    .push((item_path.clone(), color));
-            }
 
             // Build semantic node path for this item (e.g., "src/ui/dialogs")
             // by stripping icons from the FLTK path components and skipping root
@@ -536,7 +505,6 @@ impl TreePanel {
         let context_path = self.context_path.clone();
         let context_menu = self.context_menu.clone();
         let ctx_menu_ptr = self.ctx_menu.as_widget_ptr();
-        let colored_items = self.colored_items.clone();
         let drag_source = self.drag_source_path.clone();
         let dragging = self.dragging.clone();
         let theme_bg = self.theme_bg.clone();
@@ -552,21 +520,6 @@ impl TreePanel {
                         *drag_source.borrow_mut() = None;
                     }
                     dragging.set(false);
-
-                    // Re-apply per-item colors after FLTK processes the selection
-                    let ci = colored_items.clone();
-                    let tp = tree.as_widget_ptr();
-                    fltk::app::add_timeout3(0.0, move |_| {
-                        // SAFETY: tp is a valid Tree widget pointer obtained via
-                        // as_widget_ptr() above. The Tree outlives this timeout
-                        // callback (it's owned by the panel which owns this handler).
-                        let t = unsafe { Tree::from_widget_ptr(tp) };
-                        for (path, color) in ci.borrow().iter() {
-                            if let Some(mut item) = t.find_item(path) {
-                                item.set_label_fgcolor(*color);
-                            }
-                        }
-                    });
 
                     false // let FLTK handle normal selection
                 }
@@ -813,7 +766,6 @@ impl TreePanel {
         self.visible = false;
         self.session_id = None;
         self.tree.clear();
-        self.colored_items.borrow_mut().clear();
         self.on_click_action = None;
         self.double_click = true;
         self.context_path = None;
@@ -857,7 +809,6 @@ impl TreePanel {
         };
 
         self.tree.clear();
-        self.colored_items.borrow_mut().clear();
 
         if query.is_empty() {
             // Restore full tree
@@ -919,13 +870,6 @@ impl TreePanel {
                 .and_then(|name| self.resolve_label_color(name));
             let fg = custom_color.unwrap_or(self.item_fg);
             item.set_label_fgcolor(fg);
-
-            // Track custom-colored items for re-apply after selection
-            if let Some(color) = custom_color {
-                self.colored_items
-                    .borrow_mut()
-                    .push((item_path.clone(), color));
-            }
             // Expand nodes that have matching descendants
             item.open();
 
@@ -986,13 +930,9 @@ impl Themeable for TreePanel {
             self.search_input.set_text_color(theme.text);
         }
 
-        let selection = if theme.is_dark() {
-            editor.lighten(0.10)
-        } else {
-            editor.darken(0.90)
-        }
-        .to_fltk();
-        self.tree.set_selection_color(selection);
+        // Selected row: >= 3:1 against the tree, labels on it readable via
+        // the contrast rule (T0104).
+        crate::ui::theme::style_panel_selection(&mut self.tree, theme_bg);
         self.tree.set_select_frame(FrameType::FlatBox);
 
         // Item text color
@@ -1003,7 +943,6 @@ impl Themeable for TreePanel {
         // Falls back to iterating items if no stored nodes (shouldn't happen).
         if let Some(ref root) = self.current_nodes.clone() {
             self.tree.clear();
-            self.colored_items.borrow_mut().clear();
             self.add_tree_node(None, root, self.current_expand_depth, 0);
         } else {
             let fg = self.item_fg;
@@ -1065,6 +1004,28 @@ fn icon_prefix(node: &TreeNode) -> &'static str {
         None if node.has_children() => FOLDER_ICON,
         None => FILE_ICON,
     }
+}
+
+/// The RGB of a semantic tree label color (git status), for a dark or light
+/// theme; `None` for an unknown name.
+pub fn git_label_rgb(name: &str, is_dark: bool) -> Option<(u8, u8, u8)> {
+    Some(if is_dark {
+        match name {
+            "modified" => (229, 192, 123),
+            "added" | "untracked" => (152, 195, 121),
+            "conflict" => (224, 108, 117),
+            "ignored" => (120, 120, 120),
+            _ => return None,
+        }
+    } else {
+        match name {
+            "modified" => (190, 140, 40),
+            "added" | "untracked" => (60, 140, 50),
+            "conflict" => (190, 50, 50),
+            "ignored" => (160, 160, 160),
+            _ => return None,
+        }
+    })
 }
 
 #[cfg(test)]

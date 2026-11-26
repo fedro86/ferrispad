@@ -378,6 +378,8 @@ impl Themeable for DiagnosticPanel {
         // level colors re-derived to stay readable on it.
         let (r, g, b) = diagnostic_panel_bg(theme.bg);
         self.browser.set_color(Color::from_rgb(r, g, b));
+        // Selected row as in the file tree (T0104).
+        crate::ui::theme::style_panel_selection(&mut self.browser, (r, g, b));
         self.level_colors = diagnostic_level_colors((r, g, b));
         if !self.diagnostics.is_empty() {
             self.refresh_display();
