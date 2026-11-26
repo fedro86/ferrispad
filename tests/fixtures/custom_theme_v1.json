@@ -1,0 +1,222 @@
+{
+  "format": 1,
+  "name": "Fixture v1",
+  "based_on": "Base16OceanDark",
+  "theme": {
+    "name": "Fixture v1",
+    "author": "Chris Kempson (http://chriskempson.com)",
+    "settings": {
+      "foreground": {
+        "r": 192,
+        "g": 197,
+        "b": 206,
+        "a": 255
+      },
+      "background": {
+        "r": 16,
+        "g": 24,
+        "b": 32,
+        "a": 255
+      },
+      "caret": {
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+      },
+      "line_highlight": {
+        "r": 57,
+        "g": 62,
+        "b": 72,
+        "a": 255
+      },
+      "misspelling": null,
+      "minimap_border": null,
+      "accent": null,
+      "popup_css": null,
+      "phantom_css": null,
+      "bracket_contents_foreground": null,
+      "bracket_contents_options": null,
+      "brackets_foreground": null,
+      "brackets_background": null,
+      "brackets_options": null,
+      "tags_foreground": null,
+      "tags_options": null,
+      "highlight": null,
+      "find_highlight": null,
+      "find_highlight_foreground": null,
+      "gutter": {
+        "r": 24,
+        "g": 32,
+        "b": 40,
+        "a": 255
+      },
+      "gutter_foreground": {
+        "r": 150,
+        "g": 150,
+        "b": 150,
+        "a": 255
+      },
+      "selection": {
+        "r": 200,
+        "g": 80,
+        "b": 40,
+        "a": 255
+      },
+      "selection_foreground": null,
+      "selection_border": null,
+      "inactive_selection": null,
+      "inactive_selection_foreground": null,
+      "guide": {
+        "r": 59,
+        "g": 83,
+        "b": 100,
+        "a": 255
+      },
+      "active_guide": {
+        "r": 150,
+        "g": 181,
+        "b": 180,
+        "a": 255
+      },
+      "stack_guide": {
+        "r": 52,
+        "g": 61,
+        "b": 70,
+        "a": 255
+      },
+      "shadow": null
+    },
+    "scopes": [
+      {
+        "scope": {
+          "selectors": [
+            {
+              "path": {
+                "clear_stack": [],
+                "scopes": [
+                  "variable.parameter.function"
+                ]
+              },
+              "excludes": []
+            }
+          ]
+        },
+        "style": {
+          "foreground": {
+            "r": 192,
+            "g": 197,
+            "b": 206,
+            "a": 255
+          },
+          "background": null,
+          "font_style": null
+        }
+      },
+      {
+        "scope": {
+          "selectors": [
+            {
+              "path": {
+                "clear_stack": [],
+                "scopes": [
+                  "comment"
+                ]
+              },
+              "excludes": []
+            },
+            {
+              "path": {
+                "clear_stack": [],
+                "scopes": [
+                  "punctuation.definition.comment"
+                ]
+              },
+              "excludes": []
+            }
+          ]
+        },
+        "style": {
+          "foreground": {
+            "r": 101,
+            "g": 115,
+            "b": 126,
+            "a": 255
+          },
+          "background": null,
+          "font_style": null
+        }
+      },
+      {
+        "scope": {
+          "selectors": [
+            {
+              "path": {
+                "clear_stack": [],
+                "scopes": [
+                  "punctuation.definition.string"
+                ]
+              },
+              "excludes": []
+            },
+            {
+              "path": {
+                "clear_stack": [],
+                "scopes": [
+                  "punctuation.definition.variable"
+                ]
+              },
+              "excludes": []
+            },
+            {
+              "path": {
+                "clear_stack": [],
+                "scopes": [
+                  "punctuation.definition.string"
+                ]
+              },
+              "excludes": []
+            },
+            {
+              "path": {
+                "clear_stack": [],
+                "scopes": [
+                  "punctuation.definition.parameters"
+                ]
+              },
+              "excludes": []
+            },
+            {
+              "path": {
+                "clear_stack": [],
+                "scopes": [
+                  "punctuation.definition.string"
+                ]
+              },
+              "excludes": []
+            },
+            {
+              "path": {
+                "clear_stack": [],
+                "scopes": [
+                  "punctuation.definition.array"
+                ]
+              },
+              "excludes": []
+            }
+          ]
+        },
+        "style": {
+          "foreground": {
+            "r": 192,
+            "g": 197,
+            "b": 206,
+            "a": 255
+          },
+          "background": null,
+          "font_style": null
+        }
+      }
+    ]
+  }
+}

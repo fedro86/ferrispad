@@ -3,7 +3,7 @@ use std::fs;
 use tempfile::tempdir;
 
 use ferris_pad::app::domain::settings::{
-    AppSettings, PluginApprovals, ShortcutOverride, SyntaxTheme, ThemeMode,
+    AppSettings, PluginApprovals, ShortcutOverride, SyntaxTheme, ThemeMode, ThemeRef,
 };
 use ferris_pad::app::services::session::SessionRestore;
 use ferris_pad::app::services::updater::UpdateChannel;
@@ -27,8 +27,8 @@ fn test_settings_roundtrip_all_fields() {
         tabs_enabled: true,
         session_restore: SessionRestore::Full,
         preview_enabled: true,
-        syntax_theme_light: SyntaxTheme::InspiredGitHub,
-        syntax_theme_dark: SyntaxTheme::SolarizedDark,
+        syntax_theme_light: SyntaxTheme::InspiredGitHub.into(),
+        syntax_theme_dark: SyntaxTheme::SolarizedDark.into(),
         tab_size: 2,
         use_spaces: true,
         plugins_enabled: false,
@@ -145,4 +145,78 @@ fn test_settings_backward_compat() {
     assert_eq!(loaded.tab_size, 4);
     assert_eq!(loaded.large_file_warning_mb, 50);
     assert_eq!(loaded.max_editable_size_mb, 150);
+}
+
+// --- T0079: syntax-theme slots reference a built-in or a custom theme ---
+
+#[test]
+fn test_theme_ref_backward_compat() {
+    let json =
+        r#"{ "syntax_theme_dark": "SolarizedDark", "syntax_theme_light": "InspiredGitHub" }"#;
+    let loaded = AppSettings::from_json_or_default(json);
+    assert_eq!(
+        loaded.syntax_theme_dark,
+        ThemeRef::Builtin(SyntaxTheme::SolarizedDark)
+    );
+    assert_eq!(
+        loaded.syntax_theme_light,
+        ThemeRef::Builtin(SyntaxTheme::InspiredGitHub)
+    );
+    // Built-ins are still written in the pre-T0079 form.
+    let json = serde_json::to_string(&loaded).unwrap();
+    assert!(
+        json.contains(r#""syntax_theme_dark":"SolarizedDark""#),
+        "{json}"
+    );
+}
+
+#[test]
+fn test_theme_ref_custom_roundtrip() {
+    let settings = AppSettings {
+        syntax_theme_dark: ThemeRef::Custom("t-my-theme".to_string()),
+        ..Default::default()
+    };
+    let json = serde_json::to_string(&settings).unwrap();
+    assert!(
+        json.contains(r#""syntax_theme_dark":"custom:t-my-theme""#),
+        "{json}"
+    );
+    let loaded = AppSettings::from_json_or_default(&json);
+    assert_eq!(
+        loaded.syntax_theme_dark,
+        ThemeRef::Custom("t-my-theme".to_string())
+    );
+    assert_eq!(loaded, settings);
+}
+
+/// A malformed slot value falls back to that slot's default on its own: the
+/// rest of `settings.json` (here a non-default font size) is kept.
+#[test]
+fn test_theme_ref_malformed_keeps_other_settings() {
+    let bad_values = [
+        "42",
+        r#""custom:../../x""#,
+        r#""custom:""#,
+        r#""custom:T-UPPER""#,
+        r#""NoSuchTheme""#,
+        "null",
+        r#"{"Builtin": "SolarizedDark"}"#,
+    ];
+    for bad in bad_values {
+        let json = format!(
+            r#"{{ "font_size": 23, "syntax_theme_dark": {bad}, "syntax_theme_light": {bad} }}"#
+        );
+        let loaded = AppSettings::from_json_or_default(&json);
+        assert_eq!(loaded.font_size, 23, "font_size lost for slot value {bad}");
+        assert_eq!(
+            loaded.syntax_theme_dark,
+            ThemeRef::Builtin(SyntaxTheme::Base16OceanDark),
+            "dark slot for {bad}"
+        );
+        assert_eq!(
+            loaded.syntax_theme_light,
+            ThemeRef::Builtin(SyntaxTheme::Base16OceanLight),
+            "light slot for {bad}"
+        );
+    }
 }

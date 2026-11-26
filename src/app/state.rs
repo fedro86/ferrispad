@@ -24,13 +24,14 @@ use super::controllers::view::ViewController;
 use super::controllers::widget::WidgetController;
 use super::domain::document::DocumentId;
 use super::domain::messages::Message;
-use super::domain::settings::{self, AppSettings, SyntaxTheme, ThemeMode};
+use super::domain::settings::{self, AppSettings, ThemeMode, ThemeRef, default_syntax_theme};
 use super::infrastructure::buffer::buffer_text_no_leak;
 use super::infrastructure::defer::defer_send;
 use super::infrastructure::platform::detect_system_dark_mode;
 use super::mcp::McpResponses;
 use super::plugins::HookResult;
 use super::plugins::{PluginHook, PluginManager, get_plugin_dir};
+use super::services::custom_themes::{ThemeStore, themes_dir};
 use super::services::session;
 use super::services::shortcut_registry::ShortcutRegistry;
 use crate::ui::dialogs::settings_dialog::show_settings_dialog;
@@ -112,8 +113,19 @@ impl AppState {
         let font_size = settings.borrow().font_size_clamped();
         let highlighting_enabled = settings.borrow().highlighting_enabled;
         let syntax_theme = settings.borrow().current_syntax_theme(dark_mode);
-        let highlight =
-            HighlightController::new(syntax_theme, font, font_size, highlighting_enabled);
+        let mut highlight = HighlightController::new(
+            default_syntax_theme(dark_mode),
+            font,
+            font_size,
+            highlighting_enabled,
+        );
+        // Custom themes are read once, here (no directory watching).
+        let (theme_store, theme_warnings) = ThemeStore::load(themes_dir());
+        for warning in theme_warnings {
+            eprintln!("{warning}");
+        }
+        highlight.set_custom_themes(theme_store.into_themes());
+        highlight.set_theme(&syntax_theme, dark_mode);
 
         let preview = PreviewController::new();
 
@@ -815,7 +827,7 @@ impl AppState {
             .settings
             .borrow()
             .current_syntax_theme(self.view.dark_mode);
-        self.highlight.set_theme(theme);
+        self.highlight.set_theme(&theme, self.view.dark_mode);
         self.apply_theme_to_owned_widgets();
 
         self.highlight
@@ -843,11 +855,11 @@ impl AppState {
     fn apply_theme_to_owned_widgets(&mut self) {
         let theme = self.panel_theme();
         let bg = theme.bg;
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         let fg = self.highlight.highlighter().theme_foreground();
 
         // Apply theme with syntax background for menu bar color
         apply_theme(
-            &mut self.editor,
             &mut self.window,
             &mut self.menu,
             Some(&mut self.update_banner_frame),
@@ -859,8 +871,8 @@ impl AppState {
         #[cfg(target_os = "macos")]
         set_macos_titlebar_color(&self.window, bg, fg);
 
-        // Apply syntax theme colors to editor
-        apply_syntax_theme_colors(&mut self.editor, bg, fg);
+        // Apply the active theme's editor colors
+        apply_syntax_theme_colors(&mut self.editor, &self.highlight.editor_colors());
 
         // Apply theme to tab bar with editor background color
         if let Some(ref mut tab_bar) = self.tab_bar {
@@ -914,10 +926,18 @@ impl AppState {
     /// Show the Settings dialog and apply the result on Save. `on_preview`
     /// runs while the dialog is open, for each live syntax-theme preview and
     /// for the revert to the original theme on Cancel/close.
-    pub fn open_settings(&mut self, mut on_preview: impl FnMut(&mut AppState, SyntaxTheme)) {
+    pub fn open_settings(&mut self, mut on_preview: impl FnMut(&mut AppState, ThemeRef)) {
         let current = self.settings.borrow().clone();
         let theme_bg = self.highlight.highlighter().theme_background();
-        let result = show_settings_dialog(&current, theme_bg, |theme| on_preview(self, theme));
+        let custom_themes: Vec<(ThemeRef, String)> = self
+            .highlight
+            .custom_themes()
+            .values()
+            .map(|t| (t.theme_ref(), t.name.clone()))
+            .collect();
+        let result = show_settings_dialog(&current, theme_bg, &custom_themes, |theme| {
+            on_preview(self, theme.clone())
+        });
         if let Some(new_settings) = result {
             if let Err(e) = new_settings.save() {
                 show_themed_message(
@@ -1005,8 +1025,8 @@ impl AppState {
     /// Preview a syntax theme (called from settings dialog for live preview).
     /// Re-themes the widgets `AppState` owns; the caller re-themes the panels
     /// in `LayoutWidgets` through `dispatch::retheme_panels`.
-    pub fn preview_syntax_theme(&mut self, theme: SyntaxTheme) {
-        self.highlight.set_theme(theme);
+    pub fn preview_syntax_theme(&mut self, theme: &ThemeRef) {
+        self.highlight.set_theme(theme, self.view.dark_mode);
         self.apply_theme_to_owned_widgets();
 
         self.highlight
@@ -1053,7 +1073,7 @@ impl AppState {
 
         // Set syntax theme first to get background color
         let syntax_theme = new_settings.current_syntax_theme(is_dark);
-        self.highlight.set_theme(syntax_theme);
+        self.highlight.set_theme(&syntax_theme, is_dark);
         self.highlight.set_font(font, new_font_size);
         self.apply_theme_to_owned_widgets();
         self.update_menu_checkbox("View/Toggle Dark Mode", is_dark);
