@@ -266,8 +266,10 @@ mod tests {
         let mut hits = Vec::new();
         for file in files {
             let text = std::fs::read_to_string(&file).unwrap();
-            // Test code and comments may name these freely.
-            let code = text.split("#[cfg(test)]").next().unwrap_or("");
+            // The tests module and comments may name these freely. Only the
+            // `mod tests` block is cut, so a `#[cfg(test)]` item elsewhere in
+            // the file does not end the scan.
+            let code = text.split("#[cfg(test)]\nmod tests").next().unwrap_or("");
             for (n, line) in code.lines().enumerate() {
                 if line.trim_start().starts_with("//") {
                     continue;
