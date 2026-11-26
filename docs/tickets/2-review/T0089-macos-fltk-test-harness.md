@@ -138,5 +138,13 @@ Local results (Linux, Nix dev shell):
 Full suite under Xvfb: lib 579 passed (581 − the 2 moved checks), harness 2
 passed, every other binary green; fmt and clippy `-D warnings` clean.
 
-macOS: see the PR checks (`build + clippy + test (macos)`), where
-`fltk_main_thread` must report `2 passed`.
+CI on 97f5404 (PR #174), all green:
+
+- `macos-gates.yml` run 45866050884, `build + clippy + test (macos)`:
+  `fltk_main_thread` → `test popup_is_top_level ... ok`,
+  `test child_index_invariant_matches_bundled_fltk ... ok`, `2 passed`. The
+  lib reports `578 passed; 1 ignored; 1 filtered out` (only the T0090 skip
+  is left), and every other binary passes.
+- `ci.yml` run 45866050924: fmt + clippy + test (Linux, Xvfb,
+  `FERRISPAD_REQUIRE_UI_TESTS=1`), test (linux arm64), build (windows x64).
+- `build-deps-check.yml` run 45866051125.
