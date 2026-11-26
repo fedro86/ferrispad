@@ -5,6 +5,22 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.10-rc.1] - 2026-11-26
+
+Release candidate: it is published as a GitHub pre-release only. The website, FlatPark and the in-app updater on the stable channel stay on 0.9.9.
+
+### Added
+- **Custom Editor Themes**: Settings → Manage themes… opens a theme manager. Duplicate a built-in theme, then change its editor colors (background, text, caret, selection, line numbers and their background, current line) with a live preview; Cancel restores the previous look. Custom themes can be renamed, deleted, or imported from `.tmTheme` files. Built-in themes stay read-only.
+- **Current-Line Highlight**: The line with the cursor has a subtle background band, on by default. Turn it off with View → Toggle Current Line Highlight.
+- **Window Size Remembered**: FerrisPad reopens with the size, position and maximized state the window had when it was closed. On Wayland the compositor still chooses the position.
+
+### Changed
+- **Selection Color**: The editor selection is blue in every syntax theme, light and dark, instead of a faint tint of the background that was hard to see on some themes. Selected text that would be hard to read on the blue is drawn in black or white.
+
+### Fixed
+- **Unsaved Changes on Close**: Closing the window with the title-bar ×, Alt+F4 or the taskbar now asks to save unsaved changes, like File → Quit. Before, with session restore off (the default), unsaved changes were lost.
+- **Settings Dialog Layout**: Labels in the Settings dialog no longer get cut off or run into their fields with wider desktop fonts. On small screens the dialog scrolls, and Save and Cancel stay visible.
+
 ## [0.9.9] - 2026-11-07
 
 ### Fixed
