@@ -56,7 +56,7 @@ jobs:
             "$bin" --list --format=terse 2>/dev/null | sed -n 's/: test$//p' > names.txt
             echo "$(basename "$bin"): $(wc -l < names.txt) tests"
             while read -r t; do
-              out=$("$bin" --exact "$t" 2>&1); rc=$?
+              rc=0; out=$("$bin" --exact "$t" 2>&1) || rc=$?
               if [ $rc -ne 0 ]; then
                 echo "::group::FAIL rc=$rc $(basename "$bin") :: $t"; echo "$out" | tail -40; echo "::endgroup::"
                 echo "FAIL rc=$rc $(basename "$bin") :: $t" >> summary.txt
