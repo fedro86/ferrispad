@@ -139,3 +139,43 @@ draws its selection independently of focus. Its text is black on the
 gray bar in both modes, also in the session picker, whose rows use an
 explicit `@C` text color. Screenshots were inspected edge by edge: no
 layout change, nothing clipped or overlapping.
+
+## Review follow-up (a3 nit, 2026-11-26)
+
+The registered list selection could lag after a theme switch until the next
+dialog list was styled. That was harmless, but inexact. Now
+`dialogs::register_dialog_list_selection(theme_bg)` derives the dialog
+theme's list selection and registers it, and `theme::apply_syntax_theme_colors`
+calls it next to `register_editor_selection`. Every re-theme ends there
+(startup, dark-mode toggle, Settings, live preview and its revert).
+
+- Red: `dialog_list_selection_follows_every_retheme` failed before ("every
+  re-theme must refresh the dialog list selection").
+- Green: it checks the call in `apply_syntax_theme_colors` and that, for
+  three backgrounds in turn, the registered color is that theme's
+  `list_selection_bg`.
+
+## Design choice: which theme color the selection starts from (user, 2026-11-26)
+
+The user asked that the selection be **relative to the theme** (no fixed
+blue, no plain gray). Three theme-derived variants were compared, all under
+the same rule (≥ 3:1 against the list, text ≥ 4.5:1). Each was rendered with
+a local-only experiment build (an env switch, never committed) across Base16
+Ocean Dark, Base16 Mocha Dark, Solarized Dark, a strongly colored custom
+theme (bg `#3b1f5c`), Base16 Ocean Light, Solarized Light and InspiredGitHub:
+
+- **A**: the dialog button color pushed to 3:1 (this implementation).
+  Neutral on the neutral themes (Ocean, GitHub), tinted on the tinted ones.
+  Ratios 3.00–3.32:1.
+- **B**: the dialog accent (a complementary hue) pushed to 3:1. Strongly
+  colored, often clashing (gold, lime, salmon). Ratios 3.09–6.55:1.
+- **C**: the syntax theme's own `.tmTheme` selection pushed to 3:1. Closest
+  to the theme's native selection hue, but it needs the active theme's
+  selection passed into `DialogTheme`. Ratios 3.02–3.32:1.
+
+Montages (rows = themes; theme manager list and font picker list with a row
+selected) and pixel-measured ratios:
+`uitest-T0097/variants/variant-A.png`, `variant-B.png`, `variant-C.png`,
+`ratios.txt` (in the `ferrispad-wt` worktree directory, not in the repo).
+
+**The user chose A, 2026-11-26.** The experiment branch was deleted.

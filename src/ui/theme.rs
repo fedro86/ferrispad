@@ -245,6 +245,8 @@ pub fn apply_syntax_theme_colors(editor: &mut TextEditor, colors: &EditorColors)
     editor.set_selection_color(fltk(colors.selection));
     // Selected text must stay readable on it (see `ui::contrast`).
     super::contrast::register_editor_selection(background, colors.selection, colors.current_line);
+    // ...and so must a selected row of the dialog lists of this theme (T0097).
+    super::dialogs::register_dialog_list_selection(background);
     editor.set_text_color(fltk(colors.text));
     editor.set_cursor_color(fltk(colors.caret));
     editor.set_linenumber_bgcolor(fltk(colors.line_number_bg));

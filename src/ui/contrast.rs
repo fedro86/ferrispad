@@ -197,6 +197,12 @@ pub fn register_list_selection(selection: (u8, u8, u8)) {
     LIST_SELECTION_BG.store(pack(Some(selection)), Ordering::Relaxed);
 }
 
+/// The dialog list selection currently registered (for tests).
+#[cfg(test)]
+pub(crate) fn registered_list_selection() -> Option<(u8, u8, u8)> {
+    unpack(LIST_SELECTION_BG.load(Ordering::Relaxed))
+}
+
 fn registered_editor_selection() -> EditorSelectionBgs {
     EditorSelectionBgs {
         focused: unpack(FOCUSED_BG.load(Ordering::Relaxed)),
