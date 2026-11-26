@@ -375,11 +375,10 @@ pub fn build_settings_dialog(
     y += LABEL_HEIGHT + 5;
 
     let mut font_value = theme
-        .input()
+        .readonly_input()
         .with_pos(LEFT_COL + 10, y)
         .with_size(m.left_w - 10 - m.change_w - 10, ITEM_HEIGHT);
     font_value.set_value(&current_settings.font);
-    font_value.set_readonly(true);
 
     let mut change_font_btn = theme
         .button()

@@ -73,30 +73,27 @@ impl ThemeRgb {
     }
 }
 
-/// `base` moved toward white (on a dark `bg`) or toward black (on a light
-/// one), keeping its hue, until it reads at `min` WCAG contrast on `bg`; the
-/// other direction when that one cannot get there (T0104).
-pub fn readable_variant(base: ThemeRgb, bg: ThemeRgb, min: f64) -> ThemeRgb {
+/// `base` stepped away from `bg` until it reaches `min` WCAG contrast on it:
+/// lighter first when `lighter` (toward white), darker otherwise (scaled
+/// toward black, which keeps the hue), and the other way when that direction
+/// cannot get there. One rule for every "readable on this background" color
+/// (list selection, input borders).
+pub fn push_to_contrast(base: ThemeRgb, bg: ThemeRgb, min: f64, lighter: bool) -> ThemeRgb {
     let rgb = |c: ThemeRgb| (c.r, c.g, c.b);
     let reaches = |c: ThemeRgb| wcag_contrast(rgb(c), rgb(bg)) >= min;
-    let search = |lighter: bool| {
+    let search = |up: bool| {
         let mut c = base;
         for _ in 0..120 {
             if reaches(c) {
                 return Some(c);
             }
-            c = if lighter {
-                c.lighten(0.06)
-            } else {
-                c.darken(0.94)
-            };
+            c = if up { c.lighten(0.06) } else { c.darken(0.94) };
         }
         reaches(c).then_some(c)
     };
-    let dark_bg = bg.brightness() < 128;
-    search(dark_bg)
-        .or_else(|| search(!dark_bg))
-        .unwrap_or(if dark_bg {
+    search(lighter)
+        .or_else(|| search(!lighter))
+        .unwrap_or(if lighter {
             ThemeRgb::WHITE
         } else {
             ThemeRgb::new(0, 0, 0)

@@ -10,7 +10,7 @@ use fltk::{
 
 use crate::app::services::session;
 
-use super::DialogTheme;
+use super::{DialogTheme, label_width};
 
 /// Result of the session picker dialog.
 #[derive(Debug, Clone)]
@@ -25,44 +25,66 @@ pub enum SessionPickerResult {
     Cancelled,
 }
 
-/// Show the session picker dialog.
-/// `parent` is the main window used to center the dialog (reliable on Wayland).
-/// `current_session` is the name of the currently active session (highlighted in the list).
-pub fn show_session_picker(
-    parent: &Window,
-    current_session: &str,
-    theme_bg: (u8, u8, u8),
-) -> SessionPickerResult {
-    let theme = DialogTheme::from_theme_bg(theme_bg);
-    let result: Rc<RefCell<SessionPickerResult>> =
-        Rc::new(RefCell::new(SessionPickerResult::Cancelled));
+/// Height of the Sessions picker; its width follows the measured row.
+const DH: i32 = 340;
+/// Margin around the content and the minimum list width.
+const MARGIN: i32 = 20;
+const LIST_W: i32 = 320;
+/// FLTK's default label size, which these labels use.
+const LABEL_SIZE: i32 = 14;
 
-    const DW: i32 = 360;
-    const DH: i32 = 340;
+/// The Sessions picker's window and widgets, built but not shown (a seam
+/// for the layout tests).
+pub struct SessionPickerUi {
+    pub dialog_win: Window,
+    pub browser: fltk::browser::HoldBrowser,
+    pub new_input: fltk::input::Input,
+    pub switch_btn: fltk::button::Button,
+    pub new_win_btn: fltk::button::Button,
+    pub delete_btn: fltk::button::Button,
+    pub cancel_btn: fltk::button::Button,
+    pub status: Frame,
+}
+
+/// Build the Sessions picker listing `sessions`, with `current_session`
+/// selected.
+pub fn build_session_picker(
+    theme: &DialogTheme,
+    current_session: &str,
+    sessions: &[String],
+) -> SessionPickerUi {
     // Regular xdg_toplevel (not modal) — on Wayland/GNOME, make_modal(true) on the
     // first invocation maps the surface before the decoration + modal-hint round-trip
     // completes, yielding an undecorated, ungrabbed window with no input.
     // Modality is enforced manually below by deactivating the parent while the dialog runs.
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
+    // Measured layout: the list, the New row and the button row share one
+    // width, wide enough for every label (also 2 pt larger).
+    let gap = 5;
+    let labels = ["Switch", "New Window", "Delete", "Cancel"];
+    let needed: Vec<i32> = labels
+        .iter()
+        .map(|l| label_width(l, LABEL_SIZE).max(60))
+        .collect();
+    let row_w = (needed.iter().sum::<i32>() + gap * 3).max(LIST_W);
     let mut dialog_win = Window::default()
-        .with_size(DW, DH)
+        .with_size(row_w + 2 * MARGIN, DH)
         .with_label("Sessions")
         .center_screen();
     dialog_win.set_color(theme.bg);
 
     // Title label
     let mut title = Frame::default()
-        .with_pos(20, 10)
-        .with_size(320, 25)
+        .with_pos(MARGIN, 10)
+        .with_size(row_w, 25)
         .with_label("Switch or create a session:");
     title.set_label_color(theme.text);
 
     // Session list browser
-    let mut browser = theme.list().with_pos(20, 40).with_size(320, 160);
+    let mut browser = theme.list().with_pos(MARGIN, 40).with_size(row_w, 160);
 
     // Populate session list (use @C format code for text color on dark themes)
-    let sessions = session::list_sessions();
     let (tr, tg, tb) = theme.text_rgb();
     let color_code = ((tr as u32) << 24) | ((tg as u32) << 16) | ((tb as u32) << 8);
     let mut selected_line = 0i32;
@@ -82,59 +104,106 @@ pub fn show_session_picker(
     }
 
     // New session input
+    let new_label_w = label_width("New:", LABEL_SIZE);
     let mut new_label = Frame::default()
-        .with_pos(20, 210)
-        .with_size(40, 30)
+        .with_pos(MARGIN, 210)
+        .with_size(new_label_w, 30)
         .with_label("New:");
     new_label.set_label_color(theme.text);
-    let mut new_input = theme.input().with_pos(65, 210).with_size(275, 30);
+    let new_x = MARGIN + new_label_w + gap;
+    let new_input = theme
+        .input()
+        .with_pos(new_x, 210)
+        .with_size(MARGIN + row_w - new_x, 30);
 
-    // Buttons row
+    // The row spans exactly the list's width: it used to end 5 px past it.
+    // Spare width goes to the buttons evenly, the remainder to the last.
     let btn_y = 255;
     let btn_h = 30;
-    let btn_w = 100;
+    let spare = row_w - needed.iter().sum::<i32>() - gap * 3;
+    let mut widths: Vec<i32> = needed.iter().map(|w| w + spare / 4).collect();
+    widths[3] += spare % 4;
+    let mut xs = vec![MARGIN];
+    for i in 1..4 {
+        xs.push(xs[i - 1] + widths[i - 1] + gap);
+    }
 
-    let mut switch_btn = theme
+    let switch_btn = theme
         .button()
-        .with_pos(20, btn_y)
-        .with_size(btn_w, btn_h)
+        .with_pos(xs[0], btn_y)
+        .with_size(widths[0], btn_h)
         .with_label("Switch");
 
-    let mut new_win_btn = theme
+    let new_win_btn = theme
         .button()
-        .with_pos(125, btn_y)
-        .with_size(btn_w, btn_h)
+        .with_pos(xs[1], btn_y)
+        .with_size(widths[1], btn_h)
         .with_label("New Window");
 
-    let mut delete_btn = theme
+    let delete_btn = theme
         .button()
-        .with_pos(230, btn_y)
-        .with_size(55, btn_h)
+        .with_pos(xs[2], btn_y)
+        .with_size(widths[2], btn_h)
         .with_label("Delete");
 
-    let mut cancel_btn = theme
-        .button()
-        .with_pos(290, btn_y)
-        .with_size(55, btn_h)
+    let cancel_btn = theme
+        .secondary_button()
+        .with_pos(xs[3], btn_y)
+        .with_size(widths[3], btn_h)
         .with_label("Cancel");
 
     // Status label for errors
     let mut status = Frame::default()
-        .with_pos(20, 295)
-        .with_size(320, 25)
+        .with_pos(MARGIN, 295)
+        .with_size(row_w, 25)
         .with_label("");
     status.set_label_color(theme.error_color());
 
     dialog_win.end();
     drop(top_level);
+    SessionPickerUi {
+        dialog_win,
+        browser,
+        new_input,
+        switch_btn,
+        new_win_btn,
+        delete_btn,
+        cancel_btn,
+        status,
+    }
+}
+
+/// Show the session picker dialog.
+/// `parent` is the main window used to center the dialog (reliable on Wayland).
+/// `current_session` is the name of the currently active session (highlighted in the list).
+pub fn show_session_picker(
+    parent: &Window,
+    current_session: &str,
+    theme_bg: (u8, u8, u8),
+) -> SessionPickerResult {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+    let result: Rc<RefCell<SessionPickerResult>> =
+        Rc::new(RefCell::new(SessionPickerResult::Cancelled));
+
+    let sessions = session::list_sessions();
+    let SessionPickerUi {
+        mut dialog_win,
+        mut browser,
+        mut new_input,
+        mut switch_btn,
+        mut new_win_btn,
+        mut delete_btn,
+        mut cancel_btn,
+        status,
+    } = build_session_picker(&theme, current_session, &sessions);
     dialog_win.make_resizable(false);
     dialog_win.show();
     theme.apply_titlebar(&dialog_win);
     // Reposition to center on the parent AFTER show().
     dialog_win.resize(
-        parent.x() + (parent.w() - DW) / 2,
+        parent.x() + (parent.w() - dialog_win.w()) / 2,
         parent.y() + (parent.h() - DH) / 2,
-        DW,
+        dialog_win.w(),
         DH,
     );
 

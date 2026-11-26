@@ -403,12 +403,14 @@ const DIAGNOSTIC_TEXT_CONTRAST: f64 = 4.5;
 /// hue, made readable (>= 4.5:1) on `bg` by changing only its lightness
 /// (T0104).
 pub fn diagnostic_level_colors(bg: (u8, u8, u8)) -> [(u8, u8, u8); 4] {
-    use crate::ui::color::{ThemeRgb, readable_variant};
+    use crate::ui::color::{ThemeRgb, push_to_contrast};
     DIAGNOSTIC_LEVEL_BASES.map(|base| {
-        let c = readable_variant(
+        let bg = ThemeRgb::from_tuple(bg);
+        let c = push_to_contrast(
             ThemeRgb::from_tuple(base),
-            ThemeRgb::from_tuple(bg),
+            bg,
             DIAGNOSTIC_TEXT_CONTRAST,
+            bg.brightness() < 128,
         );
         (c.r, c.g, c.b)
     })

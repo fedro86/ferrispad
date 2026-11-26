@@ -24,7 +24,107 @@ use fltk::{
     text::{TextDisplay, TextEditor},
 };
 
+use std::ffi::{c_int, c_uint};
+use std::sync::Once;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
 use super::DialogTheme;
+use crate::ui::color::{ThemeRgb, push_to_contrast};
+
+/// FLTK box type of every themed text field, text view and list (T0105): a
+/// flat fill in the widget's color with a 1 px border in its theme's
+/// [`DialogTheme::input_border`]. FLTK passes a box-drawing function only the
+/// fill color, so the border is looked up from that color (see
+/// [`input_border_for`]); FLTK's own `BORDER_BOX` would draw it black.
+pub const INPUT_FRAME: FrameType = FrameType::FreeBoxType;
+
+// fill → border pairs registered by the themes in use (a theme switch adds
+// one; four slots hold the light and dark dialogs side by side). Packed as
+// `PRESENT | fill << 24 | border`, atomics so the C drawing callback reads
+// them without locks or panics.
+static INPUT_BORDERS: [AtomicU64; 4] = [
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+    AtomicU64::new(0),
+];
+static NEXT_BORDER_SLOT: AtomicUsize = AtomicUsize::new(0);
+const PRESENT: u64 = 1 << 48;
+
+fn pack_rgb((r, g, b): (u8, u8, u8)) -> u64 {
+    u64::from(r) << 16 | u64::from(g) << 8 | u64::from(b)
+}
+
+fn unpack_rgb(bits: u64) -> (u8, u8, u8) {
+    ((bits >> 16) as u8, (bits >> 8) as u8, bits as u8)
+}
+
+/// Remember that a field filled with `fill` gets a `border` border.
+fn register_input_border(fill: (u8, u8, u8), border: (u8, u8, u8)) {
+    let entry = PRESENT | pack_rgb(fill) << 24 | pack_rgb(border);
+    if INPUT_BORDERS
+        .iter()
+        .any(|slot| slot.load(Ordering::Relaxed) == entry)
+    {
+        return;
+    }
+    let slot = NEXT_BORDER_SLOT.fetch_add(1, Ordering::Relaxed) % INPUT_BORDERS.len();
+    INPUT_BORDERS[slot].store(entry, Ordering::Relaxed);
+}
+
+/// The border registered for a field filled with `fill`, if any. Keyed by
+/// the fill alone: two themes with the same `input_bg` but different dialog
+/// backgrounds would share the first registered border. The current
+/// derivation never maps two dialog backgrounds to one `input_bg`.
+pub fn input_border_for(fill: Color) -> Option<Color> {
+    let fill = pack_rgb(fill.to_rgb());
+    INPUT_BORDERS.iter().find_map(|slot| {
+        let entry = slot.load(Ordering::Relaxed);
+        (entry & PRESENT != 0 && (entry >> 24) & 0xFF_FFFF == fill).then(|| {
+            let (r, g, b) = unpack_rgb(entry & 0xFF_FFFF);
+            Color::from_rgb(r, g, b)
+        })
+    })
+}
+
+/// FLTK's box-drawing callback for [`INPUT_FRAME`], with FLTK's C signature
+/// `void (*)(int x, int y, int w, int h, Fl_Color c)`. It runs inside C
+/// drawing code: plain drawing and atomic loads only, and being `extern "C"`
+/// a panic would abort rather than unwind into FLTK.
+extern "C" fn draw_input_frame(x: c_int, y: c_int, w: c_int, h: c_int, c: c_uint) {
+    let fill = Color::from_rgbi(c);
+    fltk::draw::draw_rect_fill(x, y, w, h, fill);
+    // An unregistered fill (e.g. FLTK's inactive variant of a field) still
+    // gets a border, derived from the fill itself (3:1 against it).
+    let border = input_border_for(fill).unwrap_or_else(|| {
+        let fill = ThemeRgb::from_fltk(fill);
+        push_to_contrast(fill, fill, 3.0, fill.brightness() < 128).to_fltk()
+    });
+    fltk::draw::set_draw_color(border);
+    fltk::draw::draw_rect(x, y, w, h);
+}
+
+/// Register [`draw_input_frame`] for [`INPUT_FRAME`] once.
+fn install_input_frame() {
+    static INSTALL: Once = Once::new();
+    INSTALL.call_once(|| {
+        // SAFETY: `draw_input_frame` has exactly the C signature FLTK expects
+        // (`Fl_Box_Draw_F`), captures nothing and does not unwind; the frame
+        // insets (1, 1, 2, 2) are those of FLTK's BORDER_BOX. Registered
+        // directly rather than via `app::set_frame_type_cb`, which transmutes
+        // a Rust-ABI fn pointer into the C one (as `ui::contrast::install`).
+        unsafe {
+            fltk_sys::fl::Fl_set_box_type_cb(
+                INPUT_FRAME.as_i32(),
+                Some(draw_input_frame),
+                1,
+                1,
+                2,
+                2,
+            )
+        };
+    });
+}
 
 impl DialogTheme {
     /// The colors every text field shares: input background, text and cursor
@@ -35,14 +135,32 @@ impl DialogTheme {
         field.set_cursor_color(self.text);
         field.set_selection_color(self.list_selection_bg);
         field.set_label_color(self.text);
-        field.set_frame(FrameType::FlatBox);
+        self.set_input_frame(field);
         crate::ui::contrast::register_list_selection(self.list_selection_bg.to_rgb());
+    }
+
+    /// [`INPUT_FRAME`] with this theme's border for a field filled with
+    /// `input_bg`.
+    fn set_input_frame<W: WidgetExt>(&self, widget: &mut W) {
+        install_input_frame();
+        register_input_border(self.input_bg.to_rgb(), self.input_border.to_rgb());
+        widget.set_frame(INPUT_FRAME);
     }
 
     /// A single-line text input.
     pub fn input(&self) -> Input {
         let mut input = Input::default();
         self.style_text_field(&mut input);
+        input
+    }
+
+    /// A read-only text input (e.g. the Settings Font field, chosen through a
+    /// picker): input colors, its text still selectable for copying, and no
+    /// caret, since nothing can be typed there.
+    pub fn readonly_input(&self) -> Input {
+        let mut input = self.input();
+        input.set_readonly(true);
+        input.set_cursor_color(self.input_bg);
         input
     }
 
@@ -61,7 +179,7 @@ impl DialogTheme {
         view.set_cursor_color(self.text);
         view.set_selection_color(self.list_selection_bg);
         view.set_label_color(self.text);
-        view.set_frame(FrameType::FlatBox);
+        self.set_input_frame(view);
         crate::ui::contrast::register_list_selection(self.list_selection_bg.to_rgb());
     }
 
@@ -231,7 +349,7 @@ impl DialogTheme {
     pub fn list(&self) -> HoldBrowser {
         let mut list = HoldBrowser::default();
         self.style_list(&mut list);
-        list.set_frame(FrameType::FlatBox);
+        self.set_input_frame(&mut list);
         list
     }
 }

@@ -237,3 +237,70 @@ every binary green.
 > Out of scope: visual changes.
 > Test: the extended `ui_dialogs` test fails on a mutated component (e.g.
 > no cursor color) for each newly covered dialog.
+
+## Round 3 (user + orchestrator, 2026-11-26): a thin theme-derived input border, Sessions overflow
+
+- **Input border (user's choice).** In light themes an empty Find/Replace
+  field was just a slightly lighter rectangle on the light-gray dialog,
+  hard to locate. Text fields, text views and lists now draw a **1 px
+  border** in `DialogTheme::input_border`: the button color pushed to
+  **≥ 3:1 against the dialog background** (WCAG 1.4.11), by the same
+  `color::push_to_contrast` rule that now also computes the list selection.
+  FLTK's `BORDER_BOX` draws its border black and passes a box-drawing
+  function only the fill color. The border is therefore a custom box type,
+  `widgets::INPUT_FRAME` (`FreeBoxType`, insets 1/1/2/2 like `BORDER_BOX`),
+  drawn by one `extern "C"` callback. That callback looks the border up
+  from the fill in a small lock-free registry
+  (`register_input_border` / `input_border_for`). An unregistered fill
+  (FLTK's inactive variant) gets a border derived from the fill itself. The
+  callback is registered once, directly via `fltk_sys`, the same pattern
+  and justification as `ui::contrast::install` (fltk-rs's wrapper
+  transmutes a Rust-ABI fn pointer).
+- **Read-only field**: `theme.readonly_input()` (the Settings Font field)
+  draws no caret. FLTK's read-only `^` caret became visible once cursors
+  were drawn in the text color.
+- **Guard (b)** also checks every input's frame (`INPUT_FRAME`), its
+  registered border (`== theme.input_border`), the read-only cursor, and
+  that every list uses `INPUT_FRAME` and the shared selection. Mutation:
+  with `set_input_frame` replaced by a flat frame, the test reported "input
+  frame FlatBox != INPUT_FRAME" / "input border None != theme" for the
+  picker, prompt and Settings inputs; then reverted.
+- **Guard (a)**: cut only at `#[cfg(test)]\nmod tests` (a3's nit, done
+  in 2094508).
+- **Sessions picker overflow (a3, pre-existing)**: the button row ended
+  5 px past the list (Cancel at x 345, list at 340). The dialog is now
+  measured with `label_width` and has a `build_session_picker` seam:
+  - list, New row and button row share one width, wide enough for every
+    label at +2 pt;
+  - spare width is spread over the buttons, and the row ends exactly on
+    the list's right edge;
+  - Cancel is `secondary_button()`.
+
+  `tests/ui_dialogs.rs` now builds it in dark and light, with
+  `layout_failures`, `unthemed_inputs`, and the row/list alignment. **Red**
+  with the old geometry: "button "Cancel" ends at 345 past the list edge
+  340", "button row not aligned", plus labels that did not fit ("New:"
+  needs 46 px at +2 pt in 40 px, "New Window" 107 in 100, "Delete" 57 in
+  55, "Cancel" 58 in 55). Green after.
+
+### Xvfb: input border before | after (user review)
+
+Montage: `ferrispad-wt/uitest-T0105/border/t0105-input-border.png` (rows in
+`border/rows/`). Before = the approved flat state (2094508), after = this
+round, 100 % crops, dark and light: Find, Replace, Go to Line, Sessions,
+Settings, font picker, color picker, theme manager.
+
+- Light: every field and list now has a visible 1 px border; empty fields
+  are easy to locate.
+- Dark: the border is subtle; the fields already stood out by their
+  lighter fill, and the border still meets 3:1 against the dialog.
+
+Lists got the border too, to stay consistent with the inputs (the
+orchestrator asked to show it).
+
+Gates: fmt and clippy `-D warnings` clean; full suite under Xvfb: lib 584,
+every binary green.
+
+Landing note: `widgets.rs` calls `Color::from_rgb` for the registry. When
+this meets T0098 (whose guard forbids direct `Color::from_rgb`), switch
+those calls to `fltk_rgb` in the merge.
