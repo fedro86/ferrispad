@@ -29,7 +29,7 @@ use fltk::widget::Widget;
 use fltk::window::Window;
 use support::ui_layout::{
     active_buttons_looking_disabled, count_matching, display_available, everything,
-    flat_widgets_with_tooltip, layout_failures,
+    flat_widgets_with_tooltip, layout_failures, unthemed_inputs,
 };
 
 /// The Settings rows T0079/T0080 added: the syntax-theme choices (and their
@@ -132,6 +132,29 @@ fn new_dialog_windows_build() {
         &settings.dialog,
         "settings",
         settings_theme_rows,
+    ));
+    // Every text input uses the theme's input colors, incl. the shared
+    // selection color (T0105), in the dark and the light dialogs.
+    let dark = DialogTheme::from_theme_bg((43, 48, 59));
+    let light = DialogTheme::from_theme_bg((239, 241, 245));
+    let settings_light = build_settings_dialog(
+        &AppSettings::default(),
+        (239, 241, 245),
+        &[(ThemeRef::Custom("t-a".into()), "A custom theme".into())],
+    );
+    for (name, window) in &windows {
+        let theme = if name.contains("light") {
+            &light
+        } else {
+            &dark
+        };
+        failures.extend(unthemed_inputs(window, name, theme));
+    }
+    failures.extend(unthemed_inputs(&settings.dialog, "settings dark", &dark));
+    failures.extend(unthemed_inputs(
+        &settings_light.dialog,
+        "settings light",
+        &light,
     ));
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

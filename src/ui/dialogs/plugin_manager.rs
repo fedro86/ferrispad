@@ -110,10 +110,7 @@ fn create_placeholder_input(
     placeholder: &str,
     theme: &DialogTheme,
 ) -> Input {
-    let mut input = Input::default().with_pos(x, y).with_size(w, h);
-    input.set_frame(FrameType::FlatBox);
-    input.set_color(theme.input_bg);
-    input.set_text_color(theme.text);
+    let mut input = theme.input().with_pos(x, y).with_size(w, h);
 
     // Enable FLTK's base class draw (renders input background, text, cursor),
     // then overlay placeholder text on top when the input is empty.
@@ -227,12 +224,7 @@ pub fn show_plugin_manager_dialog(
     let mut tabs = Tabs::default()
         .with_pos(PADDING, tabs_y)
         .with_size(DIALOG_WIDTH - PADDING * 2, tabs_height);
-    // Use flat frame to avoid GTK scheme overriding colors
-    tabs.set_frame(FrameType::FlatBox);
-    // Inactive tabs use Tabs widget's color - use row_bg for subtle difference
-    tabs.set_color(theme.row_bg);
-    // Active tab uses Tabs widget's selection_color
-    tabs.set_selection_color(theme.tab_active_bg);
+    theme.style_tabs(&mut tabs);
 
     // ============ INSTALLED TAB ============
     let mut installed_group = Group::default()
@@ -532,13 +524,11 @@ pub fn show_plugin_manager_dialog(
         &theme,
     );
 
-    let mut url_install_btn = Button::default()
+    let mut url_install_btn = theme
+        .button()
         .with_pos(PADDING + 5 + url_input_width + 5, url_y)
         .with_size(url_btn_width, 25)
         .with_label("Install");
-    url_install_btn.set_frame(FrameType::RFlatBox);
-    url_install_btn.set_color(theme.button_bg);
-    url_install_btn.set_label_color(theme.text);
     url_install_btn.set_label_size(11);
 
     // Scrollable plugin list area
@@ -805,21 +795,17 @@ pub fn show_plugin_manager_dialog(
     // ============ BUTTONS ============
     let btn_y = DIALOG_HEIGHT - PADDING - BUTTON_HEIGHT;
 
-    let mut reload_btn = Button::default()
+    let mut reload_btn = theme
+        .button()
         .with_pos(PADDING, btn_y)
         .with_size(100, BUTTON_HEIGHT)
         .with_label("Reload All");
-    reload_btn.set_frame(FrameType::RFlatBox);
-    reload_btn.set_color(theme.button_bg);
-    reload_btn.set_label_color(theme.text);
 
-    let mut close_btn = Button::default()
+    let mut close_btn = theme
+        .button()
         .with_pos(DIALOG_WIDTH - PADDING - 80, btn_y)
         .with_size(80, BUTTON_HEIGHT)
         .with_label("Close");
-    close_btn.set_frame(FrameType::RFlatBox);
-    close_btn.set_color(theme.button_bg);
-    close_btn.set_label_color(theme.text);
 
     dialog.end();
     drop(top_level);
@@ -1133,13 +1119,6 @@ fn row_text_layout(row_height: i32) -> RowTextLayout {
     }
 }
 
-fn style_row_button(btn: &mut Button, theme: &DialogTheme) {
-    btn.set_frame(FrameType::RFlatBox);
-    btn.set_color(theme.button_bg);
-    btn.set_label_color(theme.text);
-    btn.set_label_size(11);
-}
-
 /// Create a plugin row (VSCode-style layout) for any of the three tabs.
 fn create_plugin_row(kind: RowKind<'_>, ctx: &PluginRowContext) -> Group {
     let theme = &ctx.theme;
@@ -1237,18 +1216,22 @@ fn add_installed_actions(
     let btn_x = ctx.row_width - ROW_BTN_WIDTH - ICON_MARGIN;
 
     // Disable/Enable button (top)
-    let mut toggle_btn = Button::default()
+    let mut toggle_btn = ctx
+        .theme
+        .button()
         .with_pos(btn_x, 12)
         .with_size(ROW_BTN_WIDTH, ROW_BTN_HEIGHT)
         .with_label(if enabled { "Disable" } else { "Enable" });
-    style_row_button(&mut toggle_btn, &ctx.theme);
+    toggle_btn.set_label_size(11);
 
     // Uninstall button (bottom)
-    let mut uninstall_btn = Button::default()
+    let mut uninstall_btn = ctx
+        .theme
+        .button()
         .with_pos(btn_x, 12 + ROW_BTN_HEIGHT + 6)
         .with_size(ROW_BTN_WIDTH, ROW_BTN_HEIGHT)
         .with_label("Uninstall");
-    style_row_button(&mut uninstall_btn, &ctx.theme);
+    uninstall_btn.set_label_size(11);
 
     // Toggle callback - switches between Disable/Enable
     let plugin_name = name.to_string();
@@ -1329,14 +1312,15 @@ fn add_details_button(url: Option<&str>, btn_x: i32, theme: &DialogTheme) {
     let Some(url) = url else {
         return;
     };
-    let mut details_btn = Button::default()
+    let mut details_btn = theme
+        .button()
         .with_pos(
             btn_x - DETAILS_BTN_WIDTH - ROW_BTN_GAP,
             (PLUGIN_ROW_HEIGHT - ROW_BTN_HEIGHT) / 2,
         )
         .with_size(DETAILS_BTN_WIDTH, ROW_BTN_HEIGHT)
         .with_label("Details");
-    style_row_button(&mut details_btn, theme);
+    details_btn.set_label_size(11);
 
     let url = url.to_string();
     let theme_bg = theme.theme_bg();
@@ -1357,10 +1341,11 @@ fn add_details_button(url: Option<&str>, btn_x: i32, theme: &DialogTheme) {
 
 /// Install/Update button (right side, vertically centred) in its initial state.
 fn create_install_button(state: &InstallButtonState, btn_x: i32, theme: &DialogTheme) -> Button {
-    let mut install_btn = Button::default()
+    let mut install_btn = theme
+        .button()
         .with_pos(btn_x, (PLUGIN_ROW_HEIGHT - ROW_BTN_HEIGHT) / 2)
         .with_size(ROW_BTN_WIDTH, ROW_BTN_HEIGHT);
-    style_row_button(&mut install_btn, theme);
+    install_btn.set_label_size(11);
     match state {
         InstallButtonState::Installed => {
             install_btn.set_label("Installed");

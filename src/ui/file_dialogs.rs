@@ -110,12 +110,6 @@ fn zenity_folder(directory: &str) -> String {
     }
 }
 
-/// Background and text colour of a selected row in the themed chooser's file
-/// list: the shared dialog list selection (T0097).
-fn selected_row_colors(theme: &DialogTheme) -> (Color, Color) {
-    theme.list_selection()
-}
-
 /// Show the chooser and return the chosen paths (empty when cancelled).
 fn choose(
     title: &str,
@@ -169,8 +163,10 @@ fn show_themed(
     window.set_label_color(theme.text);
     style_children(&window, &theme);
     // The file list (`Fl_File_Chooser::color` / `textcolor`).
+    // Rows in the theme text; a selected row's text is picked by the
+    // contrast rule on the registered selection (T0097, T0105).
     chooser.set_color(theme.input_bg);
-    chooser.set_text_color(selected_row_colors(&theme).1);
+    chooser.set_text_color(theme.text);
     chooser.show();
     while chooser.shown() {
         app::wait();
@@ -198,25 +194,18 @@ fn style_children(group: &impl GroupExt, theme: &DialogTheme) {
             child.set_label_color(theme.text);
         }
         if let Some(mut list) = FileBrowser::from_dyn_widget(&child) {
-            // Background and text colour are set through the chooser; the
-            // selected row gets the shared, registered list selection.
-            list.set_selection_color(selected_row_colors(theme).0);
-            crate::ui::contrast::register_list_selection(selected_row_colors(theme).0.to_rgb());
+            // The shared, registered list selection (its background and row
+            // text are set through the chooser).
+            theme.style_list(&mut list);
         } else if let Some(mut input) = FileInput::from_dyn_widget(&child) {
             // The path-segment buttons above the Filename field are drawn
             // with this box type; no box keeps them clickable but invisible.
             input.set_down_frame(FrameType::NoBox);
-            input.set_color(theme.input_bg);
-            input.set_text_color(theme.text);
-            input.set_selection_color(theme.button_bg);
+            theme.style_foreign_input(&mut input);
         } else if let Some(mut menu) = Choice::from_dyn_widget(&child) {
-            menu.set_color(theme.input_bg);
-            menu.set_text_color(theme.text);
-            menu.set_selection_color(theme.button_bg);
+            theme.style_foreign_menu(&mut menu);
         } else if let Some(mut menu) = MenuButton::from_dyn_widget(&child) {
-            menu.set_color(theme.secondary_button_bg);
-            menu.set_text_color(theme.text);
-            menu.set_selection_color(theme.button_bg);
+            theme.style_foreign_menu_button(&mut menu);
         } else {
             child.set_color(theme.bg);
         }
@@ -289,7 +278,7 @@ mod tests {
         let mut failures = Vec::new();
         for &syntax in SyntaxTheme::all() {
             let theme = DialogTheme::from_theme_bg(syntax.background());
-            let (bg, fg) = selected_row_colors(&theme);
+            let (bg, fg) = theme.list_selection();
             let (bg, fg) = (bg.to_rgb(), fg.to_rgb());
             let drawn = fltk_drawn_text(fg, bg);
             let ratio = wcag_contrast(drawn, bg);

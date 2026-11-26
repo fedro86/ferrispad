@@ -415,6 +415,50 @@ pub fn layout_failures(
     failures
 }
 
+/// Text inputs of `window` not styled with `theme`'s input colors (T0105):
+/// background, text, cursor and the shared selection color, so selected text
+/// reads like a selected list row in every dialog.
+pub fn unthemed_inputs(
+    window: &Window,
+    title: &str,
+    theme: &ferris_pad::ui::dialogs::DialogTheme,
+) -> Vec<String> {
+    use fltk::prelude::InputExt;
+    let mut widgets = Vec::new();
+    walk(
+        &window.as_group().unwrap(),
+        title,
+        &mut widgets,
+        &mut Vec::new(),
+    );
+    let mut failures = Vec::new();
+    for (path, w) in widgets {
+        let Some(input) = fltk::input::Input::from_dyn_widget(&w) else {
+            continue;
+        };
+        let checks = [
+            ("background", input.color(), theme.input_bg),
+            ("text", input.text_color(), theme.text),
+            ("cursor", input.cursor_color(), theme.text),
+            (
+                "selection",
+                input.selection_color(),
+                theme.list_selection_bg,
+            ),
+        ];
+        for (what, got, want) in checks {
+            if got != want {
+                failures.push(format!(
+                    "{path}: input {what} {:?} != theme {:?}",
+                    got.to_rgb(),
+                    want.to_rgb()
+                ));
+            }
+        }
+    }
+    failures
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

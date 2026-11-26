@@ -2,11 +2,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use fltk::{
-    browser::HoldBrowser,
-    button::Button,
-    enums::{CallbackTrigger, FrameType},
+    enums::CallbackTrigger,
     frame::Frame,
-    input::Input,
     prelude::{BrowserExt, GroupExt, InputExt, WidgetExt, WindowExt},
     window::Window,
 };
@@ -62,9 +59,7 @@ pub fn show_session_picker(
     title.set_label_color(theme.text);
 
     // Session list browser
-    let mut browser = HoldBrowser::default().with_pos(20, 40).with_size(320, 160);
-    theme.style_list(&mut browser);
-    browser.set_frame(FrameType::FlatBox);
+    let mut browser = theme.list().with_pos(20, 40).with_size(320, 160);
 
     // Populate session list (use @C format code for text color on dark themes)
     let sessions = session::list_sessions();
@@ -92,43 +87,36 @@ pub fn show_session_picker(
         .with_size(40, 30)
         .with_label("New:");
     new_label.set_label_color(theme.text);
-    let mut new_input = Input::default().with_pos(65, 210).with_size(275, 30);
-    new_input.set_color(theme.input_bg);
-    new_input.set_text_color(theme.text);
-    new_input.set_selection_color(theme.button_bg);
+    let mut new_input = theme.input().with_pos(65, 210).with_size(275, 30);
 
     // Buttons row
     let btn_y = 255;
     let btn_h = 30;
     let btn_w = 100;
 
-    let mut switch_btn = Button::default()
+    let mut switch_btn = theme
+        .button()
         .with_pos(20, btn_y)
         .with_size(btn_w, btn_h)
         .with_label("Switch");
-    switch_btn.set_color(theme.button_bg);
-    switch_btn.set_label_color(theme.text);
 
-    let mut new_win_btn = Button::default()
+    let mut new_win_btn = theme
+        .button()
         .with_pos(125, btn_y)
         .with_size(btn_w, btn_h)
         .with_label("New Window");
-    new_win_btn.set_color(theme.button_bg);
-    new_win_btn.set_label_color(theme.text);
 
-    let mut delete_btn = Button::default()
+    let mut delete_btn = theme
+        .button()
         .with_pos(230, btn_y)
         .with_size(55, btn_h)
         .with_label("Delete");
-    delete_btn.set_color(theme.button_bg);
-    delete_btn.set_label_color(theme.text);
 
-    let mut cancel_btn = Button::default()
+    let mut cancel_btn = theme
+        .button()
         .with_pos(290, btn_y)
         .with_size(55, btn_h)
         .with_label("Cancel");
-    cancel_btn.set_color(theme.button_bg);
-    cancel_btn.set_label_color(theme.text);
 
     // Status label for errors
     let mut status = Frame::default()
@@ -304,10 +292,7 @@ pub fn show_new_session_dialog(parent: &Window, theme_bg: (u8, u8, u8)) -> Optio
         .with_label("Session name:");
     label.set_label_color(theme.text);
 
-    let mut name_input = Input::default().with_pos(130, 15).with_size(150, 30);
-    name_input.set_color(theme.input_bg);
-    name_input.set_text_color(theme.text);
-    name_input.set_selection_color(theme.button_bg);
+    let mut name_input = theme.input().with_pos(130, 15).with_size(150, 30);
 
     let mut status = Frame::default()
         .with_pos(20, 50)
@@ -315,19 +300,17 @@ pub fn show_new_session_dialog(parent: &Window, theme_bg: (u8, u8, u8)) -> Optio
         .with_label("");
     status.set_label_color(theme.error_color());
 
-    let mut ok_btn = Button::default()
+    let mut ok_btn = theme
+        .button()
         .with_pos(100, 75)
         .with_size(80, 30)
         .with_label("Create");
-    ok_btn.set_color(theme.button_bg);
-    ok_btn.set_label_color(theme.text);
 
-    let mut cancel_btn = Button::default()
+    let mut cancel_btn = theme
+        .button()
         .with_pos(190, 75)
         .with_size(80, 30)
         .with_label("Cancel");
-    cancel_btn.set_color(theme.button_bg);
-    cancel_btn.set_label_color(theme.text);
 
     dialog_win.end();
     drop(top_level);
