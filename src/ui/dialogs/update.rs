@@ -1,7 +1,8 @@
+use crate::ui::color::fltk_rgb;
 use fltk::{
     app,
     button::Button,
-    enums::{Color, Font, FrameType},
+    enums::{Font, FrameType},
     frame::Frame,
     group::Flex,
     misc::Progress,
@@ -83,7 +84,7 @@ pub fn show_update_available_dialog(
     theme_bg: (u8, u8, u8),
 ) {
     let theme = DialogTheme::from_theme_bg(theme_bg);
-    let dialog_bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
+    let dialog_bg = fltk_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
     let current_version = env!("CARGO_PKG_VERSION");
     let direct_asset = updater::get_platform_asset_name()
         .and_then(|name| release.assets.iter().find(|a| a.name.ends_with(name)));

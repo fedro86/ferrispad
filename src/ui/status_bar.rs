@@ -5,8 +5,9 @@
 //! Updated on every event loop iteration but short-circuits when nothing
 //! has changed (0% CPU when idle).
 
+use crate::ui::color::fltk_rgb;
 use fltk::{
-    enums::{Align, Color, Font, FrameType},
+    enums::{Align, Font, FrameType},
     frame::Frame,
     prelude::*,
     text::TextEditor,
@@ -48,8 +49,8 @@ impl StatusBar {
     pub fn new() -> Self {
         let mut frame = Frame::default().with_size(0, STATUS_BAR_HEIGHT);
         frame.set_frame(FrameType::FlatBox);
-        frame.set_color(Color::from_rgb(45, 45, 45));
-        frame.set_label_color(Color::from_rgb(180, 180, 180));
+        frame.set_color(fltk_rgb(45, 45, 45));
+        frame.set_label_color(fltk_rgb(180, 180, 180));
         frame.set_label_font(Font::Courier);
         frame.set_label_size(12);
         frame.set_align(Align::Left | Align::Inside);

@@ -17,6 +17,7 @@ pub mod shortcut_dialog;
 pub mod theme_manager;
 pub mod update;
 
+use crate::ui::color::fltk_rgb;
 use fltk::{
     app,
     enums::{Color, FrameType},
@@ -358,17 +359,14 @@ impl DialogTheme {
             let rr = (ir as f32 * t + d.r as f32 * (1.0 - t)) as u8;
             let rg = (ig as f32 * t + d.g as f32 * (1.0 - t)) as u8;
             let rb = (ib as f32 * t + d.b as f32 * (1.0 - t)) as u8;
-            Color::from_rgb(rr, rg, rb)
+            fltk_rgb(rr, rg, rb)
         };
 
         // Text colors based on brightness
         let (text, text_dim) = if is_dark {
-            (
-                Color::from_rgb(230, 230, 230),
-                Color::from_rgb(140, 140, 140),
-            )
+            (fltk_rgb(230, 230, 230), fltk_rgb(140, 140, 140))
         } else {
-            (Color::from_rgb(0, 0, 0), Color::from_rgb(80, 80, 80))
+            (fltk_rgb(0, 0, 0), fltk_rgb(80, 80, 80))
         };
 
         let (scroll_track, scroll_thumb) = scrollbar_colors(bg_rgb, is_dark);
@@ -449,9 +447,9 @@ impl DialogTheme {
     /// Light red on dark backgrounds for readability, dark red on light backgrounds.
     pub fn error_color(&self) -> Color {
         if self.is_dark {
-            Color::from_rgb(255, 120, 120)
+            fltk_rgb(255, 120, 120)
         } else {
-            Color::from_rgb(180, 0, 0)
+            fltk_rgb(180, 0, 0)
         }
     }
 
@@ -476,6 +474,10 @@ impl DialogTheme {
             };
             crate::ui::theme::set_windows_titlebar_theme(window, self.theme_bg, fg);
         }
+        // macOS: the .app bundle provides the icon and the system draws the
+        // dialog title bar, so there is nothing to apply.
+        #[cfg(target_os = "macos")]
+        let _ = window;
     }
 
     /// Apply flat themed scrollbar styling to a Scroll widget.
@@ -879,10 +881,67 @@ pub fn show_themed_input(
     }
 }
 
+/// FLTK widget checks that must run on the process main thread: on macOS,
+/// AppKit aborts when FLTK opens the display from another thread, which is
+/// where libtest runs unit tests. Called by the `harness = false` test binary
+/// `tests/fltk_main_thread.rs` (T0089); not part of the public API.
+#[doc(hidden)]
+pub mod main_thread_checks {
+    use super::*;
+    use fltk::group::Group;
+
+    /// Regression for T0058: a popup built while another window's group is
+    /// current (begun, not ended) must still be a top-level window, must not
+    /// add itself to that group, and must leave that group current.
+    pub fn popup_is_top_level() {
+        let theme = DialogTheme::from_theme_bg((40, 44, 52));
+        let previous = Group::try_current();
+
+        let outer = Window::new(0, 0, 600, 400, None); // begun: now current
+        let outer_children = outer.children();
+        let message = build_themed_popup(
+            &theme,
+            "Error",
+            "Error opening file: No such file or directory",
+            None,
+            &choice_layout("Close", "", ""),
+        );
+        let input = build_themed_popup(
+            &theme,
+            "Go To Line",
+            "Line number:",
+            Some("1"),
+            &choice_layout("Cancel", "OK", ""),
+        );
+        let current_after = Group::try_current().map(|g| g.as_widget_ptr());
+        let children_after = outer.children();
+
+        // Restore FLTK's process-global current group before asserting, so a
+        // failure leaves no group begun for later tests.
+        outer.end();
+        Group::set_current(previous.as_ref());
+
+        for popup in [&message, &input] {
+            assert!(
+                popup.dialog.parent().is_none(),
+                "the popup must be a top-level window, not a child of the current group"
+            );
+        }
+        assert_eq!(
+            children_after, outer_children,
+            "outer group gained children"
+        );
+        assert_eq!(
+            current_after,
+            Some(outer.as_widget_ptr()),
+            "the caller's current group must be restored"
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fltk::group::Group;
 
     /// a3's T0097 nit: the registered list selection must follow every
     /// re-theme, not wait for the next dialog list to be styled.
@@ -954,70 +1013,20 @@ mod tests {
         assert!(failures.is_empty(), "\n{}", failures.join("\n"));
     }
 
-    /// Regression for T0058: a popup built while another window's group is
-    /// current (begun, not ended) must still be a top-level window, must not
-    /// add itself to that group, and must leave that group current.
-    #[test]
-    fn popup_is_top_level() {
-        let _fltk = crate::ui::fltk_widget_test_lock();
-        let theme = DialogTheme::from_theme_bg((40, 44, 52));
-        let previous = Group::try_current();
-
-        let outer = Window::new(0, 0, 600, 400, None); // begun: now current
-        let outer_children = outer.children();
-        let message = build_themed_popup(
-            &theme,
-            "Error",
-            "Error opening file: No such file or directory",
-            None,
-            &choice_layout("Close", "", ""),
-        );
-        let input = build_themed_popup(
-            &theme,
-            "Go To Line",
-            "Line number:",
-            Some("1"),
-            &choice_layout("Cancel", "OK", ""),
-        );
-        let current_after = Group::try_current().map(|g| g.as_widget_ptr());
-        let children_after = outer.children();
-
-        // Restore FLTK's process-global current group before asserting, so a
-        // failure leaves no group begun for later tests.
-        outer.end();
-        Group::set_current(previous.as_ref());
-
-        for popup in [&message, &input] {
-            assert!(
-                popup.dialog.parent().is_none(),
-                "the popup must be a top-level window, not a child of the current group"
-            );
-        }
-        assert_eq!(
-            children_after, outer_children,
-            "outer group gained children"
-        );
-        assert_eq!(
-            current_after,
-            Some(outer.as_widget_ptr()),
-            "the caller's current group must be restored"
-        );
-    }
-
     #[test]
     fn scrollbar_colors_dark_darkens_track_and_lightens_thumb() {
         let (track, thumb) = scrollbar_colors(ThemeRgb::new(40, 44, 52), true);
         // track = base * 0.70; thumb = base + (255 - base) * 0.20
-        assert_eq!(track, Color::from_rgb(28, 30, 36));
-        assert_eq!(thumb, Color::from_rgb(83, 86, 92));
+        assert_eq!(track, fltk_rgb(28, 30, 36));
+        assert_eq!(thumb, fltk_rgb(83, 86, 92));
     }
 
     #[test]
     fn scrollbar_colors_light_darkens_both() {
         let (track, thumb) = scrollbar_colors(ThemeRgb::new(250, 250, 250), false);
         // track = base * 0.95; thumb = base * 0.75
-        assert_eq!(track, Color::from_rgb(237, 237, 237));
-        assert_eq!(thumb, Color::from_rgb(187, 187, 187));
+        assert_eq!(track, fltk_rgb(237, 237, 237));
+        assert_eq!(thumb, fltk_rgb(187, 187, 187));
     }
 
     #[test]

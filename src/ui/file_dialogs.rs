@@ -272,7 +272,7 @@ mod tests {
     /// `ui::contrast`).
     fn fltk_drawn_text(fg: (u8, u8, u8), bg: (u8, u8, u8)) -> (u8, u8, u8) {
         use crate::ui::contrast::{EditorSelectionBgs, ferrispad_contrast};
-        let c = |(r, g, b): (u8, u8, u8)| Color::from_rgb(r, g, b);
+        let c = |(r, g, b): (u8, u8, u8)| crate::ui::color::fltk_rgb(r, g, b);
         ferrispad_contrast(
             c(fg),
             c(bg),

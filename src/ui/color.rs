@@ -35,7 +35,7 @@ impl ThemeRgb {
     }
 
     pub fn to_fltk(self) -> Color {
-        Color::from_rgb(self.r, self.g, self.b)
+        fltk_rgb(self.r, self.g, self.b)
     }
 
     /// Calculate brightness (0-255)
@@ -73,6 +73,22 @@ impl ThemeRgb {
     }
 }
 
+/// The FLTK color for an sRGB triple. Use this instead of
+/// `Color::from_rgb` everywhere (T0098).
+///
+/// FLTK packs an RGB color as `0xRRGGBB00` and reads `0x00000000` as palette
+/// index 0, `FL_FOREGROUND_COLOR`, which FerrisPad sets light in dark mode:
+/// `Color::from_rgb(0, 0, 0)` therefore drew pure black as light gray. Black
+/// is returned as `Color::Black` (`FL_BLACK`, index 56) instead; every other
+/// color keeps its RGB encoding.
+pub const fn fltk_rgb(r: u8, g: u8, b: u8) -> Color {
+    if r == 0 && g == 0 && b == 0 {
+        Color::Black
+    } else {
+        Color::from_rgb(r, g, b)
+    }
+}
+
 /// WCAG 2 relative luminance of an sRGB color, from 0.0 (black) to 1.0
 /// (white).
 pub fn wcag_luminance((r, g, b): (u8, u8, u8)) -> f64 {
@@ -97,6 +113,58 @@ pub fn wcag_contrast(a: (u8, u8, u8), b: (u8, u8, u8)) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T0098: FLTK packs RGB as 0xRRGGBB00 and reads 0x00000000 as palette
+    /// index 0, `FL_FOREGROUND_COLOR`, which the dark theme sets light: pure
+    /// black must never become that.
+    #[test]
+    fn fltk_rgb_black_is_not_the_foreground_index() {
+        let black = fltk_rgb(0, 0, 0);
+        assert_ne!(
+            black.bits(),
+            0,
+            "black packed as palette index 0 (foreground)"
+        );
+        assert_eq!(black, Color::Black);
+        assert_eq!(ThemeRgb::new(0, 0, 0).to_fltk(), Color::Black);
+        // Every other color keeps its plain RGB encoding.
+        assert_eq!(fltk_rgb(0, 0, 1), Color::from_rgb(0, 0, 1));
+        assert_eq!(fltk_rgb(255, 255, 255), Color::from_rgb(255, 255, 255));
+        assert_eq!(fltk_rgb(43, 48, 59).to_rgb(), (43, 48, 59));
+    }
+
+    /// Every RGB → FLTK color conversion goes through [`fltk_rgb`]: a direct
+    /// `Color::from_rgb` anywhere else could encode black as the foreground.
+    #[test]
+    fn no_direct_color_from_rgb_outside_fltk_rgb() {
+        fn walk(dir: &std::path::Path, hits: &mut Vec<String>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, hits);
+                } else if path.extension().is_some_and(|e| e == "rs")
+                    && !path.ends_with("ui/color.rs")
+                {
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    for (n, line) in text.lines().enumerate() {
+                        if line.contains("Color::from_rgb(") {
+                            hits.push(format!("{}:{}", path.display(), n + 1));
+                        }
+                    }
+                }
+            }
+        }
+        let mut hits = Vec::new();
+        walk(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut hits,
+        );
+        assert!(
+            hits.is_empty(),
+            "use ui::color::fltk_rgb:\n{}",
+            hits.join("\n")
+        );
+    }
 
     #[test]
     fn wcag_contrast_extremes_and_symmetry() {
