@@ -1,3 +1,4 @@
+use crate::ui::color::fltk_rgb;
 #[cfg(not(target_os = "macos"))]
 use fltk::image::PngImage;
 use fltk::{
@@ -244,7 +245,7 @@ pub fn build_main_window(
     // Update notification banner (initially hidden)
     let mut update_banner_frame = Frame::default().with_size(0, 0);
     update_banner_frame.set_frame(fltk::enums::FrameType::FlatBox);
-    update_banner_frame.set_color(Color::from_rgb(255, 250, 205));
+    update_banner_frame.set_color(fltk_rgb(255, 250, 205));
     update_banner_frame.set_label_color(Color::Black);
     update_banner_frame.set_label_size(13);
     update_banner_frame.hide();

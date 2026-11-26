@@ -7,6 +7,7 @@
 //! [`ThemeManagerModel`]; this file only turns clicks into model calls and
 //! hands the returned actions to the caller.
 
+use crate::ui::color::fltk_rgb;
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
@@ -207,7 +208,7 @@ impl Ctx {
             let mut row = row.clone();
             if let Some(colors) = colors {
                 let rgb = row.field.of(&colors);
-                row.swatch.set_color(Color::from_rgb(rgb.0, rgb.1, rgb.2));
+                row.swatch.set_color(fltk_rgb(rgb.0, rgb.1, rgb.2));
                 row.hex.set_label(&format_hex_color(rgb));
             }
             if entry.read_only {
@@ -341,8 +342,7 @@ fn build_window(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Window, Ct
     let mut browser = HoldBrowser::default()
         .with_pos(PADDING, list_y)
         .with_size(list_w, list_h);
-    browser.set_color(theme.input_bg);
-    browser.set_selection_color(theme.button_bg);
+    theme.style_list(&mut browser);
     // Item text uses FLTK's foreground, the dialog text color here.
     browser.set_frame(FrameType::FlatBox);
     browser.set_scrollbar_size(SCROLLBAR_SIZE);
