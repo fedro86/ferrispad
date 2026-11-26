@@ -342,8 +342,7 @@ fn build_window(theme_bg: (u8, u8, u8), model: ThemeManagerModel) -> (Window, Ct
     let mut browser = HoldBrowser::default()
         .with_pos(PADDING, list_y)
         .with_size(list_w, list_h);
-    browser.set_color(theme.input_bg);
-    browser.set_selection_color(theme.button_bg);
+    theme.style_list(&mut browser);
     // Item text uses FLTK's foreground, the dialog text color here.
     browser.set_frame(FrameType::FlatBox);
     browser.set_scrollbar_size(SCROLLBAR_SIZE);
