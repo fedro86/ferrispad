@@ -17,6 +17,7 @@ pub mod shortcut_dialog;
 pub mod theme_manager;
 pub mod update;
 
+use crate::ui::color::fltk_rgb;
 use fltk::{
     app,
     enums::{Color, FrameType},
@@ -288,17 +289,14 @@ impl DialogTheme {
             let rr = (ir as f32 * t + d.r as f32 * (1.0 - t)) as u8;
             let rg = (ig as f32 * t + d.g as f32 * (1.0 - t)) as u8;
             let rb = (ib as f32 * t + d.b as f32 * (1.0 - t)) as u8;
-            Color::from_rgb(rr, rg, rb)
+            fltk_rgb(rr, rg, rb)
         };
 
         // Text colors based on brightness
         let (text, text_dim) = if is_dark {
-            (
-                Color::from_rgb(230, 230, 230),
-                Color::from_rgb(140, 140, 140),
-            )
+            (fltk_rgb(230, 230, 230), fltk_rgb(140, 140, 140))
         } else {
-            (Color::from_rgb(0, 0, 0), Color::from_rgb(80, 80, 80))
+            (fltk_rgb(0, 0, 0), fltk_rgb(80, 80, 80))
         };
 
         let (scroll_track, scroll_thumb) = scrollbar_colors(bg_rgb, is_dark);
@@ -355,9 +353,9 @@ impl DialogTheme {
     /// Light red on dark backgrounds for readability, dark red on light backgrounds.
     pub fn error_color(&self) -> Color {
         if self.is_dark {
-            Color::from_rgb(255, 120, 120)
+            fltk_rgb(255, 120, 120)
         } else {
-            Color::from_rgb(180, 0, 0)
+            fltk_rgb(180, 0, 0)
         }
     }
 
@@ -855,16 +853,16 @@ mod tests {
     fn scrollbar_colors_dark_darkens_track_and_lightens_thumb() {
         let (track, thumb) = scrollbar_colors(ThemeRgb::new(40, 44, 52), true);
         // track = base * 0.70; thumb = base + (255 - base) * 0.20
-        assert_eq!(track, Color::from_rgb(28, 30, 36));
-        assert_eq!(thumb, Color::from_rgb(83, 86, 92));
+        assert_eq!(track, fltk_rgb(28, 30, 36));
+        assert_eq!(thumb, fltk_rgb(83, 86, 92));
     }
 
     #[test]
     fn scrollbar_colors_light_darkens_both() {
         let (track, thumb) = scrollbar_colors(ThemeRgb::new(250, 250, 250), false);
         // track = base * 0.95; thumb = base * 0.75
-        assert_eq!(track, Color::from_rgb(237, 237, 237));
-        assert_eq!(thumb, Color::from_rgb(187, 187, 187));
+        assert_eq!(track, fltk_rgb(237, 237, 237));
+        assert_eq!(thumb, fltk_rgb(187, 187, 187));
     }
 
     #[test]

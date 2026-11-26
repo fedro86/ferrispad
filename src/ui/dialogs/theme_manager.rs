@@ -7,6 +7,7 @@
 //! [`ThemeManagerModel`]; this file only turns clicks into model calls and
 //! hands the returned actions to the caller.
 
+use crate::ui::color::fltk_rgb;
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
@@ -207,7 +208,7 @@ impl Ctx {
             let mut row = row.clone();
             if let Some(colors) = colors {
                 let rgb = row.field.of(&colors);
-                row.swatch.set_color(Color::from_rgb(rgb.0, rgb.1, rgb.2));
+                row.swatch.set_color(fltk_rgb(rgb.0, rgb.1, rgb.2));
                 row.hex.set_label(&format_hex_color(rgb));
             }
             if entry.read_only {

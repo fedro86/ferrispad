@@ -4,6 +4,7 @@
 //! Lazy-loaded: zero PTY/grid/parser until first show().
 //! Plugin-driven via the Widget API.
 
+use crate::ui::color::fltk_rgb;
 use std::rc::{Rc, Weak};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -49,20 +50,20 @@ struct TerminalTheme {
 
 impl TerminalTheme {
     /// Readable text on dark backgrounds
-    const TEXT_ON_DARK: Color = Color::from_rgb(220, 220, 220);
+    const TEXT_ON_DARK: Color = fltk_rgb(220, 220, 220);
     /// Readable text on light backgrounds
-    const TEXT_ON_LIGHT: Color = Color::from_rgb(30, 30, 30);
+    const TEXT_ON_LIGHT: Color = fltk_rgb(30, 30, 30);
 
     fn from_theme(is_dark: bool, theme_bg: (u8, u8, u8)) -> Self {
         let (r, g, b) = theme_bg;
         let bg = if is_dark {
-            Color::from_rgb(
+            fltk_rgb(
                 r.saturating_sub(10),
                 g.saturating_sub(10),
                 b.saturating_sub(10),
             )
         } else {
-            Color::from_rgb(
+            fltk_rgb(
                 r.saturating_sub(15),
                 g.saturating_sub(15),
                 b.saturating_sub(15),

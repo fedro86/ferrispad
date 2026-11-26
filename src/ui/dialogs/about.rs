@@ -1,6 +1,7 @@
+use crate::ui::color::fltk_rgb;
 use fltk::{
     button::Button,
-    enums::{Color, Font, FrameType},
+    enums::{Font, FrameType},
     frame::Frame,
     group::Flex,
     prelude::*,
@@ -15,7 +16,7 @@ pub fn show_about_dialog(theme_bg: (u8, u8, u8)) {
     let version = env!("CARGO_PKG_VERSION");
 
     // Use original editor background for dialog (not derived/darkened)
-    let dialog_bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
+    let dialog_bg = fltk_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
 
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();

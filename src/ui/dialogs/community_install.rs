@@ -3,9 +3,10 @@
 //! Shows plugin details, permissions, scan warnings, and disclaimer
 //! before allowing the user to proceed with installation.
 
+use crate::ui::color::fltk_rgb;
 use fltk::{
     button::Button,
-    enums::{Align, Color, Font, FrameType},
+    enums::{Align, Font, FrameType},
     frame::Frame,
     group::{Pack, PackType, Scroll},
     prelude::*,
@@ -116,9 +117,9 @@ pub fn show_community_install_dialog(review: &CommunityInstallReview, theme: &Di
         "Install Community Plugin"
     };
     let warning_color = if theme.is_dark() {
-        Color::from_rgb(220, 180, 80)
+        fltk_rgb(220, 180, 80)
     } else {
-        Color::from_rgb(180, 120, 20)
+        fltk_rgb(180, 120, 20)
     };
     let mut header = Frame::default()
         .with_size(content_width, 26)
