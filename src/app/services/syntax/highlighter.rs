@@ -34,6 +34,23 @@ pub struct IncrementalResult {
     pub byte_start: usize,
     /// New style characters for [byte_start .. byte_start + style_chars.len()).
     pub style_chars: String,
+    /// Set when the byte budget ran out before the parse state converged or
+    /// the text ended (T0096): where to continue.
+    pub resume: Option<ResumePoint>,
+}
+
+/// Where a budgeted re-highlight paused (T0096): the next line to
+/// highlight, its byte offset, and the parser state before it.
+#[derive(Clone)]
+pub struct ResumePoint {
+    /// Index of the next line to highlight.
+    pub line: usize,
+    /// Byte offset of that line in the text.
+    pub byte: usize,
+    /// Line count of the text, so a continuation step need not rescan it.
+    total_lines: usize,
+    parse_state: ParseState,
+    highlight_state: HighlightState,
 }
 
 /// Look up `theme_name`, failing soft instead of panicking like
@@ -99,9 +116,11 @@ pub fn highlight_full(
     }
 }
 
-/// Incremental re-highlight starting from `edit_line` (0-indexed).
-/// Modifies `checkpoints` in place and returns only the changed style chars region.
-/// Uses an iterator over lines (no Vec collection) to minimize allocations.
+/// Incremental re-highlight starting from `edit_line` (0-indexed): from the
+/// checkpoint at or before it, until the parse state converges with a
+/// stored checkpoint, the text ends, or `budget` tokenized bytes are done
+/// (then `resume` says where to continue, see [`highlight_resume`]).
+/// Modifies `checkpoints` in place and returns only the changed style chars.
 #[allow(clippy::too_many_arguments)]
 pub fn highlight_incremental(
     text: &str,
@@ -112,11 +131,11 @@ pub fn highlight_incremental(
     theme_set: &ThemeSet,
     theme_name: &str,
     style_map: &mut StyleMap,
+    budget: usize,
 ) -> IncrementalResult {
     let theme = resolve_theme(theme_set, theme_name);
     let highlighter = Highlighter::new(theme);
 
-    // Count total lines efficiently
     let total_lines = LinesWithEndings::new(text).count();
 
     // Find the nearest checkpoint at or before the edit line
@@ -125,7 +144,7 @@ pub fn highlight_incremental(
     let start_line = SparseCheckpoints::checkpoint_line(start_cp_idx);
 
     // Resume from cached states at the checkpoint
-    let (mut parse_state, mut highlight_state) = if start_cp_idx < checkpoints.len() {
+    let (parse_state, highlight_state) = if start_cp_idx < checkpoints.len() {
         (
             checkpoints.parse_states[start_cp_idx].clone(),
             checkpoints.highlight_states[start_cp_idx].clone(),
@@ -136,32 +155,126 @@ pub fn highlight_incremental(
             HighlightState::new(&highlighter, ScopeStack::new()),
         )
     };
+    let start_byte: usize = LinesWithEndings::new(text)
+        .take(start_line)
+        .map(str::len)
+        .sum();
 
-    // Compute byte_start and iterate lines without collecting into Vec
-    let mut byte_start = 0;
+    highlight_lines_from(
+        text,
+        ResumePoint {
+            line: start_line,
+            byte: start_byte,
+            total_lines,
+            parse_state,
+            highlight_state,
+        },
+        // The starting checkpoint is where the state came from: converging
+        // means matching a later one.
+        start_cp_idx + 1,
+        total_lines,
+        checkpoints,
+        &highlighter,
+        syntax_set,
+        style_map,
+        budget,
+    )
+}
+
+/// Continue a re-highlight paused at `resume` (T0096), with the same rules
+/// as [`highlight_incremental`]: until convergence, the end of the text, or
+/// `budget` tokenized bytes. `text` must be the text the pause was computed
+/// on; a resume point that does not fit it yields an empty result.
+#[allow(clippy::too_many_arguments)]
+pub fn highlight_resume(
+    text: &str,
+    resume: ResumePoint,
+    checkpoints: &mut SparseCheckpoints,
+    syntax_set: &SyntaxSet,
+    theme_set: &ThemeSet,
+    theme_name: &str,
+    style_map: &mut StyleMap,
+    budget: usize,
+) -> IncrementalResult {
+    if resume.byte > text.len() || !text.is_char_boundary(resume.byte) {
+        return IncrementalResult {
+            byte_start: resume.byte.min(text.len()),
+            style_chars: String::new(),
+            resume: None,
+        };
+    }
+    let theme = resolve_theme(theme_set, theme_name);
+    let highlighter = Highlighter::new(theme);
+    // Counted at the pause: a continuation step costs its budget, not a
+    // scan of the whole text.
+    let total_lines = resume.total_lines;
+    // The checkpoint at the resume line (if it falls on one) was not touched
+    // before the pause: it may already show convergence.
+    let first_comparable = resume.line.div_ceil(CHECKPOINT_INTERVAL);
+    highlight_lines_from(
+        text,
+        resume,
+        first_comparable,
+        total_lines,
+        checkpoints,
+        &highlighter,
+        syntax_set,
+        style_map,
+        budget,
+    )
+}
+
+/// The one re-highlight loop (incremental and its continuation): highlight
+/// lines from `start` until the state matches a stored checkpoint whose index
+/// is at least `first_comparable` (converged), the text ends, or `budget`
+/// tokenized bytes are done (paused, before the next line and its
+/// checkpoint).
+#[allow(clippy::too_many_arguments)]
+fn highlight_lines_from(
+    text: &str,
+    start: ResumePoint,
+    first_comparable: usize,
+    total_lines: usize,
+    checkpoints: &mut SparseCheckpoints,
+    highlighter: &Highlighter,
+    syntax_set: &SyntaxSet,
+    style_map: &mut StyleMap,
+    budget: usize,
+) -> IncrementalResult {
+    let ResumePoint {
+        line: mut line_idx,
+        byte: byte_start,
+        mut parse_state,
+        mut highlight_state,
+        ..
+    } = start;
+    let mut byte = byte_start;
     let mut style_chars = String::new();
-    let mut _converged_at_cp: Option<usize> = None;
-    let mut line_idx = 0;
+    let mut tokenized = 0;
+    let mut resume = None;
 
-    for line in LinesWithEndings::new(text) {
-        if line_idx < start_line {
-            byte_start += line.len();
-            line_idx += 1;
-            continue;
+    for line in LinesWithEndings::new(&text[byte_start..]) {
+        if tokenized >= budget {
+            resume = Some(ResumePoint {
+                line: line_idx,
+                byte,
+                total_lines,
+                parse_state,
+                highlight_state,
+            });
+            break;
         }
 
         // Save/check checkpoint at boundary
         if line_idx % CHECKPOINT_INTERVAL == 0 {
             let cp_idx = line_idx / CHECKPOINT_INTERVAL;
 
-            // Check convergence at checkpoint boundaries (skip the starting checkpoint)
-            if cp_idx > start_cp_idx
+            if cp_idx >= first_comparable
                 && cp_idx < checkpoints.len()
                 && parse_state == checkpoints.parse_states[cp_idx]
                 && highlight_state == checkpoints.highlight_states[cp_idx]
             {
                 // Converged — no more changes needed
-                _converged_at_cp = Some(cp_idx);
                 break;
             }
 
@@ -178,12 +291,15 @@ pub fn highlight_incremental(
             line,
             &mut parse_state,
             &mut highlight_state,
-            &highlighter,
+            highlighter,
             syntax_set,
             style_map,
             &mut style_chars,
         );
-
+        if !is_long_line(line) {
+            tokenized += line.len();
+        }
+        byte += line.len();
         line_idx += 1;
     }
 
@@ -193,12 +309,10 @@ pub fn highlight_incremental(
     checkpoints.parse_states.truncate(expected_cp_count);
     checkpoints.highlight_states.truncate(expected_cp_count);
 
-    // If we didn't converge and went past the old checkpoint count,
-    // the new checkpoints were already pushed in the loop above.
-
     IncrementalResult {
         byte_start,
         style_chars,
+        resume,
     }
 }
 
