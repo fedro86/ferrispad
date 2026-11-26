@@ -12,6 +12,7 @@ pub mod plugin_settings;
 pub mod readonly_viewer;
 pub mod session_picker;
 pub mod settings_dialog;
+pub mod settings_layout;
 pub mod shortcut_dialog;
 pub mod theme_manager;
 pub mod update;

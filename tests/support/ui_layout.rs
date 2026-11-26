@@ -65,10 +65,17 @@ fn walk(
     group: &fltk::group::Group,
     path: &str,
     widgets: &mut Vec<(String, Widget)>,
-    siblings: &mut Vec<(String, Vec<Widget>)>,
+    siblings: &mut Vec<(String, Rect, Vec<Widget>)>,
 ) {
     let kids = children(group);
-    siblings.push((path.to_string(), kids.clone()));
+    // FLTK draws outside labels relative to the parent: a window's own
+    // origin is 0,0 for its children (`Fl_Group::draw_outside_label`).
+    let parent = if group.as_window().is_some() {
+        Rect::new(0, 0, group.w(), group.h())
+    } else {
+        Rect::new(group.x(), group.y(), group.w(), group.h())
+    };
+    siblings.push((path.to_string(), parent, kids.clone()));
     for (i, kid) in kids.into_iter().enumerate() {
         let name = format!("{path}/{i}:{:?}", kid.label());
         let composite = fltk::group::ColorChooser::from_dyn_widget(&kid).is_some();
@@ -170,7 +177,7 @@ pub fn sibling_overlaps(
         &mut siblings,
     );
     let mut failures = Vec::new();
-    for (path, kids) in siblings {
+    for (path, _, kids) in siblings {
         for (i, a) in kids.iter().enumerate() {
             for b in &kids[i + 1..] {
                 if !(only(a) || only(b)) {
@@ -185,6 +192,162 @@ pub fn sibling_overlaps(
                         (a.x(), a.y(), a.w(), a.h()),
                         b.label(),
                         (b.x(), b.y(), b.w(), b.h())
+                    ));
+                }
+            }
+        }
+    }
+    failures
+}
+
+/// A widget or text rectangle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub w: i32,
+    pub h: i32,
+}
+
+impl Rect {
+    pub const fn new(x: i32, y: i32, w: i32, h: i32) -> Self {
+        Self { x, y, w, h }
+    }
+
+    fn of(w: &Widget) -> Self {
+        Self::new(w.x(), w.y(), w.w(), w.h())
+    }
+
+    pub fn intersects(&self, o: &Rect) -> bool {
+        self.w > 0
+            && self.h > 0
+            && o.w > 0
+            && o.h > 0
+            && self.x.max(o.x) < (self.x + self.w).min(o.x + o.w)
+            && self.y.max(o.y) < (self.y + self.h).min(o.y + o.h)
+    }
+
+    pub fn contains(&self, o: &Rect) -> bool {
+        o.x >= self.x
+            && o.y >= self.y
+            && o.x + o.w <= self.x + self.w
+            && o.y + o.h <= self.y + self.h
+    }
+}
+
+/// FLTK's gap between a widget and its left/right outside label.
+const OUTSIDE_GAP: i32 = 3;
+const ALIGN_POSITION_MASK: i32 = 15;
+const ALIGN_LEFT_TOP: i32 = 7;
+const ALIGN_RIGHT_TOP: i32 = 11;
+const ALIGN_LEFT_BOTTOM: i32 = 13;
+const ALIGN_RIGHT_BOTTOM: i32 = 14;
+
+/// Where FLTK draws a label that is *outside* its widget, as a text
+/// rectangle of `text` (w, h). Mirrors `Fl_Group::draw_outside_label`:
+/// FLTK picks a box between the parent's edge and the widget, then aligns
+/// the text in it toward the widget, without clipping, so a long label
+/// spills out of that box. `None` for an inside or centered label.
+pub fn outside_label_rect(
+    widget: Rect,
+    parent: Rect,
+    align: i32,
+    text: (i32, i32),
+) -> Option<Rect> {
+    if align & ALIGN_POSITION_MASK == 0 || align & ALIGN_INSIDE != 0 {
+        return None;
+    }
+    let (tw, th) = text;
+    let (wx, wy, ww, wh) = (widget.x, widget.y, widget.w, widget.h);
+    // Text placed against the widget, given its box and the alignment
+    // FLTK draws it with inside that box.
+    let left_of = wx - OUTSIDE_GAP - tw; // right-aligned left of the widget
+    let right_of = wx + ww + OUTSIDE_GAP; // left-aligned right of it
+    let centered_y = wy + (wh - th) / 2;
+    let pos = align & ALIGN_POSITION_MASK;
+    let (x, y) = match pos {
+        ALIGN_LEFT_TOP => (left_of, wy),
+        ALIGN_LEFT_BOTTOM => (left_of, wy + wh - th),
+        ALIGN_RIGHT_TOP => (right_of, wy),
+        ALIGN_RIGHT_BOTTOM => (right_of, wy + wh - th),
+        _ if pos & ALIGN_TOP != 0 || pos & ALIGN_BOTTOM != 0 => {
+            let y = if pos & ALIGN_TOP != 0 {
+                wy - th
+            } else {
+                wy + wh
+            };
+            let x = if pos & ALIGN_LEFT != 0 {
+                wx
+            } else if pos & ALIGN_RIGHT != 0 {
+                wx + ww - tw
+            } else {
+                wx + (ww - tw) / 2
+            };
+            (x, y)
+        }
+        _ if pos & ALIGN_LEFT != 0 => (left_of, centered_y),
+        _ => (right_of, centered_y),
+    };
+    let _ = parent; // the box edge only matters for clipping, which FLTK doesn't do
+    Some(Rect::new(x, y, tw, th))
+}
+
+/// Labels drawn *outside* their widget (e.g. an `Input`'s default left
+/// label) must stay inside the parent group, and must not run into a
+/// sibling widget or another outside label. Measured at the label size +
+/// `bump_pt`. A pair is checked when either widget passes `only`.
+pub fn outside_label_failures(
+    window: &Window,
+    title: &str,
+    bump_pt: i32,
+    only: impl Fn(&Widget) -> bool,
+) -> Vec<String> {
+    let mut siblings = Vec::new();
+    walk(
+        &window.as_group().unwrap(),
+        title,
+        &mut Vec::new(),
+        &mut siblings,
+    );
+    let mut failures = Vec::new();
+    for (path, parent, kids) in siblings {
+        let labels: Vec<(usize, Rect)> = kids
+            .iter()
+            .enumerate()
+            .filter_map(|(i, w)| {
+                let label = w.label();
+                if label.is_empty() {
+                    return None;
+                }
+                fltk::draw::set_font(w.label_font(), w.label_size() + bump_pt);
+                let text = fltk::draw::measure(&label, false);
+                outside_label_rect(Rect::of(w), parent, w.align().bits(), text).map(|r| (i, r))
+            })
+            .collect();
+        for &(i, rect) in &labels {
+            let owner = &kids[i];
+            let name = format!(
+                "{path}: outside label {:?} at +{bump_pt}pt {:?}",
+                owner.label(),
+                rect
+            );
+            if only(owner) && !parent.contains(&rect) {
+                failures.push(format!("{name} leaves its group {parent:?}"));
+            }
+            for (j, other) in kids.iter().enumerate() {
+                if j != i && (only(owner) || only(other)) && rect.intersects(&Rect::of(other)) {
+                    failures.push(format!(
+                        "{name} runs into {:?} {:?}",
+                        other.label(),
+                        Rect::of(other)
+                    ));
+                }
+            }
+            for &(j, other) in &labels {
+                if j > i && (only(owner) || only(&kids[j])) && rect.intersects(&other) {
+                    failures.push(format!(
+                        "{name} overlaps the label of {:?}",
+                        kids[j].label()
                     ));
                 }
             }
@@ -236,7 +399,8 @@ pub fn flat_widgets_with_tooltip(window: &Window, title: &str, tooltip: &str) ->
 }
 
 /// Every layout failure of `window` for the widgets passing `only`:
-/// labels at the normal size and at +2 pt, and sibling overlaps.
+/// labels at the normal size and at +2 pt (inside and outside labels), and
+/// sibling overlaps.
 pub fn layout_failures(
     window: &Window,
     title: &str,
@@ -245,6 +409,81 @@ pub fn layout_failures(
     lay_out(window);
     let mut failures = label_overflows(window, title, 0, only);
     failures.extend(label_overflows(window, title, 2, only));
+    failures.extend(outside_label_failures(window, title, 0, only));
+    failures.extend(outside_label_failures(window, title, 2, only));
     failures.extend(sibling_overlaps(window, title, only));
     failures
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const W: Rect = Rect::new(100, 50, 60, 20); // the widget
+    const P: Rect = Rect::new(0, 0, 400, 300); // its parent
+
+    #[test]
+    fn outside_label_rect_sides() {
+        let t = (40, 14);
+        // Left (Input's default): right-aligned 3 px left, centered.
+        assert_eq!(
+            outside_label_rect(W, P, ALIGN_LEFT, t),
+            Some(Rect::new(57, 53, 40, 14))
+        );
+        // Right: 3 px right of the widget, centered.
+        assert_eq!(
+            outside_label_rect(W, P, ALIGN_RIGHT, t),
+            Some(Rect::new(163, 53, 40, 14))
+        );
+        // Top / bottom: centered over / under the widget.
+        assert_eq!(
+            outside_label_rect(W, P, ALIGN_TOP, t),
+            Some(Rect::new(110, 36, 40, 14))
+        );
+        assert_eq!(
+            outside_label_rect(W, P, ALIGN_BOTTOM, t),
+            Some(Rect::new(110, 70, 40, 14))
+        );
+        // Top-left / bottom-right: flush with that widget edge.
+        assert_eq!(
+            outside_label_rect(W, P, ALIGN_TOP | ALIGN_LEFT, t),
+            Some(Rect::new(100, 36, 40, 14))
+        );
+        assert_eq!(
+            outside_label_rect(W, P, ALIGN_BOTTOM | ALIGN_RIGHT, t),
+            Some(Rect::new(120, 70, 40, 14))
+        );
+        // FLTK's LEFT_TOP etc.: beside the widget, at its top / bottom.
+        assert_eq!(
+            outside_label_rect(W, P, ALIGN_LEFT_TOP, t),
+            Some(Rect::new(57, 50, 40, 14))
+        );
+        assert_eq!(
+            outside_label_rect(W, P, ALIGN_RIGHT_BOTTOM, t),
+            Some(Rect::new(163, 56, 40, 14))
+        );
+    }
+
+    #[test]
+    fn outside_label_rect_skips_inside_and_centered() {
+        assert_eq!(
+            outside_label_rect(W, P, ALIGN_LEFT | ALIGN_INSIDE, (40, 14)),
+            None
+        );
+        assert_eq!(outside_label_rect(W, P, 0, (40, 14)), None);
+    }
+
+    #[test]
+    fn outside_label_rect_spills_and_collides() {
+        // A 120 px left label next to a widget at x=100 starts at -23:
+        // outside the parent, and over a sibling sitting at x=0..50.
+        let r = outside_label_rect(W, P, ALIGN_LEFT, (120, 14)).unwrap();
+        assert_eq!(r.x, 100 - 3 - 120);
+        assert!(!P.contains(&r));
+        assert!(r.intersects(&Rect::new(0, 50, 50, 20)));
+        assert!(
+            !r.intersects(&Rect::new(0, 80, 50, 20)),
+            "a row below is untouched"
+        );
+    }
 }
