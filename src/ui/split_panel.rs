@@ -3,6 +3,7 @@
 //! Used for showing diffs, AI suggestions, and file comparisons.
 //! Plugin-driven via the Widget API.
 
+use super::line_numbers;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -404,9 +405,6 @@ impl DockedHeight {
     }
 }
 
-/// Width of a pane's line-number gutter when line numbers are shown
-const LINENUMBER_WIDTH: i32 = 40;
-
 /// Scrollbar marker data for one pane: (line, color) pairs, shared with the
 /// content row's draw callback.
 type Markers = Rc<RefCell<Vec<(u32, HighlightColor)>>>;
@@ -451,7 +449,7 @@ impl<D: DisplayExt> Pane<D> {
         display.set_frame(FrameType::FlatBox);
         display.set_text_font(Font::Courier);
         display.set_text_size(13);
-        display.set_linenumber_width(LINENUMBER_WIDTH);
+        display.set_linenumber_width(line_numbers::MIN_WIDTH);
 
         Self {
             display,
@@ -472,8 +470,14 @@ impl<D: DisplayExt> Pane<D> {
             side.label.as_str()
         };
         self.label.set_label(&format!("  {label}"));
+        // Sized for this side's largest line number, like the editor's gutter
+        // (T0107).
         self.display.set_linenumber_width(if side.line_numbers {
-            LINENUMBER_WIDTH
+            line_numbers::gutter_width(
+                self.buffer.count_lines(0, self.buffer.length()) as usize,
+                self.display.linenumber_font(),
+                self.display.linenumber_size(),
+            )
         } else {
             0
         });

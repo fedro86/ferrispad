@@ -394,10 +394,7 @@ pub fn handle_highlight(msg: Message, state: &mut AppState) {
             inserted,
             deleted,
         } => {
-            if let Some(doc) = state.tab_manager.doc_by_id_mut(id) {
-                doc.cached_tree = None;
-                doc.cached_line_count = doc.buffer.count_lines(0, doc.buffer.length()) as usize;
-            }
+            state.on_buffer_modified(id);
             state.schedule_rehighlight(id, pos);
             state.schedule_text_change_hook(id, pos, inserted, deleted);
             state.session.mark_dirty();
