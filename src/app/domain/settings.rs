@@ -71,6 +71,19 @@ pub enum ThemeMode {
     SystemDefault,
 }
 
+impl ThemeMode {
+    /// Whether this mode renders dark. `detect` (the desktop query, which may
+    /// spawn `gdbus`/`gsettings` and wait up to the portal timeout) runs only
+    /// for `SystemDefault`, and at most once.
+    pub fn resolve_dark(self, detect: impl FnOnce() -> bool) -> bool {
+        match self {
+            ThemeMode::Light => false,
+            ThemeMode::Dark => true,
+            ThemeMode::SystemDefault => detect(),
+        }
+    }
+}
+
 /// Returns true for the three built-in font names that FerrisPad has shipped historically.
 /// Used to decide whether the system font catalog must be eagerly loaded on Windows
 /// before the saved font name can be resolved at startup.
@@ -725,6 +738,15 @@ impl AppSettings {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn theme_mode_resolve_dark_detects_only_for_system_default() {
+        let never = || -> bool { panic!("explicit modes must not query the desktop") };
+        assert!(!ThemeMode::Light.resolve_dark(never));
+        assert!(ThemeMode::Dark.resolve_dark(never));
+        assert!(ThemeMode::SystemDefault.resolve_dark(|| true));
+        assert!(!ThemeMode::SystemDefault.resolve_dark(|| false));
+    }
+
     use super::*;
 
     #[test]

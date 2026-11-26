@@ -25,7 +25,7 @@ use super::controllers::view::ViewController;
 use super::controllers::widget::WidgetController;
 use super::domain::document::DocumentId;
 use super::domain::messages::Message;
-use super::domain::settings::{self, AppSettings, ThemeMode, ThemeRef, default_syntax_theme};
+use super::domain::settings::{self, AppSettings, ThemeRef, default_syntax_theme};
 use super::infrastructure::buffer::{
     buffer_text_no_leak, text_range_bytes_no_leak, text_range_no_leak,
 };
@@ -984,7 +984,10 @@ impl AppState {
                 );
                 return;
             }
-            self.apply_settings(new_settings);
+            let is_dark = new_settings
+                .theme_mode
+                .resolve_dark(detect_system_dark_mode);
+            self.apply_settings(new_settings, is_dark);
         }
     }
 
@@ -1159,14 +1162,11 @@ impl AppState {
         crate::ui::menu::apply_font_size_active(&mut self.menu, prev, size);
     }
 
-    pub fn apply_settings(&mut self, new_settings: AppSettings) {
+    /// Apply `new_settings`; `is_dark` is the already-resolved theme mode
+    /// (callers resolve it once, so the desktop query never runs twice).
+    pub fn apply_settings(&mut self, new_settings: AppSettings, is_dark: bool) {
         let prev_font_size = self.settings.borrow().font_size_clamped();
         let new_font_size = new_settings.font_size_clamped();
-        let is_dark = match new_settings.theme_mode {
-            ThemeMode::Light => false,
-            ThemeMode::Dark => true,
-            ThemeMode::SystemDefault => detect_system_dark_mode(),
-        };
         self.view.dark_mode = is_dark;
 
         let font = new_settings.current_font();
