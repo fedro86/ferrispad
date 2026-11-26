@@ -754,6 +754,11 @@ fn main() {
                 }
 
                 // Sessions
+                Message::StartPageRelayout => {
+                    dispatch::relayout_start_page(&mut state, &mut lw);
+                    dispatch::DispatchResult::Continue
+                }
+
                 Message::SessionShowPicker
                 | Message::SessionSwitchTo(_)
                 | Message::SessionOpenInNewWindow(_)

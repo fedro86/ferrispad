@@ -1339,6 +1339,21 @@ pub fn handle_session(msg: Message, state: &mut AppState, lw: &mut LayoutWidgets
 // Start Page sync
 // ---------------------------------------------------------------------------
 
+/// `StartPageRelayout`: the start page crossed its column threshold while
+/// resized; rebuild it at the new size (T0108).
+pub fn relayout_start_page(state: &mut AppState, lw: &mut LayoutWidgets) {
+    if !lw.start_page.visible() {
+        return;
+    }
+    let theme_bg = state.highlight.highlighter().theme_background();
+    let session_name = state.session.current_session_name().to_string();
+    lw.start_page.show(state.sender, theme_bg, &session_name);
+    let parent = lw.editor_col.as_mut().unwrap_or(&mut lw.content_row);
+    parent.layout();
+    lw.start_page.enforce_min_window_size();
+    lw.wind.redraw();
+}
+
 /// Show or hide the start page based on whether any tabs are open.
 /// Called after every dispatched message in the main loop.
 ///
@@ -1365,6 +1380,7 @@ pub fn sync_start_page(state: &mut AppState, lw: &mut LayoutWidgets) {
             lw.start_page.show(state.sender, theme_bg, &session_name);
             let parent = lw.editor_col.as_mut().unwrap_or(&mut lw.content_row);
             parent.layout();
+            lw.start_page.enforce_min_window_size();
             lw.wind.redraw();
         }
     } else if !has_tabs && !start_visible {
@@ -1380,6 +1396,7 @@ pub fn sync_start_page(state: &mut AppState, lw: &mut LayoutWidgets) {
         lw.start_page.show(state.sender, theme_bg, &session_name);
         let parent = lw.editor_col.as_mut().unwrap_or(&mut lw.content_row);
         parent.layout();
+        lw.start_page.enforce_min_window_size();
         state.update_window_title();
         fltk::app::flush();
         lw.wind.redraw();

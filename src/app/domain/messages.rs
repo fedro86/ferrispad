@@ -80,6 +80,10 @@ pub enum Message {
     /// keyboard layout is active (T0057).
     RunShortcut(String),
 
+    /// The start page crossed its one/two-column width threshold: rebuild
+    /// it for the new width (T0108).
+    StartPageRelayout,
+
     // Syntax highlighting
     BufferModified {
         id: DocumentId,

@@ -1,8 +1,12 @@
 //! Start Page — landing page shown when no tabs are open.
 //!
-//! Two-column layout below a centered title:
+//! Below a centered title, two columns when the page is wide enough, one
+//! column (left block above right block) when it is not (T0108):
 //! - Left: 2x2 button grid + stacked session/files cards
-//! - Right: donate button + changelog/sponsor card (aligned with left cards)
+//! - Right: wiki buttons + changelog card
+//!
+//! The content scrolls vertically when the page is too short, and while the
+//! page is shown the window cannot shrink below one column.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -13,7 +17,7 @@ use fltk::{
     draw,
     enums::{Align, Color, Event, Font, FrameType},
     frame::Frame,
-    group::Flex,
+    group::{Flex, Scroll, ScrollType},
     prelude::*,
 };
 
@@ -39,15 +43,87 @@ const BTN_W: i32 = 150;
 const BTN_GAP: i32 = 12;
 const BTN_H: i32 = 38;
 const MAX_RECENT: usize = 4;
-/// Left column width: 2 buttons + gap.
-const LEFT_W: i32 = BTN_W * 2 + BTN_GAP;
-/// Right column width: same as left for balance.
-const RIGHT_W: i32 = LEFT_W;
+/// Label size of the page's buttons.
+const BTN_LABEL_SIZE: i32 = 15;
+/// Room around a button label.
+const BTN_LABEL_PAD: i32 = 24;
+/// Space between the two columns, and between the content and the page's
+/// left and right edges.
+const COL_GAP: i32 = 20;
+/// Space above and below the content.
+const PAGE_MARGIN: i32 = 24;
+/// Title block ("FerrisPad" + version) and the gap below it.
+const TITLE_H: i32 = 75;
+const TITLE_GAP: i32 = 10;
+/// The labels of the 2x2 button grid (they share one width).
+const GRID_LABELS: [&str; 4] = ["New File", "Open File", "New Session", "Sessions..."];
+
+/// One or two columns of content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Columns {
+    One,
+    Two,
+}
+
+/// Width of one column: two grid buttons and the gap between them.
+pub fn column_width(button_w: i32) -> i32 {
+    2 * button_w + BTN_GAP
+}
+
+/// The narrowest content that shows two columns side by side: the columns,
+/// the gap between them and a gap at each edge.
+pub fn two_columns_min_width(column_w: i32) -> i32 {
+    2 * column_w + 3 * COL_GAP
+}
+
+/// The narrowest content that shows one column, with a gap at each edge.
+pub fn one_column_min_width(column_w: i32) -> i32 {
+    column_w + 2 * COL_GAP
+}
+
+/// The layout for content `content_w` px wide (T0108).
+pub fn columns_for(content_w: i32, column_w: i32) -> Columns {
+    if content_w >= two_columns_min_width(column_w) {
+        Columns::Two
+    } else {
+        Columns::One
+    }
+}
+
+/// The layout for a page of `page_w` × `page_h`, whose content is
+/// `two_h` tall in two columns: two columns only if they fit beside the
+/// vertical scrollbar that this height needs, if any.
+pub fn page_columns(page_w: i32, page_h: i32, column_w: i32, two_h: i32, bar_w: i32) -> Columns {
+    let bar = if two_h > page_h { bar_w } else { 0 };
+    columns_for(page_w - bar, column_w)
+}
+
+/// The shortest page: the title and the first button rows; the rest
+/// scrolls.
+pub fn min_page_height() -> i32 {
+    PAGE_MARGIN + TITLE_H + TITLE_GAP + 2 * BTN_H + BTN_GAP + PAGE_MARGIN
+}
+
+/// Width of a grid button: [`BTN_W`], or wider if a label needs it at the
+/// current font metrics (measuring needs the display).
+fn grid_button_width() -> i32 {
+    let (old_font, old_size) = (draw::font(), draw::size());
+    draw::set_font(Font::Helvetica, BTN_LABEL_SIZE);
+    let widest = GRID_LABELS
+        .iter()
+        .map(|l| draw::width(l).ceil() as i32)
+        .max()
+        .unwrap_or(0);
+    draw::set_font(old_font, old_size);
+    BTN_W.max(widest + BTN_LABEL_PAD)
+}
 
 pub struct StartPage {
     flex: Flex,
     is_visible: bool,
     last_theme_bg: Option<(u8, u8, u8)>,
+    /// Minimum page size of the current build (T0108).
+    min_page: (i32, i32),
 }
 
 impl Default for StartPage {
@@ -65,6 +141,7 @@ impl StartPage {
             flex,
             is_visible: false,
             last_theme_bg: None,
+            min_page: (0, 0),
         }
     }
 
@@ -84,6 +161,31 @@ impl StartPage {
         self.is_visible = false;
         self.flex.hide();
         self.flex.clear();
+        // The editor has no minimum window size (T0108).
+        if let Some(mut win) = self.flex.top_window() {
+            win.size_range(1, 1, 0, 0);
+        }
+    }
+
+    /// While the page is shown, keep the window at least one column wide and
+    /// tall enough for the title and the first buttons (T0108): the page's
+    /// minimum plus whatever else the window holds around it (menu, status
+    /// bar, side panels). Grows the window if it is smaller. Call after the
+    /// page has been laid out.
+    pub fn enforce_min_window_size(&self) {
+        if !self.is_visible || self.flex.w() <= 0 {
+            return;
+        }
+        let Some(mut win) = self.flex.top_window() else {
+            return;
+        };
+        let chrome_w = (win.w() - self.flex.w()).max(0);
+        let chrome_h = (win.h() - self.flex.h()).max(0);
+        let (min_w, min_h) = (self.min_page.0 + chrome_w, self.min_page.1 + chrome_h);
+        win.size_range(min_w, min_h, 0, 0);
+        if win.w() < min_w || win.h() < min_h {
+            win.resize(win.x(), win.y(), win.w().max(min_w), win.h().max(min_h));
+        }
     }
 
     pub fn show(&mut self, sender: Sender<Message>, theme_bg: (u8, u8, u8), active_session: &str) {
@@ -99,7 +201,66 @@ impl StartPage {
         self.flex.set_margin(0);
         self.flex.begin();
 
+        // ── Sizes (T0108) ──
+        let button_w = grid_button_width();
+        let column_w = column_width(button_w);
+        let bar_w = fltk::app::scrollbar_size();
+        // A page that was hidden has no size of its own yet: its parent's
+        // is the best estimate. If the layout then differs, the resize
+        // callback below asks for a rebuild.
+        let (page_w, viewport_h) = match self.flex.parent() {
+            Some(parent) if self.flex.w() <= 0 || self.flex.h() <= 0 => (parent.w(), parent.h()),
+            _ => (self.flex.w(), self.flex.h()),
+        };
+        // The page can scroll, so its minimum width leaves room for the bar.
+        self.min_page = (one_column_min_width(column_w) + bar_w, min_page_height());
+
+        let all_sessions = session::list_sessions();
+        let sessions: Vec<&String> = all_sessions.iter().take(MAX_RECENT).collect();
+        let recent = gather_recent_files();
+        let max_card_items = sessions.len().max(recent.len()).max(1) as i32;
+        let card_items_h = 30 + 1 + max_card_items * 28 + (2 + max_card_items - 1) * 2 + 20;
+        // Left: 2 button rows, 2 gaps of 4, 2 cards, 5 pads between its 6 rows.
+        let left_h = 2 * BTN_H + 2 * 4 + 2 * card_items_h + 5 * BTN_GAP;
+        // Changelog: beside the cards, as tall as both; alone, as tall as
+        // its own content. Right: 2 button rows, a gap of 4, the changelog,
+        // 3 pads.
+        let changelog_two = card_items_h * 2 + BTN_GAP + 4 + BTN_GAP;
+        let changelog_one = 30 + 1 + CHANGELOG_ENTRIES.len() as i32 * 22 + 25 + 12;
+        let right_h = |changelog_h: i32| 2 * BTN_H + 4 + changelog_h + 3 * BTN_GAP;
+        let frame_h = PAGE_MARGIN + TITLE_H + TITLE_GAP + PAGE_MARGIN;
+        let two_h = frame_h + left_h.max(right_h(changelog_two));
+        let one_h = frame_h + left_h + COL_GAP + right_h(changelog_one);
+
+        let columns = page_columns(page_w, viewport_h, column_w, two_h, bar_w);
+        let (changelog_h, body_h, content_h) = match columns {
+            Columns::Two => (changelog_two, two_h - frame_h, two_h),
+            Columns::One => (changelog_one, one_h - frame_h, one_h),
+        };
+
+        // ── Scrolling viewport ──
+        let mut scroll = Scroll::default();
+        scroll.set_type(ScrollType::Vertical);
+        scroll.set_color(bg);
+        scroll.set_frame(FrameType::FlatBox);
+        let mut bar = scroll.scrollbar();
+        crate::ui::scrollbar::style_scrollbar(&mut bar, theme.scroll_track, theme.scroll_thumb);
+        let scrollbar_w = if content_h > viewport_h { bar_w } else { 0 };
+        // Taller than needed when the page is tall: the spacers centre it.
+        let mut content = Flex::new(
+            self.flex.x(),
+            self.flex.y(),
+            (page_w - scrollbar_w).max(0),
+            content_h.max(viewport_h),
+            None,
+        )
+        .column();
+        content.set_color(bg);
+        content.set_frame(FrameType::FlatBox);
+        content.set_pad(0);
+
         spacer(bg); // top centering
+        fspacer(&mut content, PAGE_MARGIN, bg);
 
         // ── Title (centered, full width) ──
         let mut title_col = Flex::default().column();
@@ -116,29 +277,27 @@ impl StartPage {
         );
         title_col.fixed(&v, 25);
         title_col.end();
-        self.flex.fixed(&title_col, 75);
+        content.fixed(&title_col, TITLE_H);
 
-        fspacer(&mut self.flex, 10, bg);
+        fspacer(&mut content, TITLE_GAP, bg);
 
-        // ── Two-column body ──
-        // Gather data
-        let all_sessions = session::list_sessions();
-        let sessions: Vec<&String> = all_sessions.iter().take(MAX_RECENT).collect();
-        let recent = gather_recent_files();
-        let max_card_items = sessions.len().max(recent.len()).max(1) as i32;
-        let card_items_h = 30 + 1 + max_card_items * 28 + (2 + max_card_items - 1) * 2 + 20;
-
+        // ── Body: one row of two columns, or one centred column ──
         let mut body = Flex::default().row();
-        body.set_pad(20);
+        body.set_pad(COL_GAP);
         body.set_color(bg);
-
         spacer(bg); // left centering
+        // One column: the left block above the right block, in `stack`.
+        let mut stack = (columns == Columns::One).then(|| {
+            let mut stack = Flex::default().column();
+            stack.set_pad(COL_GAP);
+            stack.set_color(bg);
+            stack
+        });
 
         // ── LEFT COLUMN ──
         let mut left = Flex::default().column();
         left.set_pad(BTN_GAP);
         left.set_color(bg);
-        body.fixed(&left, LEFT_W);
 
         // Button row 1: [New File] [Open File]
         let mut row1 = Flex::default().row();
@@ -226,7 +385,6 @@ impl StartPage {
         let mut right = Flex::default().column();
         right.set_pad(BTN_GAP);
         right.set_color(bg);
-        body.fixed(&right, RIGHT_W);
 
         // Donate button — height = 2 button rows + gap
         // Wiki buttons: accent-colored, 2 rows matching the left buttons
@@ -281,37 +439,48 @@ impl StartPage {
 
         sponsor_box.end();
         add_rounded_border(&mut sponsor_box, card_bg, border_color);
-        // Match from top of sessions card to bottom of files card:
-        // sess_card + pad + fspacer(4) + pad + files_card
-        let changelog_h = card_items_h * 2 + BTN_GAP + 4 + BTN_GAP;
         right.fixed(&sponsor_box, changelog_h);
 
         right.end();
 
-        spacer(bg); // right centering
-
-        body.end();
-
-        // Body height: buttons(2 rows) + gap + 2 cards + gaps
-        let body_h = BTN_H * 2 + BTN_GAP + 4 + card_items_h * 2 + 4 + left.pad() * 5;
-        self.flex.fixed(&body, body_h);
-
-        // Ensure window is large enough for the start page content.
-        // Force resize if current size is too small (e.g., after closing a small file tab).
-        let min_h = 75 + 10 + body_h + 80;
-        let min_w = LEFT_W + RIGHT_W + 20 + 80;
-        if let Some(mut win) = self.flex.top_window() {
-            let cur_w = win.w();
-            let cur_h = win.h();
-            if cur_w < min_w || cur_h < min_h {
-                let new_w = cur_w.max(min_w);
-                let new_h = cur_h.max(min_h);
-                // Use pixel_w/pixel_h to handle HiDPI correctly
-                win.resize(win.x(), win.y(), new_w, new_h);
+        match stack.as_mut() {
+            None => {
+                body.fixed(&left, column_w);
+                body.fixed(&right, column_w);
+            }
+            Some(stack) => {
+                stack.fixed(&left, left_h);
+                stack.fixed(&right, right_h(changelog_h));
+                stack.end();
+                body.fixed(stack, column_w);
             }
         }
 
+        spacer(bg); // right centering
+        body.end();
+        content.fixed(&body, body_h);
+
+        fspacer(&mut content, PAGE_MARGIN, bg);
         spacer(bg); // bottom centering
+        content.end();
+        scroll.end();
+
+        // Follow the page's size: within one layout, the content takes the
+        // new width (and at least the new height); crossing the column
+        // threshold rebuilds the page (T0108).
+        let mut content_follow = content.clone();
+        scroll.resize_callback(move |scroll, x, y, w, h| {
+            if page_columns(w, h, column_w, two_h, bar_w) != columns {
+                sender.send(Message::StartPageRelayout);
+            }
+            let bar = if content_h > h { bar_w } else { 0 };
+            content_follow.resize(
+                x,
+                y - scroll.yposition(),
+                (w - bar).max(0),
+                content_h.max(h),
+            );
+        });
 
         self.flex.end();
         self.flex.show();
@@ -514,4 +683,47 @@ fn gather_recent_files() -> Vec<(String, String)> {
     }
     files.truncate(MAX_RECENT);
     files
+}
+
+#[cfg(test)]
+mod start_page_layout_tests {
+    use super::*;
+
+    const COL: i32 = 2 * BTN_W + BTN_GAP;
+
+    /// T0108: one column below the two-column width, two at and above it.
+    #[test]
+    fn start_page_layout_columns_at_the_threshold() {
+        assert_eq!(column_width(BTN_W), COL);
+        let two = two_columns_min_width(COL);
+        assert_eq!(two, 2 * COL + 3 * COL_GAP);
+        assert_eq!(columns_for(two, COL), Columns::Two);
+        assert_eq!(columns_for(two - 1, COL), Columns::One);
+        assert_eq!(columns_for(1100, COL), Columns::Two);
+        assert_eq!(columns_for(500, COL), Columns::One);
+    }
+
+    /// The vertical scrollbar a short page needs is taken from the width
+    /// before deciding.
+    #[test]
+    fn start_page_layout_scrollbar_counts() {
+        let two = two_columns_min_width(COL);
+        // Tall enough: no bar, two columns at exactly the threshold.
+        assert_eq!(page_columns(two, 900, COL, 600, 16), Columns::Two);
+        // Too short for the two-column content: the bar leaves too little.
+        assert_eq!(page_columns(two, 400, COL, 600, 16), Columns::One);
+        assert_eq!(page_columns(two + 16, 400, COL, 600, 16), Columns::Two);
+    }
+
+    /// The minimum page follows the constants: one column with its edge
+    /// gaps, the title and the first button rows.
+    #[test]
+    fn start_page_layout_minimum_size() {
+        assert_eq!(one_column_min_width(COL), COL + 2 * COL_GAP);
+        assert!(one_column_min_width(COL) < two_columns_min_width(COL));
+        assert_eq!(
+            min_page_height(),
+            2 * PAGE_MARGIN + TITLE_H + TITLE_GAP + 2 * BTN_H + BTN_GAP
+        );
+    }
 }
