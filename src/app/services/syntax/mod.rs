@@ -223,12 +223,15 @@ impl SyntaxHighlighter {
 
     /// Incremental re-highlight from a given edit line.
     /// Modifies checkpoints in place and returns only the changed style chars.
+    /// `floor_line`: no convergence before this line (0 = none), see
+    /// [`ResumePoint`] (T0096).
     pub fn highlight_incremental(
         &mut self,
         text: &str,
         edit_line: usize,
         checkpoints: &mut SparseCheckpoints,
         syntax_name: &str,
+        floor_line: usize,
     ) -> IncrementalHighlightResult {
         self.ensure_loaded();
         let inner = self.inner.as_ref().unwrap();
@@ -253,6 +256,7 @@ impl SyntaxHighlighter {
             &self.theme_name,
             &mut self.style_map,
             INCREMENTAL_BUDGET,
+            floor_line,
         );
         IncrementalHighlightResult {
             byte_start: result.byte_start,
@@ -538,7 +542,7 @@ mod tests {
     fn highlight_incremental_with_missing_theme_falls_back() {
         let mut h = highlighter_with_missing_theme();
         let mut checkpoints = SparseCheckpoints::new();
-        let result = h.highlight_incremental(SRC, 0, &mut checkpoints, "Rust");
+        let result = h.highlight_incremental(SRC, 0, &mut checkpoints, "Rust", 0);
         assert_eq!(result.byte_start + result.style_chars.len(), SRC.len());
     }
 
@@ -667,7 +671,7 @@ mod tests {
                 );
             }
             let mut checkpoints = SparseCheckpoints::new();
-            let incremental = h.highlight_incremental(&text, 0, &mut checkpoints, "JavaScript");
+            let incremental = h.highlight_incremental(&text, 0, &mut checkpoints, "JavaScript", 0);
             assert_eq!(incremental.byte_start, 0);
             assert_eq!(incremental.style_chars, full, "incremental == full");
             let (chunked, _) = chunked_styles(&mut h, &text, "JavaScript");
@@ -742,13 +746,13 @@ mod tests {
 
         // Type one character into the long line.
         let typed = format!("var x = 1;\nq{long}var y = 2;\n");
-        let result = h.highlight_incremental(&typed, 1, &mut checkpoints, "JavaScript");
+        let result = h.highlight_incremental(&typed, 1, &mut checkpoints, "JavaScript", 0);
         let styles = apply(&full.style_string, typed.len(), &result);
         assert!(line_styles(&typed, &styles, 1).bytes().all(|b| b == b'A'));
 
         // Edit the normal line after it.
         let edited = format!("var x = 1;\nq{long}if (y) {{ z(); }}\n");
-        let result = h.highlight_incremental(&edited, 2, &mut checkpoints, "JavaScript");
+        let result = h.highlight_incremental(&edited, 2, &mut checkpoints, "JavaScript", 0);
         let styles = apply(&styles, edited.len(), &result);
         assert_eq!(styles, h.highlight_full(&edited, "JavaScript").style_string);
         assert!(distinct_styles(line_styles(&edited, &styles, 2)) > 1);
@@ -772,11 +776,11 @@ mod tests {
         assert!(distinct_styles(line_styles(&small, &full.style_string, 0)) > 1);
         let mut checkpoints = full.checkpoints;
 
-        let grown = h.highlight_incremental(&big, 0, &mut checkpoints, "JavaScript");
+        let grown = h.highlight_incremental(&big, 0, &mut checkpoints, "JavaScript", 0);
         let styles = apply(&full.style_string, big.len(), &grown);
         assert!(line_styles(&big, &styles, 0).bytes().all(|b| b == b'A'));
 
-        let shrunk = h.highlight_incremental(&small, 0, &mut checkpoints, "JavaScript");
+        let shrunk = h.highlight_incremental(&small, 0, &mut checkpoints, "JavaScript", 0);
         let styles = apply(&styles, small.len(), &shrunk);
         assert_eq!(styles, full.style_string);
     }
@@ -839,7 +843,7 @@ mod tests {
         styles: &mut String,
         checkpoints: &mut SparseCheckpoints,
     ) -> (usize, usize) {
-        let first = h.highlight_incremental(text, 0, checkpoints, "JavaScript");
+        let first = h.highlight_incremental(text, 0, checkpoints, "JavaScript", 0);
         apply_result(styles, &first);
         let sync_bytes = first.style_chars.len();
         let (mut resume, mut steps) = (first.resume, 1);
@@ -876,6 +880,42 @@ mod tests {
         assert_eq!(styles, h.highlight_full(&edited, "JavaScript").style_string);
     }
 
+    /// a3's probe: type "/*" (the step pauses), then one more key before any
+    /// continuation. The controller folds the pause into the next pass with
+    /// a convergence floor at the old pause line: the pass must not
+    /// "converge" against the checkpoints the first pass already rewrote in
+    /// place, and after continuing, the styles equal a full highlight.
+    #[test]
+    fn incremental_budget_keep_typing_after_a_pause() {
+        let mut h = js();
+        let text = big_js();
+        let full = h.highlight_full(&text, "JavaScript");
+        let mut checkpoints = full.checkpoints;
+        let opened = format!("/*{text}");
+        let mut styles = format!("AA{}", full.style_string);
+        let first = h.highlight_incremental(&opened, 0, &mut checkpoints, "JavaScript", 0);
+        apply_result(&mut styles, &first);
+        let pause = first.resume.expect("the first step pauses");
+
+        // One more key ("a" after "/*"), no new line: the floor stays.
+        let typed = format!("/*a{text}");
+        styles.insert(2, 'A');
+        let floor = pause.chain_break_line();
+        let second = h.highlight_incremental(&typed, 0, &mut checkpoints, "JavaScript", floor);
+        apply_result(&mut styles, &second);
+        assert!(
+            second.resume.is_some() || second.byte_start + second.style_chars.len() > pause.byte,
+            "the second pass stopped before the old pause point"
+        );
+        let mut resume = second.resume;
+        while let Some(point) = resume {
+            let next = h.highlight_resume(&typed, point, &mut checkpoints, "JavaScript");
+            apply_result(&mut styles, &next);
+            resume = next.resume;
+        }
+        assert_eq!(styles, h.highlight_full(&typed, "JavaScript").style_string);
+    }
+
     /// The comment closed again: the re-highlight converges with the
     /// checkpoints of the earlier pass instead of re-colouring to the end.
     #[test]
@@ -887,7 +927,7 @@ mod tests {
         let opened = format!("/*{text}");
         let mut styles = format!("AA{}", full.style_string);
         // Only the synchronous step of "/*" (the user keeps typing).
-        let first = h.highlight_incremental(&opened, 0, &mut checkpoints, "JavaScript");
+        let first = h.highlight_incremental(&opened, 0, &mut checkpoints, "JavaScript", 0);
         apply_result(&mut styles, &first);
 
         // Type "*/": "/**/" + text.

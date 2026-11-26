@@ -565,6 +565,9 @@ fn main() {
     // Main event loop with message dispatch
     while app.wait() {
         if let Some(msg) = receiver.recv() {
+            // Pending flags are cleared on dequeue, even if the handler is
+            // skipped below (T0096).
+            state.note_dequeued(&msg);
             let result = match msg {
                 // File
                 Message::FileNew

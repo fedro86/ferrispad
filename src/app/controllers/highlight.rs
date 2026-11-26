@@ -112,6 +112,9 @@ pub struct HighlightController {
     /// An incremental re-highlight paused by its byte budget (T0096). One
     /// slot; continued one step per `ContinueHighlight`.
     incremental_resume: Option<PausedHighlight>,
+    /// A paused pass folded into the next re-highlight of that document
+    /// (T0096): (document, chain-break line, its text's line count).
+    pending_floor: Option<(DocumentId, usize, usize)>,
     /// A `ContinueHighlight` is queued and not yet handled: at most one
     /// chain drives the background work (T0096).
     continue_pending: bool,
@@ -133,6 +136,7 @@ impl HighlightController {
             highlight_queue: Vec::new(),
             highlighting_enabled,
             incremental_resume: None,
+            pending_floor: None,
             continue_pending: false,
         }
     }
@@ -297,6 +301,18 @@ impl HighlightController {
         self.request_continue(sender);
     }
 
+    /// The main loop took `msg` off the queue (T0096). A message that owns a
+    /// "pending" flag clears it here, not in its handler: the main loop skips
+    /// these handlers when no tab is open, and a flag left set would stop
+    /// that work for the rest of the process.
+    pub fn note_dequeued(&mut self, msg: &Message) {
+        match msg {
+            Message::ContinueHighlight => self.continue_pending = false,
+            Message::DoRehighlight => self.rehighlight_timer_active = false,
+            _ => {}
+        }
+    }
+
     /// Claim the single `ContinueHighlight` chain (T0096): true when the
     /// caller must send the message, false when one is already queued.
     fn claim_continue(&mut self) -> bool {
@@ -414,6 +430,9 @@ impl HighlightController {
         if self.incremental_resume.as_ref().is_some_and(|p| p.id == id) {
             self.incremental_resume = None;
         }
+        if self.pending_floor.is_some_and(|(fid, _, _)| fid == id) {
+            self.pending_floor = None;
+        }
         if !self.highlighting_enabled {
             let syntax_name = self.highlighter.detect_syntax(path);
             if let Some(doc) = tab_manager.doc_by_id_mut(id) {
@@ -484,11 +503,26 @@ impl HighlightController {
             }
         };
 
+        // A folded pause (T0096): no convergence before the line where the
+        // earlier pass's checkpoint chain broke, moved down by any lines added
+        // since. Moving it too far only costs work; too early would keep
+        // stale colours after it.
+        let floor_line = match self.pending_floor.take() {
+            Some((fid, line, old_total)) if fid == id => {
+                let total = text.split_inclusive('\n').count();
+                line + total.saturating_sub(old_total)
+            }
+            other => {
+                self.pending_floor = other;
+                0
+            }
+        };
         let result = self.highlighter.highlight_incremental(
             &text,
             edit_line,
             &mut checkpoints,
             &syntax_name,
+            floor_line,
         );
         self.apply_incremental(id, &result, checkpoints, tab_manager, widgets, true);
         // Not converged within the budget: continue in the background
@@ -528,6 +562,11 @@ impl HighlightController {
         if let Some(paused) = self.incremental_resume.take() {
             if paused.id == id {
                 pos = pos.min(i32::try_from(paused.resume.byte).unwrap_or(i32::MAX));
+                self.pending_floor = Some((
+                    id,
+                    paused.resume.chain_break_line(),
+                    paused.resume.total_lines(),
+                ));
             } else {
                 self.incremental_resume = Some(paused);
             }
@@ -576,8 +615,8 @@ impl HighlightController {
         sender: &Sender<Message>,
         widgets: &mut HighlightWidgets,
     ) {
-        // This message is the chain: a new one may be claimed now (T0096).
-        self.continue_pending = false;
+        // `continue_pending` was cleared when this message was dequeued
+        // (`note_dequeued`).
         // A paused incremental re-highlight first: it is what the user just
         // typed. One step per message, like a chunk.
         if self.incremental_resume.is_some() {
@@ -693,6 +732,7 @@ impl HighlightController {
         // Every document is highlighted again from the top: a paused
         // re-highlight is stale (T0096).
         self.incremental_resume = None;
+        self.pending_floor = None;
         let doc_ids: Vec<DocumentId> = tab_manager.documents().iter().map(|d| d.id).collect();
         for id in doc_ids {
             let (syntax_name, text) = {
@@ -727,6 +767,7 @@ impl HighlightController {
         self.highlighter.cancel_chunked();
         self.highlight_queue.clear();
         self.incremental_resume = None;
+        self.pending_floor = None;
         self.hide_highlight_banner(widgets);
         self.pending_rehighlight = None;
 
@@ -1018,8 +1059,29 @@ mod tests {
         assert!(hc.claim_continue(), "first request sends");
         assert!(!hc.claim_continue(), "already queued: no second chain");
         assert!(!hc.claim_continue());
-        hc.continue_pending = false; // what the handler does on entry
+        hc.note_dequeued(&Message::ContinueHighlight); // what the main loop does
         assert!(hc.claim_continue(), "handled: the next request sends");
+    }
+
+    /// T0096: a `ContinueHighlight` / `DoRehighlight` taken off the queue
+    /// without its handler running (no tab open) must not leave its pending
+    /// flag set, or that background work never runs again.
+    #[test]
+    fn incremental_budget_flags_cleared_on_dequeue() {
+        let mut hc = controller();
+        assert!(hc.claim_continue());
+        hc.note_dequeued(&Message::ContinueHighlight);
+        assert!(hc.claim_continue(), "the next continuation is sent again");
+        hc.rehighlight_timer_active = true;
+        hc.note_dequeued(&Message::DoRehighlight);
+        assert!(!hc.rehighlight_timer_active);
+        hc.note_dequeued(&Message::BufferModified {
+            id: DocumentId(1),
+            pos: 0,
+            inserted: 1,
+            deleted: 0,
+        });
+        assert!(!hc.claim_continue(), "other messages leave the flag alone");
     }
 
     fn controller() -> HighlightController {

@@ -49,8 +49,26 @@ pub struct ResumePoint {
     pub byte: usize,
     /// Line count of the text, so a continuation step need not rescan it.
     total_lines: usize,
+    /// No convergence is accepted at a checkpoint before this line (T0096):
+    /// an earlier pass that paused may have rewritten the checkpoints before
+    /// its pause point in place, so those no longer describe the styles
+    /// after them.
+    floor_line: usize,
     parse_state: ParseState,
     highlight_state: HighlightState,
+}
+
+impl ResumePoint {
+    /// The line from which stored checkpoints and styles are again a
+    /// consistent chain: the pause point, or an inherited floor beyond it.
+    pub fn chain_break_line(&self) -> usize {
+        self.line.max(self.floor_line)
+    }
+
+    /// Line count of the text the pause was computed on.
+    pub fn total_lines(&self) -> usize {
+        self.total_lines
+    }
 }
 
 /// Look up `theme_name`, failing soft instead of panicking like
@@ -132,6 +150,7 @@ pub fn highlight_incremental(
     theme_name: &str,
     style_map: &mut StyleMap,
     budget: usize,
+    floor_line: usize,
 ) -> IncrementalResult {
     let theme = resolve_theme(theme_set, theme_name);
     let highlighter = Highlighter::new(theme);
@@ -166,12 +185,13 @@ pub fn highlight_incremental(
             line: start_line,
             byte: start_byte,
             total_lines,
+            floor_line,
             parse_state,
             highlight_state,
         },
         // The starting checkpoint is where the state came from: converging
-        // means matching a later one.
-        start_cp_idx + 1,
+        // means matching a later one, and none before the floor.
+        (start_cp_idx + 1).max(floor_line.div_ceil(CHECKPOINT_INTERVAL)),
         total_lines,
         checkpoints,
         &highlighter,
@@ -209,8 +229,12 @@ pub fn highlight_resume(
     // scan of the whole text.
     let total_lines = resume.total_lines;
     // The checkpoint at the resume line (if it falls on one) was not touched
-    // before the pause: it may already show convergence.
-    let first_comparable = resume.line.div_ceil(CHECKPOINT_INTERVAL);
+    // before the pause: it may already show convergence (never before the
+    // floor, though).
+    let first_comparable = resume
+        .line
+        .max(resume.floor_line)
+        .div_ceil(CHECKPOINT_INTERVAL);
     highlight_lines_from(
         text,
         resume,
@@ -244,6 +268,7 @@ fn highlight_lines_from(
     let ResumePoint {
         line: mut line_idx,
         byte: byte_start,
+        floor_line,
         mut parse_state,
         mut highlight_state,
         ..
@@ -259,6 +284,7 @@ fn highlight_lines_from(
                 line: line_idx,
                 byte,
                 total_lines,
+                floor_line,
                 parse_state,
                 highlight_state,
             });

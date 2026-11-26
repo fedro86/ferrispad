@@ -171,6 +171,68 @@ until idle after each key:
   computed from the digit count, but the widest digits do not fit. This is
   pre-existing; a backlog candidate.
 
+## Review fixes (ferrispad-a3, 2 blocking)
+
+**1. A second key before the continuation left stale colours for good.**
+- Sequence: type `/*`, so the step pauses at 64 KiB, then type one more key
+  before any continuation.
+- The folded pass starts from line 0 and "converged" against checkpoints
+  the first pass had already rewritten in place before its pause point. So
+  everything after the pause kept its pre-`/*` colours.
+- Fix: a **convergence floor**.
+  - `ResumePoint` carries `floor_line`, and `chain_break_line()` =
+    max(pause line, inherited floor).
+  - When `schedule_rehighlight` folds a pause, it records
+    `pending_floor = (doc, chain_break_line, its line count)`.
+  - `rehighlight_document` moves the floor down by any lines added since:
+    `line + max(0, new_total − old_total)`. A floor too far down costs only
+    work; one too early is the bug.
+  - It passes the floor to `highlight_incremental`, where
+    `first_comparable = max(start_cp + 1, floor.div_ceil(128))`. A pause of
+    that pass carries the floor into its continuation (`highlight_resume`
+    uses the same max).
+  - A re-closed comment still stops early, at or after the floor, where the
+    old checkpoints match.
+- Test `incremental_budget_keep_typing_after_a_pause` (a3's probe). Red
+  with the floor bypassed: `the second pass stopped before the old pause
+  point`. Green: after continuing, the styles equal a full highlight.
+- Xvfb: on the 10 MB file, type `/` `*` and immediately `abc`; after it
+  settles, the end of the file is coloured as comment.
+
+**2. `continue_pending` could stick, and with it all background
+highlighting.**
+- `main.rs` routes `ContinueHighlight` in the group it skips when no tab is
+  open, and the flag was cleared only in the handler. Close a large file
+  mid-chunking: the queued message is dropped, the flag stays set, and no
+  chunked or continued highlight runs again in that process.
+- That is the class T0093 found for `DirtyChanged`. It is closed here for
+  the whole group: `AppState::note_dequeued(&msg)` runs in `main.rs` for
+  every message taken off the queue, *before* dispatch, and clears each
+  pending flag it owns.
+- Audit of every message behind a `count() > 0` guard in `main.rs`:
+
+  | Message | Guarded group | State |
+  |---|---|---|
+  | `EditUndo`, `EditRedo`, `EditCut`, `EditCopy`, `EditPaste`, `SelectAll`, `ShowFind`, `ShowReplace`, `ShowGoToLine` | edit | carries no state |
+  | `BufferModified` | highlighting | carries no state |
+  | `DoRehighlight` | highlighting | `rehighlight_timer_active`: cleared on dequeue (was: only in its handler, so stuck the same way; pre-existing) |
+  | `ContinueHighlight` | highlighting | `continue_pending`: cleared on dequeue |
+  | `DoTextChangeHook` | highlighting | `AppState::text_change_timer_active`: cleared on dequeue (pre-existing, same class) |
+
+  `DirtyChanged` (T0093) has its own route and `document::note_dequeued`.
+  When T0093 and this ticket meet on `master`, `AppState::note_dequeued`
+  should call it as well, so there is one hook.
+- Test `incremental_budget_flags_cleared_on_dequeue`: flag set, message
+  dequeued without its handler → the next `request_continue` sends again;
+  `DoRehighlight` likewise; other messages leave it alone. Red with the
+  clearing bypassed: `the next continuation is sent again`.
+- Xvfb: open the 10 MB file, close the tab 1.5 s in (chunked pass still
+  running) → start page; Ctrl+O the same file again; it is highlighted to
+  the end.
+
+Gates after the fixes: 672 passed (twice), clippy `-D warnings` and fmt
+clean.
+
 ## Acceptance criteria
 
 - [x] A keystroke never re-highlights more than `CHUNK_BYTES` (+ one line)
