@@ -562,7 +562,9 @@ fn main() {
     // Main event loop with message dispatch
     while app.wait() {
         if let Some(msg) = receiver.recv() {
-            ferris_pad::app::domain::document::note_dequeued(&msg);
+            // Pending flags are cleared on dequeue, even if the handler is
+            // skipped below (T0096, T0093): one hook for all of them.
+            state.note_dequeued(&msg);
             let result = match msg {
                 // File
                 Message::FileNew

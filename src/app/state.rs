@@ -867,6 +867,18 @@ impl AppState {
         }
     }
 
+    /// The main loop took `msg` off the queue, before dispatch (T0096,
+    /// T0093). Every message that owns a "pending" flag clears it here, the
+    /// one hook for all of them, so the reset does not depend on its handler
+    /// running (the main loop skips some handlers when no tab is open).
+    pub fn note_dequeued(&mut self, msg: &Message) {
+        self.highlight.note_dequeued(msg);
+        crate::app::domain::document::note_dequeued(msg);
+        if matches!(msg, Message::DoTextChangeHook) {
+            self.text_change_timer_active = false;
+        }
+    }
+
     pub fn update_linenumber_width(&mut self) {
         self.view.update_linenumber_width(&self.tab_manager);
     }

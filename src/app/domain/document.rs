@@ -98,8 +98,8 @@ pub fn dirty_refresh_handled() {
     DIRTY_REFRESH_QUEUED.with(|q| q.set(false));
 }
 
-/// Called by the main loop for every message it takes off the queue, before
-/// dispatch. Clearing the flag here, not in the handler, keeps the reset
+/// Called for every message the main loop takes off the queue, before
+/// dispatch, through the one dequeue hook `AppState::note_dequeued`. Clearing the flag here, not in the handler, keeps the reset
 /// independent of whether the handler runs; otherwise one skipped handler
 /// would leave the flag set and silence every later flip.
 pub fn note_dequeued(msg: &Message) {
@@ -234,10 +234,14 @@ impl Document {
         self.mark_style_stale();
     }
 
-    /// Rewrite part of the style buffer (incremental highlight, markers).
+    /// Rewrite part of the style buffer (incremental highlight, chunks) with
+    /// the same number of style bytes. Only a rewrite that touches the
+    /// twinned current line makes the twin stale (T0096).
     pub fn replace_styles(&mut self, start: i32, end: i32, styles: &str) {
         self.style_buffer.replace(start, end, styles);
-        self.mark_style_stale();
+        let mut twin = self.current_line.get();
+        twin.mark_stale_in(start, end);
+        self.current_line.set(twin);
     }
 
     /// The style bytes were rewritten: twin chars there may be gone.
