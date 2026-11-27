@@ -33,24 +33,34 @@ Repro inside the installed sandbox
 
 ## In scope
 
-- **Flatpak detection, one rule.** FerrisPad is in a Flatpak when `FLATPAK_ID`
-  is set or `/.flatpak-info` exists. Today `services::updater::is_flatpak()`
-  checks only the file. Make that one pure, testable rule (env and probe
-  injected) and use it for both the updater and the preview, so they cannot
-  disagree.
+- **Flatpak detection: unchanged.** The preview uses the updater's rule,
+  `services::updater::is_flatpak()`, which checks `/.flatpak-info` only. That
+  function and the updater are untouched (a3's review, the orchestrator's
+  decision). `FLATPAK_ID` alone does not count: a host process can inherit
+  it, for example from VS Code's Flatpak (`com.visualstudio.code`). A guard
+  test pins this.
 - **Preview directory.** A pure function picks it from that flag, the cache
   dir and the temp dir:
   - in a Flatpak with a cache dir: `$XDG_CACHE_HOME/ferrispad_preview`;
   - otherwise: `temp_dir()/ferrispad_preview`, unchanged.
+
   `PreviewController` picks the dir once, in `new()`, and stores it.
-  `temp_path_for_doc`, `open_in_browser`, `write_html` and `cleanup` all use
+  `temp_path_for_doc`, `write_preview`, `write_html` and `cleanup` all use
   that stored dir, so writing and cleaning can never point at different
   places.
-- **Permissions.** Create the preview dir with mode 0700 on Unix
-  (`DirBuilder` with `recursive(true)` and `mode(0o700)`), both in `new()`
-  and when a write re-creates it. One rule for both dirs: outside the
-  Flatpak it only tightens a dir FerrisPad creates, and the browser runs as
-  the same user.
+- **A safe preview folder** (Unix, both dirs). This fixes a pre-existing
+  security issue that a3 found in review; the orchestrator put it in this
+  ticket. Before any write or sweep, `prepare_preview_dir`:
+  - creates the dir if needed (mode 0700);
+  - checks with `symlink_metadata` that it is a real directory, not a
+    symlink;
+  - checks that it is owned by the current effective user (`geteuid` from
+    the `nix` crate, already in the build through portable-pty);
+  - sets mode 0700 if it is anything else.
+
+  If any check fails, the dir is refused: no preview is written (the
+  existing "Failed to write preview file" notice) and no sweep runs. On
+  Windows nothing changes: `%TEMP%` is per user.
 - **Cleanup keeps working in both places.** It removes this session's
   preview files, then the dir if it is empty, whichever dir was chosen. The
   live refresh on save (`write_html`, via `FileController::update_preview_file`)
@@ -62,9 +72,10 @@ Repro inside the installed sandbox
   - Windows `%TEMP%` and the Flatpak cache dir are never cleared.
 
   The sweep:
-  - runs once in `PreviewController::new()`, with no timer and no thread;
-  - removes preview files in the chosen dir whose mtime is older than 24 h,
-    leaving newer ones because another FerrisPad window may still use them;
+  - runs once at startup, with no timer and no thread;
+  - runs only in a dir that passed the checks above;
+  - removes preview files whose mtime is older than 24 h, leaving newer
+    ones because another FerrisPad window may still use them;
   - only touches regular files named `preview_<16 hex>.html` directly
     inside the dir: no recursion, symlinks skipped via `symlink_metadata`
     and never followed, nothing outside the dir;
@@ -79,37 +90,35 @@ Repro inside the installed sandbox
 - **Portal failures stay silent.** `open::that` returns `Ok` once
   `xdg-open` has spawned. Whatever the portal does afterwards is invisible to
   FerrisPad, so this ticket adds no error popup for it.
-- The predictable `/tmp/ferrispad_preview` path outside the Flatpak is left
-  unchanged. See Notes.
+- Moving the non-Flatpak preview out of `/tmp`. With the folder checks, a
+  pre-created or symlinked `/tmp/ferrispad_preview` is refused, not used.
 - Bringing the Markdown preview line back on the FlatPark page (T0118). That
   happens after this fix is released.
 
 ## What was done
 
-- `src/app/services/flatpak.rs` (new):
-  - `detect(flatpak_id, info_file_exists)`: a non-empty `FLATPAK_ID`, or
-    `/.flatpak-info` present;
-  - `is_flatpak()` reads both.
-  `updater::is_flatpak()` now calls it, so its callers are unchanged.
 - `src/app/controllers/preview.rs`:
   - `preview_dir_for(in_flatpak, cache_dir, temp_dir)` picks
     `<cache>/ferrispad_preview` in a Flatpak with a cache dir, otherwise
     `<temp>/ferrispad_preview`;
-  - `PreviewController` stores the dir it chose in `new()` (`with_dir` takes
-    one for tests);
-  - `temp_path_for_doc`, `write_html` and `cleanup` use the stored dir;
-  - `create_preview_dir` makes it with mode 0700 on Unix;
-  - `open_in_browser` is now `write_preview` (write and track) plus
-    `open::that`;
-  - `sweep_stale_previews(dir, now)` with `is_preview_file_name`, called
-    once from `new()`.
+  - `PreviewController` stores the dir it chose in `new()`. `with_dir` takes
+    one for tests, and it prepares the dir and sweeps it once;
+  - `prepare_preview_dir`: create, then real dir, owner and 0700 on Unix, or
+    refuse;
+  - `open_in_browser` is now `write_preview` (prepare, write, track) plus
+    `open::that`. `write_html` also prepares before it rewrites;
+  - `sweep_stale_previews(dir, now)` with `is_preview_file_name`.
+- `Cargo.toml` (non-Windows): `nix` 0.28 with the `user` feature, for a safe
+  `geteuid()`. No new crate: it is the version portable-pty already builds,
+  so `Cargo.lock` only gains a dependency edge.
+- `services::updater` is unchanged: no diff against master.
 
 ## How to test
 
-### Regression test (red first)
+### Regression tests (red first)
 
 ```bash
-nix develop -c cargo test --lib -- preview_dir flatpak_detection
+nix develop -c cargo test --lib -- preview_dir flatpak_id_alone sweep cleanup_removes existing_open_dir symlinked_preview
 ```
 
 - `preview_dir_in_flatpak_uses_the_cache_dir`: with in-Flatpak = true, cache
@@ -122,18 +131,26 @@ nix develop -c cargo test --lib -- preview_dir flatpak_detection
   after): with in-Flatpak = false, expects `/t/ferrispad_preview`.
 - `preview_dir_in_flatpak_without_cache_dir_falls_back`: with no cache dir,
   expects the temp dir. That is today's behaviour, never a panic.
-- `flatpak_detection`: `FLATPAK_ID` set → true; `/.flatpak-info` present →
-  true; neither → false; an empty `FLATPAK_ID` → false.
-- `cleanup_removes_files_and_dir`: uses a controller built on an injected
-  scratch dir. Write a preview without launching a browser, then rewrite it
-  through `write_html`, then call `cleanup`. Expect no preview file and no
-  dir left. If needed, split `open_in_browser` into a write step and the
-  `open::that` call, so the write step can be tested.
-  `PreviewController` builds no FLTK object, so this can be a plain unit test
-  rather than a `main_thread_checks` one.
-- On Unix, the Flatpak dir is created with mode `0o700` (checked on a scratch
-  dir).
-
+- `flatpak_id_alone_is_not_a_flatpak` (guard): the test re-runs its own
+  binary with only `FLATPAK_ID=com.visualstudio.code` set, and expects
+  `is_flatpak()` to be false. Inside a real sandbox it has nothing to show,
+  so it returns.
+  - It passes on master. It failed on the first version of this branch
+    (d8816a6): "FLATPAK_ID alone counted as a Flatpak".
+- `existing_open_dir_is_made_private` (Unix): a pre-existing 0777 preview
+  dir ends 0700.
+  - **Red** on d8816a6: `left: 511` (0o777), `right: 448` (0o700).
+- `symlinked_preview_dir_is_refused` (Unix): the preview dir is a symlink to
+  another dir, which holds a stale preview. Expected:
+  - `write_preview` returns "Failed to write preview file…";
+  - nothing is written through the link;
+  - the stale file is not swept;
+  - the link itself is left alone.
+  - **Red** on d8816a6: the write succeeded (`unwrap_err` on `Ok`).
+- `preview_dir_is_private_to_the_user` (Unix): a new dir is created 0700.
+- `cleanup_removes_files_and_dir`: a controller on a scratch dir writes a
+  preview (no browser), rewrites it through `write_html`, then cleans up.
+  No file and no dir are left.
 - `sweep_removes_only_old_preview_files`: a temp dir holds
   - an old and a new `preview_<hex>.html`;
   - an old `notes.html` and an old `preview_0123.html`;
@@ -147,33 +164,30 @@ nix develop -c cargo test --lib -- preview_dir flatpak_detection
     removed`.
 - `sweep_of_a_missing_dir_is_a_no_op`.
 
-Then run the full gates.
+`PreviewController` builds no FLTK object, so these are plain unit tests,
+not `main_thread_checks`. Then run the full gates: 765 passed, 0 failed;
+clippy `-D warnings` and fmt are clean.
 
-Red run (today's behaviour behind the pure functions, before the fix):
+The first version of this branch also had a red test, `flatpak_detection`,
+for counting `FLATPAK_ID` as a Flatpak. It tested a heuristic, not the bug:
+the bug is the preview's folder. a3's review dropped the heuristic, and the
+test is gone.
 
-```text
-preview_dir_in_flatpak_uses_the_cache_dir ... FAILED  left: "/t/ferrispad_preview"  right: "/c/ferrispad_preview"
-flatpak_detection                         ... FAILED  (flatpak.rs:17, the FLATPAK_ID-only case)
-preview_dir_outside_flatpak_is_unchanged  ... ok      (guard)
-preview_dir_in_flatpak_without_cache_dir_falls_back ... ok
-```
+Not covered by a test: a preview dir owned by another user. Making one needs
+root. The check is the `uid` comparison in `prepare_preview_dir`.
 
-After the fix, all of them pass, as do `cleanup_removes_files_and_dir` and
-`preview_dir_is_private_to_the_user`. With the sweep added, the gates give
-762 passed, 0 failed; clippy `-D warnings` and fmt are clean.
+### Inside the installed Flatpak, headless (done, first version)
 
-### Inside the installed Flatpak, headless (done)
-
-The installed FlatPark 0.9.10 sandbox ran this branch's debug binary and,
-as "before", its own `/app/extra/FerrisPad`. The run used Xvfb `:98` and a
-scratch `XDG_CONFIG_HOME`/`XDG_DATA_HOME`. A fake `xdg-open` on `PATH` logged
-the path it was given and did nothing else, so no portal or chooser was
-reached.
+The installed FlatPark 0.9.10 sandbox ran this branch's debug binary at
+29fa3a6 and, as "before", its own `/app/extra/FerrisPad`. The run used Xvfb
+and a scratch `XDG_CONFIG_HOME`/`XDG_DATA_HOME`. A fake `xdg-open` on `PATH`
+logged the path it was given and did nothing else, so no portal or chooser
+was reached.
 
 The scenario: open `notes.md`, press Ctrl+M, edit and save, press Ctrl+M
 again, then quit.
 
-| | 0.9.10 (installed) | branch |
+| | 0.9.10 (installed) | branch 29fa3a6 |
 |---|---|---|
 | path handed to `xdg-open` | `/tmp/ferrispad_preview/preview_e2b4….html` (the sandbox's private `/tmp`) | `~/.var/app/com.ferrispad.FerrisPad/cache/ferrispad_preview/preview_e2b4….html` |
 | preview dir mode | 755 | 700 |
@@ -182,10 +196,14 @@ again, then quit.
 | second Ctrl+M | | same path opened again |
 | after quit | | file and dir removed |
 
-This run predates the sweep, which only removes files older than 24 h and
-is covered by its unit test. It was a hand-written harness (`uitest-T0119/run.sh`), from before the
-new-pr skill's `shoot.sh` landed. `shoot.sh` cannot replace it here: it
-shims `xdg-open` to fail, and it does not run inside the Flatpak.
+The run predates the sweep and the folder checks, which are covered by
+their unit tests. It was a hand-written harness (`uitest-T0119/run.sh`), from
+before the new-pr skill's `shoot.sh` landed. `shoot.sh` cannot replace it:
+it shims `xdg-open` to fail, and it does not run inside the Flatpak.
+
+The harness left its Xvfb `:98` running on the host. The orchestrator
+noticed it and left it for the user to stop. Since then each gate run
+starts and stops its own Xvfb.
 
 The real portal step was checked separately with the orchestrator: the user
 saw `xdg-open` of a file under `$XDG_CACHE_HOME` open the chooser, then the
@@ -193,73 +211,74 @@ browser (see Goal). It is repeated in the manual recipe below.
 
 ### Manual (the user's real conditions, no Flatpak rebuild)
 
-Home is mounted in the sandbox, so the branch binary runs inside the
-installed one. The binary is built in the Nix shell and loads its libraries
-from `/nix/store`, which the sandbox does not mount. `--filesystem=/nix:ro`
-adds it for this one run; it is a command-line flag, not a saved override.
+The branch binary runs inside the installed Flatpak, since home is mounted
+in the sandbox. Run from the branch's worktree. The config and data dirs are
+scratch dirs under the worktree, passed only to the sandbox with `--env`, so
+your real Flatpak settings and sessions are not read or written. The Nix
+build loads its libraries from `/nix/store`, which the sandbox does not
+mount. `--filesystem=/nix:ro` adds it for this one run; it is not a saved
+override.
 
-1. `nix develop -c cargo build --release` on the ticket branch.
-2. `flatpak run --filesystem=/nix:ro --command=$HOME/Code/personal/ferrispad-wt/T0119/target/release/FerrisPad com.ferrispad.FerrisPad /path/to/notes.md`
-   (a `.md` file with a heading, a list and a relative image).
-3. Press Ctrl+M. Expected: GNOME's "Open With" chooser appears. It may be
-   behind FerrisPad's window; see Out of scope. Pick the browser. The page
-   opens from
-   `~/.var/app/com.ferrispad.FerrisPad/cache/ferrispad_preview/preview_<hash>.html`
-   and the relative image shows. Before the fix: nothing happens.
-4. **Live refresh:** edit the Markdown and save with Ctrl+S, without pressing
-   Ctrl+M. Reload the browser tab: it shows the edit.
-5. Edit again and press Ctrl+M: the reloaded or reopened page shows the
-   edit.
-6. Quit FerrisPad. `ls ~/.var/app/com.ferrispad.FerrisPad/cache/ferrispad_preview`
-   shows no preview files, and the dir itself is gone if nothing else is in
-   it.
-7. Outside the Flatpak (`cargo run --release -- notes.md`), Ctrl+M still
-   opens the preview from `/tmp/ferrispad_preview/` as before.
+1. `nix develop -c cargo build --release`
+2. `S=$(mktemp -d -p $PWD) && mkdir $S/cfg $S/data`, then write
+   `$S/notes.md` with a heading, a list and `![img](pic.png)`, and put a
+   `pic.png` next to it.
+3. `flatpak run --filesystem=/nix:ro --env=XDG_CONFIG_HOME=$S/cfg --env=XDG_DATA_HOME=$S/data --command=$PWD/target/release/FerrisPad com.ferrispad.FerrisPad $S/notes.md`.
+   Expected: FerrisPad opens `notes.md`.
+4. Press Ctrl+M. Expected:
+   - GNOME's "Open With" chooser appears. It may be behind FerrisPad's
+     window; see Out of scope.
+   - Pick the browser. It shows the heading, the list and the image, from
+     `~/.var/app/com.ferrispad.FerrisPad/cache/ferrispad_preview/`.
+
+   Before the fix: nothing happens.
+5. **Live refresh:** add a line and press Ctrl+S, without Ctrl+M. Reload
+   the browser tab: it shows the line.
+6. Add another line and press Ctrl+M: the page shows it too.
+7. Quit FerrisPad, then `ls ~/.var/app/com.ferrispad.FerrisPad/cache/`.
+   Expected: no `ferrispad_preview` is left.
+8. Outside the Flatpak: `nix develop -c cargo run --release -- $S/notes.md`,
+   then Ctrl+M. Expected: the browser opens the preview from
+   `/tmp/ferrispad_preview/`, as before.
+9. `rm -rf "$S"`
 
 ## Acceptance criteria
 
 - [ ] In the Flatpak, Ctrl+M opens the preview in the host browser
-      (through the chooser). Pending the user (manual recipe step 3).
+      (through the chooser). Pending the user (manual step 4).
 - [ ] Saving rewrites that same file, and a reload shows the edit. The
       rewrite is checked headless; the browser reload is pending the user.
 - [x] Outside the Flatpak the preview dir and behaviour are unchanged
       (guard test).
-- [x] The updater and the preview use the same Flatpak detection.
+- [x] Flatpak detection is the updater's, unchanged: `FLATPAK_ID` alone
+      does not count (guard test), and `updater.rs` has no diff.
+- [x] A pre-existing open preview dir is made 0700. A symlinked or foreign
+      one is refused, with no write and no sweep (red tests).
 - [x] Cleanup removes the session's preview files in either dir.
 - [x] At startup, preview files older than 24 h are swept from the preview
       dir, and nothing else is touched (unit test).
-- [x] Regression tests added; the Flatpak one failed before the fix.
+- [x] Regression tests added; they failed before the fix.
 - [x] `cargo test`, `cargo clippy --all-targets --all-features`, and
       `cargo fmt --check` all pass with zero warnings.
 
 ## Affected files
 
-- `src/app/controllers/preview.rs`:
-  - `preview_dir` becomes a pure chooser;
-  - the dir is stored in `PreviewController`;
-  - the 0700 create;
-  - tests.
-- `src/app/services/updater.rs`: `is_flatpak()` uses the shared rule (or the
-  rule moves to a small shared module both use).
-- Callers of `is_flatpak()` (`src/main.rs`, `src/ui/dialogs/update.rs`):
-  unchanged signatures.
+- `src/app/controllers/preview.rs`: the dir chooser, the stored dir,
+  `prepare_preview_dir`, `write_preview`, the sweep, and tests.
+- `Cargo.toml`, `Cargo.lock`: `nix` (`user` feature) on non-Windows.
 
 ## Notes
 
 - Reported and confirmed by the user with the orchestrator (ferrispad-5a),
-  2026-11-27. Target 0.9.11, which is on hold until 0.9.10 final ships.
+  2026-11-27. Target 0.9.11.
+- Review by a3 on d8816a6; the orchestrator decided:
+  - keep the detection as it was;
+  - add the folder checks here;
+  - approve the sweep as is;
+  - fix the recipe nits.
 - Once this is released, T0118's dropped line, `Markdown preview in your
   browser (Ctrl+M)`, can go back on the FlatPark page, right after "Syntax
   highlighting for 50+ languages".
-- Adding `FLATPAK_ID` to the detection also changes the updater. When only
-  `FLATPAK_ID` is set, it now treats the run as a Flatpak too (no
-  self-update). That only happens inside a sandbox, or with a hand-exported
-  variable.
 - `dirs::cache_dir()` (crate `dirs` 7, already a dependency) reads
   `$XDG_CACHE_HOME`, which flatpak sets to
   `~/.var/app/com.ferrispad.FerrisPad/cache`.
-- Possible follow-up, not this ticket: outside a Flatpak, the preview path
-  `/tmp/ferrispad_preview` is predictable inside a world-writable dir.
-  Another local user could pre-create it or plant a symlink there. Moving the
-  non-Flatpak preview to the user cache dir too would close that, but it
-  changes behaviour outside the Flatpak, so it needs its own decision.
