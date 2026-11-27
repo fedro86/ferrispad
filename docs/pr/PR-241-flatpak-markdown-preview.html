@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flatpak Markdown preview</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --ink: #1c2430; --muted: #5b6675;
+    --accent: #0b6e4f; --accent-soft: #e3f2ec; --line: #dde3ea;
+    --warn: #8a5a00; --warn-soft: #fdf3dd; --code-bg: #f0f2f5;
+    --chip: #eef1f4; --bad: #8a2020; --bad-soft: #fbeaea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181f; --surface: #1c222b; --ink: #e8ecf1; --muted: #9aa6b4;
+      --accent: #4cc39a; --accent-soft: #10352a; --line: #2c3541;
+      --warn: #e2b45a; --warn-soft: #33290f; --code-bg: #232a34;
+      --chip: #262e39; --bad: #e88; --bad-soft: #3a1c1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 "Open Sans", "Segoe UI", system-ui, sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  header.top { border-bottom: 3px solid var(--accent); padding-bottom: 1.2rem; margin-bottom: 2rem; }
+  .kicker { text-transform: uppercase; letter-spacing: .12em; font-size: .78rem; color: var(--accent); font-weight: 700; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: .3rem 0 .6rem; }
+  h2 { font-size: 1.35rem; margin: 0 0 .2rem; }
+  h3 { font-size: 1.02rem; margin: 1.3rem 0 .4rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem .6rem; margin-top: .8rem; }
+  .chip { background: var(--chip); border: 1px solid var(--line); border-radius: 999px;
+    padding: .15rem .7rem; font-size: .82rem; color: var(--muted); white-space: nowrap; }
+  .chip strong { color: var(--ink); font-weight: 600; }
+  .chip.green { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .chip.warn { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+  a { color: var(--accent); }
+  section.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.5rem 1.75rem; margin-bottom: 1.75rem; }
+  p { margin: .55rem 0; }
+  ul, ol { margin: .4rem 0 .6rem; padding-left: 1.3rem; }
+  li { margin: .25rem 0; }
+  code { font: .86em/1.5 "JetBrains Mono", "Fira Mono", monospace;
+    background: var(--code-bg); border-radius: 4px; padding: .08em .35em; word-break: break-word; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: .85rem 1rem; overflow-x: auto; font-size: .85rem; line-height: 1.55; }
+  pre code { background: none; padding: 0; }
+  .why { border-left: 4px solid var(--accent); background: var(--accent-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup { border-left: 4px solid var(--warn); background: var(--warn-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup strong.tag { color: var(--warn); }
+  .bad { border-left: 4px solid var(--bad); background: var(--bad-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .bad strong.tag { color: var(--bad); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; font-size: .9rem; }
+  th, td { text-align: left; border-bottom: 1px solid var(--line); padding: .45rem .6rem; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; font-family: "JetBrains Mono", "Fira Mono", monospace; white-space: nowrap; }
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li { counter-increment: step; position: relative; padding-left: 2.2rem; margin: .55rem 0; }
+  .steps li::before { content: counter(step); position: absolute; left: 0; top: .1rem;
+    width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--accent-soft);
+    color: var(--accent); font-weight: 700; font-size: .82rem; display: grid; place-items: center; }
+  .expect { display: block; margin-top: .2rem; color: var(--muted); font-size: .9em; }
+  .expect::before { content: "expected → "; color: var(--accent); font-weight: 600; }
+  .flow { display: grid; gap: .35rem; margin: .8rem 0; }
+  .flow div { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: .45rem .8rem; font-size: .9rem; }
+  .flow div strong { color: var(--accent); }
+  footer { color: var(--muted); font-size: .86rem; border-top: 1px solid var(--line);
+    margin-top: 2rem; padding-top: 1rem; }
+  img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
+  figure { margin: .9rem 0; }
+  figcaption { color: var(--muted); font-size: .88rem; font-style: italic; margin-top: .35rem; }
+  code.sha { white-space: nowrap; word-break: normal; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <div class="kicker">Pull request #241 · ticket/T0119 → master · robustness</div>
+  <h1>Markdown preview (Ctrl+M) opens in the browser inside the Flatpak</h1>
+  <div class="flow">
+    <div><strong>Before</strong> · In the FlatPark Flatpak, View → Preview in Browser (Ctrl+M) on a Markdown file did nothing: no browser, no error.</div>
+    <div><strong>After</strong> · Ctrl+M opens GNOME's "Open With" chooser and then the browser, which shows the rendered page. Saving the file rewrites the page, and a browser reload shows the edit.</div>
+  </div>
+  <p>The user found it on 2026-11-27 with FlatPark 0.9.10 on GNOME, while checking T0118's app-page text with the orchestrator. FerrisPad wrote the preview to the sandbox's private <code>/tmp</code>, and the host browser cannot read it through the OpenURI portal. The fix stays reactive: it changes only where the file is written, and adds no watcher or timer.</p>
+  <ul>
+    <li>In a Flatpak, the preview goes to <code>$XDG_CACHE_HOME/ferrispad_preview</code>, which is <code>~/.var/app/com.ferrispad.FerrisPad/cache/ferrispad_preview</code>, the same path on the host.</li>
+    <li>Outside a Flatpak nothing moves: it stays in <code>/tmp/ferrispad_preview</code>.</li>
+    <li>The preview folder is created private to the user (0700).</li>
+    <li>The updater and the preview now share one Flatpak detection.</li>
+  </ul>
+  <div class="meta">
+    <span class="chip"><strong>T0119</strong> in <code>2-review/</code></span>
+    <span class="chip"><strong>5</strong> files · +396 / −14</span>
+    <span class="chip warn">preview folder moves, Flatpak only</span>
+    <span class="chip green">gates green at every commit</span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/241">PR #241 on GitHub</a></span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/issues/239">issue #239</a></span>
+  </div>
+</header>
+
+<section class="card">
+  <h2>The branch's commits</h2>
+  <div class="scroll">
+  <table>
+    <tr><th>Commit</th><th>What changes</th></tr>
+    <tr><td><code class="sha">fa7931f</code></td>
+      <td>Docs only: opens the ticket in <code>1-todo/</code>.</td></tr>
+    <tr><td><code class="sha">06b8979</code></td>
+      <td>Merge of master.</td></tr>
+    <tr><td><code class="sha">29fa3a6</code></td>
+      <td>The fix, its tests (the red one included), and the ticket moved to <code>2-review/</code> with what was done and the headless run in the Flatpak.</td></tr>
+  </table>
+  </div>
+  <p>The merge brought in #235 (T0117, the new-pr skill), with no conflict.</p>
+</section>
+
+<section class="card">
+  <h2>How the preview reaches the browser, now</h2>
+  <div class="flow">
+    <div><strong>Ctrl+M</strong> · <code>PreviewController</code> renders the Markdown and writes <code>preview_&lt;hash&gt;.html</code> into the folder it chose at startup.</div>
+    <div><strong>Folder</strong> · In a Flatpak with a cache dir, <code>&lt;cache&gt;/ferrispad_preview</code>; otherwise <code>&lt;temp&gt;/ferrispad_preview</code>, as before.</div>
+    <div><strong>Open</strong> · <code>open::that</code> runs <code>xdg-open</code>. In the sandbox that is flatpak-xdg-open, which goes through the OpenURI portal. The host browser can read the cache path, but not the sandbox's <code>/tmp</code>.</div>
+    <div><strong>Save</strong> · Saving a Markdown file rewrites the same preview file. There is no new open; the user reloads the tab.</div>
+    <div><strong>Quit</strong> · The session's preview files are removed, then the folder if it is empty.</div>
+  </div>
+</section>
+
+<section class="card ticket">
+  <h2>T0119: the Flatpak preview goes where the browser can read it</h2>
+  <div class="flow">
+    <div><strong>Before</strong> · Ctrl+M in the Flatpak wrote <code>/tmp/ferrispad_preview/…</code> inside the sandbox and handed it to the portal. Nothing opened, and nothing said why.</div>
+    <div><strong>After</strong> · The file is written under the app's cache dir. Inside the sandbox, <code>xdg-open</code> of that path opens the chooser and then the browser.</div>
+  </div>
+  <p>The orchestrator reproduced it with the user inside the installed sandbox:</p>
+  <ul>
+    <li><code>xdg-open /tmp/test1-tmp.html</code> exited 0 and did nothing else: no chooser and no portal log.</li>
+    <li>The same page under <code>$XDG_CACHE_HOME/ferrispad_preview/</code> opened GNOME's chooser, then the browser on <code>file:///home/…/.var/app/com.ferrispad.FerrisPad/cache/ferrispad_preview/test2-cache.html</code>.</li>
+  </ul>
+  <p>The orchestrator then specified the fix: the cache dir in a Flatpak, created 0700, with cleanup working in both places.</p>
+  <ul>
+    <li><strong><code>services::flatpak</code> (new):</strong> <code>detect(flatpak_id, info_file_exists)</code> is true for a non-empty <code>FLATPAK_ID</code> or a present <code>/.flatpak-info</code>. <code>updater::is_flatpak()</code> now calls it, so the updater and the preview cannot disagree.</li>
+    <li><strong><code>preview_dir_for(in_flatpak, cache_dir, temp_dir)</code>:</strong> a pure chooser. <code>PreviewController</code> calls it once in <code>new()</code> and stores the result. Writing, refreshing on save and cleanup all use that stored folder, so they cannot point at different places.</li>
+    <li><strong>0700:</strong> <code>DirBuilder</code> with <code>recursive(true).mode(0o700)</code> on Unix, whenever the folder is created.</li>
+    <li><strong>Testable write:</strong> <code>open_in_browser</code> is now <code>write_preview</code> (write and track) followed by <code>open::that</code>. The cleanup test therefore runs without launching a browser.</li>
+  </ul>
+  <p><strong>No visible change</strong> in FerrisPad's own windows: the menus, dialogs and editor are identical. The change is in which file the host browser receives. <code>shoot.sh</code> cannot show that: it shims <code>xdg-open</code> to fail by design, and it does not run inside the Flatpak. The headless run inside the installed sandbox is in the table below.</p>
+  <div class="scroll">
+  <table>
+    <tr><th>Inside the installed Flatpak, headless</th><th>0.9.10 (installed)</th><th>branch <code class="sha">29fa3a6</code></th></tr>
+    <tr><td>path handed to <code>xdg-open</code> on Ctrl+M</td><td><code>/tmp/ferrispad_preview/preview_e2b4….html</code> (the sandbox's private <code>/tmp</code>)</td><td><code>~/.var/app/com.ferrispad.FerrisPad/cache/ferrispad_preview/preview_e2b4….html</code></td></tr>
+    <tr><td>preview folder mode</td><td>755</td><td>700</td></tr>
+    <tr><td>page content</td><td></td><td><code>&lt;h1&gt;</code>, both list items, and the image as an absolute <code>file:///home/…</code> URL</td></tr>
+    <tr><td>edit, save, no Ctrl+M</td><td></td><td>the same file is rewritten with the edit, and <code>xdg-open</code> is not called again</td></tr>
+    <tr><td>second Ctrl+M</td><td></td><td>the same path is opened again</td></tr>
+    <tr><td>after quit</td><td></td><td>the file and the folder are removed</td></tr>
+  </table>
+  </div>
+  <p>The run used FlatPark 0.9.10's runtime with Xvfb <code>:98</code>, a scratch <code>XDG_CONFIG_HOME</code>/<code>XDG_DATA_HOME</code>, and a fake <code>xdg-open</code> on <code>PATH</code>. The fake logged its argument and opened nothing, so no portal or chooser was reached.</p>
+  <p>Pending user, in the installed Flatpak on GNOME (Wayland): the chooser appears, the browser shows the page with its image, and a reload after a save shows the edit.</p>
+  <div class="bad"><strong class="tag">The defect, red first.</strong> Today's <code>preview_dir()</code> and Flatpak check were first moved behind the pure functions, unchanged, so the tests compiled. Two tests then failed:
+    <ul>
+      <li><code>preview_dir_in_flatpak_uses_the_cache_dir</code> failed with <code>left: "/t/ferrispad_preview"</code>, <code>right: "/c/ferrispad_preview"</code>.</li>
+      <li><code>flatpak_detection</code> failed on the <code>FLATPAK_ID</code>-only case.</li>
+    </ul>
+    The guard <code>preview_dir_outside_flatpak_is_unchanged</code> passed before and after.</div>
+  <div class="why"><strong>Why the cache dir, and only in a Flatpak.</strong> The sandbox's <code>$XDG_CACHE_HOME</code> sits under <code>~/.var/app/&lt;id&gt;</code>, which the host sees at the same path, so the portal can hand it to the browser. Outside the Flatpak the browser already reads <code>/tmp</code>, so moving that folder would change behaviour no one asked to change.</div>
+  <div class="why"><strong>Why 0700 everywhere.</strong> One rule for both folders. Outside the Flatpak it only tightens a folder FerrisPad creates itself, and the browser runs as the same user. This was my call within the orchestrator's spec, which asked for 0700 on the Flatpak folder.</div>
+  <div class="followup"><strong class="tag">The updater's check widens.</strong> A non-empty <code>FLATPAK_ID</code> now counts as a Flatpak for the updater too, so there is no self-update when only <code>FLATPAK_ID</code> is set. That happens only inside a sandbox, or with a variable exported by hand. The orchestrator specified the two-signal rule.</div>
+  <div class="followup"><strong class="tag">Not fixed here.</strong>
+    <ul>
+      <li>The chooser is not attached to FerrisPad's window (the portal logs "Failed to associate portal window with parent window"), so it can open behind it.</li>
+      <li><code>open::that</code> returns <code>Ok</code> once <code>xdg-open</code> has spawned, so a portal failure stays silent.</li>
+      <li>Outside a Flatpak, <code>/tmp/ferrispad_preview</code> is a predictable path in a world-writable folder. Moving it is a separate decision.</li>
+    </ul></div>
+  <h3>How to test T0119</h3>
+  <ol class="steps">
+    <li><code>nix develop -c cargo test --lib -- preview_dir flatpak_detection cleanup_removes_files_and_dir preview_dir_is_private_to_the_user</code>
+      <span class="expect">All pass. Before the fix, <code>preview_dir_in_flatpak_uses_the_cache_dir</code> failed with <code>left: "/t/ferrispad_preview"</code>, and <code>flatpak_detection</code> failed on the <code>FLATPAK_ID</code>-only case.</span></li>
+    <li><code>nix develop -c cargo build --release</code>, then <code>flatpak run --filesystem=/nix:ro --command=$HOME/Code/personal/ferrispad-wt/T0119/target/release/FerrisPad com.ferrispad.FerrisPad /path/to/notes.md</code>
+      <span class="expect">The branch binary runs inside the installed Flatpak. <code>--filesystem=/nix:ro</code> is needed because the Nix build loads its libraries from <code>/nix/store</code>. It applies to this run only and is not a saved override.</span></li>
+    <li>Press Ctrl+M.
+      <span class="expect">GNOME's "Open With" chooser appears; it may be behind FerrisPad's window. Pick the browser: it shows the rendered page from <code>~/.var/app/com.ferrispad.FerrisPad/cache/ferrispad_preview/</code>. Before the fix, nothing happened.</span></li>
+  </ol>
+</section>
+
+<section class="card">
+  <h2>Release notes and compatibility</h2>
+  <ul>
+    <li><strong>CHANGELOG:</strong> Fixed: in the Flatpak, Markdown preview in the browser (Ctrl+M) did nothing. The preview is now written to the app's cache folder, which the browser can read.</li>
+    <li>Settings, session files, plugins and themes are untouched. A preview left in the old sandbox <code>/tmp</code> by 0.9.10 is not carried over: that <code>/tmp</code> is private to each sandbox run.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>What remains open</h2>
+  <ul>
+    <li><strong>A startup sweep of stale preview files:</strong> the user's decision is pending, relayed by the orchestrator. Not in this PR.</li>
+    <li><strong>T0118's Markdown line:</strong> "Markdown preview in your browser (Ctrl+M)" can go back on the FlatPark page with the 0.9.11 submission once this is released.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>End-to-end verification</h2>
+  <p>A user of the installed FlatPark FerrisPad previews a Markdown file, edits it, and sees the edit in the browser. Run from the branch's worktree with a throwaway config and data directory, so the run never reads or writes your real Flatpak settings and sessions.</p>
+  <h3>Starting state</h3>
+  <ol class="steps">
+    <li><code>export XDG_CONFIG_HOME=$(mktemp -d -p $PWD) XDG_DATA_HOME=$(mktemp -d -p $PWD)</code> (under the worktree: the sandbox does not see the host's <code>/tmp</code>), and a <code>notes.md</code> with a heading, a list and <code>![img](pic.png)</code> next to a <code>pic.png</code>
+      <span class="expect"><code>ls ~/.var/app/com.ferrispad.FerrisPad/cache/</code> shows no <code>ferrispad_preview</code>.</span></li>
+    <li><code>nix develop -c cargo build --release</code>, then <code>flatpak run --filesystem=/nix:ro --env=XDG_CONFIG_HOME=$XDG_CONFIG_HOME --env=XDG_DATA_HOME=$XDG_DATA_HOME --command=$PWD/target/release/FerrisPad com.ferrispad.FerrisPad $PWD/notes.md</code>
+      <span class="expect">FerrisPad opens <code>notes.md</code> in its window.</span></li>
+  </ol>
+  <h3>The scenario</h3>
+  <ol class="steps">
+    <li>Press Ctrl+M.
+      <span class="expect">The "Open With" chooser appears, possibly behind FerrisPad. Choose the browser: it shows the heading, the list and the image.</span></li>
+    <li>Add a line to the Markdown and press Ctrl+S. Do not press Ctrl+M.
+      <span class="expect">Reloading the browser tab shows the new line.</span></li>
+    <li>Add another line and press Ctrl+M.
+      <span class="expect">The page shows that line too, after the chooser if it asks again.</span></li>
+    <li>Quit FerrisPad, then <code>ls ~/.var/app/com.ferrispad.FerrisPad/cache/</code>
+      <span class="expect">No <code>ferrispad_preview</code> is left.</span></li>
+    <li>Outside the Flatpak: <code>nix develop -c cargo run --release -- notes.md</code>, then Ctrl+M.
+      <span class="expect">The browser opens the preview from <code>/tmp/ferrispad_preview/</code>, as before.</span></li>
+  </ol>
+  <h3>The gates</h3>
+  <ol class="steps">
+    <li><code>nix develop -c cargo test</code>, <code>nix develop -c cargo clippy --all-targets --all-features -- -D warnings</code>, <code>nix develop -c cargo fmt --check</code>
+      <span class="expect">all green, zero warnings.</span></li>
+  </ol>
+</section>
+
+<footer>
+  Presentation of PR #241 · branch <code>ticket/T0119</code> · commits <code>fa7931f</code> → <code>29fa3a6</code> ·
+  ticket <code>docs/tickets/2-review/T0119-flatpak-markdown-preview.md</code> · issue #239.
+</footer>
+</div>
+</body>
+</html>
