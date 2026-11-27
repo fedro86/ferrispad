@@ -41,16 +41,28 @@ for width in 1280 390; do
     # change prefers-color-scheme in the headless shell).
     pcs=$([ "$scheme" = dark ] && echo 0 || echo 1)
     flags=(--window-size="$width,900" --blink-settings=preferredColorScheme=$pcs)
-    json=$(run "${flags[@]}" --dump-dom "file://$(realpath "$probe")" | sed -n 's:.*<title>\(.*\)</title>.*:\1:p' | sed 's/&quot;/"/g')
+    json=$(run "${flags[@]}" --dump-dom "file://$(realpath "$probe")" | sed -n 's:.*<title>\(.*\)</title>.*:\1:p' | sed 's/&quot;/"/g') || true
+    if [ -z "$json" ]; then
+      echo "$width px $scheme: chrome produced no measurement -> FAIL" >&2; fail=1; continue
+    fi
     read -r sw iw sh dark long < <(python3 -I -c 'import json,sys
 d = json.loads(sys.argv[1])
 print(d["sw"], d["iw"], d["sh"], d["dark"], json.dumps(d["long"]))' "$json")
     shot="$out/check-$width-$scheme.png"
+    : > "$shot"   # an old PNG from an earlier run must not pass the check
     height=$(( sh > 16000 ? 16000 : sh ))
     run --window-size="$width,$height" --blink-settings=preferredColorScheme=$pcs \
-      --screenshot="$shot" "file://$(realpath "$page")" >/dev/null
+      --screenshot="$shot" "file://$(realpath "$page")" >/dev/null || true
     status=ok
     if [ "$sw" -gt "$iw" ] || [ "$long" != "[]" ]; then status=FAIL; fail=1; fi
+    # Fail closed if the color scheme was not applied: four light renders
+    # would otherwise all pass.
+    want=$([ "$scheme" = dark ] && echo True || echo False)
+    if [ "$dark" != "$want" ]; then status="FAIL (dark=$dark, wanted $want)"; fail=1; fi
+    if [ ! -s "$shot" ]; then status="FAIL (no screenshot)"; fail=1; fi
+    if [ "$sh" -gt 16000 ]; then
+      echo "WARNING: $width px $scheme: the page is $sh px tall; the screenshot stops at 16000 px, so check the rest by hand" >&2
+    fi
     echo "$width px $scheme: scrollWidth=$sw innerWidth=$iw dark=$dark long_chips=$long -> $status ($shot)"
   done
 done

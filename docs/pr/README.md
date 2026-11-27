@@ -92,7 +92,8 @@ for good.
    proceeds.
 3. **Update.** Keep the page current while the PR is open: a review fix, a
    merge of `master`, the move of the ticket to `3-done/`. Copy every fix
-   to `docs/internal/pr/` again.
+   to `docs/internal/pr/` again. The PR stays a **draft** while the user
+   verifies, and goes ready together with the `3-done/` move.
 4. **Merge.** Only when all of these hold:
    - the technical visual check passes (headless Chromium at 1280 and
      390 px, light and dark, no overflow, chips of at most 40
@@ -109,12 +110,18 @@ for good.
    copy from `docs/internal/pr/`. Nothing happens to the page in
    `docs/pr/`.
 
-**The annotation-only PR.** Some PRs change only files under
-`docs/tickets/`: annotations of tickets already in `3-done/`, such as
-post-tag records, and at most new tickets in `1-todo/`. Examples are #230
-and #233. Such a PR has no page; its one-paragraph body is enough. It still
-merges as in step 4, but only the conditions on the checks and the user's
-consent apply.
+**The annotation-only PR.** Some PRs only modify tickets already in
+`3-done/` and/or add new tickets to `1-todo/`. Examples are post-tag records
+and verification notes, as in #230 and #233. Such a PR has no page; its
+one-paragraph body is enough. Every line of
+`git diff --name-status origin/master...HEAD` must be `M docs/tickets/3-done/…`
+or `A docs/tickets/1-todo/…`. Anything else gets a page.
+
+Such a PR still merges as in step 4, but only these conditions apply:
+
+- not a draft;
+- the checks;
+- the user's consent.
 
 ## A worked example: a UI ticket card
 

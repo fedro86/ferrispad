@@ -91,12 +91,12 @@ ticket per PR.
 ## Acceptance criteria
 
 - [ ] The user approved the skill, the template and this PR's page.
-- [ ] `SKILL.md`, `_template.html` and `README.md` exist, and are adapted to
+- [x] `SKILL.md`, `_template.html` and `README.md` exist, and are adapted to
       GitHub and FerrisPad (How to test 1).
-- [ ] This PR's page has no placeholder and the template's style block
+- [x] This PR's page has no placeholder and the template's style block
       (How to test 2–3).
-- [ ] The visual check passes on the committed page (How to test 4).
-- [ ] `work-sequence.md` and `.claude/CLAUDE.md` point to the skill.
+- [x] The visual check passes on the committed page (How to test 4).
+- [x] `work-sequence.md` and `.claude/CLAUDE.md` point to the skill.
 
 ## Affected files
 
@@ -186,3 +186,32 @@ ticket per PR.
   - the screenshots, including 390 px crops, show nothing overflowing.
 
   The page is copied to the main checkout's `docs/internal/pr/`.
+
+### Review round 1 (a3; decisions by the orchestrator, 2026-11-27)
+
+- **The PR stays a draft until the user verifies.** Before, §6 ran
+  `gh pr ready` at step 2, against work-sequence step 3. Now:
+  - §6 only sets the body and stops;
+  - the PR goes ready together with the `3-done/` move;
+  - §7 condition 3 includes "not a draft";
+  - `work-sequence.md` steps 2 and 3 say the same.
+- **The size chip excludes the page itself:**
+  `git diff --shortstat origin/master...HEAD -- . ':(exclude)docs/pr/PR-*.html'`.
+  Committing the page no longer makes the chip wrong. The PR-235 chip
+  and its sentence are updated.
+- **The annotation-only exemption is narrowed.** Every `--name-status`
+  line must be `M docs/tickets/3-done/…` or `A docs/tickets/1-todo/…`
+  (#230 and #233 still pass). Everything else gets a page: moves, edits to
+  `1-todo/` or `2-review/` tickets, deletions, `_template.md` or
+  `README.md`.
+- **`visual_check.sh` hardening:**
+  - It fails closed when the scheme is not applied (a dark run must
+    report `dark=True`, a light run `False`).
+  - It warns when the page is taller than the 16000 px screenshot cap.
+  - It prints "chrome produced no measurement" instead of a traceback.
+  - It truncates each PNG first, so a stale shot cannot pass.
+  - Negative tests: `CHROME=/bin/false` gives four "no measurement" FAIL
+    lines and exit 1. A wrapper that drops `--blink-settings` gives FAIL
+    "(dark=False, wanted True)" on both dark runs, exit 1. The real
+    Chromium gives four ok lines, exit 0.
+- The acceptance boxes that are done are ticked.

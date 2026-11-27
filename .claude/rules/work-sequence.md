@@ -41,14 +41,17 @@ ID, never reused or renumbered. Copy `docs/tickets/_template.md` for new tickets
       edge);
    3. write `docs/pr/PR-<n>-<slug>.html` and copy it to the main checkout's
       `docs/internal/pr/`;
-   4. hand back to the user with the page and the recipe to run.
+   4. hand back to the user with the page and the recipe to run. The PR
+      stays a **draft** until the user has verified it.
 
    **Nothing lands on `master` at this step.**
 3. **`2-review/` → `3-done/`** — *Only after the user approves.* Move the ticket
    to `3-done/` in a new commit on the ticket branch and push it (never amend or
    rebase a pushed branch — that needs a force-push). Update the PR page in
-   the same commit, and copy it to the user again. Then mark the PR ready and
-   **squash-merge** it, only under the `new-pr` skill's §7 conditions:
+   the same commit, and copy it to the user again. Mark the PR ready at
+   this point and not before: the draft flag means "waiting for the user's
+   verification". It is then **squash-merged**, only under the `new-pr`
+   skill's §7 conditions:
    - the visual check of the page has passed;
    - the user's feedback on the page is addressed;
    - all checks are green on the head SHA;

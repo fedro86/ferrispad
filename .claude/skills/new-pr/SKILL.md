@@ -180,7 +180,9 @@ element. The rules:
   - **Commits:** `git log --reverse --format='%h %s' origin/master..HEAD`.
     Every SHA is a `<code class="sha">`, which never wraps. The table lists
     the branch's commits for reference: master gets one squash commit.
-  - **The size chip:** `git diff --shortstat origin/master...HEAD`
+  - **The size chip:** everything except the page itself, so the number
+    stays right across the page's own commits:
+    `git diff --shortstat origin/master...HEAD -- . ':(exclude)docs/pr/PR-*.html'`
     (three dots: from the merge-base).
   - **The ticket:** its file in `docs/tickets/`, which holds the decisions,
     the red test and the recipe.
@@ -249,10 +251,11 @@ Commit the page on its own: `docs: present PR #<n>`, plus the
 `Co-Authored-By` trailer. Then push. The pre-commit hook runs the cargo
 gates. Every push to the PR runs CI on the new head.
 
-## 6. Ready the PR
+## 6. Hand it to the user (the PR stays a draft)
 
-Set the body, then mark the PR ready (`gh pr ready <n>`). The body has
-four parts:
+Set the body. **Do not mark the PR ready.** On GitHub, the draft flag
+means "waiting for the user's verification", and the landing refuses a
+draft. The body has four parts:
 
 - one paragraph: what the PR delivers;
 - `Presentation: docs/pr/PR-<n>-<slug>.html`;
@@ -268,7 +271,8 @@ Then confirm the state on GitHub, not from gh's printout:
 gh pr view <n> --json state,isDraft,headRefOid,mergeable,url
 ```
 
-Then **stop**. Tell the user that the PR is ready, with:
+Then **stop**. Tell the user that the PR is ready for their verification,
+with:
 
 - its link;
 - the path of the page's copy;
@@ -280,7 +284,9 @@ Then **stop**. Tell the user that the PR is ready, with:
 2. Update the page in the same commit: the ticket chip, the commits
    table, the footer.
 3. Push, and copy the page to the user again.
-4. Run the technical check again on the new head.
+4. Mark the PR ready (`gh pr ready <n>`), together with the `3-done/`
+   move and never before it.
+5. Run the technical check again on the new head.
 
 ## 7. Merge only on the user's explicit consent
 
@@ -306,7 +312,8 @@ Before a merge, all five hold:
    Report the four `scrollWidth`/`innerWidth` pairs and any long chip.
 2. **The user's feedback on the copy** (§4) is in and addressed, and each
    fix has been copied again.
-3. **The ticket is in `3-done/`** and the page is committed at the head.
+3. **The ticket is in `3-done/`**, the page is committed at the head,
+   and the PR is no longer a draft (§6, after the user's verification).
 4. **Every check is green on the PR's own head SHA.**
    ```bash
    sha=$(gh pr view <n> --json headRefOid --jq .headRefOid)
@@ -369,13 +376,22 @@ moved: whether the PR is open or merged is GitHub's state, not the file's.
 `docs/pr/` stays flat. FerrisPad is one crate, so there are no app
 folders.
 
-**The one PR without a presentation.** A PR whose
-`git diff --name-status origin/master...HEAD` lists only files under
-`docs/tickets/` gets no page. That means annotations of tickets already in
-`3-done/` (post-tag records, user verification notes) and, at most, new
-ticket files in `1-todo/`. Its one-paragraph GitHub body is enough.
+**The one PR without a presentation.** A PR whose diff only modifies
+tickets already in `3-done/` and/or adds new tickets to `1-todo/` gets no
+page. Post-tag records and user-verification notes are examples, as in #230
+and #233. Every line of
 
-- Open it as in §1, ready it as in §6, and merge it as in §7. With no page
-  and no ticket of its own, only conditions 4 and 5 apply.
-- Any PR with code, configuration, CI, skills or docs outside
-  `docs/tickets/` has its page.
+```bash
+git diff --name-status origin/master...HEAD
+```
+
+must be `M` on `docs/tickets/3-done/…` or `A` on `docs/tickets/1-todo/…`.
+Its one-paragraph GitHub body is enough.
+
+- Open it as in §1, set its body as in §6, and merge it as in §7. With no
+  page and no ticket of its own, only conditions 4 and 5 apply, plus "not
+  a draft".
+- Anything else gets a page: code, configuration, CI, skills, docs
+  outside those two folders, a ticket moved between states, an edit to a
+  ticket in `1-todo/` or `2-review/`, a deletion, or a change to
+  `docs/tickets/_template.md` or `docs/tickets/README.md`.
