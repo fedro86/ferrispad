@@ -5,6 +5,45 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.10] - 2026-11-27
+
+FerrisPad 0.9.10 adds custom editor themes, a current-line highlight and a remembered window size. It hardens the plugin sandbox and fixes stalls on files with very long lines, along with the other fixes below.
+
+### Security
+- **Plugin File Sandbox**: A plugin can no longer reach files outside the project folder through a symbolic link inside it. Every plugin file operation checks the real location of the path on disk. When a plugin asks FerrisPad to open a file, FerrisPad opens the path it checked.
+- **Approved Plugin Commands**: A plugin can no longer change what an approved command runs. Plugins can't write into executable files or into a `.git` folder, and they can't delete or move the project folder or a folder that holds `.git`.
+- **Plugin Program Paths**: When an approved command is given as a path, it must be an executable inside the project folder or your home folder. A program with an approved name in any other folder, for example `/tmp`, is refused, and so are ambiguous program paths on Windows.
+- **Web-Only Links**: The documentation link of a plugin diagnostic (opened with a double-click) and the "Details" button in the Plugin Manager open only web addresses (`http` and `https`).
+- **Dependency Updates**: Updated `serde` (1.0.229), `serde_json` (1.0.154), `similar` (3.2.1), `sha2` (0.11.1) and, on macOS, `objc2` (0.6.5).
+
+### Added
+- **Custom Editor Themes**: Settings → Manage themes… opens a theme manager. Duplicate a built-in theme, then change its editor colors (background, text, caret, selection, line numbers and their background, current line) with a live preview; Cancel restores the previous look. Custom themes can be renamed, deleted, or imported from `.tmTheme` files. Built-in themes stay read-only.
+- **Current-Line Highlight**: The line with the cursor has a subtle background band, on by default. Turn it off with View → Toggle Current Line Highlight.
+- **Window Size Remembered**: FerrisPad reopens with the size, position and maximized state the window had when it was closed. On Wayland the compositor still chooses the position.
+
+### Changed
+- **Selection Color**: The editor selection is blue in every built-in syntax theme, light and dark, instead of a faint tint of the background that was hard to see on some themes. Selected text that would be hard to read on the blue is drawn in black or white.
+- **FLTK 1.5.24**: The GUI toolkit is updated from fltk-rs 1.5.14 to 1.5.24. It brings FLTK 1.4 maintenance fixes, including safer memory handling of widget callbacks, and drops the unmaintained `ttf-parser` dependency. On X11, text may sit slightly lower (less than a pixel) than in 0.9.9.
+
+### Fixed
+- **Long Lines**: Files with very long lines, such as minified JavaScript, no longer stall FerrisPad when they are opened or edited. Lines longer than 16 KB are shown without syntax colors.
+- **Unclosed Comments in Large Files**: Typing an unclosed `/*` or quote near the top of a large file no longer freezes the editor on every keystroke. The rest of the file is re-highlighted in steps.
+- **Unsaved Changes on Close**: Closing the window with the title-bar ×, Alt+F4 or the taskbar now asks to save unsaved changes, like File → Quit. Before, with session restore off (the default), unsaved changes were lost.
+- **Unsaved Text in Two Windows**: With session restore set to Full, two FerrisPad windows on the same session no longer mistake each other's untitled documents for one document because they share a name such as "Untitled". Before, that mix-up dropped one window's unsaved text from the session.
+- **Settings File Defaults**: When `settings.json` is missing a setting, that setting gets its default value, and one invalid value no longer resets all settings. This changes one behavior: an old settings file without `"tabs_enabled"` now starts with tabs on, like a fresh install.
+- **Markdown Preview After Restore**: Preview in Browser (Ctrl+M) is available right away when a restored `.md` file is the active tab. Before, you had to switch tabs first.
+- **Unsaved Marker**: The window title shows "*" and the tab shows its dot as soon as a document changes.
+- **Untitled Tab Numbers**: New tabs are numbered from "Untitled", using the lowest free number. Before, the first new tab was "Untitled 2".
+- **Line Numbers**: The line-number gutter is wide enough for the largest line number. Before, long files showed cut-off numbers.
+- **System Dark Mode on Linux**: The "System default" theme detects GNOME's dark mode through the XDG desktop portal, also inside Flatpak and nix shells.
+- **Settings Dialog Layout**: Labels in the Settings dialog no longer get cut off or run into their fields with wider desktop fonts. On small screens the dialog scrolls, and Save and Cancel stay visible.
+- **Dialog Lists**: The selected row of dialog lists is clearly visible in light and dark themes.
+- **Dialog Inputs**: Every dialog input uses the theme's selection and cursor colors. For example, the Large Files fields in Settings no longer select text in navy blue.
+
+### Note
+- **System Appearance Changes**: When you switch your system between light and dark, FerrisPad picks up the change at its next start or when you press Save in Settings. FerrisPad does not watch the system in the background, so it uses no CPU when idle.
+- **Known Issue, Unsaved Text After Closing One of Two Windows**: With session restore set to Full, if you close a window that has unsaved text and then keep working in another window on the same session (editing, or opening, saving or closing files), the closed window's unsaved text may not come back at the next start, and its tabs may not reopen. To keep the text, save it to a file before closing that window.
+
 ## [0.9.10-rc.3] - 2026-11-27
 
 Third release candidate, published as a GitHub pre-release only. It has everything in [0.9.10-rc.2](https://github.com/fedro86/ferrispad/releases/tag/0.9.10-rc.2) and adds plugin security hardening and the fixes below. The website, FlatPark and the in-app updater on the stable channel stay on 0.9.9.
