@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plugin shortcut clashes</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --ink: #1c2430; --muted: #5b6675;
+    --accent: #0b6e4f; --accent-soft: #e3f2ec; --line: #dde3ea;
+    --warn: #8a5a00; --warn-soft: #fdf3dd; --code-bg: #f0f2f5;
+    --chip: #eef1f4; --bad: #8a2020; --bad-soft: #fbeaea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181f; --surface: #1c222b; --ink: #e8ecf1; --muted: #9aa6b4;
+      --accent: #4cc39a; --accent-soft: #10352a; --line: #2c3541;
+      --warn: #e2b45a; --warn-soft: #33290f; --code-bg: #232a34;
+      --chip: #262e39; --bad: #e88; --bad-soft: #3a1c1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 "Open Sans", "Segoe UI", system-ui, sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  header.top { border-bottom: 3px solid var(--accent); padding-bottom: 1.2rem; margin-bottom: 2rem; }
+  .kicker { text-transform: uppercase; letter-spacing: .12em; font-size: .78rem; color: var(--accent); font-weight: 700; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: .3rem 0 .6rem; }
+  h2 { font-size: 1.35rem; margin: 0 0 .2rem; }
+  h3 { font-size: 1.02rem; margin: 1.3rem 0 .4rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem .6rem; margin-top: .8rem; }
+  .chip { background: var(--chip); border: 1px solid var(--line); border-radius: 999px;
+    padding: .15rem .7rem; font-size: .82rem; color: var(--muted); white-space: nowrap; }
+  .chip strong { color: var(--ink); font-weight: 600; }
+  .chip.green { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .chip.warn { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+  a { color: var(--accent); }
+  section.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.5rem 1.75rem; margin-bottom: 1.75rem; }
+  p { margin: .55rem 0; }
+  ul, ol { margin: .4rem 0 .6rem; padding-left: 1.3rem; }
+  li { margin: .25rem 0; }
+  code { font: .86em/1.5 "JetBrains Mono", "Fira Mono", monospace;
+    background: var(--code-bg); border-radius: 4px; padding: .08em .35em; word-break: break-word; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: .85rem 1rem; overflow-x: auto; font-size: .85rem; line-height: 1.55; }
+  pre code { background: none; padding: 0; }
+  .why { border-left: 4px solid var(--accent); background: var(--accent-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup { border-left: 4px solid var(--warn); background: var(--warn-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup strong.tag { color: var(--warn); }
+  .bad { border-left: 4px solid var(--bad); background: var(--bad-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .bad strong.tag { color: var(--bad); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; font-size: .9rem; }
+  th, td { text-align: left; border-bottom: 1px solid var(--line); padding: .45rem .6rem; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; font-family: "JetBrains Mono", "Fira Mono", monospace; white-space: nowrap; }
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li { counter-increment: step; position: relative; padding-left: 2.2rem; margin: .55rem 0; }
+  .steps li::before { content: counter(step); position: absolute; left: 0; top: .1rem;
+    width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--accent-soft);
+    color: var(--accent); font-weight: 700; font-size: .82rem; display: grid; place-items: center; }
+  .expect { display: block; margin-top: .2rem; color: var(--muted); font-size: .9em; }
+  .expect::before { content: "expected → "; color: var(--accent); font-weight: 600; }
+  .flow { display: grid; gap: .35rem; margin: .8rem 0; }
+  .flow div { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: .45rem .8rem; font-size: .9rem; }
+  .flow div strong { color: var(--accent); }
+  footer { color: var(--muted); font-size: .86rem; border-top: 1px solid var(--line);
+    margin-top: 2rem; padding-top: 1rem; }
+  img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
+  figure { margin: .9rem 0; }
+  figcaption { color: var(--muted); font-size: .88rem; font-style: italic; margin-top: .35rem; }
+  code.sha { white-space: nowrap; word-break: normal; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <div class="kicker">Pull request #209 · ticket/T0073 → master · plugins</div>
+  <h1>An official plugin's shortcut can no longer clash with a core one unnoticed</h1>
+  <div class="flow">
+    <div><strong>Before</strong> · Rust Lint 1.5.0 advertised Ctrl+Shift+R for Run All Checks. That key is File → Reload All, so the plugin's binding was always skipped, and every start logged a warning. Nothing in this repo noticed.</div>
+    <div><strong>After</strong> · Rust Lint 1.5.1 (ferrispad-plugins#1) declares no shortcut. Its checks run on Ctrl+Shift+L, Plugins → General → Run All Checks. A unit test binds every official plugin's shortcuts against the core ones and fails on a clash.</div>
+  </div>
+  <p>The warning was seen on 2026-11-07, while T0072 was verified by hand. Core's policy is right: core keeps its key and the plugin binding is skipped. The defect was the shipped manifest. The user chose to drop the shortcut rather than pick another key. This PR adds the guard; the manifest fix is in the plugin repo.</p>
+  <ul>
+    <li><code>plugin_shortcut_conflicts</code>: the five official manifests are bound through the runtime's own <code>PluginShortcutBinder</code>. A clash fails the test and names who holds the key.</li>
+    <li><code>builtin_shortcuts_are_reserved</code>: every core default shortcut is in the binder's hand-kept <code>RESERVED_SHORTCUTS</code>, in both tab modes.</li>
+    <li>The manifests are verbatim copies in <code>tests/fixtures/official_plugins/</code>, with a README saying where they come from.</li>
+  </ul>
+  <div class="meta">
+    <span class="chip"><strong>T0073</strong> in <code>3-done/</code></span>
+    <span class="chip"><strong>9</strong> files · +480 / −89</span>
+    <span class="chip green">Rust Lint 1.5.1 published</span>
+    <span class="chip green">gates green at every commit</span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/209">PR #209 on GitHub</a></span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/issues/207">issue #207</a></span>
+  </div>
+</header>
+
+<section class="card">
+  <h2>The branch's commits</h2>
+  <div class="scroll">
+  <table>
+    <tr><th>Commit</th><th>What changes</th></tr>
+    <tr><td><code class="sha">391998e</code></td>
+      <td>Red test first, then the two guard tests, the five manifest fixtures and the ticket.</td></tr>
+    <tr><td><code class="sha">ab6e69e</code></td>
+      <td>Merge of master (up to T0117, #235); no conflict.</td></tr>
+    <tr><td><code class="sha">2aff768</code></td>
+      <td>Merge of master (T0111, #213); no conflict.</td></tr>
+    <tr><td><code class="sha">16c9b00</code></td>
+      <td>Docs only: the ticket records the merges and the fixture check.</td></tr>
+    <tr><td><code class="sha">81943be</code></td>
+      <td>Docs only: this page.</td></tr>
+    <tr><td><code class="sha">2ff533c</code></td>
+      <td>Merge of master (T0095 #206, T0116 #240, T0112 #215); no conflict.</td></tr>
+    <tr><td>head</td>
+      <td>Docs only: the ticket moves to <code>3-done/</code> after the user's OK (2026-11-27), the reviewer's APPROVE and the publication of Rust Lint 1.5.1; this page follows.</td></tr>
+  </table>
+  </div>
+  <p>The branch was 25 commits behind master. The merges brought, among others, T0113, which forbids FLTK objects in library unit tests. Both new tests only parse TOML and bind keys, so they pass that guard unchanged.</p>
+</section>
+
+<section class="card ticket">
+  <h2>T0073: the Ctrl+Shift+R clash, and a guard against the next one</h2>
+  <div class="flow">
+    <div><strong>Before</strong> · With Rust Lint 1.5.0 installed, every start printed <code>[plugins] Warning: shortcut 'Ctrl+Shift+R' for Rust Lint/Run All Checks conflicts with existing shortcut, skipping</code>. The plugin's README promised a key that never worked.</div>
+    <div><strong>After</strong> · Rust Lint 1.5.1 has no shortcut on Run All Checks, and its README points to Ctrl+Shift+L and Edit → Key Shortcuts. With all five official plugins installed, the start log has no shortcut warning. File → Reload All keeps Ctrl+Shift+R.</div>
+  </div>
+  <p><strong>The user's decision, relayed by the orchestrator: drop the shortcut.</strong> Core Ctrl+Shift+L fires <code>on_highlight_request</code>, which in Rust Lint calls the same <code>run_all_checks</code> as the menu item, so nothing is lost. A user who wants a dedicated key can set one in Edit → Key Shortcuts.</p>
+  <ul>
+    <li><strong>The plugin repo:</strong> <a href="https://github.com/fedro86/ferrispad-plugins/pull/1">ferrispad-plugins#1</a> (<code class="sha">adb75f5</code>) removes the shortcut, bumps Rust Lint to 1.5.1, and updates its README and CHANGELOG.</li>
+    <li><strong>The other official plugins:</strong> file-explorer Ctrl+Shift+E, git-diff Ctrl+Shift+D, python-lint Ctrl+Shift+P, yaml-json-viewer Ctrl+Shift+Y. None of them clashes.</li>
+    <li><strong>The fixtures are current:</strong> <code>rust-lint</code> is byte-identical to PR #1's head, and the other four to the plugin repo's <code>main</code> (checked 2026-11-27).</li>
+  </ul>
+  <p><strong>No visible change:</strong> this PR adds tests and fixtures only, and the FerrisPad binary is the same as master's. The change a user sees, the Rust Lint menu and the quiet start log, ships with the plugin update.</p>
+  <p><strong>Pending user, now that Rust Lint 1.5.1 is published:</strong> update Rust Lint in the Plugin Manager and restart. Look for no shortcut warning in the log and no shortcut next to Plugins → Rust Lint → Run All Checks. Ctrl+Shift+R must still reload all files.</p>
+  <div class="bad"><strong class="tag">The defect, red first.</strong> With the Rust Lint 1.5.0 manifest (plugin repo <code class="sha">cce6006</code>) as the fixture, the guard failed:
+<pre>thread 'ui::menu::tests::plugin_shortcut_conflicts' panicked at src/ui/menu.rs:909:9:
+Rust Lint/Run All Checks (Ctrl+Shift+R) clashes with File/Reload All</pre>
+  With the 1.5.1 manifest it passes. <code>builtin_shortcuts_are_reserved</code> passes before and after: it guards against drift.</div>
+  <div class="why"><strong>Why bind through the runtime's binder.</strong> The test uses the same <code>PluginShortcutBinder</code> as the Plugins menu: reserved core keys first, then earlier plugin items. A separate table in the test could drift from what the app really does.</div>
+  <div class="followup"><strong class="tag">Published.</strong> On the user's OK (2026-11-27), ferrispad-plugins#1 was merged as <code class="sha">017442d</code>, and the auto-sign bot signed Rust Lint 1.5.1 in <code class="sha">fd7a6a4</code>, which touched only <code>plugins.json</code>. All five fixtures are byte-identical to <code>main</code> at <code class="sha">fd7a6a4</code>.</div>
+  <h3>How to test T0073</h3>
+  <ol class="steps">
+    <li><code>nix develop -c cargo test --lib -- plugin_shortcut_conflicts builtin_shortcuts_are_reserved</code>
+      <span class="expect">2 passed. Before the fix (1.5.0 fixture), the clash above.</span></li>
+    <li>Put back the 1.5.0 line in the fixture: <code>sed -i '/label = "Run All Checks"/a shortcut = "Ctrl+Shift+R"' tests/fixtures/official_plugins/rust-lint/plugin.toml</code>, run step 1 again, then <code>git checkout tests/fixtures</code>
+      <span class="expect">FAILED: <code>Rust Lint/Run All Checks (Ctrl+Shift+R) clashes with File/Reload All</code>; clean again after the checkout.</span></li>
+  </ol>
+</section>
+
+<section class="card">
+  <h2>Release notes and compatibility</h2>
+  <ul>
+    <li><strong>CHANGELOG:</strong> none in FerrisPad: tests only. The plugin's own CHANGELOG has the <code>[1.5.1]</code> entry.</li>
+    <li>Settings, sessions and themes are untouched. A user who bound Rust Lint's item in Edit → Key Shortcuts keeps that binding.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>What remains open</h2>
+  <ul>
+    <li><strong>The check in the real app:</strong> the pending step above. Rust Lint 1.5.1 is now in the registry, so it can be done with an update from the Plugin Manager.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>End-to-end verification</h2>
+  <p>A maintainer changes an official plugin's manifest to take a core key, and the test suite stops them before release. From the branch's worktree; nothing here reads or writes your settings.</p>
+  <h3>Starting state</h3>
+  <ol class="steps">
+    <li><code>git status --short tests/fixtures</code>
+      <span class="expect">no output: the fixtures are as committed.</span></li>
+  </ol>
+  <h3>The scenario</h3>
+  <ol class="steps">
+    <li>Give git-diff the core Find key: <code>sed -i 's/Ctrl+Shift+D/Ctrl+F/' tests/fixtures/official_plugins/git-diff/plugin.toml</code>, then <code>nix develop -c cargo test --lib -- plugin_shortcut_conflicts</code>
+      <span class="expect">FAILED, naming the git-diff item, <code>Ctrl+F</code> and the core command that holds it.</span></li>
+    <li><code>git checkout tests/fixtures</code>, then run the same test again
+      <span class="expect">ok: the official manifests clash with nothing.</span></li>
+  </ol>
+  <h3>The gates</h3>
+  <ol class="steps">
+    <li><code>nix develop -c cargo test</code>, <code>nix develop -c cargo clippy --all-targets --all-features -- -D warnings</code>, <code>nix develop -c cargo fmt --check</code>
+      <span class="expect">all green, zero warnings.</span></li>
+  </ol>
+</section>
+
+<footer>
+  Presentation of PR #209 · branch <code>ticket/T0073</code> · commits <code>391998e</code> → the <code>3-done/</code> move ·
+  ticket <code>docs/tickets/3-done/T0073-rust-lint-shortcut-conflict.md</code> · issue #207.
+</footer>
+</div>
+</body>
+</html>

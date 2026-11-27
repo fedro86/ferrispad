@@ -273,7 +273,11 @@ fn tool_open_file(state: &mut AppState, args: &Value) -> Result<String, String> 
         theme_bg,
         state.tabs_enabled,
     );
-    state.dispatch_file_actions(actions);
+    // The recent-files list is the user's history: a file an agent opens
+    // through MCP is not added to it (T0116, orchestrator's decision).
+    state.dispatch_file_actions(
+        crate::app::controllers::file::FileController::without_recent(actions),
+    );
 
     Ok(json!({"opened": true, "path": path, "already_open": false}).to_string())
 }

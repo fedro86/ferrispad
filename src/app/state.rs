@@ -109,6 +109,9 @@ pub struct AppState {
     /// Main-window geometry tracked for the close-time save (T0077). Shared
     /// with the window's resize callback and close handler in `main.rs`.
     pub window_geometry: Rc<RefCell<WindowGeometryTracker>>,
+    /// Recently opened files, most recent first (T0116). Read once at
+    /// startup, written on every change.
+    pub recent_files: Vec<String>,
 }
 
 impl AppState {
@@ -127,7 +130,7 @@ impl AppState {
     pub fn new(
         editor_container: EditorContainer,
         window: Window,
-        menu: MenuBar,
+        mut menu: MenuBar,
         flex: Flex,
         update_banner_frame: Frame,
         sender: Sender<Message>,
@@ -202,6 +205,8 @@ impl AppState {
         let session = SessionController::with_session_name(session_name);
         let plugin_coord = PluginController::new(menu.clone(), sender);
 
+        let recent_files = crate::app::services::recent_files::load_or_seed();
+        crate::ui::menu::rebuild_recent_menu(&mut menu, &sender, &recent_files);
         Self {
             tab_manager,
             tabs_enabled,
@@ -229,7 +234,69 @@ impl AppState {
             mcp_responses: Default::default(),
             pending_diff_reviews: HashMap::new(),
             window_geometry: Rc::new(RefCell::new(WindowGeometryTracker::default())),
+            recent_files,
         }
+    }
+
+    // ===== Recent files (T0116) =====
+
+    /// Put `path` at the top of the recent-files list, if it names an
+    /// existing file, and save the list.
+    pub fn remember_recent(&mut self, path: &str) {
+        let path = std::path::Path::new(path);
+        if !path.is_file() {
+            return;
+        }
+        let absolute = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            match std::env::current_dir() {
+                Ok(cwd) => cwd.join(path),
+                Err(_) => return,
+            }
+        };
+        crate::app::services::recent_files::push(
+            &mut self.recent_files,
+            &absolute.to_string_lossy(),
+        );
+        self.recent_files_changed();
+    }
+
+    /// File → Open Recent: open the entry, or switch to its tab. A file that
+    /// no longer exists is reported and dropped from the list.
+    pub fn open_recent(&mut self, path: String) {
+        let theme_bg = self.highlight.highlighter().theme_background();
+        if !std::path::Path::new(&path).is_file() {
+            crate::app::services::recent_files::remove(&mut self.recent_files, &path);
+            self.recent_files_changed();
+            show_themed_message(
+                theme_bg,
+                "Error",
+                &format!("{path} no longer exists. It was removed from the recent files."),
+            );
+            return;
+        }
+        let actions = self.file.open_file(
+            path,
+            &mut self.tab_manager,
+            &self.settings,
+            theme_bg,
+            self.tabs_enabled,
+        );
+        self.dispatch_file_actions(actions);
+    }
+
+    /// File → Open Recent → Clear Recent.
+    pub fn clear_recent(&mut self) {
+        self.recent_files.clear();
+        self.recent_files_changed();
+    }
+
+    fn recent_files_changed(&mut self) {
+        if let Err(e) = crate::app::services::recent_files::save(&self.recent_files) {
+            eprintln!("[recent-files] could not save the list: {e}");
+        }
+        crate::ui::menu::rebuild_recent_menu(&mut self.menu, &self.sender, &self.recent_files);
     }
 
     /// Get the active document's buffer
@@ -265,11 +332,18 @@ impl AppState {
     /// Update the window title based on active document. The label is only
     /// set when the text changes.
     pub fn update_window_title(&mut self) {
-        let active = self
-            .tab_manager
-            .active_doc()
-            .map(|doc| (doc.tab_label(), doc.is_dirty()));
-        let title = window_title(active, self.session.current_session_name());
+        let active = self.tab_manager.active_doc().map(|doc| {
+            (
+                self.tab_manager.tab_label(doc.id).unwrap_or_default(),
+                doc.is_dirty(),
+            )
+        });
+        let title = window_title(
+            active
+                .as_ref()
+                .map(|(label, dirty)| (label.as_str(), *dirty)),
+            self.session.current_session_name(),
+        );
         if self.window.label() != title {
             self.window.set_label(&title);
         }
@@ -532,6 +606,7 @@ impl AppState {
                     let theme_bg = self.highlight.highlighter().theme_background();
                     show_themed_message(theme_bg, "Error", &message);
                 }
+                FileAction::RememberRecent(path) => self.remember_recent(&path),
             }
         }
     }
