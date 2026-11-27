@@ -1,12 +1,12 @@
 ---
 id: T0090
 title: One physical path rule for the plugin sandbox — no escape through in-root symlinks
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: severe        # sandbox escape: arbitrary file write outside the project root
 area: security
 depends-on: []
-issue: ~                # GitHub issue number, filled when work starts
+issue: 222              # GitHub issue number, filled when work starts
 ---
 
 Disclosure: private until the fix ships in 0.9.10-rc.3 (user decision 2026-11-26).
@@ -304,3 +304,20 @@ After: both pass. The `\\?\` form itself cannot appear on Linux; the
 string-form assertion in `hook_open_file_opens_the_validated_path_not_the_raw_one`
 pins that the opened path is `root.join(raw)` (never canonicalized), which
 is what keeps it off Windows.
+
+## Disclosure (2026-11-27)
+
+Made public with 0.9.10-rc.3: branch pushed, issue #222 opened. The
+`app::plugins::api::tests::test_lua_create_dir_and_rename` skip is removed
+from `.github/workflows/macos-gates.yml` in this branch, so the macOS gate
+runs the full suite.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland) with the rc.3 integration
+build `verify/rc3` (checklist `VERIFICA-RC3.md`), which carried this chain
+(T0090 → T0092 → T0094). 2026-11-27: the session checks re-run on
+`master` + this chain (`verify/rc3-final`) pass.
+
+Still pending on the published rc.3: on Windows, opening an already-open file
+from the file explorer must not open a second tab (the `open_file` path form).

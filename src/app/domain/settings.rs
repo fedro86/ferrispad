@@ -11,36 +11,71 @@ use crate::app::services::updater::UpdateChannel;
 /// Per-plugin permission approvals stored in settings.
 /// Tracks which commands the user has approved or denied for each plugin.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)] // missing keys take `Default` (T0100)
 pub struct PluginApprovals {
     /// Commands the user has approved for this plugin
-    #[serde(default)]
     pub approved_commands: Vec<String>,
     /// Commands the user has explicitly denied
-    #[serde(default)]
     pub denied_commands: Vec<String>,
 }
 
 /// A shortcut override entry stored in settings.
 /// Used by the centralized ShortcutRegistry to override default shortcuts.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)] // missing keys take `Default` (T0100)
 pub struct ShortcutOverride {
     /// Normalized shortcut string (e.g., "Ctrl+Shift+S"), empty = unbound
     pub shortcut: String,
     /// Whether this shortcut is enabled
-    #[serde(default = "default_true")]
     pub enabled: bool,
 }
 
-fn default_true() -> bool {
-    true
+/// Unbound and enabled. Hand-written: a derived `Default` would make
+/// `enabled` false, unlike an entry that just omits the key.
+impl Default for ShortcutOverride {
+    fn default() -> Self {
+        Self {
+            shortcut: String::new(),
+            enabled: true,
+        }
+    }
+}
+
+/// Read `shortcut_overrides`, dropping malformed entries (T0100). An entry
+/// without a "shortcut" key would otherwise parse as "" = unbound and
+/// silently remove a working shortcut; it is ignored instead, so the
+/// built-in shortcut stays. Explicit unbinding is `"shortcut": ""`.
+fn deserialize_shortcut_overrides<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<String, ShortcutOverride>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = HashMap::<String, serde_json::Value>::deserialize(deserializer)?;
+    Ok(raw
+        .into_iter()
+        .filter_map(|(id, value)| {
+            if value.get("shortcut").is_none() {
+                eprintln!("[settings] Ignoring the override for \"{id}\": no \"shortcut\" key.");
+                return None;
+            }
+            match serde_json::from_value::<ShortcutOverride>(value) {
+                Ok(ovr) => Some((id, ovr)),
+                Err(e) => {
+                    eprintln!("[settings] Ignoring the override for \"{id}\": {e}.");
+                    None
+                }
+            }
+        })
+        .collect())
 }
 
 /// Per-plugin configuration (stored in settings.json)
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)] // missing keys take `Default` (T0100)
 pub struct PluginConfig {
     /// Plugin-specific parameters as key-value pairs
     /// e.g., {"max_line_length": "120", "ignore_rules": "E501,W503"}
-    #[serde(default)]
     pub params: HashMap<String, String>,
 }
 
@@ -69,6 +104,19 @@ pub enum ThemeMode {
     Light,
     Dark,
     SystemDefault,
+}
+
+impl ThemeMode {
+    /// Whether this mode renders dark. `detect` (the desktop query, which may
+    /// spawn `gdbus`/`gsettings` and wait up to the portal timeout) runs only
+    /// for `SystemDefault`, and at most once.
+    pub fn resolve_dark(self, detect: impl FnOnce() -> bool) -> bool {
+        match self {
+            ThemeMode::Light => false,
+            ThemeMode::Dark => true,
+            ThemeMode::SystemDefault => detect(),
+        }
+    }
 }
 
 /// Returns true for the three built-in font names that FerrisPad has shipped historically.
@@ -306,6 +354,10 @@ fn de_syntax_theme_dark<'de, D: serde::Deserializer<'de>>(d: D) -> Result<ThemeR
 /// whether it was maximized. `x`/`y` are the client-area origin, as FLTK
 /// reports them. Hand-editable, so always validated before use (see
 /// `services::window_geometry`).
+///
+/// Deliberately strict (T0100): no container default, since a geometry
+/// without its coordinates is meaningless. A partial object is dropped by
+/// the lenient `window` deserializer. Only `maximized` may be missing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowGeometry {
     pub x: i32,
@@ -317,118 +369,91 @@ pub struct WindowGeometry {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+// One rule for missing keys (T0100): every key absent from settings.json takes
+// its `AppSettings::default()` value. No field-level `default`: a bare
+// `#[serde(default)]` on a field means the field TYPE's default (false for a
+// bool), which is how `tabs_enabled` came to disagree with `Default`.
+#[serde(default)]
 pub struct AppSettings {
-    #[serde(default = "default_line_numbers")]
     pub line_numbers_enabled: bool,
 
-    #[serde(default = "default_word_wrap")]
     pub word_wrap_enabled: bool,
 
-    #[serde(default = "default_highlighting")]
     pub highlighting_enabled: bool,
 
-    #[serde(default = "default_theme_mode")]
     pub theme_mode: ThemeMode,
 
-    #[serde(default = "default_font")]
     pub font: String,
 
-    #[serde(default = "default_font_size")]
     pub font_size: u32,
 
-    #[serde(default = "default_auto_check_updates")]
     pub auto_check_updates: bool,
 
-    #[serde(default = "default_update_channel")]
     pub update_channel: UpdateChannel,
 
-    #[serde(default)]
     pub last_update_check: i64,
 
-    #[serde(default)]
     pub skipped_versions: Vec<String>,
 
-    #[serde(default)]
     pub tabs_enabled: bool,
 
-    #[serde(default)]
     pub session_restore: SessionRestore,
 
-    #[serde(default)]
     pub preview_enabled: bool,
 
     /// Syntax theme for light mode
-    #[serde(
-        default = "default_syntax_theme_light",
-        deserialize_with = "de_syntax_theme_light"
-    )]
+    #[serde(deserialize_with = "de_syntax_theme_light")]
     pub syntax_theme_light: ThemeRef,
 
     /// Syntax theme for dark mode
-    #[serde(
-        default = "default_syntax_theme_dark",
-        deserialize_with = "de_syntax_theme_dark"
-    )]
+    #[serde(deserialize_with = "de_syntax_theme_dark")]
     pub syntax_theme_dark: ThemeRef,
 
     /// Tab size in spaces (default 4)
-    #[serde(default = "default_tab_size")]
     pub tab_size: u32,
 
     /// Insert spaces instead of tab characters (default false)
-    #[serde(default)]
     pub use_spaces: bool,
 
     /// Whether the plugin system is enabled
-    #[serde(default = "default_plugins_enabled")]
     pub plugins_enabled: bool,
 
     /// Names of explicitly disabled plugins
-    #[serde(default)]
     pub disabled_plugins: Vec<String>,
 
     /// Per-plugin permission approvals (plugin_name -> approvals)
-    #[serde(default)]
     pub plugin_approvals: HashMap<String, PluginApprovals>,
 
     /// Whether to automatically check for plugin updates
-    #[serde(default = "default_auto_check_plugin_updates")]
     pub auto_check_plugin_updates: bool,
 
     /// Timestamp of last plugin update check (UNIX timestamp)
-    #[serde(default)]
     pub last_plugin_update_check: i64,
 
     /// Names of plugins to include in "Run All Checks" (empty = all enabled plugins)
-    #[serde(default)]
     pub run_all_checks_plugins: Vec<String>,
 
     /// Shortcut for "Run All Checks" command (default: "Ctrl+Shift+L")
-    #[serde(default = "default_run_all_checks_shortcut")]
     pub run_all_checks_shortcut: String,
 
     /// Per-plugin configuration (plugin_name -> config)
-    #[serde(default)]
     pub plugin_configs: HashMap<String, PluginConfig>,
 
     /// Centralized shortcut overrides (command_id -> override)
     /// Keys: "File/Save" for built-ins, "plugin:name:action" for plugins
-    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_shortcut_overrides")]
     pub shortcut_overrides: HashMap<String, ShortcutOverride>,
 
     /// File size (MB) above which a warning is shown before loading (default 50)
-    #[serde(default = "default_large_file_warning_mb")]
     pub large_file_warning_mb: u32,
 
     /// File size (MB) above which editing is blocked — read-only/tail only (default 150)
-    #[serde(default = "default_max_editable_size_mb")]
     pub max_editable_size_mb: u32,
 
     /// Main window geometry saved on a confirmed close (`None` = 640×480).
     /// Deserialized leniently: a malformed object is dropped on its own
     /// instead of failing the whole file (which would reset every setting).
     #[serde(
-        default,
         deserialize_with = "deserialize_lenient_geometry",
         skip_serializing_if = "Option::is_none"
     )]
@@ -436,7 +461,6 @@ pub struct AppSettings {
 
     /// Highlight the line holding the cursor (T0081). On by default, also
     /// for an older settings.json without the field.
-    #[serde(default = "default_true")]
     pub highlight_current_line: bool,
 }
 
@@ -653,10 +677,33 @@ impl AppSettings {
     /// yields the defaults (logged); individual fields such as the syntax
     /// theme slots fall back on their own without rejecting the rest.
     pub fn from_json_or_default(contents: &str) -> Self {
-        serde_json::from_str(contents).unwrap_or_else(|e| {
-            eprintln!("Failed to parse settings: {}. Using defaults.", e);
-            Self::default()
-        })
+        serde_json::from_str(contents).unwrap_or_else(|e| Self::salvage(contents, &e))
+    }
+
+    /// `contents` did not parse as a whole (T0100): keep every key that is
+    /// valid on its own, on top of the defaults, and drop (log) the rest, so
+    /// one bad value never resets every other setting. Not JSON at all, or
+    /// not an object: all defaults. Only runs on this error path.
+    fn salvage(contents: &str, error: &serde_json::Error) -> Self {
+        use serde_json::Value;
+        let (Ok(Value::Object(user)), Ok(Value::Object(mut merged))) = (
+            serde_json::from_str::<Value>(contents),
+            serde_json::to_value(Self::default()),
+        ) else {
+            eprintln!("Failed to parse settings: {error}. Using defaults.");
+            return Self::default();
+        };
+        for (key, value) in user {
+            let previous = merged.insert(key.clone(), value);
+            if serde_json::from_value::<Self>(Value::Object(merged.clone())).is_err() {
+                eprintln!("[settings] Ignoring an invalid value for \"{key}\"; using the default.");
+                match previous {
+                    Some(previous) => merged.insert(key, previous),
+                    None => merged.remove(&key),
+                };
+            }
+        }
+        serde_json::from_value(Value::Object(merged)).unwrap_or_default()
     }
 
     /// Save settings to disk
@@ -726,6 +773,111 @@ impl AppSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T0100: a settings.json that lacks a key (hand-written, or from an
+    /// older version) must get that key's `AppSettings::default()` value,
+    /// not a different serde fallback. `{}` lacks every key, so it must
+    /// parse to exactly the defaults; the message lists every field that
+    /// does not.
+    #[test]
+    fn settings_missing_keys_take_the_defaults() {
+        let mut mismatched = Vec::new();
+        mismatched.extend(missing_keys_mismatches::<AppSettings>("AppSettings"));
+        mismatched.extend(missing_keys_mismatches::<PluginApprovals>(
+            "PluginApprovals",
+        ));
+        mismatched.extend(missing_keys_mismatches::<ShortcutOverride>(
+            "ShortcutOverride",
+        ));
+        mismatched.extend(missing_keys_mismatches::<PluginConfig>("PluginConfig"));
+        assert!(mismatched.is_empty(), "\n{}", mismatched.join("\n"));
+    }
+
+    /// Parse `{}` as `T` and list every field whose value differs from
+    /// `T::default()` (or the parse error).
+    fn missing_keys_mismatches<T>(name: &str) -> Vec<String>
+    where
+        T: Default + Serialize + serde::de::DeserializeOwned,
+    {
+        let parsed: T = match serde_json::from_str("{}") {
+            Ok(parsed) => parsed,
+            Err(e) => return vec![format!("{name}: {{}} does not parse: {e}")],
+        };
+        let parsed = serde_json::to_value(parsed).unwrap();
+        let default = serde_json::to_value(T::default()).unwrap();
+        let (parsed, default) = (parsed.as_object().unwrap(), default.as_object().unwrap());
+        default
+            .iter()
+            .filter(|(key, value)| parsed.get(*key) != Some(value))
+            .map(|(key, value)| {
+                format!(
+                    "{name}.{key}: missing -> {}, default {value}",
+                    parsed
+                        .get(key)
+                        .map_or("<absent>".to_string(), |v| v.to_string())
+                )
+            })
+            .collect()
+    }
+
+    /// One invalid key never resets the others: an unknown enum value, a
+    /// partial window geometry or a wrong type drops only that key (logged);
+    /// every other key of the file is kept.
+    #[test]
+    fn settings_one_bad_key_keeps_the_others() {
+        let s = AppSettings::from_json_or_default(
+            r#"{"theme_mode":"Purple","font_size":17,"window":{"x":1},
+                "tabs_enabled":false,"tab_size":"wide","word_wrap_enabled":false}"#,
+        );
+        let d = AppSettings::default();
+        assert_eq!(s.theme_mode, d.theme_mode, "invalid enum -> default");
+        assert_eq!(s.tab_size, d.tab_size, "wrong type -> default");
+        assert_eq!(s.window, None, "partial geometry -> dropped");
+        assert_eq!(s.font_size, 17, "valid keys kept");
+        assert!(!s.tabs_enabled);
+        assert!(!s.word_wrap_enabled);
+    }
+
+    /// A shortcut override without a "shortcut" key is malformed: it is
+    /// ignored, so the built-in shortcut stays. Explicit unbinding is
+    /// `"shortcut": ""`.
+    #[test]
+    fn settings_shortcut_override_without_key_is_ignored() {
+        use crate::app::services::shortcut_registry::ShortcutRegistry;
+        let s = AppSettings::from_json_or_default(
+            r#"{"font_size":17,"shortcut_overrides":{
+                "File/Save":{"enabled":true},
+                "File/Open...":{"shortcut":"","enabled":true}}}"#,
+        );
+        assert_eq!(s.font_size, 17, "the rest of the file is kept");
+        assert!(!s.shortcut_overrides.contains_key("File/Save"));
+        let reg = ShortcutRegistry::from_settings(&s.shortcut_overrides);
+        assert_eq!(reg.effective_shortcut("File/Save", "Ctrl+S"), "Ctrl+S");
+        assert_eq!(reg.effective_shortcut("File/Open...", "Ctrl+O"), "");
+    }
+
+    /// WindowGeometry is deliberately strict: without its coordinates a
+    /// geometry is meaningless, so a partial object is dropped (the window
+    /// opens at 640×480) rather than defaulted to 0×0. Only `maximized` may
+    /// be missing (→ false).
+    #[test]
+    fn settings_window_geometry_is_strict() {
+        let s = AppSettings::from_json_or_default(r#"{"window":{}}"#);
+        assert_eq!(s.window, None);
+        let s = AppSettings::from_json_or_default(
+            r#"{"window":{"x":1,"y":2,"width":800,"height":600}}"#,
+        );
+        assert_eq!(s.window.map(|w| (w.width, w.maximized)), Some((800, false)));
+    }
+
+    #[test]
+    fn theme_mode_resolve_dark_detects_only_for_system_default() {
+        let never = || -> bool { panic!("explicit modes must not query the desktop") };
+        assert!(!ThemeMode::Light.resolve_dark(never));
+        assert!(ThemeMode::Dark.resolve_dark(never));
+        assert!(ThemeMode::SystemDefault.resolve_dark(|| true));
+        assert!(!ThemeMode::SystemDefault.resolve_dark(|| false));
+    }
 
     #[test]
     fn test_default_settings() {

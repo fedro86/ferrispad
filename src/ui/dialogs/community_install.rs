@@ -4,8 +4,7 @@
 //! before allowing the user to proceed with installation.
 
 use fltk::{
-    button::Button,
-    enums::{Align, Color, Font, FrameType},
+    enums::{Align, Font, FrameType},
     frame::Frame,
     group::{Pack, PackType, Scroll},
     prelude::*,
@@ -115,11 +114,7 @@ pub fn show_community_install_dialog(review: &CommunityInstallReview, theme: &Di
     } else {
         "Install Community Plugin"
     };
-    let warning_color = if theme.is_dark() {
-        Color::from_rgb(220, 180, 80)
-    } else {
-        Color::from_rgb(180, 120, 20)
-    };
+    let warning_color = theme.warning_text();
     let mut header = Frame::default()
         .with_size(content_width, 26)
         .with_label(&format!("\u{26A0}  {}", header_text));
@@ -269,21 +264,17 @@ pub fn show_community_install_dialog(review: &CommunityInstallReview, theme: &Di
     // ── Buttons ──
     let btn_y = dialog_height - 42;
 
-    let mut cancel_btn = Button::default()
+    let mut cancel_btn = theme
+        .button()
         .with_pos(PADDING, btn_y)
         .with_size(100, 30)
         .with_label("Cancel");
-    cancel_btn.set_frame(FrameType::RFlatBox);
-    cancel_btn.set_color(theme.button_bg);
-    cancel_btn.set_label_color(theme.text);
 
-    let mut install_btn = Button::default()
+    let mut install_btn = theme
+        .warning_button()
         .with_pos(DIALOG_WIDTH - PADDING - 120, btn_y)
         .with_size(120, 30)
         .with_label("Install Anyway");
-    install_btn.set_frame(FrameType::RFlatBox);
-    install_btn.set_color(theme.button_bg);
-    install_btn.set_label_color(warning_color);
 
     dialog.end();
     drop(top_level);
