@@ -20,6 +20,12 @@ verified the in-review ticket.** The binding rules load from `.claude/rules/`:
   quality gates.
 
 Open new tickets with the `new-ticket` skill (`.claude/skills/new-ticket/`).
+Open every PR with the `new-pr` skill (`.claude/skills/new-pr/`). It writes
+the PR's English HTML presentation, `docs/pr/PR-<n>-<slug>.html`, with
+screenshots of every visible change taken in Xvfb, and copies it to the main
+checkout's `docs/internal/pr/` for the user. It also holds the merge
+conditions: the ticket in `3-done/`, all checks green on the head SHA, and
+the user's explicit consent for that PR, merged with `--match-head-commit`.
 The ticket workspace (`docs/tickets/`) and this `.claude/` overlay are **tracked
 in git**: FerrisPad is an AI-assisted project and this workflow is part of the
 repo. Only personal overrides stay gitignored — `.claude/settings.local.json`, a
@@ -67,7 +73,7 @@ Releases are **fully automated via GitHub Actions** (`.github/workflows/release.
 ./scripts/release.sh
 ```
 
-The website (www.ferrispad.com) is **not** in this repo: it is the separate `fedro86/fedro-websites` app, which reads the latest version from the GitHub tags API, so a release needs no website step. `docs/` holds only `assets/` (used by `release.yml` and the Flatpak metainfo screenshots), `guides/` and `tickets/`.
+The website (www.ferrispad.com) is **not** in this repo: it is the separate `fedro86/fedro-websites` app, which reads the latest version from the GitHub tags API, so a release needs no website step. `docs/` holds `assets/` (used by `release.yml` and the Flatpak metainfo screenshots), `guides/`, `tickets/` and `pr/` (the PR presentations; see `docs/pr/README.md`). `docs/internal/` is gitignored.
 
 Tag/version conventions:
 - **Tags have NO `v` prefix** (e.g. `0.9.5`, not `v0.9.5`) — matches the existing tagging convention.

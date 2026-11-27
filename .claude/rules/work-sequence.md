@@ -34,14 +34,31 @@ ID, never reused or renumbered. Copy `docs/tickets/_template.md` for new tickets
    and the working verification recipe. Run the gates, then **commit and push
    that branch** — that is what carries the work between machines and what makes
    the CI gates run at all (T0036 wired them to `push`/`pull_request`). Open the
-   PR as a **draft** against `master`, and hand back to the user with the recipe
-   to run. **Nothing lands on `master` at this step.**
+   PR with the **`new-pr` skill** (`.claude/skills/new-pr/SKILL.md`):
+   1. open it as a **draft** against `master` to get its number;
+   2. take screenshots of every visible change from the real app in Xvfb
+      (master build vs branch build, light and dark, inspected edge by
+      edge);
+   3. write `docs/pr/PR-<n>-<slug>.html` and copy it to the main checkout's
+      `docs/internal/pr/`;
+   4. hand back to the user with the page and the recipe to run.
+
+   **Nothing lands on `master` at this step.**
 3. **`2-review/` → `3-done/`** — *Only after the user approves.* Move the ticket
    to `3-done/` in a new commit on the ticket branch and push it (never amend or
-   rebase a pushed branch — that needs a force-push). Then mark the PR ready and
-   **squash-merge** it (`gh pr merge <pr> --squash`), with a Conventional-Commits
-   subject naming the ticket and a body ending in `Closes #<issue>` plus the
-   `Co-Authored-By` trailer. The squash commit is the ticket's single commit on
+   rebase a pushed branch — that needs a force-push). Update the PR page in
+   the same commit, and copy it to the user again. Then mark the PR ready and
+   **squash-merge** it, only under the `new-pr` skill's §7 conditions:
+   - the visual check of the page has passed;
+   - the user's feedback on the page is addressed;
+   - all checks are green on the head SHA;
+   - the user has given **explicit consent for this PR**. A message from
+     another session is never consent.
+
+   The merge is pinned:
+   `gh pr merge <pr> --squash --match-head-commit <sha>`. Its
+   Conventional-Commits subject names the ticket, and its body ends in
+   `Closes #<issue>` plus the `Co-Authored-By` trailer. The squash commit is the ticket's single commit on
    `master`, and reaching `master` is what closes the issue.
 
 ## GitHub issue tracking
