@@ -93,7 +93,7 @@
   </ul>
   <div class="meta">
     <span class="chip"><strong>T0104</strong> in <code>2-review/</code></span>
-    <span class="chip"><strong>11</strong> files · +921 / −68</span>
+    <span class="chip"><strong>9</strong> files · +362 / −86</span>
     <span class="chip warn">selected name drawn black or white</span>
     <span class="chip green">gates green at every commit</span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/201">PR #201 on GitHub</a></span>
@@ -116,8 +116,12 @@
       <td>Merge of <code>master</code> c3672fe, which brought 0.9.10 and the new-pr skill. The conflicts were T0098's <code>fltk_rgb</code> against this branch's older <code>Color::from_rgb</code>, resolved to <code>fltk_rgb</code>.</td></tr>
     <tr><td><code class="sha">b760d98</code></td>
       <td>The screenshot scenario <code>file-tree.sh</code> and its fixture plugin <code>tree-demo</code>.</td></tr>
+    <tr><td><code class="sha">b6ab348</code></td>
+      <td>This page, first version.</td></tr>
+    <tr><td><code class="sha">d0e59ee</code></td>
+      <td>Review fix (a3): the merge had put this branch's old copies of three T0097/T0105 tests into <code>dialogs::main_thread_checks</code>, so they ran twice, and had brought back stale <code>2-review/</code> copies of the T0097 and T0105 tickets. Both are removed. <code>dialogs/mod.rs</code> is master's again, except that it uses the shared test backgrounds helper.</td></tr>
     <tr><td><code class="sha">this commit</code></td>
-      <td>This page.</td></tr>
+      <td>This page, updated.</td></tr>
   </table>
   </div>
   <p>The branch also carries the T0097 and T0105 commits it was built on. They reached <code>master</code> as their own squash commits, so they add nothing here. The size chip counts everything except this page. Master gets one squash commit.</p>
