@@ -53,10 +53,17 @@ Check any change against these before implementing.
 ## Gates (all green before a commit)
 
 ```bash
-nix develop -c cargo test
-nix develop -c cargo clippy --all-targets --all-features -- -D warnings
-nix develop -c cargo fmt --check
+scripts/gates.sh                                                # on the host
+flatpak-spawn --host bash -lc "$PWD/scripts/gates.sh $PWD"      # from the VSCode Flatpak terminal
 ```
+
+It runs `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D
+warnings` and `cargo test` in the Nix dev shell. The tests run on a private
+Xvfb (`xvfb-run -a`), with the caller's `DISPLAY`, `WAYLAND_DISPLAY` and
+`WAYLAND_SOCKET` removed and the UI tests required, as in CI: the UI tests
+build real windows, and they must never open on the user's screen (T0122).
+Never run a bare `nix develop -c cargo test` from the host shell for a gate:
+that shell has the user's display.
 
 There is currently **no CI job** running these on push/PR (only `release.yml`
 and `build-deps-check.yml`). Ticket T0036 adds one; until then the pre-commit

@@ -31,8 +31,9 @@ Flatpak sandbox. `nix` and Xvfb are reached through `flatpak-spawn --host`.
   issue exists (work-sequence step 2).
 - `origin/master` is merged into the branch (merge, never rebase, once
   pushed), and the gates are green on the result:
-  `flatpak-spawn --host bash -lc "cd $PWD && nix develop -c cargo test"`,
-  plus clippy (`-- -D warnings`) and `cargo fmt --check`.
+  `flatpak-spawn --host bash -lc "$PWD/scripts/gates.sh $PWD"` (fmt,
+  clippy `-D warnings`, and the tests on a private Xvfb, never on the
+  user's display: T0122).
 - The branch is pushed.
 
 ## 1. Get the number: open the PR as a draft
