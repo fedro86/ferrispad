@@ -78,6 +78,37 @@ file_labels_unchanged                            ... ok      (guard)
 After the fix all four pass, as do T0091's `untitled_*` tests. Gates: 666
 passed, clippy `-D warnings` and fmt clean.
 
+The red run above was taken on the first form of these tests, which built a
+`TabManager` (FLTK `TextBuffer`s) in `#[cfg(test)]`. Since T0113 that is not
+allowed: on macOS the first `Fl::lock()` off the main thread aborts. They are
+now split (see *After the master merge* below); the cases and the expected
+labels are the same.
+
+### After the master merge (2026-11-27)
+
+T0091 landed on master (#181), then T0093, T0099, T0107 and T0113 did too.
+The branch merged T0091's final tip (c919558), then `origin/master`:
+- **Tests split for the macOS gate (T0113).** The rule is a pure function,
+  `labels_for(&[(name, path)])`, behind `tab_labels`. The four tests above
+  now call it on (name, path) pairs, with no FLTK object. The `TabManager`
+  wiring (a new tab, a Save As done in place, closes) is
+  `tabs::main_thread_checks::tab_label_follows_paths_and_closes`, run by
+  `tests/fltk_main_thread.rs` on the main thread.
+- **Window title (T0107).** Master now builds the title with the pure
+  `window_title(active, session)`. `update_window_title` feeds it
+  `TabManager::tab_label(id)` instead of the removed `Document::tab_label`.
+- **`Document` (T0093, T0099).** Master's new field `restored_temp_file`
+  is kept; only `disambiguated_name` and `Document::tab_label` go.
+
+```bash
+nix develop -c cargo test --lib -- untitled_label save_as_same_name file_labels_unchanged
+nix develop -c cargo test --test fltk_main_thread
+```
+
+Both pass (4 unit tests; 9 main-thread checks, including
+`tab_label_follows_paths_and_closes`). Gates: 757 passed, clippy
+`-D warnings` and fmt clean.
+
 ### Xvfb (debug builds, tabs on; "before" = `ticket/T0091` tip)
 
 `uitest-T0087/t0112.sh`; the tab bar is shown in screenshots.
@@ -112,13 +143,15 @@ The labels fit their tabs; nothing is clipped.
 ## Affected files
 
 - `src/app/controllers/tabs.rs`:
-  - new `tab_labels` and `folder_suffixes`, plus `TabManager::tab_label`;
+  - new `tab_labels`, `labels_for` and `folder_suffixes`, plus
+    `TabManager::tab_label`;
   - `disambiguate_display_names` and its three calls are removed;
   - tests.
 - `src/app/domain/document.rs`: the `disambiguated_name` field and
   `Document::tab_label` are removed.
 - `src/ui/tab_bar.rs`, `src/app/state.rs` (window title): read
   `tab_labels`.
+- `tests/fltk_main_thread.rs`: runs `tab_label_follows_paths_and_closes`.
 
 ## Notes
 

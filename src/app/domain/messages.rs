@@ -80,6 +80,12 @@ pub enum Message {
     /// keyboard layout is active (T0057).
     RunShortcut(String),
 
+    /// A clean document was just edited (its dirty state flipped): refresh
+    /// the window title and the tab bar (T0093). Not sent per keystroke, and
+    /// coalesced: flips while one is queued send nothing more (the id is the
+    /// first flipped document's).
+    DirtyChanged(DocumentId),
+
     // Syntax highlighting
     BufferModified {
         id: DocumentId,
