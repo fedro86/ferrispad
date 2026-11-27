@@ -89,7 +89,7 @@
   <ul>
     <li>One rule, <code>HighlightController::show_restyle</code>, serves every partial style write of the active document.</li>
     <li>The style table is re-bound only when it gained entries. Only the restyled range is repainted, with <code>redisplay_range</code>.</li>
-    <li>The 64 KiB chunk overhead that T0087 accepted is won back: the open now costs 17 % less than at 256 KiB before.</li>
+    <li>The 64 KiB chunk overhead that T0087 accepted is won back in instructions: the open now takes 17 % fewer instructions than at 256 KiB before. In the single, noisy wall-time pass it is not yet at parity: 6.8 s at 64 KiB after this change, against 6.0 s at 256 KiB.</li>
   </ul>
   <div class="meta">
     <span class="chip"><strong>T0095</strong> in <code>2-review/</code></span>
@@ -159,7 +159,7 @@
   </div>
   <p>"Before" is T0096's tip (<code class="sha">23190d2</code>). Instructions were counted with <code>perf stat -e instructions:u</code>, attached to the process until it was idle. The machine was shared and wall times swung by 5x, while instruction counts repeat within 1 %. Two more measures:</p>
   <ul>
-    <li>T0087's 256 KiB build opens <code>multi8.js</code> in 72.4 G instructions, so the 64 KiB open now costs 17 % less than that.</li>
+    <li>T0087's 256 KiB build opens <code>multi8.js</code> in 72.4 G instructions, so the 64 KiB open now takes 17 % fewer instructions than that. The wall-time pass below is not at parity yet: 6.8 s against 6.0 s at 256 KiB, from a single pass on a loaded machine.</li>
     <li>With gdb, one key on <code>min8.js</code> runs <code>recalc_display()</code> 4 times before and 2 times after. That equals T0087's count with highlighting off.</li>
   </ul>
   <div class="scroll">
@@ -167,8 +167,10 @@
     <tr><th>Wall time, one interleaved pass at load 4 to 6</th><th>File</th><th class="n">before</th><th class="n">after</th></tr>
     <tr><td>one key</td><td><code>min8.js</code></td><td class="n">8.9 s</td><td class="n">5.8 s</td></tr>
     <tr><td>open</td><td><code>multi8.js</code></td><td class="n">10.8 s</td><td class="n">6.8 s</td></tr>
+    <tr><td>open, T0087's 256 KiB build</td><td><code>multi8.js</code></td><td class="n">6.0 s</td><td class="n"></td></tr>
   </table>
   </div>
+  <p>One pass only, on a shared machine: the open at 64 KiB after this change (6.8 s) is still behind the 256 KiB build (6.0 s) in wall time, although it takes fewer instructions.</p>
   <div class="bad"><strong class="tag">The defect, red first.</strong> <code>tests/restyle_damage.rs</code> builds the real main window and <code>AppState</code>. On T0096's tip (<code class="sha">23190d2</code>) it failed:
     <ul>
       <li>"a keystroke's re-highlight repainted the whole editor: Damage(Expose | All)";</li>
