@@ -77,6 +77,17 @@ pub fn validate_path(path: &str, project_root: &Path) -> PathValidation {
     };
 
     let input_path = Path::new(path);
+    // Win32 rewrites some names when it creates them (trailing dots/spaces
+    // dropped, `name:stream`, 8.3 aliases), so the checked name would not be
+    // the written one: refuse them outright on Windows (T0092).
+    if cfg!(windows)
+        && input_path.components().any(|c| match c {
+            Component::Normal(name) => windows_name_is_unsafe(&name.to_string_lossy()),
+            _ => false,
+        })
+    {
+        return PathValidation::InvalidPath(format!("Unsafe Windows file name: {}", path));
+    }
     let raw = if input_path.is_absolute() {
         input_path.to_path_buf()
     } else {
@@ -124,6 +135,81 @@ pub fn validate_path(path: &str, project_root: &Path) -> PathValidation {
         PathValidation::Valid(resolved)
     } else {
         PathValidation::OutsideProjectRoot
+    }
+}
+
+/// File systems where `.git` and `.GIT` are the same entry (T0092).
+pub const CASE_INSENSITIVE_NAMES: bool = cfg!(any(windows, target_os = "macos"));
+
+/// Whether one path component names a git directory or file (`.git`).
+/// `.github`, `x.git` and `.gitkeep` do not.
+pub fn is_git_component(name: &str, case_insensitive: bool) -> bool {
+    if case_insensitive {
+        name.eq_ignore_ascii_case(".git")
+    } else {
+        name == ".git"
+    }
+}
+
+/// Whether `physical` (a resolved path) lies in or is a `.git` entry below
+/// `canonical_root`.
+pub fn path_has_git_component(
+    physical: &Path,
+    canonical_root: &Path,
+    case_insensitive: bool,
+) -> bool {
+    physical
+        .strip_prefix(canonical_root)
+        .unwrap_or(physical)
+        .components()
+        .any(|c| match c {
+            Component::Normal(name) => is_git_component(&name.to_string_lossy(), case_insensitive),
+            _ => false,
+        })
+}
+
+/// A Windows path component that Win32 would rewrite on creation, so the
+/// checked name is not the written one: a `:` (alternate data stream), a
+/// trailing `.` or space (stripped), or a `~` followed by a digit (8.3 alias,
+/// e.g. `GIT~1` for `.git`).
+pub fn windows_name_is_unsafe(name: &str) -> bool {
+    name.contains(':')
+        || name.ends_with('.')
+        || name.ends_with(' ')
+        || name
+            .as_bytes()
+            .windows(2)
+            .any(|w| w[0] == b'~' && w[1].is_ascii_digit())
+}
+
+/// Extensions Windows runs directly: `PATHEXT` (or its default when unset)
+/// plus `.PS1` and the implicit `.EXE`, compared case-insensitively.
+pub fn has_executable_extension(name: &str, pathext: Option<&str>) -> bool {
+    const DEFAULT_PATHEXT: &str = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC";
+    let Some(dot) = name.rfind('.') else {
+        return false;
+    };
+    let ext = &name[dot..];
+    pathext
+        .filter(|p| !p.trim().is_empty())
+        .unwrap_or(DEFAULT_PATHEXT)
+        .split(';')
+        .chain([".PS1", ".EXE"])
+        .any(|e| !e.trim().is_empty() && e.trim().eq_ignore_ascii_case(ext))
+}
+
+/// Whether `path` (followed if a symlink) is an existing executable regular
+/// file. On Windows executability is the extension, checked by name.
+pub fn is_existing_executable(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        false
     }
 }
 
@@ -224,6 +310,76 @@ pub fn find_project_root(file_path: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── T0092 name rules (pure: tested on every platform) ─────────────
+
+    #[test]
+    fn git_component_matching() {
+        assert!(is_git_component(".git", false));
+        assert!(!is_git_component(".GIT", false));
+        assert!(is_git_component(".GIT", true));
+        assert!(is_git_component(".Git", true));
+        for other in [".github", "x.git", ".gitkeep", "git", ".git2"] {
+            assert!(!is_git_component(other, true), "{other}");
+        }
+        let root = Path::new("/r");
+        assert!(path_has_git_component(
+            Path::new("/r/.git/config"),
+            root,
+            false
+        ));
+        assert!(path_has_git_component(Path::new("/r/a/.git"), root, false));
+        assert!(path_has_git_component(
+            Path::new("/r/.GIT/hooks/x"),
+            root,
+            true
+        ));
+        assert!(!path_has_git_component(
+            Path::new("/r/.github/ci.yml"),
+            root,
+            true
+        ));
+    }
+
+    #[test]
+    fn windows_unsafe_names() {
+        for bad in [
+            "evil.exe.",
+            "evil.exe ",
+            ".git.",
+            ".git ",
+            "evil.exe::$DATA",
+            "a:b",
+            "GIT~1",
+            "PROGRA~2",
+        ] {
+            assert!(windows_name_is_unsafe(bad), "{bad:?}");
+        }
+        for good in ["main.rs", ".git", "a~b", "x~", "notes.txt"] {
+            assert!(!windows_name_is_unsafe(good), "{good:?}");
+        }
+    }
+
+    #[test]
+    fn windows_executable_extensions() {
+        for name in [
+            "a.exe", "a.EXE", "a.bat", "a.Cmd", "a.ps1", "a.js", "a.msc", "a.com",
+        ] {
+            assert!(has_executable_extension(name, None), "{name}");
+        }
+        for name in ["a.txt", "a", "exe", "a.exe.txt", "a.rs"] {
+            assert!(!has_executable_extension(name, None), "{name}");
+        }
+        // A custom PATHEXT adds entries; .EXE and .PS1 stay in any case.
+        assert!(has_executable_extension("a.py", Some(".COM;.PY")));
+        assert!(has_executable_extension("a.exe", Some(".PY")));
+        assert!(has_executable_extension("a.ps1", Some(".PY")));
+        assert!(!has_executable_extension("a.bat", Some(".PY")));
+        assert!(
+            has_executable_extension("a.bat", Some("  ")),
+            "blank → default"
+        );
+    }
     use std::fs;
     use tempfile::tempdir;
 
