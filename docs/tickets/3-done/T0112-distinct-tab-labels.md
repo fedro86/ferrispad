@@ -1,7 +1,7 @@
 ---
 id: T0112
 title: Two open documents never share a tab label
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: minor
 area: ui
@@ -190,7 +190,17 @@ The labels fit their tabs; nothing is clipped.
 - [x] Regression tests added; they failed before the fix.
 - [x] `cargo test`, `cargo clippy --all-targets --all-features`, and
       `cargo fmt --check` all pass with zero warnings.
-- [ ] Pending user verification.
+- [x] User verification (2026-11-27).
+
+## User verification
+
+The user approved the PR on 2026-11-27 ("ok per 206, 240, 215"), relayed
+by the orchestrator (ferrispad-03), after reading the presentation
+`docs/pr/PR-215-distinct-tab-labels.html`. The reviewer (ferrispad-90)
+approved cfa80d7, after the restored `GroupColor` tests and the fresh red
+runs. 450b0e3 then fixed only the page's size chip. Before the move,
+master was merged again (T0095 #206, T0116 #240; b303514) with no conflict:
+gates 784 passed, clippy `-D warnings` and fmt clean.
 
 ## Affected files
 
