@@ -13,6 +13,9 @@ use crate::app::services::session::{self, DEFAULT_SESSION_NAME, SessionData, Ses
 /// cross-cutting operations (highlighting, buffer binding, etc.).
 pub struct RestoreResult {
     pub last_open_directory: Option<String>,
+    /// Copies (identity, owner) taken over from an instance that is gone
+    /// (T0101): see [`SessionController::adopt`].
+    pub adopted: Vec<(String, String)>,
     /// Documents that need syntax highlighting: (id, path)
     pub highlight_docs: Vec<(DocumentId, String)>,
 }
@@ -23,6 +26,8 @@ pub struct SessionController {
     session_dirty: bool,
     /// Name of the currently active session (e.g. "default", "my-project").
     current_session_name: String,
+    /// What this instance has had in the current session (T0101).
+    ownership: session::Ownership,
 }
 
 impl Default for SessionController {
@@ -31,6 +36,7 @@ impl Default for SessionController {
             last_auto_save: Instant::now(),
             session_dirty: false,
             current_session_name: DEFAULT_SESSION_NAME.to_string(),
+            ownership: session::Ownership::default(),
         }
     }
 }
@@ -52,6 +58,33 @@ impl SessionController {
     /// Set the current session name.
     pub fn set_session_name(&mut self, name: String) {
         self.current_session_name = name;
+        // A different session file: nothing had in it yet (T0101).
+        self.ownership = session::Ownership::default();
+    }
+
+    /// Save the session now (every save goes through here, T0101): this
+    /// instance's documents, merged with what other instances have in the
+    /// file, minus the copies this instance closed.
+    pub fn save_now(
+        &mut self,
+        tab_manager: &TabManager,
+        mode: SessionRestore,
+        last_open_directory: Option<&str>,
+    ) -> Result<(), crate::app::infrastructure::error::AppError> {
+        session::save_session(
+            tab_manager,
+            mode,
+            last_open_directory,
+            &self.current_session_name,
+            &mut self.ownership,
+        )
+    }
+
+    /// Record the copies taken over by a restore (T0101).
+    pub fn adopt(&mut self, adopted: Vec<(String, String)>) {
+        for (identity, owner) in adopted {
+            self.ownership.adopt(identity, owner);
+        }
     }
 
     /// Mark that the session state has changed and should be auto-saved.
@@ -70,12 +103,7 @@ impl SessionController {
         if session_mode == SessionRestore::Off {
             return;
         }
-        if let Err(e) = session::save_session(
-            tab_manager,
-            session_mode,
-            last_open_directory,
-            &self.current_session_name,
-        ) {
+        if let Err(e) = self.save_now(tab_manager, session_mode, last_open_directory) {
             eprintln!("Force-save session failed: {}", e);
         }
         self.session_dirty = false;
@@ -103,12 +131,7 @@ impl SessionController {
             return;
         }
 
-        if let Err(e) = session::save_session(
-            tab_manager,
-            session_mode,
-            last_open_directory,
-            &self.current_session_name,
-        ) {
+        if let Err(e) = self.save_now(tab_manager, session_mode, last_open_directory) {
             eprintln!("Auto-save session failed: {}", e);
         }
         self.session_dirty = false;
@@ -170,6 +193,7 @@ impl SessionController {
         let group_ids = tab_manager.restore_groups(restored_groups);
 
         let mut highlight_docs = Vec::new();
+        let mut adopted = Vec::new();
         let target_index = session_data.active_index;
 
         for (i, doc_session) in session_data.documents.iter().enumerate() {
@@ -210,8 +234,14 @@ impl SessionController {
                         if temp_content != content {
                             doc.buffer.set_text(&temp_content);
                         }
-                        // Keep the session identity: save back to this file.
-                        doc.restored_temp_file = Some(temp_file.clone());
+                        // Keep the session identity (save back to this file),
+                        // unless another live instance still writes it
+                        // (T0101).
+                        let owner = session::entry_owner(doc_session, session_data);
+                        if session::reuse_restored_temp(&owner) {
+                            doc.restored_temp_file = Some(temp_file.clone());
+                            adopted.push((path.clone(), owner));
+                        }
                     }
 
                     if let Some(doc) = tab_manager.doc_by_id_mut(id) {
@@ -231,8 +261,13 @@ impl SessionController {
                 let id = tab_manager.add_untitled();
                 if let Some(doc) = tab_manager.doc_by_id_mut(id) {
                     doc.buffer.set_text(&temp_content);
-                    // Keep the session identity: save back to this file.
-                    doc.restored_temp_file = Some(temp_file.clone());
+                    // Keep the session identity (save back to this file),
+                    // unless another live instance still writes it (T0101).
+                    let owner = session::entry_owner(doc_session, session_data);
+                    if session::reuse_restored_temp(&owner) {
+                        doc.restored_temp_file = Some(temp_file.clone());
+                        adopted.push((temp_file.clone(), owner));
+                    }
                     doc.cursor_position = doc_session.cursor_position;
                     doc.group_id = group_id;
                 }
@@ -248,6 +283,7 @@ impl SessionController {
 
         RestoreResult {
             last_open_directory,
+            adopted,
             highlight_docs,
         }
     }
@@ -270,6 +306,7 @@ pub mod main_thread_checks {
             temp_file: Some(temp_file.to_string()),
             was_dirty: true,
             group_index: None,
+            owner: None,
         }
     }
 

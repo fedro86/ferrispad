@@ -64,6 +64,7 @@ fn file_type_menus_follow_the_active_document() {
         temp_file: None,
         was_dirty: false,
         group_index: None,
+        owner: None,
     };
     let session = SessionData {
         version: 1,

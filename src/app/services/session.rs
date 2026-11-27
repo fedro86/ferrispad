@@ -46,6 +46,136 @@ pub struct DocumentSession {
     pub was_dirty: bool,
     #[serde(default)]
     pub group_index: Option<usize>,
+    /// The instance that wrote this entry as its own (T0101). Missing in
+    /// files from before T0101: then the file's `instance_id` stands in.
+    #[serde(default)]
+    pub owner: Option<String>,
+}
+
+/// A session document's identity (T0099/T0101): the file path of a file,
+/// the temp file of an unsaved untitled document.
+pub fn session_identity(doc: &DocumentSession) -> Option<String> {
+    doc.file_path.clone().or_else(|| doc.temp_file.clone())
+}
+
+/// The instance a session entry belongs to: its `owner`, or for entries
+/// from before T0101 the instance that wrote the file.
+pub fn entry_owner(doc: &DocumentSession, file: &SessionData) -> String {
+    doc.owner
+        .clone()
+        .or_else(|| file.instance_id.clone())
+        .unwrap_or_default()
+}
+
+/// This process's instance id, as written to `owner` and `instance_id`
+/// (T0101): `<pid>-<nonce>`, the nonce random per run. A bare pid is not
+/// enough: a new process that gets a crashed instance's pid would take that
+/// instance's entries for its own and drop them.
+pub fn instance_id() -> &'static str {
+    static ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ID.get_or_init(|| {
+        use std::hash::BuildHasher;
+        // `RandomState` is seeded from the OS's random source; the time and
+        // the pid only add to it.
+        let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+        std::process::id().hash(&mut hasher);
+        std::time::SystemTime::now().hash(&mut hasher);
+        format!("{}-{:016x}", std::process::id(), hasher.finish())
+    })
+}
+
+/// What an instance id names, seen from this process (T0101).
+#[derive(Debug, PartialEq, Eq)]
+enum InstanceState {
+    /// This process.
+    Us,
+    /// An instance that is no longer running.
+    Gone,
+    /// Another instance that is still running.
+    Alive,
+    /// Not an instance id (empty, or not `<pid>[-<nonce>]`).
+    Unknown,
+}
+
+fn instance_state(id: &str) -> InstanceState {
+    if id == instance_id() {
+        return InstanceState::Us;
+    }
+    match instance_pid(id) {
+        None => InstanceState::Unknown,
+        // Another run with our pid: it is gone, we hold its pid now.
+        Some(pid) if pid == std::process::id() => InstanceState::Gone,
+        Some(pid) if process_is_alive(pid) => InstanceState::Alive,
+        Some(_) => InstanceState::Gone,
+    }
+}
+
+/// The process id an instance id names: its `<pid>` prefix (a bare pid in
+/// files from before T0101).
+fn instance_pid(id: &str) -> Option<u32> {
+    id.split('-').next()?.parse().ok()
+}
+
+/// Whether a restore may take over a restored entry's temp file (T0101):
+/// only from an instance that is gone. If another instance still runs (or
+/// the owner cannot be told), the restored copy gets a temp file of its
+/// own, so no temp file ever has two writers; a duplicate tab on a later
+/// restore is acceptable, a lost text is not.
+pub fn reuse_restored_temp(owner: &str) -> bool {
+    matches!(
+        instance_state(owner),
+        InstanceState::Us | InstanceState::Gone
+    )
+}
+
+/// Who is saving (T0101): the instance and the copies it closed.
+struct Saver<'a> {
+    instance_id: &'a str,
+    closed: &'a HashSet<(String, String)>,
+}
+
+/// What one instance has had in the session, so its saves can tell "another
+/// instance has this open" (keep) from "this instance closed it" (drop)
+/// (T0101). In memory only, for the life of the process.
+#[derive(Debug, Default)]
+pub struct Ownership {
+    /// Identities this instance wrote as its own in its last save.
+    owned: HashSet<String>,
+    /// Copies (identity, owner) it took over at restore from an instance
+    /// that is gone.
+    adopted: HashSet<(String, String)>,
+    /// Copies (identity, owner) it had and closed (or renamed by Save As).
+    closed: HashSet<(String, String)>,
+}
+
+impl Ownership {
+    /// Record a copy taken over at restore.
+    pub fn adopt(&mut self, identity: String, owner: String) {
+        self.adopted.insert((identity, owner));
+    }
+
+    /// This instance now has exactly `current` (identities) open, and is
+    /// `us`: whatever it had and no longer has was closed by it; whatever
+    /// it has again is no longer closed.
+    pub fn update(&mut self, current: &HashSet<String>, us: &str) {
+        for id in self.owned.difference(current) {
+            self.closed.insert((id.clone(), us.to_string()));
+        }
+        let (still, gone): (HashSet<_>, HashSet<_>) = std::mem::take(&mut self.adopted)
+            .into_iter()
+            .partition(|(id, _)| current.contains(id));
+        self.closed.extend(gone);
+        self.adopted = still;
+        for id in current {
+            self.closed.remove(&(id.clone(), us.to_string()));
+        }
+        self.owned = current.clone();
+    }
+
+    /// The copies this instance closed.
+    pub fn closed(&self) -> &HashSet<(String, String)> {
+        &self.closed
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -156,19 +286,11 @@ pub fn session_is_locked(name: &str) -> bool {
     let Ok(data) = serde_json::from_str::<SessionData>(&contents) else {
         return false;
     };
-    let Some(ref pid_str) = data.instance_id else {
-        return false;
-    };
-    let Ok(pid) = pid_str.parse::<u32>() else {
-        return false;
-    };
-    // Check if the PID is our own process (not locked by another)
-    if pid == std::process::id() {
-        return false;
-    }
     // Portable liveness check — the old `/proc/{pid}` probe silently never
     // engaged off Linux, so the lock did nothing on macOS/Windows (audit M7).
-    process_is_alive(pid)
+    data.instance_id
+        .as_deref()
+        .is_some_and(|id| instance_state(id) == InstanceState::Alive)
 }
 
 /// Whether a process with this PID is currently running, portably.
@@ -199,7 +321,7 @@ fn process_is_alive(pid: u32) -> bool {
 
 #[cfg(windows)]
 fn process_is_alive(pid: u32) -> bool {
-    use windows::Win32::Foundation::{CloseHandle, FALSE};
+    use windows::Win32::Foundation::{CloseHandle, ERROR_INVALID_PARAMETER, FALSE};
     use windows::Win32::System::Threading::{
         GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
     };
@@ -208,8 +330,15 @@ fn process_is_alive(pid: u32) -> bool {
     // SAFETY: each call takes a valid pid / the handle we just opened; every
     // failure path is handled and the handle is always closed.
     unsafe {
-        let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid) else {
-            return false; // cannot open → treat as not running
+        let handle = match OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid) {
+            Ok(handle) => handle,
+            // Only "no such process" (ERROR_INVALID_PARAMETER) means gone.
+            // Anything else, e.g. access denied for another user's or an
+            // elevated process, reads as alive: a caller then keeps that
+            // instance's documents or forks its temp file (T0101).
+            Err(e) => {
+                return e.code() != windows::core::HRESULT::from_win32(ERROR_INVALID_PARAMETER.0);
+            }
         };
         if handle.is_invalid() {
             return false;
@@ -233,6 +362,7 @@ pub fn save_session(
     mode: SessionRestore,
     last_open_directory: Option<&str>,
     session_name: &str,
+    ownership: &mut Ownership,
 ) -> Result<(), AppError> {
     if mode == SessionRestore::Off {
         return Ok(());
@@ -267,7 +397,7 @@ pub fn save_session(
         })
         .collect();
 
-    let instance_id = std::process::id().to_string();
+    let instance_id = instance_id().to_string();
     let mut doc_sessions = Vec::new();
 
     for doc in docs {
@@ -289,6 +419,7 @@ pub fn save_session(
                         temp_file: None,
                         was_dirty: false,
                         group_index,
+                        owner: Some(instance_id.clone()),
                     });
                 }
             }
@@ -322,20 +453,25 @@ pub fn save_session(
                     temp_file,
                     was_dirty: is_dirty,
                     group_index,
+                    owner: Some(instance_id.clone()),
                 });
             }
             SessionRestore::Off => unreachable!(),
         }
     }
 
+    let current: HashSet<String> = doc_sessions.iter().filter_map(session_identity).collect();
+    ownership.update(&current, &instance_id);
     merge_and_persist(
         doc_sessions,
         active_index,
         last_open_directory.map(|s| s.to_string()),
         group_sessions,
-        mode,
         &dir,
-        &instance_id,
+        Saver {
+            instance_id: &instance_id,
+            closed: ownership.closed(),
+        },
     )
 }
 
@@ -348,65 +484,60 @@ fn merge_and_persist(
     active_index: usize,
     last_open_directory: Option<String>,
     group_sessions: Vec<GroupSession>,
-    mode: SessionRestore,
     dir: &Path,
-    instance_id: &str,
+    saver: Saver,
 ) -> Result<(), AppError> {
+    let Saver {
+        instance_id,
+        closed,
+    } = saver;
     let session_file = dir.join("session.json");
 
-    // An instance with nothing to contribute must not clobber another instance's
-    // saved session: writing our empty `documents` list would erase it and the
-    // cleanup below would delete its temp files (audit M6). If the persisted
-    // session belongs to a *different* instance, leave it untouched. A session we
-    // already own (or no session at all) is still cleared normally below — that
-    // is the legitimate "user closed all tabs" case.
-    if doc_sessions.is_empty()
-        && let Ok(existing_json) = fs::read_to_string(&session_file)
+    // Merge with the session on disk (T0101): our current documents replace
+    // every entry we own; another instance's entry stays unless we closed
+    // that copy. No liveness check: an entry nobody closed is kept (a
+    // crashed instance's unsaved text survives), and our own earlier file is
+    // merged too (it may hold another running instance's documents). This
+    // also keeps an instance with nothing open from clobbering a foreign
+    // session (audit M6): it writes the foreign entries back.
+    if let Ok(existing_json) = fs::read_to_string(&session_file)
         && let Ok(existing) = serde_json::from_str::<SessionData>(&existing_json)
-        && existing.instance_id.as_deref() != Some(instance_id)
     {
-        return Ok(());
-    }
-
-    // Merge with existing session: keep docs from other instances that
-    // aren't open in this one, so closing one instance doesn't erase another's tabs.
-    // Skip merge when we have 0 docs — the user closed all tabs intentionally.
-    if !doc_sessions.is_empty()
-        && let Ok(existing_json) = fs::read_to_string(&session_file)
-        && let Ok(existing) = serde_json::from_str::<SessionData>(&existing_json)
-        && existing.instance_id.as_deref() != Some(instance_id)
-    {
-        // Clone to owned HashSets to allow mutable push below (borrow checker requirement)
-        let our_paths: HashSet<String> = doc_sessions
-            .iter()
-            .filter_map(|d| d.file_path.clone())
-            .collect();
+        let our_ids: HashSet<String> = doc_sessions.iter().filter_map(session_identity).collect();
         let our_temp_files: HashSet<String> = doc_sessions
             .iter()
             .filter_map(|d| d.temp_file.clone())
             .collect();
-
-        for doc in existing.documents {
-            match &doc.file_path {
-                Some(path) if !our_paths.contains(path) => {
-                    // Saved file from another instance — keep it
-                    doc_sessions.push(doc);
-                }
-                None if mode == SessionRestore::Full && doc.temp_file.is_some() => {
-                    // Untitled doc from another instance: the same document
-                    // only if it is the same temp file (T0099). A document we
-                    // restored writes back to its original temp file, so it
-                    // matches here; two different documents that merely share
-                    // a display name ("Untitled") are both kept.
-                    let temp_dup = doc
-                        .temp_file
-                        .as_ref()
-                        .is_some_and(|tf| our_temp_files.contains(tf));
-                    if !temp_dup {
-                        doc_sessions.push(doc);
-                    }
-                }
-                _ => {} // duplicate or empty — skip
+        let file_owner = existing.instance_id.clone();
+        for mut doc in existing.documents {
+            let owner = doc
+                .owner
+                .clone()
+                .or_else(|| file_owner.clone())
+                .unwrap_or_default();
+            if owner == instance_id {
+                continue; // ours: replaced by our current documents
+            }
+            let Some(id) = session_identity(&doc) else {
+                continue;
+            };
+            if closed.contains(&(id.clone(), owner.clone())) {
+                continue; // we closed this copy
+            }
+            let keep = match (&doc.file_path, &doc.temp_file) {
+                // Unsaved text of another instance: keep it, in any mode
+                // (we never drop what we did not close; a SavedFiles restore
+                // skips it anyway), even for a file we also have open (its
+                // edits are its own), unless it is the very temp file we
+                // write.
+                (_, Some(temp)) => !our_temp_files.contains(temp),
+                // A clean file: once in the session is enough.
+                (Some(_), None) => !our_ids.contains(&id),
+                (None, None) => false,
+            };
+            if keep {
+                doc.owner = Some(owner);
+                doc_sessions.push(doc);
             }
         }
     }
@@ -551,6 +682,7 @@ mod tests {
                 temp_file: None,
                 was_dirty: false,
                 group_index: None,
+                owner: None,
             }],
             last_open_directory: Some("/tmp".to_string()),
             groups: vec![],
@@ -591,6 +723,7 @@ mod tests {
             temp_file: Some("abc123.tmp".to_string()),
             was_dirty: true,
             group_index: Some(0),
+            owner: None,
         };
 
         let json = serde_json::to_string(&doc).unwrap();
@@ -658,6 +791,301 @@ mod tests {
         let _ = list_sessions();
     }
 
+    // --- T0101: a doc leaves the session only when an instance closed it ---
+
+    /// An entry `id` owned by `owner`: untitled with temp `temp`, or a file
+    /// at `path` (unsaved edits in `temp` if given).
+    fn entry(path: Option<&str>, temp: Option<&str>, owner: &str) -> DocumentSession {
+        DocumentSession {
+            file_path: path.map(str::to_string),
+            display_name: "x".to_string(),
+            cursor_position: 0,
+            temp_file: temp.map(str::to_string),
+            was_dirty: temp.is_some(),
+            group_index: None,
+            owner: Some(owner.to_string()),
+        }
+    }
+
+    fn write_session(dir: &Path, writer: &str, docs: Vec<DocumentSession>) {
+        let data = SessionData {
+            version: CURRENT_SESSION_VERSION,
+            active_index: 0,
+            documents: docs,
+            last_open_directory: None,
+            groups: vec![],
+            instance_id: Some(writer.to_string()),
+        };
+        fs::write(
+            dir.join("session.json"),
+            serde_json::to_string_pretty(&data).unwrap(),
+        )
+        .unwrap();
+    }
+
+    fn save(dir: &Path, us: &str, ours: Vec<DocumentSession>, closed: &[(&str, &str)]) {
+        let closed: HashSet<(String, String)> = closed
+            .iter()
+            .map(|(id, o)| (id.to_string(), o.to_string()))
+            .collect();
+        merge_and_persist(
+            ours,
+            0,
+            None,
+            Vec::new(),
+            dir,
+            Saver {
+                instance_id: us,
+                closed: &closed,
+            },
+        )
+        .unwrap();
+    }
+
+    fn ids(dir: &Path) -> Vec<String> {
+        let mut v: Vec<String> = persisted(dir)
+            .documents
+            .iter()
+            .filter_map(session_identity)
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// (b) A's own file also lists B's unsaved b1 (merged earlier). A's next
+    /// save must keep it and its temp file: B is running and may never save
+    /// again before a crash.
+    #[test]
+    fn session_closed_live_owner_entry_survives_own_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        fs::write(d.join("ta.tmp"), "a1").unwrap();
+        fs::write(d.join("tb.tmp"), "b1").unwrap();
+        write_session(
+            d,
+            "A",
+            vec![
+                entry(None, Some("ta.tmp"), "A"),
+                entry(None, Some("tb.tmp"), "B"),
+            ],
+        );
+        save(d, "A", vec![entry(None, Some("ta.tmp"), "A")], &[]);
+        assert_eq!(ids(d), ["ta.tmp", "tb.tmp"], "B's document was dropped");
+        assert_eq!(
+            fs::read_to_string(d.join("tb.tmp")).ok().as_deref(),
+            Some("b1")
+        );
+    }
+
+    /// The 0.9.10 Known Issue, exactly: B quits with unsaved text and is
+    /// gone. A then saves three times with only its own document: a merge
+    /// auto-save, an auto-save of its own file, and the save on quit. B's
+    /// entry and its temp file must survive all three.
+    #[test]
+    fn session_closed_quit_instance_text_survives_other_saves() {
+        // A pid that is gone: a reaped child of ours (any platform).
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "no_such_test"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let gone_b = format!("{}-feedfacefeedface", child.id());
+        child.wait().unwrap();
+        assert_eq!(instance_state(&gone_b), InstanceState::Gone);
+        let a = instance_id();
+
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        fs::write(d.join("ta.tmp"), "a1").unwrap();
+        save(d, a, vec![entry(None, Some("ta.tmp"), a)], &[]);
+        // B quits with its unsaved document; the session keeps it.
+        fs::write(d.join("tb.tmp"), "b1").unwrap();
+        save(d, &gone_b, vec![entry(None, Some("tb.tmp"), &gone_b)], &[]);
+        // A: merge auto-save, own-file auto-save, quit save.
+        for i in 1..=3 {
+            save(d, a, vec![entry(None, Some("ta.tmp"), a)], &[]);
+            assert_eq!(
+                ids(d),
+                ["ta.tmp", "tb.tmp"],
+                "A's save {i}: B's text left the session"
+            );
+            assert_eq!(
+                fs::read_to_string(d.join("tb.tmp")).ok().as_deref(),
+                Some("b1"),
+                "A's save {i}: B's temp file was deleted"
+            );
+        }
+    }
+
+    /// (a) B closed b1 and saves with nothing open: b1 leaves the session,
+    /// A's document stays.
+    #[test]
+    fn session_closed_in_other_instance_stays_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        fs::write(d.join("ta.tmp"), "a1").unwrap();
+        fs::write(d.join("tb.tmp"), "b1").unwrap();
+        write_session(
+            d,
+            "A",
+            vec![
+                entry(None, Some("ta.tmp"), "A"),
+                entry(None, Some("tb.tmp"), "B"),
+            ],
+        );
+        save(d, "B", vec![], &[("tb.tmp", "B")]);
+        assert_eq!(ids(d), ["ta.tmp"], "the closed b1 came back");
+        assert!(!d.join("tb.tmp").exists());
+        // A saves afterwards: still out.
+        save(d, "A", vec![entry(None, Some("ta.tmp"), "A")], &[]);
+        assert_eq!(ids(d), ["ta.tmp"]);
+    }
+
+    /// B closed file X; A has X open (its own copy): A's copy survives B's
+    /// save.
+    #[test]
+    fn session_closed_reopen_in_other_instance_survives() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        write_session(d, "A", vec![entry(Some("/w/x.rs"), None, "A")]);
+        save(d, "B", vec![], &[("/w/x.rs", "B")]);
+        assert_eq!(ids(d), ["/w/x.rs"]);
+    }
+
+    /// A crashed instance's unsaved document that nobody closed is kept.
+    #[test]
+    fn session_closed_crashed_instance_docs_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        fs::write(d.join("tc.tmp"), "unsaved").unwrap();
+        write_session(d, "100", vec![entry(None, Some("tc.tmp"), "100")]);
+        save(d, "200", vec![entry(Some("/w/z.rs"), None, "200")], &[]);
+        assert_eq!(ids(d), ["/w/z.rs", "tc.tmp"]);
+        assert!(d.join("tc.tmp").exists());
+    }
+
+    /// The same file open with unsaved edits in two instances: both temp
+    /// files survive (a duplicate tab on restore beats a loss).
+    #[test]
+    fn session_closed_shared_dirty_file_keeps_both_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        fs::write(d.join("ta.tmp"), "A's edits").unwrap();
+        fs::write(d.join("tb.tmp"), "B's edits").unwrap();
+        write_session(d, "A", vec![entry(Some("/w/p.rs"), Some("ta.tmp"), "A")]);
+        save(
+            d,
+            "B",
+            vec![entry(Some("/w/p.rs"), Some("tb.tmp"), "B")],
+            &[],
+        );
+        let temps: Vec<_> = persisted(d)
+            .documents
+            .iter()
+            .filter_map(|x| x.temp_file.clone())
+            .collect();
+        assert!(
+            temps.contains(&"ta.tmp".to_string()),
+            "A's unsaved edits dropped: {temps:?}"
+        );
+        assert_eq!(
+            fs::read_to_string(d.join("ta.tmp")).ok().as_deref(),
+            Some("A's edits")
+        );
+    }
+
+    /// An entry from before T0101 (no owner) belongs to the file's writer.
+    #[test]
+    fn session_closed_old_entries_without_owner() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        fs::write(d.join("tx.tmp"), "x").unwrap();
+        let mut old = entry(None, Some("tx.tmp"), "ignored");
+        old.owner = None;
+        write_session(d, "100", vec![old]);
+        let json = fs::read_to_string(d.join("session.json")).unwrap();
+        let json = json
+            .replace("      \"owner\": null\n", "")
+            .replace(",\n    }", "\n    }");
+        fs::write(d.join("session.json"), json).unwrap();
+        // Restored (adopted from 100) and closed: dropped.
+        save(d, "200", vec![], &[("tx.tmp", "100")]);
+        assert_eq!(ids(d), Vec::<String>::new());
+    }
+
+    /// Close and reopen in the same instance; a restored copy closed later.
+    #[test]
+    fn session_closed_ownership_close_and_reopen() {
+        let set = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<HashSet<_>>();
+        let mut o = Ownership::default();
+        o.update(&set(&["x"]), "A");
+        o.update(&set(&[]), "A");
+        assert!(o.closed().contains(&("x".into(), "A".into())));
+        o.update(&set(&["x"]), "A");
+        assert!(!o.closed().contains(&("x".into(), "A".into())), "reopened");
+        o.adopt("y".into(), "100".into());
+        o.update(&set(&["x", "y"]), "A");
+        assert!(!o.closed().contains(&("y".into(), "100".into())));
+        o.update(&set(&["x"]), "A");
+        assert!(o.closed().contains(&("y".into(), "100".into())));
+        assert!(o.closed().contains(&("y".into(), "A".into())));
+    }
+
+    /// Adoption at restore: take over a temp file only from an instance that
+    /// is gone. Another live instance (or one we cannot tell) keeps writing
+    /// it, so the restored copy gets its own temp file.
+    #[test]
+    fn session_closed_adoption_forks_when_owner_alive() {
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let dead = child.id().to_string();
+        child.wait().unwrap();
+        assert!(reuse_restored_temp(&dead), "a gone instance: take over");
+        assert!(reuse_restored_temp(instance_id()), "ours: keep writing it");
+        assert!(!reuse_restored_temp("1"), "a live instance: fork");
+        assert!(!reuse_restored_temp(""), "unknown owner: fork");
+        assert!(!reuse_restored_temp("not-a-pid"), "unknown owner: fork");
+    }
+
+    /// PID reuse: an instance that crashed with the pid we now run under
+    /// wrote its unsaved `old.tmp` as its own (a bare pid, or the pid with
+    /// another run's nonce). Our save must not take it for ours and drop it.
+    #[test]
+    fn session_closed_pid_reuse_keeps_crashed_entries() {
+        let pid = std::process::id();
+        for crashed in [pid.to_string(), format!("{pid}-0123456789abcdef")] {
+            let dir = tempfile::tempdir().unwrap();
+            let d = dir.path();
+            fs::write(d.join("old.tmp"), "unsaved").unwrap();
+            write_session(d, &crashed, vec![entry(None, Some("old.tmp"), &crashed)]);
+            save(d, instance_id(), vec![], &[]);
+            assert_eq!(
+                ids(d),
+                ["old.tmp"],
+                "{crashed}: the crashed instance's doc was dropped"
+            );
+            assert_eq!(
+                fs::read_to_string(d.join("old.tmp")).ok().as_deref(),
+                Some("unsaved"),
+                "{crashed}: its temp file was deleted"
+            );
+        }
+    }
+
+    /// An instance id that names our pid but is not ours belongs to an
+    /// instance that is gone (we hold its pid): its temp file can be taken
+    /// over, and it does not lock the session.
+    #[test]
+    fn session_closed_same_pid_other_run_is_gone() {
+        let pid = std::process::id();
+        let other_run = format!("{pid}-0123456789abcdef");
+        assert_ne!(instance_id(), other_run);
+        assert!(reuse_restored_temp(&other_run));
+        assert_eq!(instance_state(&other_run), InstanceState::Gone);
+        assert_eq!(instance_state(&pid.to_string()), InstanceState::Gone);
+        assert_eq!(instance_state(instance_id()), InstanceState::Us);
+    }
+
     // --- T0099: the identity of an unsaved document is its temp file ---
 
     fn untitled(temp_file: &str) -> DocumentSession {
@@ -668,6 +1096,7 @@ mod tests {
             temp_file: Some(temp_file.to_string()),
             was_dirty: true,
             group_index: None,
+            owner: None,
         }
     }
 
@@ -704,9 +1133,11 @@ mod tests {
             0,
             None,
             Vec::new(),
-            SessionRestore::Full,
             dir_path,
-            "222",
+            Saver {
+                instance_id: "222",
+                closed: &HashSet::new(),
+            },
         )
         .unwrap();
 
@@ -773,9 +1204,11 @@ mod tests {
             0,
             None,
             Vec::new(),
-            SessionRestore::Full,
             dir_path,
-            "333",
+            Saver {
+                instance_id: "333",
+                closed: &HashSet::new(),
+            },
         )
         .unwrap();
         assert_eq!(persisted(dir_path).documents.len(), 1, "no duplicate");
@@ -837,6 +1270,7 @@ mod tests {
                     fs::write(dir_path.join(&file), text).unwrap();
                     DocumentSession {
                         display_name: name.to_string(),
+                        owner: None,
                         ..untitled(&file)
                     }
                 })
@@ -846,9 +1280,11 @@ mod tests {
                 0,
                 None,
                 Vec::new(),
-                SessionRestore::Full,
                 dir_path,
-                instance,
+                Saver {
+                    instance_id: instance,
+                    closed: &HashSet::new(),
+                },
             )
             .unwrap();
         };
@@ -967,6 +1403,7 @@ mod tests {
                 fs::write(dir_path.join(&file), &texts[i]).unwrap();
                 DocumentSession {
                     display_name: name.to_string(),
+                    owner: None,
                     ..untitled(&file)
                 }
             })
@@ -976,9 +1413,11 @@ mod tests {
             1,
             None,
             Vec::new(),
-            SessionRestore::Full,
             dir_path,
-            "777",
+            Saver {
+                instance_id: "777",
+                closed: &HashSet::new(),
+            },
         )
         .unwrap();
         let after = persisted(dir_path);
@@ -1022,6 +1461,7 @@ mod tests {
                 temp_file: Some(a_temp.to_string()),
                 was_dirty: true,
                 group_index: None,
+                owner: None,
             }],
             last_open_directory: None,
             groups: vec![],
@@ -1040,9 +1480,11 @@ mod tests {
             0,
             None,
             Vec::new(),
-            SessionRestore::SavedFiles,
             dir_path,
-            "222",
+            Saver {
+                instance_id: "222",
+                closed: &HashSet::new(),
+            },
         )
         .unwrap();
 
@@ -1084,6 +1526,7 @@ mod tests {
                 temp_file: None,
                 was_dirty: false,
                 group_index: None,
+                owner: None,
             }],
             last_open_directory: None,
             groups: vec![],
@@ -1100,9 +1543,11 @@ mod tests {
             0,
             None,
             Vec::new(),
-            SessionRestore::SavedFiles,
             dir_path,
-            "222",
+            Saver {
+                instance_id: "222",
+                closed: &HashSet::new(),
+            },
         )
         .unwrap();
 

@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session: closes stay closed</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --ink: #1c2430; --muted: #5b6675;
+    --accent: #0b6e4f; --accent-soft: #e3f2ec; --line: #dde3ea;
+    --warn: #8a5a00; --warn-soft: #fdf3dd; --code-bg: #f0f2f5;
+    --chip: #eef1f4; --bad: #8a2020; --bad-soft: #fbeaea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181f; --surface: #1c222b; --ink: #e8ecf1; --muted: #9aa6b4;
+      --accent: #4cc39a; --accent-soft: #10352a; --line: #2c3541;
+      --warn: #e2b45a; --warn-soft: #33290f; --code-bg: #232a34;
+      --chip: #262e39; --bad: #e88; --bad-soft: #3a1c1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 "Open Sans", "Segoe UI", system-ui, sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  header.top { border-bottom: 3px solid var(--accent); padding-bottom: 1.2rem; margin-bottom: 2rem; }
+  .kicker { text-transform: uppercase; letter-spacing: .12em; font-size: .78rem; color: var(--accent); font-weight: 700; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: .3rem 0 .6rem; }
+  h2 { font-size: 1.35rem; margin: 0 0 .2rem; }
+  h3 { font-size: 1.02rem; margin: 1.3rem 0 .4rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem .6rem; margin-top: .8rem; }
+  .chip { background: var(--chip); border: 1px solid var(--line); border-radius: 999px;
+    padding: .15rem .7rem; font-size: .82rem; color: var(--muted); white-space: nowrap; }
+  .chip strong { color: var(--ink); font-weight: 600; }
+  .chip.green { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .chip.warn { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+  a { color: var(--accent); }
+  section.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.5rem 1.75rem; margin-bottom: 1.75rem; }
+  p { margin: .55rem 0; }
+  ul, ol { margin: .4rem 0 .6rem; padding-left: 1.3rem; }
+  li { margin: .25rem 0; }
+  code { font: .86em/1.5 "JetBrains Mono", "Fira Mono", monospace;
+    background: var(--code-bg); border-radius: 4px; padding: .08em .35em; word-break: break-word; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: .85rem 1rem; overflow-x: auto; font-size: .85rem; line-height: 1.55; }
+  pre code { background: none; padding: 0; }
+  .why { border-left: 4px solid var(--accent); background: var(--accent-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup { border-left: 4px solid var(--warn); background: var(--warn-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup strong.tag { color: var(--warn); }
+  .bad { border-left: 4px solid var(--bad); background: var(--bad-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .bad strong.tag { color: var(--bad); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; font-size: .9rem; }
+  th, td { text-align: left; border-bottom: 1px solid var(--line); padding: .45rem .6rem; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; font-family: "JetBrains Mono", "Fira Mono", monospace; white-space: nowrap; }
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li { counter-increment: step; position: relative; padding-left: 2.2rem; margin: .55rem 0; }
+  .steps li::before { content: counter(step); position: absolute; left: 0; top: .1rem;
+    width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--accent-soft);
+    color: var(--accent); font-weight: 700; font-size: .82rem; display: grid; place-items: center; }
+  .expect { display: block; margin-top: .2rem; color: var(--muted); font-size: .9em; }
+  .expect::before { content: "expected → "; color: var(--accent); font-weight: 600; }
+  .flow { display: grid; gap: .35rem; margin: .8rem 0; }
+  .flow div { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: .45rem .8rem; font-size: .9rem; }
+  .flow div strong { color: var(--accent); }
+  footer { color: var(--muted); font-size: .86rem; border-top: 1px solid var(--line);
+    margin-top: 2rem; padding-top: 1rem; }
+  img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
+  figure { margin: .9rem 0; }
+  figcaption { color: var(--muted); font-size: .88rem; font-style: italic; margin-top: .35rem; }
+  code.sha { white-space: nowrap; word-break: normal; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <div class="kicker">Pull request #203 · ticket/T0101 → master · robustness</div>
+  <h1>With several FerrisPad windows on one session, no unsaved text is lost, and a closed document stays closed</h1>
+  <div class="flow">
+    <div><strong>Before</strong> · Two FerrisPad instances share a session with restore on. One instance's save could drop the other's unsaved document and delete its temp file while it was running, so a crash then lost that text. A closed document could also come back, and two instances could end up writing one temp file.</div>
+    <div><strong>After</strong> · Each session entry records the instance that owns it. A document leaves the session only when the instance that had it closes it. Unsaved text of another instance is always kept. A restored copy whose owner is still alive gets its own temp file.</div>
+  </div>
+  <p>The orchestrator assigned this as T0099's follow-up for 0.9.11. One case came from a3's T0099 review. The fix is in the session merge, which runs on saves that already happen: there is no new timer or watcher, so the 0% idle CPU rule holds.</p>
+  <ul>
+    <li>A save never drops another instance's unsaved document or its temp file. A test pins the 0.9.10 Known Issue sequence.</li>
+    <li>A copy closed by an instance does not come back. A reopen of the same file in another instance survives.</li>
+    <li>No temp file has two writers: a restore forks the temp file unless its owner is gone.</li>
+    <li>The instance id is <code>&lt;pid&gt;-&lt;nonce&gt;</code>, so a reused pid never takes over a crashed instance's entries.</li>
+    <li>On Windows, a process that cannot be inspected (for example an elevated one) counts as alive.</li>
+  </ul>
+  <div class="meta">
+    <span class="chip"><strong>T0101</strong> in <code>2-review/</code></span>
+    <span class="chip"><strong>7</strong> files · +865 / −110</span>
+    <span class="chip warn">session.json gains an owner field</span>
+    <span class="chip green">gates green at every commit</span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/203">PR #203 on GitHub</a></span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/issues/202">issue #202</a></span>
+  </div>
+</header>
+
+<section class="card">
+  <h2>The branch's commits</h2>
+  <div class="scroll">
+  <table>
+    <tr><th>Commit</th><th>What changes</th></tr>
+    <tr><td><code class="sha">5db0af7</code></td>
+      <td>T0099, already on master through #187: an unsaved document's session identity is its temp file. The branch was stacked on it.</td></tr>
+    <tr><td><code class="sha">d6d1513</code></td>
+      <td>T0099, already on master: read only plain <code>*.tmp</code> names from <code>session.json</code>.</td></tr>
+    <tr><td><code class="sha">b7ff815</code></td>
+      <td>The owner-scoped merge, the adoption fork and their tests (red first).</td></tr>
+    <tr><td><code class="sha">43f6616</code></td>
+      <td>Merge of master.</td></tr>
+    <tr><td><code class="sha">bc72b2d</code></td>
+      <td>Review fixes: the per-run instance id (<code>&lt;pid&gt;-&lt;nonce&gt;</code>) and the fail-safe Windows liveness check (red first).</td></tr>
+    <tr><td><code class="sha">1b465ec</code></td>
+      <td>Docs only: the two-instance Xvfb evidence, rerun with the fixed harness.</td></tr>
+    <tr><td><code class="sha">40499d3</code></td>
+      <td>Merge of T0099's final head (<code class="sha">484c9e9</code>).</td></tr>
+    <tr><td><code class="sha">12f759a</code></td>
+      <td>Merge of master after 0.9.10, with two follow-ups.</td></tr>
+    <tr><td><code class="sha">1c725d3</code></td>
+      <td>Docs only: the ticket records the gates after that merge.</td></tr>
+    <tr><td><code class="sha">3e99a46</code></td>
+      <td>Docs only: this page.</td></tr>
+    <tr><td><code class="sha">cae8065</code></td>
+      <td>Test: pins the 0.9.10 Known Issue sequence (a3's re-check), with its red run on 0.9.10 recorded in the ticket.</td></tr>
+  </table>
+  </div>
+  <p>Master holds T0099 as one squash commit (#187), so the last merge was done in two steps:</p>
+  <ol>
+    <li>T0099's final head went in first, cleanly.</li>
+    <li>Master followed. Its two session files are byte-identical to T0099's final head, so those conflicts kept this branch's side.</li>
+  </ol>
+  <p>The merge also brought in master's other changes, including #219 (T0113), #235 (T0117) and the 0.9.10 release. Two follow-ups came with it:</p>
+  <ul>
+    <li>T0091's main-thread check builds a <code>DocumentSession</code>, which now needs <code>owner: None</code>.</li>
+    <li>One needless borrow, flagged by clippy.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>How the session merge works, now</h2>
+  <div class="flow">
+    <div><strong>Owner</strong> · Every entry in <code>session.json</code> carries <code>owner</code>: the instance that wrote it as its own. An older file has no <code>owner</code>, so the file's <code>instance_id</code> stands in.</div>
+    <div><strong>Memory</strong> · Each instance keeps, in memory, the identities it wrote in its last save and the copies it took over at restore. A copy it had and no longer has was closed, or renamed by Save As, by that instance.</div>
+    <div><strong>Merge</strong> · This runs on every save, even when the file on disk is the instance's own.
+      <ul>
+        <li>The instance's current documents replace every entry it owns.</li>
+        <li>Another instance's entry stays, unless this instance closed that exact copy.</li>
+        <li>Unsaved text of another instance is always kept.</li>
+      </ul></div>
+    <div><strong>Restore</strong> · An entry's temp file is taken over only from an instance that is gone. When the owner is alive or unknown, the restored copy gets its own temp file.</div>
+  </div>
+</section>
+
+<section class="card ticket">
+  <h2>T0101: a document leaves the session only when its instance closes it</h2>
+  <div class="flow">
+    <div><strong>Before</strong> · A's second save found its own <code>session.json</code> and skipped the merge. It wrote only A's documents and deleted B's temp file while B was running. If B was then killed, B's unsaved text was gone.</div>
+    <div><strong>After</strong> · A's save keeps B's entry and B's temp file. Killing B afterwards loses nothing, and the next start restores B's text.</div>
+  </div>
+  <p>The ticket began with two reports of a closed document coming back. Neither reproduced through normal flows with two real instances on Xvfb. Reading the merge code then turned up three cases:</p>
+  <ul>
+    <li><strong>Data loss:</strong> the one above. It is pre-existing and was shown on Xvfb.</li>
+    <li><strong>Resurrection:</strong> A merged B's document. B closed it and saved an empty list, and the "never clobber a foreign session" guard (T0015) made B write nothing. An instance started before A's next save restored the closed document. This case came from a3's T0099 review.</li>
+    <li><strong>Shared temp file:</strong> B restored A's unsaved document while A ran. Since T0099 it reused A's temp file, so two live instances wrote one file and the last writer won.</li>
+  </ul>
+  <ul>
+    <li><strong>No liveness test in the merge.</strong> Asking "is the other instance alive?" cannot tell "someone took over its documents" from "nobody has them". With that test, a crashed instance's unsaved text would be dropped. The merge uses ownership instead.</li>
+    <li><strong><code>&lt;pid&gt;-&lt;nonce&gt;</code> instance id.</strong> With a bare pid, a new process that got a crashed instance's pid would take that instance's entries for its own and drop them. The nonce is random per run and std-only. Liveness reads the pid prefix, and another run with our own pid is gone.</li>
+    <li><strong>Windows fails safe.</strong> If <code>OpenProcess</code> fails with anything but "no such process", the process counts as alive. Its documents are kept and its temp file is forked.</li>
+    <li><strong>The adoption fork rule</strong> was the orchestrator's decision. A duplicate tab on a later restore is accepted; a lost text is not.</li>
+  </ul>
+  <p><strong>No visible change</strong> in any one window: the menus, dialogs and editor look the same. The change is which documents a later restore brings back, after a sequence with two instances. <code>shoot.sh</code> drives one instance, so the evidence is the two-instance Xvfb runs below. They were driven before the new-pr skill landed, with the fixed harness that sends keys to each instance's own window.</p>
+  <div class="scroll">
+  <table>
+    <tr><th>Data loss: A and B type, both auto-save, A saves again, <code>kill -9 B</code></th><th>before (T0099 tip <code class="sha">d6d1513</code>)</th><th>after (<code class="sha">bc72b2d</code>)</th></tr>
+    <tr><td>both saved (A merged)</td><td>a1 + b1</td><td>a1 + b1 (owners A, B)</td></tr>
+    <tr><td>A saved again (own file)</td><td><strong>a1 only; b1's temp file deleted</strong></td><td>a1 + b1</td></tr>
+    <tr><td>B killed</td><td><strong>"from B" lost</strong></td><td>"from B" kept</td></tr>
+  </table>
+  </div>
+  <div class="scroll">
+  <table>
+    <tr><th>Adoption: A saves an unsaved a1, B restores it, both edit and save</th><th>before</th><th>after</th></tr>
+    <tr><td>temp files</td><td>one, shared, ending as "from A + A edits": <strong>B's edits lost</strong></td><td>two: A's "from A + A edits", and B's fork "from A + B edits"</td></tr>
+  </table>
+  </div>
+  <p>In the rc.3 checklist's section-5 cell, two instances each have one unsaved untitled tab. One window closes, then the other ("Quit Without Saving"), then one instance restarts. Both texts come back on this branch, in either close order, with or without an auto-save first.</p>
+  <p>Pending user, on the GNOME desktop: the same two scenarios. Also close a tab in one instance, and check that it does not come back after the other instance saves and both restart.</p>
+  <div class="bad"><strong class="tag">The defects, red first.</strong> The red scaffold had the new API and the old merge rule. Six tests failed there:
+    <ul>
+      <li><code>session_closed_live_owner_entry_survives_own_save</code>: "B's document was dropped", <code>left: ["ta.tmp"]</code>;</li>
+      <li><code>session_closed_in_other_instance_stays_closed</code>: "the closed b1 came back";</li>
+      <li><code>session_closed_shared_dirty_file_keeps_both_edits</code>: "A's unsaved edits dropped";</li>
+      <li><code>session_closed_old_entries_without_owner</code>;</li>
+      <li><code>session_closed_adoption_forks_when_owner_alive</code>;</li>
+      <li><code>session_closed_ownership_close_and_reopen</code>.</li>
+    </ul>
+    Review round 1 added two more tests, red with a bare-pid instance id:
+    <ul>
+      <li><code>session_closed_pid_reuse_keeps_crashed_entries</code>: "the crashed instance's doc was dropped";</li>
+      <li><code>session_closed_same_pid_other_run_is_gone</code>: "read as alive: fork".</li>
+    </ul></div>
+  <div class="bad"><strong class="tag">The published 0.9.10 Known Issue, pinned.</strong> <code>session_closed_quit_instance_text_survives_other_saves</code> replays it exactly:
+    <ol>
+      <li>B quits with unsaved text and is gone. Its pid comes from a reaped child, so the test runs on every platform.</li>
+      <li>A saves three times with only its own document: a merge auto-save, an own-file auto-save, and the quit save.</li>
+    </ol>
+    B's entry and temp file must survive all three. On 0.9.10's merge rule, run in a throwaway worktree at tag <code>0.9.10</code>, it failed with "A's save 2: B's text left the session", <code>left: ["ta.tmp"]</code>. The merge save keeps B, and the own-file save drops it. a3 asked for this test in the re-check, and the orchestrator accepted it.</div>
+  <div class="bad"><strong class="tag">Evidence redone: the first two-instance runs were invalid.</strong> The helper that found an instance's window ran <code>xdotool search --pid P --name FerrisPad</code>. xdotool ORs its search criteria, so both "A" and "B" resolved to the newest window, and every keystroke went to one process. With <code>--all</code>, A and B map to different windows. The tables above are the reruns, and their conclusions did not change. The unit tests never depended on the harness.</div>
+  <div class="why"><strong>Why no tombstones.</strong> An ordered-tombstone variant, which persists a record of each close, was considered. The owner-scoped rule replaced it because it needs no clock. A close lost to a crash before the next save leaves the document in the session, which is the safe direction.</div>
+  <div class="followup"><strong class="tag">Known limitation: crashed instances' entries pile up.</strong> An entry whose owner crashed with unsaved text is kept. Only a restore that adopts it, followed by a close, removes it. In <code>SavedFiles</code> mode a restore never adopts temp entries, so each crash with unsaved text adds entries and temp files that stay. The ticket sketches a follow-up, "Recover documents from crashed sessions": at startup, offer such documents once, with Restore or Discard. It is not opened.</div>
+  <h3>How to test T0101</h3>
+  <ol class="steps">
+    <li><code>nix develop -c cargo test session_closed</code>
+      <span class="expect">11 pass. On the red scaffold, 6 failed, then 2 more with a bare-pid id. The Known-Issue test failed on 0.9.10's rule, as listed above. The guards <code>session_closed_reopen_in_other_instance_survives</code> and <code>session_closed_crashed_instance_docs_are_kept</code> passed throughout.</span></li>
+    <li><code>nix develop -c cargo test --test session_roundtrip</code>
+      <span class="expect">The T0015 and T0099 session tests still pass.</span></li>
+    <li>In the app: follow the end-to-end verification below.
+      <span class="expect">B's unsaved text survives A's saves and B's crash.</span></li>
+  </ol>
+</section>
+
+<section class="card">
+  <h2>Release notes and compatibility</h2>
+  <ul>
+    <li><strong>CHANGELOG:</strong> Fixed: with several FerrisPad windows sharing a session, saving in one window could drop another window's unsaved document, and a closed document could come back after a restart.</li>
+    <li><strong><code>session.json</code>:</strong> each entry gains an <code>owner</code> field, and <code>instance_id</code> becomes <code>&lt;pid&gt;-&lt;nonce&gt;</code>. Older files, with no <code>owner</code> and a bare pid, restore and merge (<code>session_closed_old_entries_without_owner</code>).</li>
+    <li>An older FerrisPad ignores the new field, since it is <code>#[serde(default)]</code>.</li>
+    <li>Settings, plugins and themes are untouched.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>What remains open</h2>
+  <ul>
+    <li><strong>The user's check on the desktop:</strong> the two scenarios with two real windows, as above.</li>
+    <li><strong>"Recover documents from crashed sessions":</strong> a possible follow-up for the known limitation. Not opened.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>End-to-end verification</h2>
+  <p>Two FerrisPad instances share one session. B's unsaved text must survive A's saves and a crash of B. Run from the branch's worktree with a throwaway config and data directory, so the run never reads or writes your real settings and sessions.</p>
+  <h3>Starting state</h3>
+  <ol class="steps">
+    <li><code>export XDG_CONFIG_HOME=$(mktemp -d) XDG_DATA_HOME=$(mktemp -d)</code>, then <code>mkdir -p $XDG_CONFIG_HOME/ferrispad</code> and write <code>{"session_restore":"Full","tabs_enabled":true}</code> to <code>$XDG_CONFIG_HOME/ferrispad/settings.json</code>
+      <span class="expect">No session exists yet: <code>ls $XDG_DATA_HOME</code> is empty.</span></li>
+    <li><code>nix develop -c cargo build</code>
+      <span class="expect">A debug build is in <code>target/debug/FerrisPad</code>.</span></li>
+  </ol>
+  <h3>The scenario</h3>
+  <ol class="steps">
+    <li>Start A: <code>target/debug/FerrisPad &amp;</code>. Press Ctrl+T and type "from A".
+      <span class="expect">A shows an unsaved "Untitled" tab.</span></li>
+    <li>In the same shell, start B: <code>target/debug/FerrisPad &amp; echo $!</code>, and note B's pid. Press Ctrl+T in B and type "from B".
+      <span class="expect">B has its own unsaved tab.</span></li>
+    <li>Wait about 35 seconds for both auto-saves, then type " more" in A and wait again.
+      <span class="expect"><code>$XDG_DATA_HOME/ferrispad/session/default/session.json</code> lists both documents with different <code>owner</code> values, and both <code>*.tmp</code> files exist.</span></li>
+    <li><code>kill -9 &lt;B's pid&gt;</code>, then quit A with Ctrl+Q. If it asks about unsaved changes, choose Quit Without Saving: with Full restore, the session keeps the text.
+      <span class="expect">Before the fix, B's temp file was already gone at this point.</span></li>
+    <li>Start one instance: <code>target/debug/FerrisPad</code>.
+      <span class="expect">Both "from A more" and "from B" come back as unsaved tabs.</span></li>
+    <li>Close the "from B" tab and choose Discard. Quit, as in step 4, and start again.
+      <span class="expect">Only "from A more" comes back: the closed copy stays closed.</span></li>
+    <li><code>rm -rf "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"</code>
+      <span class="expect">The throwaway dirs are gone.</span></li>
+  </ol>
+  <h3>The gates</h3>
+  <ol class="steps">
+    <li><code>nix develop -c cargo test</code>, <code>nix develop -c cargo clippy --all-targets --all-features -- -D warnings</code>, <code>nix develop -c cargo fmt --check</code>
+      <span class="expect">all green, zero warnings.</span></li>
+  </ol>
+</section>
+
+<footer>
+  Presentation of PR #203 · branch <code>ticket/T0101</code> · commits <code>5db0af7</code> → <code>cae8065</code> ·
+  ticket <code>docs/tickets/2-review/T0101-session-closed-docs-stay-closed.md</code> · issue #202.
+</footer>
+</div>
+</body>
+</html>
