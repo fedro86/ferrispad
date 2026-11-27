@@ -1,7 +1,7 @@
 ---
 id: T0099
 title: Keep every instance's unsaved untitled text when sessions merge (identity = temp file, not name)
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: moderate
 area: robustness
@@ -204,7 +204,7 @@ No panic in the debug log.
 - [x] Regression tests added; they failed before the fix.
 - [x] Gates pass with zero warnings (664 passed ×2, clippy `-D warnings`,
       fmt).
-- [ ] Pending user verification: two real instances on a desktop.
+- [x] User verification: two real instances on a desktop.
 
 ## Affected files
 
@@ -217,3 +217,12 @@ No panic in the debug log.
 
 - Found by ferrispad-a3 (T0091 review); assigned by the orchestrator as
   T0099, rc.3 if ready in time.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland) with the rc.3 integration
+build `verify/rc3` (checklist `VERIFICA-RC3.md`).
+
+Section 5 of the checklist (two instances, Full restore, unsaved untitled
+tabs) is re-run on `master`, with an isolated `XDG_DATA_HOME`, before the
+0.9.10-rc.3 tag.
