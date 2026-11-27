@@ -129,6 +129,15 @@ session_closed_same_pid_other_run_is_gone      ... FAILED   "<our pid>-<other no
 
 After the fix all 10 pass, as do the T0015 and T0099 session tests. Gates
 (after merging `master`): 679 passed, clippy `-D warnings` and fmt clean.
+
+After 0.9.10 (2026-11-27), master was merged again (12f759a). T0099's final
+head went in first, since master has it squashed. Two follow-ups came from
+master:
+- T0091's main-thread check builds a `DocumentSession`, which gets
+  `owner: None`;
+- one needless borrow of `session_data` (clippy).
+
+Gates: 764 passed, clippy `-D warnings` and fmt clean.
 The Windows liveness branch is compiled by CI's `windows-build` job (no
 Windows target locally).
 
