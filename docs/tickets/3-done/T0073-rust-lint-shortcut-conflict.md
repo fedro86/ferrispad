@@ -1,7 +1,7 @@
 ---
 id: T0073
 title: Resolve the Ctrl+Shift+R clash between Rust Lint and File → Reload All
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-07
 severity: minor
 area: ui
@@ -141,8 +141,27 @@ still byte-identical to the plugin repo: `rust-lint` to PR #1's head
 - [x] File → Reload All keeps `Ctrl+Shift+R`.
 - [x] `cargo test`, `cargo clippy --all-targets --all-features`, and
       `cargo fmt --check` all pass with zero warnings.
-- [ ] ferrispad-plugins#1 merged (publishes 1.5.1); user's OK required.
-- [ ] Pending user verification.
+- [x] ferrispad-plugins#1 merged (publishes 1.5.1); user's OK given.
+- [x] User verification (2026-11-27).
+
+## User verification
+
+The user approved on 2026-11-27 ("ok pubblica rust lint 1.5.1 e poi 209"),
+relayed by the orchestrator (ferrispad-03), after reading the presentation
+`docs/pr/PR-209-rust-lint-shortcut-conflict.html`. The reviewer
+(ferrispad-90) approved 81943be. Its mutation probes made both tests fail
+as expected: Ctrl+Shift+R put back, and `ctrl+w` dropped from
+`RESERVED_SHORTCUTS`.
+
+Rust Lint 1.5.1 is published:
+- fedro86/ferrispad-plugins#1 was merged to `main` as 017442d;
+- the auto-sign bot then committed fd7a6a4 (`plugins.json` only). The
+  registry lists rust-lint 1.5.1, signed.
+
+The five fixtures were checked again against `main` at fd7a6a4: all are
+byte-identical. Before the move, master was merged again (T0112 #215;
+2ff533c). Gates: 786 passed, with the UI tests on a private Xvfb; clippy
+`-D warnings` and fmt clean.
 
 ## Affected files
 

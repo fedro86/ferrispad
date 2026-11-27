@@ -92,9 +92,9 @@
     <li>The manifests are verbatim copies in <code>tests/fixtures/official_plugins/</code>, with a README saying where they come from.</li>
   </ul>
   <div class="meta">
-    <span class="chip"><strong>T0073</strong> in <code>2-review/</code></span>
-    <span class="chip"><strong>9</strong> files · +461 / −89</span>
-    <span class="chip warn">needs ferrispad-plugins#1</span>
+    <span class="chip"><strong>T0073</strong> in <code>3-done/</code></span>
+    <span class="chip"><strong>9</strong> files · +480 / −89</span>
+    <span class="chip green">Rust Lint 1.5.1 published</span>
     <span class="chip green">gates green at every commit</span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/209">PR #209 on GitHub</a></span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/issues/207">issue #207</a></span>
@@ -114,6 +114,12 @@
       <td>Merge of master (T0111, #213); no conflict.</td></tr>
     <tr><td><code class="sha">16c9b00</code></td>
       <td>Docs only: the ticket records the merges and the fixture check.</td></tr>
+    <tr><td><code class="sha">81943be</code></td>
+      <td>Docs only: this page.</td></tr>
+    <tr><td><code class="sha">2ff533c</code></td>
+      <td>Merge of master (T0095 #206, T0116 #240, T0112 #215); no conflict.</td></tr>
+    <tr><td>head</td>
+      <td>Docs only: the ticket moves to <code>3-done/</code> after the user's OK (2026-11-27), the reviewer's APPROVE and the publication of Rust Lint 1.5.1; this page follows.</td></tr>
   </table>
   </div>
   <p>The branch was 25 commits behind master. The merges brought, among others, T0113, which forbids FLTK objects in library unit tests. Both new tests only parse TOML and bind keys, so they pass that guard unchanged.</p>
@@ -132,13 +138,13 @@
     <li><strong>The fixtures are current:</strong> <code>rust-lint</code> is byte-identical to PR #1's head, and the other four to the plugin repo's <code>main</code> (checked 2026-11-27).</li>
   </ul>
   <p><strong>No visible change:</strong> this PR adds tests and fixtures only, and the FerrisPad binary is the same as master's. The change a user sees, the Rust Lint menu and the quiet start log, ships with the plugin update.</p>
-  <p><strong>Pending user, after ferrispad-plugins#1 is published:</strong> update Rust Lint in the Plugin Manager and restart. Look for no shortcut warning in the log and no shortcut next to Plugins → Rust Lint → Run All Checks. Ctrl+Shift+R must still reload all files.</p>
+  <p><strong>Pending user, now that Rust Lint 1.5.1 is published:</strong> update Rust Lint in the Plugin Manager and restart. Look for no shortcut warning in the log and no shortcut next to Plugins → Rust Lint → Run All Checks. Ctrl+Shift+R must still reload all files.</p>
   <div class="bad"><strong class="tag">The defect, red first.</strong> With the Rust Lint 1.5.0 manifest (plugin repo <code class="sha">cce6006</code>) as the fixture, the guard failed:
 <pre>thread 'ui::menu::tests::plugin_shortcut_conflicts' panicked at src/ui/menu.rs:909:9:
 Rust Lint/Run All Checks (Ctrl+Shift+R) clashes with File/Reload All</pre>
   With the 1.5.1 manifest it passes. <code>builtin_shortcuts_are_reserved</code> passes before and after: it guards against drift.</div>
   <div class="why"><strong>Why bind through the runtime's binder.</strong> The test uses the same <code>PluginShortcutBinder</code> as the Plugins menu: reserved core keys first, then earlier plugin items. A separate table in the test could drift from what the app really does.</div>
-  <div class="followup"><strong class="tag">Landing order.</strong> Merging ferrispad-plugins#1 to <code>main</code> signs Rust Lint 1.5.1 and publishes it to every Plugin Manager, so it waits for the user's explicit OK. This PR can land before or with it: the fixture already holds 1.5.1. If PR #1 changes, the fixture must follow.</div>
+  <div class="followup"><strong class="tag">Published.</strong> On the user's OK (2026-11-27), ferrispad-plugins#1 was merged as <code class="sha">017442d</code>, and the auto-sign bot signed Rust Lint 1.5.1 in <code class="sha">fd7a6a4</code>, which touched only <code>plugins.json</code>. All five fixtures are byte-identical to <code>main</code> at <code class="sha">fd7a6a4</code>.</div>
   <h3>How to test T0073</h3>
   <ol class="steps">
     <li><code>nix develop -c cargo test --lib -- plugin_shortcut_conflicts builtin_shortcuts_are_reserved</code>
@@ -159,8 +165,7 @@ Rust Lint/Run All Checks (Ctrl+Shift+R) clashes with File/Reload All</pre>
 <section class="card">
   <h2>What remains open</h2>
   <ul>
-    <li><strong>ferrispad-plugins#1:</strong> needs the user's explicit OK, because its merge publishes Rust Lint 1.5.1.</li>
-    <li><strong>The check in the real app:</strong> the pending step above, once 1.5.1 is published.</li>
+    <li><strong>The check in the real app:</strong> the pending step above. Rust Lint 1.5.1 is now in the registry, so it can be done with an update from the Plugin Manager.</li>
   </ul>
 </section>
 
@@ -187,8 +192,8 @@ Rust Lint/Run All Checks (Ctrl+Shift+R) clashes with File/Reload All</pre>
 </section>
 
 <footer>
-  Presentation of PR #209 · branch <code>ticket/T0073</code> · commits <code>391998e</code> → <code>16c9b00</code> ·
-  ticket <code>docs/tickets/2-review/T0073-rust-lint-shortcut-conflict.md</code> · issue #207.
+  Presentation of PR #209 · branch <code>ticket/T0073</code> · commits <code>391998e</code> → the <code>3-done/</code> move ·
+  ticket <code>docs/tickets/3-done/T0073-rust-lint-shortcut-conflict.md</code> · issue #207.
 </footer>
 </div>
 </body>
