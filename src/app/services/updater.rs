@@ -71,7 +71,7 @@ pub fn is_newer_version(current: &str, remote: &str) -> bool {
 /// True when running inside a Flatpak sandbox, where the installed binary
 /// is read-only and updates are delivered through Flatpak instead.
 pub fn is_flatpak() -> bool {
-    std::path::Path::new("/.flatpak-info").exists()
+    crate::app::services::flatpak::is_flatpak()
 }
 
 /// Check if enough time has passed since last check (24 hours)

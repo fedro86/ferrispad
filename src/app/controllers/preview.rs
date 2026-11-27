@@ -12,9 +12,50 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 
-/// Directory for all FerrisPad preview files.
-fn preview_dir() -> std::path::PathBuf {
-    std::env::temp_dir().join("ferrispad_preview")
+/// Name of the preview folder inside the chosen base directory.
+const PREVIEW_DIR_NAME: &str = "ferrispad_preview";
+
+/// Directory for the preview files, chosen from where FerrisPad runs.
+///
+/// In a Flatpak the temp dir is the sandbox's private `/tmp`, which the host
+/// browser (reached through the OpenURI portal) cannot read, so the preview
+/// goes to the app's cache dir: `~/.var/app/<id>/cache` is the same path on
+/// the host. Everywhere else, and in a Flatpak without a cache dir, it stays
+/// in the temp dir.
+fn preview_dir_for(
+    in_flatpak: bool,
+    cache_dir: Option<&Path>,
+    temp_dir: &Path,
+) -> std::path::PathBuf {
+    match cache_dir {
+        Some(cache) if in_flatpak => cache.join(PREVIEW_DIR_NAME),
+        _ => temp_dir.join(PREVIEW_DIR_NAME),
+    }
+}
+
+/// The preview directory for this process.
+fn default_preview_dir() -> std::path::PathBuf {
+    preview_dir_for(
+        crate::app::services::flatpak::is_flatpak(),
+        dirs::cache_dir().as_deref(),
+        &std::env::temp_dir(),
+    )
+}
+
+/// Create the preview directory, private to the user (0700) on Unix.
+fn create_preview_dir(dir: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)
+    }
+    #[cfg(not(unix))]
+    {
+        fs::create_dir_all(dir)
+    }
 }
 
 /// Why a browser preview did not open — shown to the user as a popup.
@@ -47,17 +88,24 @@ impl PreviewNotice {
 }
 
 pub struct PreviewController {
+    /// Directory the preview files are written to, chosen once.
+    dir: std::path::PathBuf,
     /// Set of temp file paths created during this session.
     temp_files: HashSet<std::path::PathBuf>,
 }
 
 impl PreviewController {
     pub fn new() -> Self {
+        Self::with_dir(default_preview_dir())
+    }
+
+    /// A controller that writes its preview files to `dir`.
+    fn with_dir(dir: std::path::PathBuf) -> Self {
         // Ensure preview directory exists
-        let dir = preview_dir();
-        let _ = fs::create_dir_all(&dir);
+        let _ = create_preview_dir(&dir);
 
         Self {
+            dir,
             temp_files: HashSet::new(),
         }
     }
@@ -65,7 +113,7 @@ impl PreviewController {
     /// Generate a unique temp file path for a document.
     /// Uses file path hash for saved files (stable across sessions),
     /// or doc_id for untitled documents.
-    fn temp_path_for_doc(file_path: Option<&str>, doc_id: u64) -> std::path::PathBuf {
+    fn temp_path_for_doc(&self, file_path: Option<&str>, doc_id: u64) -> std::path::PathBuf {
         let id = match file_path {
             Some(path) => {
                 // Hash the file path for stable naming across sessions
@@ -75,7 +123,7 @@ impl PreviewController {
             }
             None => doc_id, // Untitled documents use doc_id
         };
-        preview_dir().join(format!("preview_{:016x}.html", id))
+        self.dir.join(format!("preview_{:016x}.html", id))
     }
 
     /// Render markdown text to HTML.
@@ -136,16 +184,27 @@ impl PreviewController {
         doc_id: u64,
         html: &str,
     ) -> Result<(), String> {
-        let temp_path = Self::temp_path_for_doc(file_path, doc_id);
+        let temp_path = self.write_preview(file_path, doc_id, html)?;
+        open::that(&temp_path).map_err(|e| format!("Failed to open browser: {}", e))
+    }
+
+    /// Write a document's preview file, creating the directory if needed, and
+    /// track it for cleanup. Returns the file's path.
+    fn write_preview(
+        &mut self,
+        file_path: Option<&str>,
+        doc_id: u64,
+        html: &str,
+    ) -> Result<std::path::PathBuf, String> {
+        let temp_path = self.temp_path_for_doc(file_path, doc_id);
 
         // Ensure preview directory exists (may have been cleaned since app start)
-        let _ = fs::create_dir_all(preview_dir());
+        let _ = create_preview_dir(&self.dir);
 
         fs::write(&temp_path, html).map_err(|e| format!("Failed to write preview file: {}", e))?;
 
         self.temp_files.insert(temp_path.clone());
-
-        open::that(&temp_path).map_err(|e| format!("Failed to open browser: {}", e))
+        Ok(temp_path)
     }
 
     /// Write HTML to the temp file for a specific document without opening browser.
@@ -157,7 +216,7 @@ impl PreviewController {
         doc_id: u64,
         html: &str,
     ) -> Result<(), String> {
-        let temp_path = Self::temp_path_for_doc(file_path, doc_id);
+        let temp_path = self.temp_path_for_doc(file_path, doc_id);
 
         // Only update if preview file exists (from this session or a previous one)
         if !self.temp_files.contains(&temp_path) && !temp_path.exists() {
@@ -178,7 +237,7 @@ impl PreviewController {
             let _ = fs::remove_file(path);
         }
         // Try to remove the directory (will only succeed if empty)
-        let _ = fs::remove_dir(preview_dir());
+        let _ = fs::remove_dir(&self.dir);
     }
 }
 
@@ -376,6 +435,64 @@ pub fn wrap_html_for_preview(html: &str, dark_mode: bool, base_dir: Option<&Path
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_dir_in_flatpak_uses_the_cache_dir() {
+        assert_eq!(
+            preview_dir_for(true, Some(Path::new("/c")), Path::new("/t")),
+            Path::new("/c/ferrispad_preview")
+        );
+    }
+
+    #[test]
+    fn preview_dir_outside_flatpak_is_unchanged() {
+        assert_eq!(
+            preview_dir_for(false, Some(Path::new("/c")), Path::new("/t")),
+            Path::new("/t/ferrispad_preview")
+        );
+    }
+
+    #[test]
+    fn preview_dir_in_flatpak_without_cache_dir_falls_back() {
+        assert_eq!(
+            preview_dir_for(true, None, Path::new("/t")),
+            Path::new("/t/ferrispad_preview")
+        );
+    }
+
+    #[test]
+    fn cleanup_removes_files_and_dir() {
+        let scratch = tempfile::tempdir().unwrap();
+        let dir = scratch.path().join("cache").join(PREVIEW_DIR_NAME);
+        let mut preview = PreviewController::with_dir(dir.clone());
+        assert!(dir.is_dir());
+
+        let path = preview
+            .write_preview(Some("/notes/a.md"), 1, "<p>one</p>")
+            .unwrap();
+        assert!(path.starts_with(&dir));
+        // The live refresh on save rewrites the same file.
+        preview
+            .write_html(Some("/notes/a.md"), 1, "<p>two</p>")
+            .unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "<p>two</p>");
+
+        preview.cleanup();
+        assert!(!path.exists());
+        assert!(!dir.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preview_dir_is_private_to_the_user() {
+        use std::os::unix::fs::PermissionsExt;
+        let scratch = tempfile::tempdir().unwrap();
+        let dir = scratch.path().join("cache").join(PREVIEW_DIR_NAME);
+        let preview = PreviewController::with_dir(dir.clone());
+        let mode = fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700);
+        drop(preview);
+    }
 
     #[test]
     fn test_is_markdown_file() {

@@ -11,6 +11,7 @@ pub mod current_line;
 pub mod custom_themes;
 pub mod editor_context;
 pub mod file_size;
+pub mod flatpak;
 pub mod font_catalog;
 pub mod http;
 pub mod plugin_registry;
