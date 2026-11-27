@@ -124,6 +124,17 @@ on 0962449, `gh workflow run release.yml --ref ticket/T0111`. The run
 A real tag push cannot be tried without publishing. The table test covers
 which tags would start a run and which would publish.
 
+### After the master merge (2026-11-27)
+
+After 0.9.10, master was merged (cf4a94f), with T0086's final head first.
+The diff against master is this ticket's five files. `release.yml`,
+`bump-version.sh`, the test and the guide are byte-identical to d3f1964,
+so the manual run above still applies to them.
+
+All 38 tags now in the repo match the rule, including `0.9.10-rc.3` and
+`0.9.10`. This was checked with bash `[[ =~ ]]` and the regex read from
+`release.yml`. Gates: 756 passed; clippy `-D warnings` and fmt are clean.
+
 ## Acceptance criteria
 
 - [x] The gate and `bump-version.sh` accept exactly `X.Y.Z` and
@@ -131,7 +142,8 @@ which tags would start a run and which would publish.
       the two regexes are the same string.
 - [x] The trigger filters accept every valid version, and reject `v*`,
       `1.2.3-`, `1.2.3-foo.1` and `1.2.3-rc`.
-- [x] Every existing tag in the repo is still a valid version (36/36).
+- [x] Every existing tag in the repo is still a valid version (38/38 after
+      0.9.10).
 - [x] actionlint is clean.
 - [x] The manual run is green and publishes nothing.
 - [x] Regression test added; it failed before the fix.
