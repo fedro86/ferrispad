@@ -84,6 +84,11 @@ a keystroke's re-highlight repainted no range: Damage(Expose | All)
 After the fix it passes. Full gates: 677 passed (UI tests included, under
 Xvfb), clippy `-D warnings` and fmt clean.
 
+After 0.9.10 (2026-11-27) master was merged (e76e63c), with T0096's final
+head first. The diff against master is this ticket's own three files.
+Gates: 758 passed (UI tests required, under Xvfb); clippy `-D warnings` and
+fmt are clean.
+
 ### Measurements (Xvfb, release builds)
 
 "Before" is `ticket/T0096` (23190d2), "after" this branch, "256 KiB" the
