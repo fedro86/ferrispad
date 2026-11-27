@@ -94,7 +94,7 @@
   </ul>
   <div class="meta">
     <span class="chip"><strong>T0122</strong> in <code>2-review/</code></span>
-    <span class="chip"><strong>10</strong> files · +469 / −26</span>
+    <span class="chip"><strong>10</strong> files · +438 / −26</span>
     <span class="chip green">UI tests still run, on Xvfb</span>
     <span class="chip green">gates green at every commit</span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/246">PR #246 on GitHub</a></span>
@@ -113,6 +113,10 @@
       <td>Docs only: this page.</td></tr>
     <tr><td><code class="sha">75ca187</code></td>
       <td>Review fix (ferrispad-90): the Wayland path (<code>FLTK_BACKEND=x11</code>, a private <code>XDG_RUNTIME_DIR</code>, no session bus), case 15 extended (red on <code class="sha">e86b8c0</code>), and the real-display assertion in the UI tests.</td></tr>
+    <tr><td><code class="sha">01dedcd</code></td>
+      <td>Docs only: this page after the review fix.</td></tr>
+    <tr><td><code class="sha">e2d4fc8</code></td>
+      <td>Review nit: <code>tests/fltk_main_thread.rs</code> shares the private-display assertion through <code>mod support;</code> instead of a copy.</td></tr>
   </table>
   </div>
 </section>
@@ -207,7 +211,7 @@ FAIL 15. the gate does not see the caller's session bus: '^DBUS_SESSION_BUS_ADDR
 </section>
 
 <footer>
-  Presentation of PR #246 · branch <code>ticket/T0122</code> · commits <code>cc2a069</code> → <code>75ca187</code> ·
+  Presentation of PR #246 · branch <code>ticket/T0122</code> · commits <code>cc2a069</code> → <code>e2d4fc8</code> ·
   ticket <code>docs/tickets/2-review/T0122-gates-ui-tests-private-display.md</code> · issue #244.
 </footer>
 </div>
