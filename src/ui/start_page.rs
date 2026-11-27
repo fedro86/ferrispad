@@ -28,12 +28,12 @@ const CHANGELOG_URL: &str = "https://github.com/fedro86/ferrispad/blob/master/CH
 
 /// Recent changelog entries: (description, version_tag).
 const CHANGELOG_ENTRIES: &[&str] = &[
+    "Plugin sandbox hardening",
+    "No stalls on long lines",
     "Custom themes & theme manager",
     "Current-line highlight",
     "Window size remembered",
     "Blue, readable selection",
-    "Save prompt on title-bar close",
-    "Updated dependencies, smaller binary",
 ];
 
 const BTN_W: i32 = 150;
@@ -127,7 +127,7 @@ impl StartPage {
         let sessions: Vec<&String> = all_sessions.iter().take(MAX_RECENT).collect();
         let recent = gather_recent_files();
         let max_card_items = sessions.len().max(recent.len()).max(1) as i32;
-        let card_items_h = 30 + 1 + max_card_items * 28 + (2 + max_card_items - 1) * 2 + 20;
+        let card_items_h = left_card_h(max_card_items, CHANGELOG_ENTRIES.len());
 
         let mut body = Flex::default().row();
         body.set_pad(20);
@@ -282,10 +282,7 @@ impl StartPage {
 
         sponsor_box.end();
         add_rounded_border(&mut sponsor_box, card_bg, border_color);
-        // Match from top of sessions card to bottom of files card:
-        // sess_card + pad + fspacer(4) + pad + files_card
-        let changelog_h = card_items_h * 2 + BTN_GAP + 4 + BTN_GAP;
-        right.fixed(&sponsor_box, changelog_h);
+        right.fixed(&sponsor_box, changelog_card_h(card_items_h));
 
         right.end();
 
@@ -322,6 +319,35 @@ impl StartPage {
 }
 
 // ── Widget helpers ──
+
+/// Height of a recent-sessions / recent-files card listing `items` rows.
+fn recent_card_h(items: i32) -> i32 {
+    30 + 1 + items * 28 + (2 + items - 1) * 2 + 20
+}
+
+/// Height the changelog card needs to show `entries` rows: the card margins,
+/// the header, the separator, one 22-px row per entry, the "more..." link,
+/// and the pad between those children and the flexible spacer.
+fn changelog_content_h(entries: usize) -> i32 {
+    let rows = i32::try_from(entries).unwrap_or(i32::MAX / 64);
+    let children = 2 + rows + 2;
+    2 * 8 + 30 + 1 + rows * 22 + 25 + (children - 1) * 2
+}
+
+/// The changelog card spans both left cards, from the top of the sessions
+/// card to the bottom of the files card: sess_card + pad + fspacer(4) + pad
+/// + files_card.
+fn changelog_card_h(left_card_h: i32) -> i32 {
+    left_card_h * 2 + BTN_GAP + 4 + BTN_GAP
+}
+
+/// Height of each left card for `items` recent rows. With few rows the cards
+/// grow, so the changelog card, which spans both, shows every one of its
+/// `changelog_entries` and the columns stay aligned.
+fn left_card_h(items: i32, changelog_entries: usize) -> i32 {
+    let spanned = changelog_content_h(changelog_entries) - (BTN_GAP + 4 + BTN_GAP);
+    recent_card_h(items).max((spanned + 1) / 2)
+}
 
 fn card(_theme: &DialogTheme, card_bg: Color, _border: Color) -> Flex {
     let mut f = Flex::default().column();
@@ -515,4 +541,30 @@ fn gather_recent_files() -> Vec<(String, String)> {
     }
     files.truncate(MAX_RECENT);
     files
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// T0114: with few recent items (a fresh install), the changelog card,
+    /// which is as tall as the two left cards, clipped its last entry.
+    #[test]
+    fn changelog_card_shows_every_entry() {
+        let needed = changelog_content_h(CHANGELOG_ENTRIES.len());
+        for items in 1..=MAX_RECENT as i32 {
+            let card = changelog_card_h(left_card_h(items, CHANGELOG_ENTRIES.len()));
+            assert!(
+                card >= needed,
+                "{items} recent item(s): changelog card {card} px < {needed} px needed"
+            );
+        }
+    }
+
+    #[test]
+    fn left_cards_keep_their_recent_rows() {
+        for items in 1..=MAX_RECENT as i32 {
+            assert!(left_card_h(items, CHANGELOG_ENTRIES.len()) >= recent_card_h(items));
+        }
+    }
 }

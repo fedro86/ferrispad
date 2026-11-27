@@ -6,6 +6,7 @@ pub mod divider;
 pub mod editor_container;
 pub mod file_dialogs;
 pub mod layout_shortcut;
+pub mod line_numbers;
 pub mod main_window;
 pub mod menu;
 pub mod scrollbar;

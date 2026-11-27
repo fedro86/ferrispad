@@ -1,73 +1,21 @@
 //! Path validation helpers for plugin sandbox.
 
 use std::collections::HashSet;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use super::super::security::{PathValidation, validate_path};
 
-/// Lexically fold `.` and `..` out of a path **without touching the filesystem**.
-///
-/// `..` pops the previous *normal* component and can never rise above the
-/// root/prefix (an unmatched `..` is kept, so an out-of-root path stays
-/// out-of-root). This makes a `..` that a later `create_dir_all`/`fs::write`
-/// would resolve against the kernel visible to the containment check *before*
-/// any write happens — the sandbox escape in T0002.
-fn normalize_lexical(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for comp in path.components() {
-        match comp {
-            Component::Prefix(_) | Component::RootDir => out.push(comp.as_os_str()),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                let pops_normal =
-                    matches!(out.components().next_back(), Some(Component::Normal(_)));
-                if pops_normal {
-                    out.pop();
-                } else {
-                    out.push("..");
-                }
-            }
-            Component::Normal(c) => out.push(c),
-        }
-    }
-    out
-}
-
-/// Resolve a user-supplied path against project_root and validate it stays inside the sandbox.
-/// Returns `Ok(Some(canonical))` on success, `Ok(None)` if the path is blocked or invalid.
+/// Resolve a user-supplied path against project_root and validate it stays
+/// inside the sandbox, using the one physical rule of
+/// [`validate_path`](super::super::security::validate_path) (T0090).
+/// Returns `Ok(Some(path))` on success (the path may not exist yet),
+/// `Ok(None)` if it is blocked or invalid.
 pub(super) fn resolve_and_validate(
     path: &str,
     project_root: &Path,
 ) -> mlua::Result<Option<PathBuf>> {
     match validate_path(path, project_root) {
-        PathValidation::Valid(canonical) => Ok(Some(canonical)),
-        PathValidation::NotFound => {
-            // For write ops the target doesn't exist yet (e.g. `create_dir_all`
-            // of nested missing dirs). We can't canonicalize a path that isn't
-            // there, so instead fold `.`/`..` lexically and require the result
-            // to stay inside the *canonical* root. Basing the candidate on the
-            // canonical root keeps a symlinked project root from skewing the
-            // containment check. (Symlinks *inside* the path are out of scope —
-            // that is T0008.)
-            let canonical_root = std::fs::canonicalize(project_root).map_err(|e| {
-                mlua::Error::RuntimeError(format!("Cannot canonicalize project root: {}", e))
-            })?;
-            let candidate = if Path::new(path).is_absolute() {
-                PathBuf::from(path)
-            } else {
-                canonical_root.join(path)
-            };
-            let normalized = normalize_lexical(&candidate);
-            if normalized.starts_with(&canonical_root) {
-                Ok(Some(normalized))
-            } else {
-                eprintln!(
-                    "[plugin:security] path blocked: '{}' resolves outside project root",
-                    path
-                );
-                Ok(None)
-            }
-        }
+        PathValidation::Valid(resolved) => Ok(Some(resolved)),
         PathValidation::OutsideProjectRoot | PathValidation::InvalidPath(_) => {
             eprintln!(
                 "[plugin:security] path blocked: '{}' outside project root",
@@ -76,6 +24,114 @@ pub(super) fn resolve_and_validate(
             Ok(None)
         }
     }
+}
+
+/// Check that no entry below `dir` is named `.git` (same case rules as the
+/// `.git` path check), walking at most [`MAX_REMOVE_DEPTH`] levels and
+/// [`MAX_REMOVE_ENTRIES`] entries without following symlinks. A symlink is
+/// judged by its own name only: removing or moving the directory acts on the
+/// link, not on its target. Past a bound, or on any read error, it fails
+/// closed.
+fn dir_tree_is_git_free(dir: &Path) -> Result<(), &'static str> {
+    use super::super::security::{CASE_INSENSITIVE_NAMES, is_git_component};
+    let mut stack = vec![(dir.to_path_buf(), 0usize)];
+    let mut seen = 0usize;
+    while let Some((current, depth)) = stack.pop() {
+        let entries = std::fs::read_dir(&current).map_err(|_| "Cannot inspect directory")?;
+        for entry in entries {
+            let entry = entry.map_err(|_| "Cannot inspect directory")?;
+            seen += 1;
+            if seen > MAX_REMOVE_ENTRIES {
+                return Err("Directory too large for a plugin to remove or move");
+            }
+            if is_git_component(&entry.file_name().to_string_lossy(), CASE_INSENSITIVE_NAMES) {
+                return Err("Directory contains .git");
+            }
+            let file_type = entry.file_type().map_err(|_| "Cannot inspect directory")?;
+            if file_type.is_dir() {
+                if depth + 1 >= MAX_REMOVE_DEPTH {
+                    return Err("Directory too deep for a plugin to remove or move");
+                }
+                stack.push((entry.path(), depth + 1));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Bounds of the walk that checks a directory before removing or moving it.
+pub(super) const MAX_REMOVE_DEPTH: usize = 32;
+/// See [`MAX_REMOVE_DEPTH`].
+pub(super) const MAX_REMOVE_ENTRIES: usize = 10_000;
+
+/// What a write operation does to its target (T0092).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum WriteKind {
+    /// Creates or replaces the target's content (write, create, rename
+    /// destination): not under `.git`, not onto an existing executable,
+    /// not an executable extension on Windows.
+    Create,
+    /// Moves or deletes the target (rename source, remove): not under `.git`.
+    /// Moving or removing an executable is allowed.
+    Modify,
+}
+
+/// [`resolve_and_validate`] for an operation that changes the file system,
+/// plus the write policy (T0092). `Err` carries the reason for the plugin.
+///
+/// The policy closes the plugin-controlled write → execute path: a plugin
+/// with an approved command could otherwise overwrite that command's binary
+/// (`fs::write` keeps an existing file's mode), drop a runnable file on
+/// Windows, or rewrite `.git/config` / hooks that the approved `git` runs.
+pub(super) fn resolve_for_write(
+    path: &str,
+    project_root: &Path,
+    kind: WriteKind,
+) -> Result<PathBuf, String> {
+    use super::super::security::{
+        CASE_INSENSITIVE_NAMES, has_executable_extension, is_existing_executable,
+        path_has_git_component,
+    };
+    let Ok(Some(physical)) = resolve_and_validate(path, project_root) else {
+        return Err("Path outside project root".to_string());
+    };
+    let canonical_root = std::fs::canonicalize(project_root)
+        .map_err(|e| format!("Cannot canonicalize project root: {}", e))?;
+    let refuse = |why: &str| {
+        eprintln!("[plugin:security] write blocked: '{}': {}", path, why);
+        Err(why.to_string())
+    };
+    if path_has_git_component(&physical, &canonical_root, CASE_INSENSITIVE_NAMES) {
+        return refuse("Plugins may not modify .git");
+    }
+    // The project root itself — "", ".", "sub/..", an alias or a symlink to
+    // it all resolve here — is never removed, moved or replaced.
+    if physical == canonical_root {
+        return refuse("Plugins may not remove, move or replace the project root");
+    }
+    // Removing or moving a directory takes everything below it along: walk
+    // it first (bounded, symlinks not followed) so no `.git` goes with it.
+    if kind == WriteKind::Modify
+        && std::fs::symlink_metadata(&physical).is_ok_and(|m| m.is_dir())
+        && let Err(why) = dir_tree_is_git_free(&physical)
+    {
+        return refuse(why);
+    }
+    if kind == WriteKind::Create {
+        let name = physical
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if cfg!(windows)
+            && has_executable_extension(&name, std::env::var("PATHEXT").ok().as_deref())
+        {
+            return refuse("Plugins may not create executable files");
+        }
+        if is_existing_executable(&physical) {
+            return refuse("Plugins may not overwrite an executable");
+        }
+    }
+    Ok(physical)
 }
 
 /// Hard cap on the number of entries a single directory scan may return.

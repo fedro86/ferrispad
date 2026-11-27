@@ -237,7 +237,7 @@ impl SessionController {
                         // Keep the session identity (save back to this file),
                         // unless another live instance still writes it
                         // (T0101).
-                        let owner = session::entry_owner(doc_session, &session_data);
+                        let owner = session::entry_owner(doc_session, session_data);
                         if session::reuse_restored_temp(&owner) {
                             doc.restored_temp_file = Some(temp_file.clone());
                             adopted.push((path.clone(), owner));
@@ -263,7 +263,7 @@ impl SessionController {
                     doc.buffer.set_text(&temp_content);
                     // Keep the session identity (save back to this file),
                     // unless another live instance still writes it (T0101).
-                    let owner = session::entry_owner(doc_session, &session_data);
+                    let owner = session::entry_owner(doc_session, session_data);
                     if session::reuse_restored_temp(&owner) {
                         doc.restored_temp_file = Some(temp_file.clone());
                         adopted.push((temp_file.clone(), owner));
@@ -306,6 +306,7 @@ pub mod main_thread_checks {
             temp_file: Some(temp_file.to_string()),
             was_dirty: true,
             group_index: None,
+            owner: None,
         }
     }
 
