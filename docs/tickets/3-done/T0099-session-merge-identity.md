@@ -1,7 +1,7 @@
 ---
 id: T0099
 title: Keep every instance's unsaved untitled text when sessions merge (identity = temp file, not name)
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: moderate
 area: robustness
@@ -179,6 +179,20 @@ quit A, then B ("Quit Without Saving"); start a third instance.
 
 No panic in the debug log.
 
+**Harness correction (2026-11-27).** The scripted two-instance runs above
+looked up each instance's window with `xdotool search --pid P --name
+FerrisPad`. xdotool ORs those criteria, so both "instances" could resolve to
+one window. The same cell was rerun with the fixed lookup (`--all`,
+`uitest-T0087/uc.sh`): one unsaved untitled tab per instance, close one
+window and then the other with "Quit Without Saving", restart one instance.
+- `master` 4cd7cf5 keeps only the last writer's text ("da B" when A closes
+  first, "da A" when B closes first), because both instances write one
+  shared temp file.
+- `ticket/T0099` keeps both texts in either close order, also with an
+  auto-save before the closes.
+
+The conclusion above stands.
+
 ## What was done
 
 - `services::session::temp_file_name(hash_key, doc_id, instance_id,
@@ -204,7 +218,7 @@ No panic in the debug log.
 - [x] Regression tests added; they failed before the fix.
 - [x] Gates pass with zero warnings (664 passed ×2, clippy `-D warnings`,
       fmt).
-- [ ] Pending user verification: two real instances on a desktop.
+- [x] User verification: two real instances on a desktop.
 
 ## Affected files
 
@@ -217,3 +231,12 @@ No panic in the debug log.
 
 - Found by ferrispad-a3 (T0091 review); assigned by the orchestrator as
   T0099, rc.3 if ready in time.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland) with the rc.3 integration
+build `verify/rc3` (checklist `VERIFICA-RC3.md`).
+
+Section 5 of the checklist (two instances, Full restore, unsaved untitled
+tabs) is re-run on `master`, with an isolated `XDG_DATA_HOME`, before the
+0.9.10-rc.3 tag.

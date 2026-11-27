@@ -4,6 +4,7 @@
 //! - Left: 2x2 button grid + stacked session/files cards
 //! - Right: donate button + changelog/sponsor card (aligned with left cards)
 
+use crate::ui::color::fltk_rgb;
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -88,7 +89,7 @@ impl StartPage {
 
     pub fn show(&mut self, sender: Sender<Message>, theme_bg: (u8, u8, u8), active_session: &str) {
         let theme = DialogTheme::from_theme_bg(theme_bg);
-        let bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
+        let bg = fltk_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
         let card_bg = theme.row_bg;
         let border_color = theme.text_dim;
 
@@ -396,7 +397,7 @@ fn accent_button(label: &str, theme: &DialogTheme) -> Button {
     btn.set_frame(FrameType::RFlatBox);
     btn.set_color(theme.accent);
     // White text on accent for readability
-    btn.set_label_color(Color::from_rgb(255, 255, 255));
+    btn.set_label_color(fltk_rgb(255, 255, 255));
     btn.set_label_size(15);
     let normal = theme.accent;
     let hover = theme.accent_hover;
