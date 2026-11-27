@@ -114,6 +114,15 @@ The screenshots with 1.5.1 show:
 
 Nothing is clipped in either menu.
 
+### After the master merge (2026-11-27)
+
+Master (up to T0111, #213) is merged in without conflicts. Both tests are
+plain unit tests: they parse TOML and bind through `PluginShortcutBinder`,
+with no FLTK object, so the T0113 guard passes. The five fixtures are
+still byte-identical to the plugin repo: `rust-lint` to PR #1's head
+`adb75f5`, the other four to `main`. Gates: 758 passed, clippy
+`-D warnings` and fmt clean.
+
 ### Manual repro
 
 1. With Rust Lint v1.5.0 installed: `nix develop -c cargo run 2>&1 | grep shortcut`
