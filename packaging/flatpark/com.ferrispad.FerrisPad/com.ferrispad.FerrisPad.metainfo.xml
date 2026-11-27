@@ -16,12 +16,13 @@
     </p>
     <ul>
       <li>Syntax highlighting for 50+ languages</li>
+      <li>Markdown preview in your browser (Ctrl+M)</li>
       <li>Tab groups and named multi-project sessions</li>
       <li>Lua plugin system, sandboxed by default</li>
       <li>Built-in terminal</li>
       <li>Regex find and replace</li>
       <li>Arbitrary system-font picker</li>
-      <li>Light and dark themes</li>
+      <li>Light and dark themes, plus your own editor themes: create them in the app or import .tmTheme files</li>
       <li>Opens very large files (read-only above ~1.9 GiB)</li>
     </ul>
     <p>

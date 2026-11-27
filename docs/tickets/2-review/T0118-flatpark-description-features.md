@@ -1,7 +1,7 @@
 ---
 id: T0118
 title: The FlatPark app page lists Markdown preview and custom editor themes
-status: todo            # todo | review | done
+status: review          # todo | review | done
 created: 2026-11-27
 severity: ~
 area: process
@@ -112,8 +112,8 @@ No build is needed: the manifest and the payload are unchanged.
 
 ## Acceptance criteria
 
-- [ ] Mirror identical to the registry, apart from the two lines.
-- [ ] The two lines read exactly as approved; AppStream validation passes.
+- [x] Mirror identical to the registry, apart from the two lines.
+- [x] The two lines read exactly as approved; AppStream validation passes.
 - [ ] The user confirmed Ctrl+M works in the Flatpak, or the Markdown line
       was dropped.
 - [ ] The user decided on opening the FlatPark PR.
@@ -124,6 +124,35 @@ No build is needed: the manifest and the payload are unchanged.
   the registry's two `<release>` entries, and the two `<li>` lines.
 - `packaging/flatpark/com.ferrispad.FerrisPad/com.ferrispad.FerrisPad.yml`:
   extra-data pinned to 0.9.10, as in the registry.
+
+## Submission draft (not opened)
+
+- Local commit `0251093` on branch `docs/ferrispad-description`, on top of
+  flatpark/flatpark main `013005c`. The author is the noreply address.
+  Nothing is pushed, not even to the fedro86/flatpark fork.
+- The diff touches only
+  `registry/com.ferrispad.FerrisPad/com.ferrispad.FerrisPad.metainfo.xml`:
+  the two `<li>` lines, the same diff as this ticket's second commit.
+- **Title:** `feat(ferrispad): describe Markdown preview and custom editor themes`
+- **Body:**
+
+> Lists two FerrisPad features the app page missed: the Markdown preview in
+> the browser (Ctrl+M), and custom editor themes, created in the app or
+> imported from `.tmTheme` files (new in 0.9.10). Description text only; the
+> manifest and payload are unchanged.
+>
+> **Tested:**
+> - `appstreamcli validate --no-net --pedantic` passes;
+> - `read-descriptor` and `audit-descriptor` pass;
+> - `check-approvals` is in sync;
+> - the Markdown preview was checked in the installed Flatpak.
+>
+> I'm FerrisPad's developer.
+>
+> 🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+The "checked in the installed Flatpak" bullet stays only if the blocker
+clears.
 
 ## Notes
 
