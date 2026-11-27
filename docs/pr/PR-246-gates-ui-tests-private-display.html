@@ -83,17 +83,18 @@
   <h1>The gates run the UI tests on a private display, never on your screen</h1>
   <div class="flow">
     <div><strong>Before</strong> · At every commit, from any session, the pre-commit hook ran <code>cargo test</code> with your desktop's display. The UI tests build real FerrisPad windows and dialogs, and they could flash on your screen.</div>
-    <div><strong>After</strong> · One script, <code>scripts/gates.sh</code>, runs the gates. The tests get an Xvfb of their own, as in CI, and your <code>DISPLAY</code> and Wayland variables never reach them. The hook and every doc that lists the gates use it.</div>
+    <div><strong>After</strong> · One script, <code>scripts/gates.sh</code>, runs the gates. The tests get an Xvfb of their own, as in CI. Your <code>DISPLAY</code>, your Wayland socket and your session bus never reach them, and the tests check that FLTK really opened that private display. The hook and every doc that lists the gates use it.</div>
   </div>
   <p>ferrispad-39 found this on 2026-11-27, while preparing T0108's UI tests. From the VSCode Flatpak sandbox, the gates go through <code>flatpak-spawn --host</code>. That host shell has <code>DISPLAY=:0</code> and <code>WAYLAND_DISPLAY=wayland-0</code>, so <code>display_available()</code> saw a display and ran the UI tests on it. This is the same class of leak as the file dialogs that reached your GNOME session on 2026-11-27. The orchestrator (ferrispad-03) set the scope.</p>
   <ul>
-    <li><code>scripts/gates.sh</code>: fmt, clippy <code>-D warnings</code>, then <code>cargo test</code> under <code>env -u DISPLAY -u WAYLAND_DISPLAY -u WAYLAND_SOCKET</code>, <code>xvfb-run -a</code> and <code>FERRISPAD_REQUIRE_UI_TESTS=1</code>.</li>
+    <li><code>scripts/gates.sh</code>: fmt, clippy <code>-D warnings</code>, then <code>cargo test</code> under <code>xvfb-run -a</code>, without your <code>DISPLAY</code>, <code>WAYLAND_*</code> or session bus, with <code>FLTK_BACKEND=x11</code>, a private <code>XDG_RUNTIME_DIR</code> and <code>FERRISPAD_REQUIRE_UI_TESTS=1</code>.</li>
+    <li>Under that variable the UI tests assert that the X display FLTK opened is the private one, never <code>:0</code> or <code>:1</code>.</li>
     <li>The pre-commit hook calls it, and a new hook test pins the environment the tests get.</li>
     <li><code>.claude/CLAUDE.md</code>, the two rules files and the new-pr skill name it as the one gate command.</li>
   </ul>
   <div class="meta">
     <span class="chip"><strong>T0122</strong> in <code>2-review/</code></span>
-    <span class="chip"><strong>8</strong> files · +295 / −26</span>
+    <span class="chip"><strong>10</strong> files · +469 / −26</span>
     <span class="chip green">UI tests still run, on Xvfb</span>
     <span class="chip green">gates green at every commit</span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/246">PR #246 on GitHub</a></span>
@@ -108,6 +109,10 @@
     <tr><th>Commit</th><th>What changes</th></tr>
     <tr><td><code class="sha">cc2a069</code></td>
       <td>The gate script, the hook calling it, hook test case 15 (red on master's hook first), the docs and the ticket.</td></tr>
+    <tr><td><code class="sha">e86b8c0</code></td>
+      <td>Docs only: this page.</td></tr>
+    <tr><td><code class="sha">75ca187</code></td>
+      <td>Review fix (ferrispad-90): the Wayland path (<code>FLTK_BACKEND=x11</code>, a private <code>XDG_RUNTIME_DIR</code>, no session bus), case 15 extended (red on <code class="sha">e86b8c0</code>), and the real-display assertion in the UI tests.</td></tr>
   </table>
   </div>
 </section>
@@ -117,7 +122,8 @@
   <div class="flow">
     <div><strong>Hook</strong> · On <code>git commit</code>, <code>.claude/hooks/pre-commit-gates.sh</code> finds the checkout and runs the gate script that ships next to it: through <code>flatpak-spawn --host</code> from the sandbox, or directly on the host.</div>
     <div><strong>Lint</strong> · <code>nix develop --command</code>: <code>cargo fmt --check</code>, then <code>cargo clippy --all-targets --all-features -- -D warnings</code>.</div>
-    <div><strong>Tests</strong> · <code>env -u DISPLAY -u WAYLAND_DISPLAY -u WAYLAND_SOCKET FERRISPAD_REQUIRE_UI_TESTS=1 xvfb-run -a nix develop --command bash -c 'cargo test'</code>. The UI tests see only the private Xvfb, and a missing display fails the gate instead of skipping them.</div>
+    <div><strong>Tests</strong> · <code>env -u DISPLAY -u WAYLAND_DISPLAY -u WAYLAND_SOCKET -u DBUS_SESSION_BUS_ADDRESS FLTK_BACKEND=x11 XDG_RUNTIME_DIR=&lt;private&gt; FERRISPAD_REQUIRE_UI_TESTS=1 xvfb-run -a nix develop --command bash -c 'cargo test'</code>. A missing display fails the gate instead of skipping the UI tests.</div>
+    <div><strong>Proof</strong> · Each UI test binary, once the display is open, asserts that FLTK is not on Wayland and that the X display it opened (<code>XDisplayString(fltk::app::display())</code>) is <code>$DISPLAY</code>, not <code>:0</code> or <code>:1</code>. It prints that display, for example <code>FLTK on the private X display :99</code>.</div>
   </div>
 </section>
 
@@ -141,16 +147,25 @@ FAIL 15. the gate runs on the private display: '^DISPLAY=:99$' is absent in the 
 FAIL 15. the UI tests are required: '^FERRISPAD_REQUIRE_UI_TESTS=1$' is absent in the gate's environment
 18 passed, 5 failed</pre>
   After the fix: 23 passed, 0 failed.</div>
-  <div class="why"><strong>Why remove the variables and keep the tests.</strong> Skipping the UI tests locally would hide a layout regression until CI. Running them on a private Xvfb keeps them, and nothing can reach your session. Unsetting the Wayland variables matters too: with <code>WAYLAND_DISPLAY</code> set, FLTK could pick your compositor even with a private <code>DISPLAY</code>.</div>
+  <div class="bad"><strong class="tag">The review's catch, red first.</strong> ferrispad-90 found that removing <code>WAYLAND_DISPLAY</code> is not enough. fltk is built with <code>use-wayland</code>. Where that backend is compiled in, FLTK calls <code>wl_display_connect(NULL)</code> first when <code>FLTK_BACKEND</code> is unset, and libwayland then falls back to <code>wayland-0</code> in <code>XDG_RUNTIME_DIR</code>: your compositor. Case 15 now also checks <code>FLTK_BACKEND=x11</code>, an <code>XDG_RUNTIME_DIR</code> that is not the caller's, and no session bus. On <code class="sha">e86b8c0</code>:
+<pre>FAIL 15. FLTK is forced onto X11: '^FLTK_BACKEND=x11$' is absent in the gate's environment
+FAIL 15. the gate does not see the caller's XDG_RUNTIME_DIR: '^XDG_RUNTIME_DIR=/run/user/4242$' is present in the gate's environment
+FAIL 15. the gate does not see the caller's session bus: '^DBUS_SESSION_BUS_ADDRESS=' is present in the gate's environment
+24 passed, 3 failed</pre>
+  After the fix: 27 passed, 0 failed.</div>
+  <div class="why"><strong>Why keep the tests and pin the display.</strong> Skipping the UI tests locally would hide a layout regression until CI. Running them on a private Xvfb keeps them. The assertion on the display FLTK really opened turns "the environment looks right" into "FLTK used it". It has no safe red run: its failure case is opening your <code>:0</code> or <code>:1</code>, and both belong to your session here.</div>
+  <div class="followup"><strong class="tag">Open question: no Wayland in the local build.</strong> <code>Cargo.toml</code> asks for <code>use-wayland</code>, and cargo enables it on <code>fltk-sys</code>. Yet the local FLTK has <code>/* #undef FLTK_USE_WAYLAND */</code> in <code>fl_config.h</code>, the CMake cache has no <code>FLTK_BACKEND_WAYLAND</code>, and <code>ldd</code> shows no <code>libwayland-client</code> (ferrispad-90). So here the leak went only through <code>DISPLAY=:0</code> (XWayland). Whether release builds get Wayland, and should, may be a packaging question for its own ticket.</div>
   <div class="followup"><strong class="tag">Until this lands.</strong> Master's hook still runs the UI tests on your display at every commit of every session. Sessions cannot avoid it without bypassing the hook, which the rules forbid. For manual gate runs they already use the safe form. Also, <code>xvfb-run -a</code> picks its display by testing lock files, so it can collide with a concurrent Xvfb. That makes the gate fail, never leak; a rerun fixes it.</div>
   <h3>How to test T0122</h3>
   <ol class="steps">
     <li><code>bash .claude/hooks/test-pre-commit-gates.sh</code>
       <span class="expect">23 passed, 0 failed. On master's hook, case 15 failed as above.</span></li>
     <li>From the VSCode terminal in the worktree: <code>flatpak-spawn --host bash -lc "$PWD/scripts/gates.sh $PWD"</code>
-      <span class="expect">exit 0, every test binary green, no "skipping UI construction tests" line, and no window on your screen. On 2026-11-28 it gave 784 passed.</span></li>
+      <span class="expect">exit 0, every test binary green, no "skipping UI construction tests" line, a line <code>FLTK on the private X display :99</code> (or another number, never <code>:0</code>/<code>:1</code>), and no window on your screen. On 2026-11-28 it gave 784 passed.</span></li>
     <li>The same, with a stand-in test step that prints what it sees: <code>flatpak-spawn --host bash -lc "FERRISPAD_GATES_CMD='echo \$DISPLAY \${WAYLAND_DISPLAY:-unset} \$FERRISPAD_REQUIRE_UI_TESTS' $PWD/scripts/gates.sh $PWD"</code>
       <span class="expect">something like <code>:99 unset 1</code>, a display of its own, never <code>:0</code>.</span></li>
+    <li><code>flatpak-spawn --host bash -lc "FERRISPAD_GATES_CMD='echo \$FLTK_BACKEND \$XDG_RUNTIME_DIR \${DBUS_SESSION_BUS_ADDRESS:-nobus}' $PWD/scripts/gates.sh $PWD"</code>
+      <span class="expect"><code>x11 /tmp/ferrispad-gates-runtime.XXXXXX nobus</code>: not your <code>/run/user/…</code>.</span></li>
   </ol>
 </section>
 
@@ -192,7 +207,7 @@ FAIL 15. the UI tests are required: '^FERRISPAD_REQUIRE_UI_TESTS=1$' is absent i
 </section>
 
 <footer>
-  Presentation of PR #246 · branch <code>ticket/T0122</code> · commits <code>cc2a069</code> ·
+  Presentation of PR #246 · branch <code>ticket/T0122</code> · commits <code>cc2a069</code> → <code>75ca187</code> ·
   ticket <code>docs/tickets/2-review/T0122-gates-ui-tests-private-display.md</code> · issue #244.
 </footer>
 </div>
