@@ -186,6 +186,29 @@ were resolved like this:
 Gates after the merge: 762 passed (UI tests required, under Xvfb);
 clippy `-D warnings` and fmt are clean.
 
+## Merge of T0116 and master (2026-11-28)
+
+T0116 (#240) added the recent-files list: `StartPage::show()` takes
+`recent_list: &[String]`, and the page remembers it (`last_recent`), so
+`sync_start_page` redraws it when the list changes. Then master moved on
+(T0095, T0112, T0073, T0104). One conflict, in `start_page.rs`:
+- both new fields are kept (`min_page`, `last_recent`);
+- the data comes from T0116: `recent_files::start_page_entries(recent_list)`,
+  not `gather_recent_files()`, so a relayout no longer reads the disk for
+  the recent files;
+- a Recent Files row is fitted to `column_w - 2·8 - 8`. T0116 used
+  `LEFT_W - 24`, but `LEFT_W` is gone: the left column is `column_w` wide in
+  both layouts;
+- `dispatch::relayout_start_page` passes `&state.recent_files`, like the
+  other two `show()` calls.
+
+`tests/start_page_layout.rs` now builds the page with a full Recent Files
+card: four long paths, including the FLTK specials '@' and '&'. T0116's
+`recent_files_row_label_fits_the_card` and this ticket's
+`start_page_layout_changelog_shows_every_entry` both pass. Gates (UI tests
+on a private Xvfb, T0122's environment): 797 passed, clippy `-D warnings`
+and fmt clean.
+
 ## Acceptance criteria
 
 - [x] Nothing is clipped at any width down to the start-page minimum; one
