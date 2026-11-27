@@ -63,6 +63,45 @@ pub fn load() -> Vec<String> {
     load_from(&store_path())
 }
 
+/// The list at startup. The first time (no list file yet, e.g. right after
+/// an upgrade) it is seeded once from the named files of the saved
+/// sessions, which is what the start page's Recent Files card showed before
+/// T0116, so an upgrade does not empty the card. The seed is saved, so it
+/// happens once.
+pub fn load_or_seed() -> Vec<String> {
+    let store = store_path();
+    if store.exists() {
+        return load_from(&store);
+    }
+    let mut paths = Vec::new();
+    for name in crate::app::services::session::list_sessions() {
+        if let Some(data) = crate::app::services::session::load_session(
+            crate::app::services::session::SessionRestore::SavedFiles,
+            &name,
+        ) {
+            paths.extend(data.documents.into_iter().filter_map(|d| d.file_path));
+        }
+    }
+    let seeded = seed(paths);
+    if !seeded.is_empty()
+        && let Err(e) = save_to(&store, &seeded)
+    {
+        eprintln!("[recent-files] could not save the seeded list: {e}");
+    }
+    seeded
+}
+
+/// The usable, existing files among `paths`, first copy of each, at most
+/// [`MAX_ENTRIES`].
+fn seed(paths: Vec<String>) -> Vec<String> {
+    sanitize(
+        paths
+            .into_iter()
+            .filter(|p| Path::new(p).is_file())
+            .collect(),
+    )
+}
+
 /// [`load`] from a given file.
 pub fn load_from(path: &Path) -> Vec<String> {
     match fs::metadata(path) {
@@ -365,6 +404,26 @@ mod tests {
         assert_eq!(escape_menu_label("_draft.md"), "\\_draft.md");
         assert_eq!(escape_menu_label("x_y.md"), "x_y.md");
         assert_eq!(escape_menu_label("a\\b"), "a\\\\b");
+    }
+
+    #[test]
+    fn recent_files_seed_keeps_existing_named_files() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let a = dir.path().join("a.txt");
+        let b = dir.path().join("b.txt");
+        fs::write(&a, "a").expect("write");
+        fs::write(&b, "b").expect("write");
+        let a = a.to_string_lossy().to_string();
+        let b = b.to_string_lossy().to_string();
+        let gone = dir.path().join("gone.txt").to_string_lossy().to_string();
+        let seeded = seed(vec![
+            a.clone(),
+            gone,
+            "relative.txt".to_string(),
+            b.clone(),
+            a.clone(),
+        ]);
+        assert_eq!(seeded, vec![a, b]);
     }
 
     #[test]

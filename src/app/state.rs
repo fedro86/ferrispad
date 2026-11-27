@@ -205,7 +205,7 @@ impl AppState {
         let session = SessionController::with_session_name(session_name);
         let plugin_coord = PluginController::new(menu.clone(), sender);
 
-        let recent_files = crate::app::services::recent_files::load();
+        let recent_files = crate::app::services::recent_files::load_or_seed();
         crate::ui::menu::rebuild_recent_menu(&mut menu, &sender, &recent_files);
         Self {
             tab_manager,

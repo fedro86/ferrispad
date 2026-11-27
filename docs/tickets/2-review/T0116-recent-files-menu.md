@@ -114,3 +114,92 @@ nix develop -c cargo test recent_files
   The CHANGELOG entry should say the start page now keeps files you closed.
 - Data dir, not config dir: the list is state, like the sessions, and must
   not end up in a settings file someone shares or version-controls.
+
+## What was done (2026-11-27)
+
+- **`services/recent_files.rs`** (new):
+  - `push`, `remove`, `labels` and `escape_menu_label`, `start_page_entries`;
+  - `load_from` / `save_to`. The file is
+    `<data_dir>/ferrispad/recent_files.json` (`{"version":1,"files":[…]}`),
+    written through a temp file and a rename.
+  - Untrusted input:
+    - a file over 64 KB is ignored;
+    - JSON that is not the expected shape reads as empty;
+    - entries must be absolute, not empty, without NUL and at most 4096
+      bytes; duplicates are dropped and the list is capped at 10.
+  - Labels:
+    - the file name, plus " — <folder>" where two share a name;
+    - elided in the middle at 60 characters;
+    - made unique with " (2)" (FLTK replaces an item added twice under one
+      label);
+    - escaped for FLTK menus (`/`, `&`, `\`, a leading `_`).
+- **Recording.**
+  - Every open goes through `FileController::open_file`: File → Open, the
+    command line, drag and drop (`DeferredOpenFile`), a plugin's
+    `open_file`, MCP, the start page and the menu itself.
+  - It now appends `FileAction::RememberRecent(path)` when the open shows a
+    file (`opened()`: a tab switch or a title update, and no error). A
+    cancelled or failed open is not remembered.
+  - Save As remembers its new path.
+  - `AppState::remember_recent` keeps only existing files, made absolute.
+- **File → Open Recent.**
+  - `build_menu` creates the submenu right under Open….
+  - `rebuild_recent_menu` refills it: the entries, a divider, Clear Recent;
+    or an inactive "(no recent files)".
+  - `OpenRecentFile(path)` opens the file, or switches to its tab through
+    the usual `open_file`.
+  - A missing file shows "… no longer exists. It was removed from the
+    recent files." and is dropped.
+  - `ClearRecentFiles` empties the list.
+- **Start page.**
+  - The Recent Files card shows the first 4 entries of the same list and
+    clicks through `OpenRecentFile`.
+  - `sync_start_page` re-renders it when the list changes while it is
+    shown.
+  - A row's folder (then its name) is elided in the middle until the row
+    fits the card in bold, the hover font. Before, a long folder would run
+    to the card's edge.
+- **First run after an upgrade.** Without a `recent_files.json`, the list is
+  seeded once from the named, existing files of the saved sessions. That is
+  what the card showed before, so an upgrade doesn't empty it.
+- **No background work.** The list changes only on these user actions,
+  with no timer and no watcher.
+
+### Tests
+
+- `nix develop -c cargo test recent_files`: 14 unit tests, all pass. They
+  cover:
+  - push moves the path to the front, the cap, remove;
+  - save→load round-trips;
+  - a missing, empty, malformed, wrongly-typed or oversized file reads as
+    empty;
+  - invalid entries are filtered;
+  - labels: folder for shared names, unique, elided, escaped;
+  - the first four for the start page;
+  - `opened()` (cancelled, failed, tabs on, tabs off);
+  - the seed keeps only existing named files;
+  - the start-page row fits.
+- **Main-thread FLTK check** `recent_files_open_recent_sits_under_open`
+  (`tests/fltk_main_thread.rs`). Red first:
+  - FLTK's `insert()` put a path item at the end of File whatever the
+    index;
+  - the check failed with Open Recent at position 13, after Quit, instead
+    of 2;
+  - green after creating the submenu in `build_menu`.
+- **Gates:** fmt, clippy `-D warnings`, `cargo test` (xvfb,
+  `FERRISPAD_REQUIRE_UI_TESTS=1`) all green.
+
+### Screenshots (`new-pr` §2)
+
+- Scenario: `docs/pr/scenarios/recent-files.sh`.
+  - `notes.txt` and `todo.md` are opened via `OPEN_FILES`, with session
+    restore off; then two Ctrl+W;
+  - shots: the start page, File menu, File → Open Recent.
+- `compare.sh` against `origin/master` c3672fe, light and dark. Montages are
+  in `ferrispad-wt/uitest-T0116/compare/`.
+  - Before: an empty Recent Files card and no Open Recent.
+  - After: todo.md and notes.txt in the card. Open Recent sits under Open…
+    with todo.md, notes.txt, a divider and Clear Recent.
+- Every shot was read edge by edge. That is how the menu-position defect
+  and the row that reached the card's edge were found; both are fixed.
+- The host was clean after every run.
