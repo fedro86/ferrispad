@@ -332,11 +332,18 @@ impl AppState {
     /// Update the window title based on active document. The label is only
     /// set when the text changes.
     pub fn update_window_title(&mut self) {
-        let active = self
-            .tab_manager
-            .active_doc()
-            .map(|doc| (doc.tab_label(), doc.is_dirty()));
-        let title = window_title(active, self.session.current_session_name());
+        let active = self.tab_manager.active_doc().map(|doc| {
+            (
+                self.tab_manager.tab_label(doc.id).unwrap_or_default(),
+                doc.is_dirty(),
+            )
+        });
+        let title = window_title(
+            active
+                .as_ref()
+                .map(|(label, dirty)| (label.as_str(), *dirty)),
+            self.session.current_session_name(),
+        );
         if self.window.label() != title {
             self.window.set_label(&title);
         }

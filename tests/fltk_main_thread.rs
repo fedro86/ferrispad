@@ -55,6 +55,10 @@ const CHECKS: &[(&str, fn())] = &[
         tabs::untitled_saved_doc_frees_its_number,
     ),
     (
+        "tab_label_follows_paths_and_closes",
+        tabs::tab_label_follows_paths_and_closes,
+    ),
+    (
         "untitled_full_restore_numbers_from_one",
         session::untitled_full_restore_numbers_from_one,
     ),
