@@ -112,6 +112,15 @@ impl FileController {
         actions
     }
 
+    /// `actions` without [`FileAction::RememberRecent`]: for opens that are
+    /// not the user's own, such as an MCP agent's (T0116).
+    pub fn without_recent(actions: Vec<FileAction>) -> Vec<FileAction> {
+        actions
+            .into_iter()
+            .filter(|a| !matches!(a, FileAction::RememberRecent(_)))
+            .collect()
+    }
+
     fn open_file_unrecorded(
         &mut self,
         path: String,
@@ -1016,6 +1025,24 @@ mod tests {
             resolve_cli_open_target(&path_str(&target)),
             CliOpenTarget::Invalid(_)
         ));
+    }
+
+    /// T0116: an MCP agent's open leaves the recent-files list alone.
+    #[test]
+    fn recent_files_agent_opens_are_not_remembered() {
+        use crate::app::domain::document::DocumentId;
+        let actions = vec![
+            FileAction::SwitchToDocument(DocumentId(1)),
+            FileAction::RememberRecent("/work/a.txt".into()),
+            FileAction::RebuildTabBar,
+        ];
+        let kept = FileController::without_recent(actions);
+        assert_eq!(kept.len(), 2);
+        assert!(
+            !kept
+                .iter()
+                .any(|a| matches!(a, FileAction::RememberRecent(_)))
+        );
     }
 
     /// T0116: an open is remembered as recent only when it shows a file.

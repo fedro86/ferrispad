@@ -62,6 +62,10 @@ const CHECKS: &[(&str, fn())] = &[
         "recent_files_open_recent_sits_under_open",
         menu::recent_files_open_recent_sits_under_open,
     ),
+    (
+        "recent_files_open_recent_labels_are_whole",
+        menu::recent_files_open_recent_labels_are_whole,
+    ),
 ];
 
 /// libtest flags that take a value (so the value is not read as a filter).

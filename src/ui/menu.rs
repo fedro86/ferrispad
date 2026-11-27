@@ -573,6 +573,39 @@ fn add_empty_recent_item(menu: &mut MenuBar) {
     );
 }
 
+/// `text` as an FLTK widget label that shows exactly that text: `@` would
+/// start a symbol ("notes@home.md" drew as "notes") and `&` would underline
+/// the next letter as a shortcut. Measure the plain text, show the escaped.
+pub fn escape_label_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '@' => out.push_str("@@"),
+            '&' => out.push_str("&&"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// `text` as ONE FLTK menu item (the part after the last `/` of a path):
+/// [`escape_label_text`], plus `/` (a submenu), `\` (the escape itself) and
+/// a leading `_` (a divider) escaped, and a tab (which right-aligns the rest
+/// of a menu label) shown as a space.
+pub fn escape_menu_item(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for (i, c) in text.chars().enumerate() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '/' => out.push_str("\\/"),
+            '_' if i == 0 => out.push_str("\\_"),
+            '\t' => out.push(' '),
+            _ => out.push_str(&escape_label_text(c.encode_utf8(&mut [0; 4]))),
+        }
+    }
+    out
+}
+
 /// The submenu that lists the recently opened files (T0116).
 pub const OPEN_RECENT_MENU: &str = "File/Open Recent";
 
@@ -581,7 +614,7 @@ pub const OPEN_RECENT_MENU: &str = "File/Open Recent";
 /// inactive "(no recent files)". `build_menu` creates the submenu under
 /// File → Open….
 pub fn rebuild_recent_menu(menu: &mut MenuBar, sender: &Sender<Message>, list: &[String]) {
-    use crate::app::services::recent_files::{escape_menu_label, labels};
+    use crate::app::services::recent_files::{CLEAR_RECENT_LABEL, labels};
 
     let idx = menu.find_index(OPEN_RECENT_MENU);
     if idx < 0 {
@@ -605,7 +638,7 @@ pub fn rebuild_recent_menu(menu: &mut MenuBar, sender: &Sender<Message>, list: &
             MenuFlag::Normal
         };
         menu.add_emit(
-            &format!("{OPEN_RECENT_MENU}/{}", escape_menu_label(&label)),
+            &format!("{OPEN_RECENT_MENU}/{}", escape_menu_item(&label)),
             Shortcut::None,
             flag,
             *sender,
@@ -613,7 +646,7 @@ pub fn rebuild_recent_menu(menu: &mut MenuBar, sender: &Sender<Message>, list: &
         );
     }
     menu.add_emit(
-        &format!("{OPEN_RECENT_MENU}/Clear Recent"),
+        &format!("{OPEN_RECENT_MENU}/{CLEAR_RECENT_LABEL}"),
         Shortcut::None,
         MenuFlag::Normal,
         *sender,
@@ -962,6 +995,34 @@ pub mod main_thread_checks {
         menu
     }
 
+    fn recent_submenu_labels(menu: &MenuBar) -> Vec<String> {
+        let start = menu.find_index(OPEN_RECENT_MENU) + 1;
+        (start..)
+            .map_while(|i| menu.at(i).and_then(|item| item.label()))
+            .collect()
+    }
+
+    /// T0116 (a3's review): file names with FLTK specials show whole, one
+    /// item per file, and a file named "Clear Recent" does not replace the
+    /// Clear Recent item.
+    pub fn recent_files_open_recent_labels_are_whole() {
+        let list = vec![
+            "/work/notes@home.md".to_string(),
+            "/work/R&D.md".to_string(),
+            "/work/Clear Recent".to_string(),
+        ];
+        let menu = built_menu(&list);
+        assert_eq!(
+            recent_submenu_labels(&menu),
+            vec![
+                "notes@@home.md",
+                "R&&D.md",
+                "Clear Recent (2)",
+                "Clear Recent"
+            ],
+        );
+    }
+
     /// T0116: File → Open Recent sits right under File → Open…, and a
     /// rebuild replaces its items instead of adding a second submenu.
     pub fn recent_files_open_recent_sits_under_open() {
@@ -989,6 +1050,27 @@ pub mod main_thread_checks {
 
 #[cfg(test)]
 mod tests {
+    /// T0116 (a3's review): FLTK specials in a file name show as the name.
+    #[test]
+    fn recent_files_label_text_escapes_symbols_and_shortcuts() {
+        assert_eq!(escape_label_text("notes@home.md"), "notes@@home.md");
+        assert_eq!(escape_label_text("@types.ts"), "@@types.ts");
+        assert_eq!(escape_label_text("R&D.md"), "R&&D.md");
+        assert_eq!(escape_label_text("a/b\\c_d"), "a/b\\c_d");
+    }
+
+    #[test]
+    fn recent_files_menu_item_escapes_paths_dividers_and_tabs() {
+        assert_eq!(escape_menu_item("notes@home.md"), "notes@@home.md");
+        assert_eq!(escape_menu_item("R&D.md"), "R&&D.md");
+        assert_eq!(escape_menu_item("a/b"), "a\\/b");
+        assert_eq!(escape_menu_item("a\\b.md"), "a\\\\b.md");
+        assert_eq!(escape_menu_item("_draft.md"), "\\_draft.md");
+        assert_eq!(escape_menu_item("x_y.md"), "x_y.md");
+        assert_eq!(escape_menu_item("a\tb.md"), "a b.md");
+        assert_eq!(escape_menu_item("notes — a/b"), "notes — a\\/b");
+    }
+
     use super::*;
 
     #[test]

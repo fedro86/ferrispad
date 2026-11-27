@@ -226,7 +226,10 @@ impl StartPage {
         for (display, path) in &recent {
             let short = shorten(path);
             let label = fit_row_label(display, &short, row_w, |t| fltk::draw::measure(t, false).0);
-            let mut btn = hoverable_item(&label, path, &theme, card_bg, false);
+            // Measured as plain text above, shown escaped: '@' and '&' are
+            // FLTK specials in a label ("notes@home.md" drew as "notes").
+            let shown = crate::ui::menu::escape_label_text(&label);
+            let mut btn = hoverable_item(&shown, path, &theme, card_bg, false);
             files_box.fixed(&btn, 28);
             let s = sender;
             let p = path.clone();

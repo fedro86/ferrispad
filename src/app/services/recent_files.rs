@@ -201,11 +201,14 @@ fn elide(s: &str) -> String {
 /// One label per entry: the file name, and " — <folder>" where two entries
 /// share a name. Long labels are elided in the middle. Labels are unique (an
 /// FLTK menu replaces an item added twice under the same label), so a label
-/// that still repeats gets " (2)", " (3)", …. The labels are plain text: see
-/// [`escape_menu_label`] before handing one to an FLTK menu.
+/// that still repeats, or equals [`CLEAR_RECENT_LABEL`], gets " (2)", " (3)",
+/// …. The labels are plain text: `ui::menu::escape_menu_item` makes one an
+/// FLTK menu item.
 pub fn labels(list: &[String]) -> Vec<String> {
     let names: Vec<String> = list.iter().map(|p| file_name(p)).collect();
-    let mut seen: Vec<String> = Vec::with_capacity(list.len());
+    // The submenu's own item is reserved: a file named "Clear Recent" gets
+    // " (2)" instead of replacing it.
+    let mut seen: Vec<String> = vec![CLEAR_RECENT_LABEL.to_string()];
     for (path, name) in list.iter().zip(&names) {
         let shared = names.iter().filter(|n| *n == name).count() > 1;
         let label = match (shared, parent_name(path)) {
@@ -221,24 +224,11 @@ pub fn labels(list: &[String]) -> Vec<String> {
         }
         seen.push(label);
     }
-    seen
+    seen.split_off(1)
 }
 
-/// `label` as one FLTK menu item: `/` would start a submenu, `&` marks a
-/// shortcut letter, `\` escapes, and a leading `_` draws a divider.
-pub fn escape_menu_label(label: &str) -> String {
-    let mut out = String::with_capacity(label.len());
-    for (i, c) in label.chars().enumerate() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '/' => out.push_str("\\/"),
-            '&' => out.push_str("&&"),
-            '_' if i == 0 => out.push_str("\\_"),
-            _ => out.push(c),
-        }
-    }
-    out
-}
+/// The label of the submenu item that empties the list.
+pub const CLEAR_RECENT_LABEL: &str = "Clear Recent";
 
 /// The start page's Recent Files rows: (file name, path), the first
 /// [`START_PAGE_ENTRIES`] of the list.
@@ -398,12 +388,9 @@ mod tests {
     }
 
     #[test]
-    fn recent_files_menu_labels_are_escaped() {
-        assert_eq!(escape_menu_label("a/b"), "a\\/b");
-        assert_eq!(escape_menu_label("R&D.txt"), "R&&D.txt");
-        assert_eq!(escape_menu_label("_draft.md"), "\\_draft.md");
-        assert_eq!(escape_menu_label("x_y.md"), "x_y.md");
-        assert_eq!(escape_menu_label("a\\b"), "a\\\\b");
+    fn recent_files_labels_never_collide_with_clear_recent() {
+        let list = vec![abs("Clear Recent")];
+        assert_eq!(labels(&list), vec!["Clear Recent (2)"]);
     }
 
     #[test]
