@@ -1,7 +1,7 @@
 ---
 id: T0093
 title: Show the unsaved "*" in the window title (and the tab dot) as soon as a document changes
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: minor
 area: ui
@@ -196,7 +196,7 @@ temp path. Window title after each step:
 - [x] Regression tests added; they failed before the fix.
 - [x] Gates pass with zero warnings; UI driven in Xvfb (title and tab
       screenshots).
-- [ ] Pending user verification: the manual recipe on a real desktop, and
+- [x] User verification: the manual recipe on a real desktop, and
       the macOS title label.
 
 ## Affected files
@@ -213,3 +213,8 @@ temp path. Window title after each step:
 - Reported by the user during 0.9.10-rc.2 verification; assigned by the
   orchestrator (ferrispad-5a). The tab-dot half was observed in the T0091
   Xvfb pass.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland) with the rc.3 integration
+build `verify/rc3` (checklist `VERIFICA-RC3.md`).
