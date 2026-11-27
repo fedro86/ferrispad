@@ -7,7 +7,7 @@ use super::tabs::{GroupColor, GroupId, TabGroup, TabManager};
 use crate::app::domain::document::DocumentId;
 use crate::app::domain::settings::AppSettings;
 use crate::app::services::file_size::{FileSizeCheck, check_file_size, format_size};
-use crate::app::services::session::{self, DEFAULT_SESSION_NAME, SessionRestore};
+use crate::app::services::session::{self, DEFAULT_SESSION_NAME, SessionData, SessionRestore};
 
 /// Result of restoring a session. AppState uses this to perform
 /// cross-cutting operations (highlighting, buffer binding, etc.).
@@ -131,7 +131,24 @@ impl SessionController {
         }
 
         let session_data = session::load_session(mode, session_name)?;
+        Some(Self::restore_data(
+            tab_manager,
+            settings,
+            mode,
+            &session_data,
+            |temp_file| session::read_temp_file(temp_file, session_name),
+        ))
+    }
 
+    /// Restore already-loaded session data into the tab manager.
+    /// `read_temp` reads an unsaved-content temp file of the session.
+    pub fn restore_data(
+        tab_manager: &mut TabManager,
+        settings: &Rc<RefCell<AppSettings>>,
+        mode: SessionRestore,
+        session_data: &SessionData,
+        read_temp: impl Fn(&str) -> Option<String>,
+    ) -> RestoreResult {
         let last_open_directory = session_data.last_open_directory.clone();
 
         // Remove the initial untitled document
@@ -183,7 +200,7 @@ impl SessionController {
 
                     if mode == SessionRestore::Full
                         && let Some(ref temp_file) = doc_session.temp_file
-                        && let Some(temp_content) = session::read_temp_file(temp_file, session_name)
+                        && let Some(temp_content) = read_temp(temp_file)
                         && let Some(doc) = tab_manager.doc_by_id_mut(id)
                     {
                         // Only overwrite the buffer if the temp content actually
@@ -209,7 +226,7 @@ impl SessionController {
                 }
             } else if mode == SessionRestore::Full
                 && let Some(ref temp_file) = doc_session.temp_file
-                && let Some(temp_content) = session::read_temp_file(temp_file, session_name)
+                && let Some(temp_content) = read_temp(temp_file)
             {
                 let id = tab_manager.add_untitled();
                 if let Some(doc) = tab_manager.doc_by_id_mut(id) {
@@ -229,9 +246,64 @@ impl SessionController {
             tab_manager.add_untitled();
         }
 
-        Some(RestoreResult {
+        RestoreResult {
             last_open_directory,
             highlight_docs,
-        })
+        }
+    }
+}
+
+/// Checks that build documents (hence FLTK `TextBuffer`s), so they must run
+/// on the process main thread (see `tabs::main_thread_checks`). Called by
+/// `tests/fltk_main_thread.rs` (T0089); not part of the public API.
+#[doc(hidden)]
+pub mod main_thread_checks {
+    use super::*;
+    use crate::app::domain::messages::Message;
+    use crate::app::services::session::DocumentSession;
+
+    fn untitled_session(temp_file: &str) -> DocumentSession {
+        DocumentSession {
+            file_path: None,
+            display_name: "Untitled".to_string(),
+            cursor_position: 0,
+            temp_file: Some(temp_file.to_string()),
+            was_dirty: true,
+            group_index: None,
+        }
+    }
+
+    /// T0091: a Full restore of two unsaved untitled tabs names them
+    /// "Untitled" and "Untitled 2", although startup created (and restore
+    /// removed) a default untitled document first.
+    pub fn untitled_full_restore_numbers_from_one() {
+        let (sender, _receiver) = fltk::app::channel::<Message>();
+        let mut tabs = TabManager::new(sender);
+        tabs.add_untitled(); // AppState::new's default document
+        let settings = Rc::new(RefCell::new(AppSettings {
+            session_restore: SessionRestore::Full,
+            ..AppSettings::default()
+        }));
+        let data = SessionData {
+            version: 1,
+            active_index: 0,
+            documents: vec![untitled_session("a.tmp"), untitled_session("b.tmp")],
+            last_open_directory: None,
+            groups: vec![],
+            instance_id: None,
+        };
+        SessionController::restore_data(
+            &mut tabs,
+            &settings,
+            SessionRestore::Full,
+            &data,
+            |name| Some(format!("unsaved text from {name}")),
+        );
+        let names: Vec<&str> = tabs
+            .documents()
+            .iter()
+            .map(|d| d.display_name.as_str())
+            .collect();
+        assert_eq!(names, ["Untitled", "Untitled 2"]);
     }
 }
