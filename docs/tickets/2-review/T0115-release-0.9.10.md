@@ -94,7 +94,7 @@ that describes the final state.
   entry) and `scripts/build-releases.sh`. Edited directly, so
   `bump-version.sh` neither committed nor tagged.
 - `CHANGELOG.md` `## [0.9.10] - 2026-11-27`: one section for users coming
-  from 0.9.9, consolidated from rc.1, rc.2 and rc.3. It extracts as 37
+  from 0.9.9, consolidated from rc.1, rc.2 and rc.3. It extracts as 39
   lines. The three rc sections are byte-identical to `master`: `diff` of
   each extracted section is empty, and the diff removes no line.
 - **Security:** rc.3's five entries, verbatim.
@@ -119,6 +119,27 @@ that describes the final state.
     selection color;
   - T0097: 0.9.9's lists already used `button_bg` on `input_bg`.
 - **Note:** rc.3's T0102 note, verbatim.
+- **Review (a3) and the user's decision.** a3 found that the rc.3 T0099
+  line overclaims. After window B closes, window A's next session save
+  (an auto-save, at most every 30 s while the session is dirty) merges B's
+  documents and takes ownership of `session.json`. A's following save,
+  including its quit save, skips the merge and drops B's documents, and
+  the orphan cleanup deletes their temp files. a3 reproduced this on
+  0c44351 with a throwaway unit test. It is the T0101 class.
+  - The user chose to keep T0101 in 0.9.11.
+  - In `[0.9.10]` only (rc.3 stays as published):
+    - the Fixed line now says what T0099 fixed: windows no longer
+      mistake each other's untitled documents for one because they share
+      a name;
+    - a known-issue Note was added.
+  - The orchestrator's draft of the note said "for a minute or more". That
+    was wrong: it can take seconds.
+  - a3's corrections, confirmed in the code (`mark_dirty` in
+    `dispatch.rs`; `is_dirty || !has_path` in `session.rs`):
+    - the trigger is any session-dirtying action (editing, opening,
+      saving or closing files);
+    - modified named files and the closed window's tabs are affected too.
+  - The note uses a3's approved wording.
 - **Intro:** no release-candidate wording.
 - UI names checked in the code: "Manage themes…", "View/Toggle Current
   Line Highlight", Settings "Save".

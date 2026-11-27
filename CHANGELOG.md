@@ -29,7 +29,7 @@ FerrisPad 0.9.10 adds custom editor themes, a current-line highlight and a remem
 - **Long Lines**: Files with very long lines, such as minified JavaScript, no longer stall FerrisPad when they are opened or edited. Lines longer than 16 KB are shown without syntax colors.
 - **Unclosed Comments in Large Files**: Typing an unclosed `/*` or quote near the top of a large file no longer freezes the editor on every keystroke. The rest of the file is re-highlighted in steps.
 - **Unsaved Changes on Close**: Closing the window with the title-bar ×, Alt+F4 or the taskbar now asks to save unsaved changes, like File → Quit. Before, with session restore off (the default), unsaved changes were lost.
-- **Unsaved Text in Two Windows**: With session restore set to Full, when two FerrisPad windows on the same session are closed one after the other, the unsaved untitled text of both comes back at the next start. Before, only the text of the window closed last came back.
+- **Unsaved Text in Two Windows**: With session restore set to Full, two FerrisPad windows on the same session no longer mistake each other's untitled documents for one document because they share a name such as "Untitled". Before, that mix-up dropped one window's unsaved text from the session.
 - **Settings File Defaults**: When `settings.json` is missing a setting, that setting gets its default value, and one invalid value no longer resets all settings. This changes one behavior: an old settings file without `"tabs_enabled"` now starts with tabs on, like a fresh install.
 - **Markdown Preview After Restore**: Preview in Browser (Ctrl+M) is available right away when a restored `.md` file is the active tab. Before, you had to switch tabs first.
 - **Unsaved Marker**: The window title shows "*" and the tab shows its dot as soon as a document changes.
@@ -42,6 +42,7 @@ FerrisPad 0.9.10 adds custom editor themes, a current-line highlight and a remem
 
 ### Note
 - **System Appearance Changes**: When you switch your system between light and dark, FerrisPad picks up the change at its next start or when you press Save in Settings. FerrisPad does not watch the system in the background, so it uses no CPU when idle.
+- **Known Issue, Unsaved Text After Closing One of Two Windows**: With session restore set to Full, if you close a window that has unsaved text and then keep working in another window on the same session (editing, or opening, saving or closing files), the closed window's unsaved text may not come back at the next start, and its tabs may not reopen. To keep the text, save it to a file before closing that window.
 
 ## [0.9.10-rc.3] - 2026-11-27
 
