@@ -77,7 +77,8 @@ CI already does it right: `xvfb-run -a cargo test`.
 - **A real-backend proof.** Under `FERRISPAD_REQUIRE_UI_TESTS=1` (the gates
   and CI), the UI tests' display check asserts two things once the display
   is open: in `tests/support/ui_layout.rs::assert_private_display_when_required`
-  and in `tests/fltk_main_thread.rs`'s own check:
+  (shared, through `mod support;`, with `tests/fltk_main_thread.rs`'s own
+  check, after the reviewer's nit):
   - FLTK is not on Wayland (`Fl_using_wayland()`);
   - on Linux, the X connection FLTK really opened
     (`XDisplayString(fltk::app::display())`) is `$DISPLAY` and not `:0`,

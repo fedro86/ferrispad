@@ -40,7 +40,7 @@ pub fn display_available() -> bool {
     } else {
         // Opens the display, which measuring text needs.
         let _ = fltk::app::screen_size();
-        assert_private_display_when_required();
+        assert_private_display_when_required("UI tests");
     }
     has_display
 }
@@ -50,8 +50,8 @@ pub fn display_available() -> bool {
 /// (T0122): FLTK must not be on Wayland (fltk is built with `use-wayland`,
 /// and where that backend is compiled in it tries `wayland-0` before
 /// `DISPLAY`), and the X display FLTK opened must be `$DISPLAY`, not `:0` or
-/// `:1`. Call after the display is open.
-pub fn assert_private_display_when_required() {
+/// `:1`. Call after the display is open; `what` names the caller in messages.
+pub fn assert_private_display_when_required(what: &str) {
     if std::env::var("FERRISPAD_REQUIRE_UI_TESTS").as_deref() != Ok("1") {
         return;
     }
@@ -59,7 +59,7 @@ pub fn assert_private_display_when_required() {
     let wayland = unsafe { fltk_sys::fl::Fl_using_wayland() } != 0;
     assert!(
         !wayland,
-        "UI tests are on a Wayland compositor, not the gate's private X display \
+        "{what} are on a Wayland compositor, not the gate's private X display \
          (DISPLAY={:?}, FLTK_BACKEND={:?}): run them through scripts/gates.sh",
         std::env::var("DISPLAY").ok(),
         std::env::var("FLTK_BACKEND").ok()
@@ -85,9 +85,9 @@ pub fn assert_private_display_when_required() {
         assert!(
             screen_less(&opened) == screen_less(&wanted)
                 && !matches!(screen_less(&opened).as_str(), ":0" | ":1" | ""),
-            "UI tests opened X display {opened:?}, not the gate's private one ({wanted:?})"
+            "{what} opened X display {opened:?}, not the gate's private one ({wanted:?})"
         );
-        eprintln!("UI tests: FLTK on the private X display {opened}");
+        eprintln!("{what}: FLTK on the private X display {opened}");
     }
 }
 
