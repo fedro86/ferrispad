@@ -452,7 +452,10 @@ pub fn set_macos_titlebar_color(window: &Window, theme_bg: (u8, u8, u8), theme_f
         // Step 2: set the background color (now visible in the title bar area).
         let bg_color: *mut AnyObject = msg_send![
             class!(NSColor),
-            colorWithRed: r_f green: g_f blue: b_f alpha: 1.0_f64
+            colorWithRed: r_f,
+            green: g_f,
+            blue: b_f,
+            alpha: 1.0_f64,
         ];
         let _: () = msg_send![ns_window, setBackgroundColor: bg_color];
 
@@ -484,11 +487,14 @@ pub fn set_macos_titlebar_color(window: &Window, theme_bg: (u8, u8, u8), theme_f
 
         let text_color: *mut AnyObject = msg_send![
             class!(NSColor),
-            colorWithRed: fg_r green: fg_g blue: fg_b alpha: 1.0_f64
+            colorWithRed: fg_r,
+            green: fg_g,
+            blue: fg_b,
+            alpha: 1.0_f64,
         ];
         // NSFontWeightRegular = 0.0
         let font: *mut AnyObject =
-            msg_send![class!(NSFont), systemFontOfSize: 13.0_f64 weight: 0.0_f64];
+            msg_send![class!(NSFont), systemFontOfSize: 13.0_f64, weight: 0.0_f64];
 
         let _: () = msg_send![label, setTextColor: text_color];
         let _: () = msg_send![label, setFont: font];
@@ -517,9 +523,9 @@ pub fn set_macos_titlebar_color(window: &Window, theme_bg: (u8, u8, u8), theme_f
         // NSWindowBelow = -1
         let _: () = msg_send![
             titlebar_view,
-            addSubview: label
-            positioned: -1_isize
-            relativeTo: btn_group
+            addSubview: label,
+            positioned: -1_isize,
+            relativeTo: btn_group,
         ];
     }
 }

@@ -1,7 +1,7 @@
 ---
 id: T0086
 title: Stop a manual run of the release workflow from publishing a release
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: minor
 area: process
@@ -88,13 +88,13 @@ safe: it is the behaviour described in the Goal.
 
 ## Acceptance criteria
 
-- [ ] A manual run of `release.yml` on a branch publishes no release and
+- [x] A manual run of `release.yml` on a branch publishes no release and
       does not run the `flatpark` job.
-- [ ] The workflow artifacts of that run contain the built binaries.
+- [x] The workflow artifacts of that run contain the built binaries.
 - [ ] A tag push still creates the release (pre-release for `-rc` tags) and
       runs `flatpark` only for tags without `-`.
-- [ ] `RELEASE_PROCESS.md` describes the manual run as it actually behaves.
-- [ ] `actionlint` is clean; the cargo gates still pass (no Rust change).
+- [x] `RELEASE_PROCESS.md` describes the manual run as it actually behaves.
+- [x] `actionlint` is clean; the cargo gates still pass (no Rust change).
 
 ## Affected files
 
@@ -192,3 +192,7 @@ conclusion **success**.
 Still to check on the next real tag (0.9.10-rc.3): the tag path publishes as
 before (signed assets, pre-release flag, no FlatPark for `-rc`). Record that
 run here.
+
+## User verification
+
+2026-11-26: a CI-only change (release workflow), verified by CI. The recorded manual run on a branch published nothing, skipped `flatpark` and kept the binaries as artifacts; `actionlint` is clean. **The tag path is checked on the rc.3 tag** (it must create a pre-release and skip `flatpark`), so that box stays open until then. The user's rc.3 integration build `verify/rc3` (checklist VERIFICA-RC3.md, Fedora GNOME on Wayland) includes it.
