@@ -65,6 +65,17 @@ VERSION="0.1.5-rc.1" && git tag -a "${VERSION}" -m "Release ${VERSION}" && git p
 
 **Note:** This project uses tags **without** the "v" prefix (e.g., `0.1.2` instead of `v0.1.2`) to match the existing tagging convention.
 
+**Version tags are enforced (T0111).** A release tag is `X.Y.Z` or
+`X.Y.Z-(alpha|beta|rc).N`, with no `v` prefix and no leading zeros (`0.9.11`,
+`1.0.0-rc.1`). Three places check it:
+- `scripts/bump-version.sh` refuses any other version;
+- the workflow's `on.push.tags` filters start a release only for these forms;
+- the `release-gate` job signs and publishes only a tag that matches the
+  exact rule, the same regex as `bump-version.sh`.
+
+Any other tag (`v1.0.0`, `1.2.3-`, `01.2.3`) builds at most and publishes
+nothing. `tests/release_tags.rs` checks that all three agree.
+
 #### For Pre-releases (Beta, RC, Alpha)
 
 Pre-releases are perfect for testing before a stable release. They're marked as "pre-release" on GitHub and can be hidden from the main releases list.
@@ -306,8 +317,8 @@ platform without a tag:
 On a branch the run builds Linux (amd64, arm64), Windows and macOS and
 uploads the binaries, `.deb`, `.zip` and `.dmg` as **workflow artifacts** on
 the run page. It does **not** sign them, create a GitHub Release or notify
-FlatPark: the `release-gate` job allows those only for a version tag (the
-same patterns as `on.push.tags`), so `sign-binaries`, `create-release` and
+FlatPark: the `release-gate` job allows those only for a version tag (see
+*Version tags are enforced* above), so `sign-binaries`, `create-release` and
 `flatpark` show as skipped and the run ends green. The artifacts are
 unsigned, so the auto-updater would refuse them; they are for testing only.
 
@@ -334,10 +345,10 @@ notifies FlatPark.
 If you need to recreate a release:
 ```bash
 # Delete the tag locally
-git tag -d v0.1.1
+git tag -d 0.1.1
 
 # Delete the tag remotely
-git push --delete origin v0.1.1
+git push --delete origin 0.1.1
 
 # Delete the release on GitHub (via web interface)
 # Then recreate the tag
