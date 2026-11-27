@@ -1,7 +1,7 @@
 ---
 id: T0095
 title: A restyle repaints only the restyled range, not the whole editor
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: moderate
 area: robustness
@@ -156,7 +156,16 @@ colours appear as before, with no stale colour left after a pause.
 - [x] Regression test added; it failed before the fix.
 - [x] `cargo test`, `cargo clippy --all-targets --all-features`, and
       `cargo fmt --check` all pass with zero warnings.
-- [ ] Pending user verification.
+- [x] User verification (2026-11-27).
+
+## User verification
+
+The user approved the PR on 2026-11-27 ("ok 206, 240, 215"), relayed by
+the orchestrator (ferrispad-03), after reading the presentation
+`docs/pr/PR-206-restyle-without-full-repaint.html`. The reviewer approved
+6271c11, plus the page-only nit in ba5c604 (the wall-time caveat). Before
+the move, master was merged again (T0111, #213; 81c9ea6), with no conflict and no
+change to this ticket's files.
 
 ## Affected files
 
