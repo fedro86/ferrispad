@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Distinct tab labels</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --ink: #1c2430; --muted: #5b6675;
+    --accent: #0b6e4f; --accent-soft: #e3f2ec; --line: #dde3ea;
+    --warn: #8a5a00; --warn-soft: #fdf3dd; --code-bg: #f0f2f5;
+    --chip: #eef1f4; --bad: #8a2020; --bad-soft: #fbeaea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181f; --surface: #1c222b; --ink: #e8ecf1; --muted: #9aa6b4;
+      --accent: #4cc39a; --accent-soft: #10352a; --line: #2c3541;
+      --warn: #e2b45a; --warn-soft: #33290f; --code-bg: #232a34;
+      --chip: #262e39; --bad: #e88; --bad-soft: #3a1c1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 "Open Sans", "Segoe UI", system-ui, sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  header.top { border-bottom: 3px solid var(--accent); padding-bottom: 1.2rem; margin-bottom: 2rem; }
+  .kicker { text-transform: uppercase; letter-spacing: .12em; font-size: .78rem; color: var(--accent); font-weight: 700; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: .3rem 0 .6rem; }
+  h2 { font-size: 1.35rem; margin: 0 0 .2rem; }
+  h3 { font-size: 1.02rem; margin: 1.3rem 0 .4rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem .6rem; margin-top: .8rem; }
+  .chip { background: var(--chip); border: 1px solid var(--line); border-radius: 999px;
+    padding: .15rem .7rem; font-size: .82rem; color: var(--muted); white-space: nowrap; }
+  .chip strong { color: var(--ink); font-weight: 600; }
+  .chip.green { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .chip.warn { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+  a { color: var(--accent); }
+  section.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.5rem 1.75rem; margin-bottom: 1.75rem; }
+  p { margin: .55rem 0; }
+  ul, ol { margin: .4rem 0 .6rem; padding-left: 1.3rem; }
+  li { margin: .25rem 0; }
+  code { font: .86em/1.5 "JetBrains Mono", "Fira Mono", monospace;
+    background: var(--code-bg); border-radius: 4px; padding: .08em .35em; word-break: break-word; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: .85rem 1rem; overflow-x: auto; font-size: .85rem; line-height: 1.55; }
+  pre code { background: none; padding: 0; }
+  .why { border-left: 4px solid var(--accent); background: var(--accent-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup { border-left: 4px solid var(--warn); background: var(--warn-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup strong.tag { color: var(--warn); }
+  .bad { border-left: 4px solid var(--bad); background: var(--bad-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .bad strong.tag { color: var(--bad); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; font-size: .9rem; }
+  th, td { text-align: left; border-bottom: 1px solid var(--line); padding: .45rem .6rem; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; font-family: "JetBrains Mono", "Fira Mono", monospace; white-space: nowrap; }
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li { counter-increment: step; position: relative; padding-left: 2.2rem; margin: .55rem 0; }
+  .steps li::before { content: counter(step); position: absolute; left: 0; top: .1rem;
+    width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--accent-soft);
+    color: var(--accent); font-weight: 700; font-size: .82rem; display: grid; place-items: center; }
+  .expect { display: block; margin-top: .2rem; color: var(--muted); font-size: .9em; }
+  .expect::before { content: "expected → "; color: var(--accent); font-weight: 600; }
+  .flow { display: grid; gap: .35rem; margin: .8rem 0; }
+  .flow div { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: .45rem .8rem; font-size: .9rem; }
+  .flow div strong { color: var(--accent); }
+  footer { color: var(--muted); font-size: .86rem; border-top: 1px solid var(--line);
+    margin-top: 2rem; padding-top: 1rem; }
+  img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
+  figure { margin: .9rem 0; }
+  figcaption { color: var(--muted); font-size: .88rem; font-style: italic; margin-top: .35rem; }
+  code.sha { white-space: nowrap; word-break: normal; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <div class="kicker">Pull request #215 · ticket/T0112 → master · ui</div>
+  <h1>Two open documents never share a tab label</h1>
+  <div class="flow">
+    <div><strong>Before</strong> · A file named <code>Untitled</code> opened next to a new tab, or a Save As to the name of another open file, left two tabs with the same label. The window title showed the same name for both.</div>
+    <div><strong>After</strong> · Each tab's label is worked out from the current paths every time the tab bar or the title is drawn. Files that share a name show their folder at once, and a new untitled tab keeps its plain name.</div>
+  </div>
+  <p>T0091 found this while it renumbered untitled tabs (its backlog, item 3). The orchestrator (ferrispad-5a) added Save As to the scope and asked for a rule that holds by construction. The cost is one pass over the open documents per tab-bar rebuild or title update. Both happen only on a user action, so the editor stays at 0% CPU when idle.</p>
+  <ul>
+    <li>Tab labels are no longer cached on the document. They are computed when shown (<code>tabs::tab_labels</code>).</li>
+    <li>Only files take a folder suffix. An untitled document keeps its name, which T0091 already makes unique.</li>
+    <li>The tab bar and the window title read the same labels.</li>
+  </ul>
+  <div class="meta">
+    <span class="chip"><strong>T0112</strong> in <code>2-review/</code></span>
+    <span class="chip"><strong>9</strong> files · +396 / −120</span>
+    <span class="chip green">gates green at every commit</span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/215">PR #215 on GitHub</a></span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/issues/214">issue #214</a></span>
+  </div>
+</header>
+
+<section class="card">
+  <h2>The branch's commits</h2>
+  <div class="scroll">
+  <table>
+    <tr><th>Commit</th><th>What changes</th></tr>
+    <tr><td><code class="sha">624b523</code> … <code class="sha">112c378</code></td>
+      <td>T0091 (untitled numbering) and its merges of master. The branch was stacked on it. T0091 is on master as #181 (<code class="sha">c87e5b0</code>).</td></tr>
+    <tr><td><code class="sha">9f850d9</code></td>
+      <td>The fix: labels computed when shown; red tests first; the ticket.</td></tr>
+    <tr><td><code class="sha">c919558</code></td>
+      <td>Merge of T0091's final tip. Its conflict in <code>tabs.rs</code> also moved the test that builds a <code>TabManager</code> to the main thread (T0113).</td></tr>
+    <tr><td><code class="sha">241f4c4</code></td>
+      <td>Merge of master; the ticket records it.</td></tr>
+    <tr><td><code class="sha">fa59176</code></td>
+      <td>Docs only: the <code>tab-labels.sh</code> screenshot scenario and its fixture.</td></tr>
+  </table>
+  </div>
+  <p>Master brought T0091 (#181), T0093 (#185), T0099 (#187), T0107 (#197) and T0113 (#219). Four files conflicted:</p>
+  <ul>
+    <li><code>document.rs</code> keeps master's new <code>restored_temp_file</code> (T0099) and drops only <code>disambiguated_name</code>.</li>
+    <li><code>state.rs</code> keeps T0107's pure <code>window_title()</code> and feeds it <code>TabManager::tab_label</code>.</li>
+    <li><code>tests/fltk_main_thread.rs</code> runs both lists of checks.</li>
+    <li><code>tabs.rs</code> was already merged with T0091's tip.</li>
+  </ul>
+  <p>The diff against master is T0112's own files, plus the scenario.</p>
+</section>
+
+<section class="card ticket">
+  <h2>T0112: a label per document, worked out when shown</h2>
+  <div class="flow">
+    <div><strong>Before</strong> · The label was a cached field. <code>TabManager</code> recomputed it only on open and close, so a new tab or a Save As left it stale. An untitled document also took part in the folder suffixes, with an empty one: "Untitled ()".</div>
+    <div><strong>After</strong> · <code>tab_labels(&amp;documents)</code> computes all labels from the current names and paths. Untitled documents keep their name. Files of the same name get the shortest run of parent folders that tells them apart, and always at least one folder when an untitled tab shares their name.</div>
+  </div>
+  <ul>
+    <li><strong>Unchanged look:</strong> the "name (folders)" form and the minimal-folders rule are as before. A group made only of files gets exactly the labels it got before; <code>file_labels_unchanged</code> pins that.</li>
+    <li><strong>Removed:</strong> <code>Document::disambiguated_name</code>, <code>Document::tab_label</code> and <code>disambiguate_display_names()</code> with its three calls.</li>
+    <li><strong>Tail and chunk views</strong> keep their own display names ("x (tail)").</li>
+  </ul>
+  <figure>
+    <img alt="Tab bar, light theme: master shows Untitled and Untitled; the branch shows Untitled (files) and Untitled" src="data:image/png;base64,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">
+    <figcaption>Light. Before (master <code class="sha">c3672fe</code>) | after (<code class="sha">241f4c4</code>): the file <code>Untitled</code> plus Ctrl+T. Look at the two tabs: "Untitled" | "Untitled" becomes "Untitled (files)" | "Untitled".</figcaption>
+  </figure>
+  <figure>
+    <img alt="Tab bar, dark theme: master shows Untitled and Untitled; the branch shows Untitled (files) and Untitled" src="data:image/png;base64,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kKN7RBMT45MnfJrXHl3bI8S3mvTWLda198aa7wg84Xux+uxxint4L1YADwvHUuMfXDvxe7Em7XGKezhBAujBg/0/8vuBvlmxp/dwgoSTd/MGuIcTJJycIAHu0fg/Crvzt1886M6u4z1/gtgjsBPkk6lD3Xpwf0qn3/O/tMEeweyxD+Qfb48c7FG5P6XTr30Xyx7h7NF4DHJoj5Ff7X7q6ryAnj9It0cwexwHZH1hzNUJCIg9ABEggAiQlx/IkwGDhATEHmEByT42SEhA7BEakIxBggJij8DuYr1lkKDuYtkDEAECiAABRID83IFkPe8eFBB7BAbEC1NhAbEHIALkpQKyUe13dQICYo/AgHyb+9TVCQiIPUK7izXu4gR1F8seYQF56NoEBcQegAgQQAQIIAIEEAECiACxByCACBBABAggAgQQAQKIPQARIIAIEEAECCACBBCDACJAABEggAgQQAQIIAJEgAAiQAARIIAIEEAECCAGAUSAACJAABEggAgQQOwBiAABRIAAIkAAESCAGAQQAQKIAAFEgAAiQAARIAYBBBABAogAAUSAACJAADEIIAIEEAECiAABRIAAYg9ABAggAgQQAQKIAAHEtQFEgAAiQAARIIAIEEAECCD2AESAACJAABEggAgQQAwCiAABRIAAIkAAESCA2AMQAQKIAAFEgAAiQAARIPYABBABAogAAUSAACJAALEHIAIEEAECiAABRIAAYhBABAggAgQQAQKIAAHEHoAIEEAECCACBBABAogAsQcggAgQQAQIIAIEEAECiD0AESCACBBABAggAgQQgwAiQAARIIAIEEAECCACRIAAIkAAESCACBBABAggBgFEgAAiQAARIIAIEEDsAYgAAUSAACJAABEggBgEEAECiAABRIAAIkAAESAGAQQQAQKIAAFEgAAiQAAxCCACBBABAogAAUSAAGIPQAQIIAIEEAECiAABxLUBRIAAIkAAESCACBBABAgg9gBEgAAiQAARIIAIEEAMAogAAUSAACJAABEggNgDEAECiAABRIAAIkAAESD2AAQQAQKIAAFEgAAiQACxByACBBABAogAAUSAAGIQQAQIIAIEEAECiAABxB6ACBBABAggAgQQAQKIALEHIIAIEEAECCACBBABAog9ABEggAgQQAQIIAIEEIMAIkAAESCACBBABAggAkSAACJAABEg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">
+    <figcaption>Dark, same scenario and refs. The longer label fits its tab; nothing is clipped.</figcaption>
+  </figure>
+  <p>Shots from <code>docs/pr/scenarios/tab-labels.sh</code> (font 16, 1100×740). The fixture opens from the run's <code>files</code> folder, hence "(files)".</p>
+  <p><strong>Pending user on any desktop:</strong> the window title. Xvfb runs without a window manager, so the title is not drawn. With the file's tab active it reads "Untitled (files) - 🦀 FerrisPad". The Save As case is not shot either, because a scenario never opens a file dialog. The main-thread check below covers it, and so does step 4 of the recipe.</p>
+  <div class="bad"><strong class="tag">The defect, red first.</strong> On the T0091 tip (<code class="sha">a16c5dc</code>), three of the four tests failed and the guard passed:
+<pre>save_as_same_name_labels_distinct                ... FAILED  left: ("main.rs", "main.rs")    right: ("main.rs (y)", "main.rs (x)")
+untitled_label_distinct_from_file_named_untitled ... FAILED  left: ("Untitled", "Untitled")  right: ("Untitled (notes)", "Untitled")
+untitled_label_with_two_files_of_its_name        ... FAILED  left: "Untitled 2 ()"           right: "Untitled 2"
+file_labels_unchanged                            ... ok      (guard)</pre>
+  </div>
+  <div class="why"><strong>Why compute instead of invalidate.</strong> A cache must be cleared by every code path that changes a name or a path: open, close, new tab, Save As, tail and chunk views. One missed path makes a stale label. Computing on show makes the rule hold by construction, at the cost of one pass over the open tabs per redraw.</div>
+  <div class="followup"><strong class="tag">The tests changed shape after the red run.</strong> The red run above used the first form of the tests, which built a <code>TabManager</code> (FLTK <code>TextBuffer</code>s) in <code>#[cfg(test)]</code>. T0113 forbids that, because macOS aborts on the first <code>Fl::lock()</code> off the main thread. The rule is now the pure <code>labels_for(&amp;[(name, path)])</code>, and the four tests call it with the same cases and expected labels. The <code>TabManager</code> wiring (a new tab, a Save As done in place, closes) is <code>tab_label_follows_paths_and_closes</code>, run on the main thread by <code>tests/fltk_main_thread.rs</code>. Implementer B made this split while merging; the reviewer may ask for a fresh red run of the new form.</div>
+  <h3>How to test T0112</h3>
+  <ol class="steps">
+    <li><code>nix develop -c cargo test --lib -- untitled_label save_as_same_name file_labels_unchanged</code>
+      <span class="expect">4 passed. Before the fix, the three red ones above failed.</span></li>
+    <li><code>nix develop -c cargo test --test fltk_main_thread</code>
+      <span class="expect">9 passed, including <code>tab_label_follows_paths_and_closes</code>.</span></li>
+    <li>Open a file named <code>Untitled</code> from any folder, then File → New.
+      <span class="expect">The tabs read "Untitled (folder)" and "Untitled".</span></li>
+    <li>With a <code>main.rs</code> open, Save As another tab to <code>main.rs</code> in another folder.
+      <span class="expect">Both tabs show their folder at once, and so does the window title.</span></li>
+  </ol>
+</section>
+
+<section class="card">
+  <h2>Release notes and compatibility</h2>
+  <ul>
+    <li><strong>CHANGELOG:</strong> "Fixed: two open documents no longer share a tab label. A file named Untitled next to a new tab, or a Save As to the name of another open file, shows its folder at once."</li>
+    <li>None: labels were never saved. <code>settings.json</code>, session files, plugins and themes are untouched.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>What remains open</h2>
+  <ul>
+    <li><strong>The window title and Save As in the real app:</strong> steps 3 and 4 above, for the user (Xvfb cannot show them).</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>End-to-end verification</h2>
+  <p>A user opens a file named <code>Untitled</code> and a <code>main.rs</code>, starts a new tab, saves it as another <code>main.rs</code>, then closes tabs. Every tab label stays unique at each step. Run it from the branch's worktree, with a throwaway config and data directory, so the run never reads or writes your real settings and sessions.</p>
+  <h3>Starting state</h3>
+  <ol class="steps">
+    <li><code>export XDG_CONFIG_HOME=$(mktemp -d) XDG_DATA_HOME=$(mktemp -d); D=$(mktemp -d); mkdir -p $D/notes $D/a $D/b; echo hello &gt; $D/notes/Untitled; echo 'fn main() {}' &gt; $D/a/main.rs; echo $D</code>
+      <span class="expect">a folder path is printed; <code>$D/b</code> is empty.</span></li>
+    <li><code>nix develop -c cargo run -- $D/notes/Untitled $D/a/main.rs</code>
+      <span class="expect">two tabs, "Untitled" and "main.rs": no other tab shares their names yet.</span></li>
+  </ol>
+  <h3>The scenario</h3>
+  <ol class="steps">
+    <li>File → New (Ctrl+T).
+      <span class="expect">"Untitled (notes)" | "main.rs" | "Untitled". The file's tab shows its folder at once.</span></li>
+    <li>Type a word in the new tab, then File → Save As… and save it as <code>main.rs</code> in <code>$D/b</code>.
+      <span class="expect">"Untitled" | "main.rs (a)" | "main.rs (b)". The window title starts with "main.rs (b)".</span></li>
+    <li>Click the <code>main.rs (a)</code> tab, then close it (Ctrl+W).
+      <span class="expect">"Untitled" | "main.rs". No folder is left where none is needed.</span></li>
+  </ol>
+  <h3>The gates</h3>
+  <ol class="steps">
+    <li><code>nix develop -c cargo test</code>, <code>nix develop -c cargo clippy --all-targets --all-features -- -D warnings</code>, <code>nix develop -c cargo fmt --check</code>
+      <span class="expect">all green, zero warnings.</span></li>
+  </ol>
+</section>
+
+<footer>
+  Presentation of PR #215 · branch <code>ticket/T0112</code> · commits <code>624b523</code> → <code>fa59176</code> ·
+  ticket <code>docs/tickets/2-review/T0112-distinct-tab-labels.md</code> · issue #214.
+</footer>
+</div>
+</body>
+</html>
