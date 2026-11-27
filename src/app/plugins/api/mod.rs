@@ -563,6 +563,145 @@ mod tests {
         );
     }
 
+    // ── T0090: one physical path rule (in-root symlinks) ──────────────
+
+    /// `root/` (the project) and `outside/` (must stay untouched), side by side.
+    #[cfg(unix)]
+    fn root_and_outside() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("root");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        (dir, root, outside)
+    }
+
+    #[cfg(unix)]
+    fn call2(api: EditorApi, method: &str, a: &str, b: &str) -> (bool, String) {
+        let lua = mlua::Lua::new();
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+            let f: mlua::Function = ud.get(method).unwrap();
+            Ok(
+                f.call::<(bool, String)>((&ud, a.to_string(), b.to_string()))
+                    .unwrap(),
+            )
+        })
+        .unwrap()
+    }
+
+    #[cfg(unix)]
+    fn call1(api: EditorApi, method: &str, a: &str) -> (bool, String) {
+        let lua = mlua::Lua::new();
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+            let f: mlua::Function = ud.get(method).unwrap();
+            Ok(f.call::<(bool, String)>((&ud, a.to_string())).unwrap())
+        })
+        .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plugin_path_write_file_through_in_root_symlink_is_rejected() {
+        let (_d, root, outside) = root_and_outside();
+        std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+        let (ok, _) = call2(
+            api_with_root(&root),
+            "write_file",
+            "link/newdir/pwned.txt",
+            "x",
+        );
+        assert!(
+            !outside.join("newdir").exists(),
+            "write_file escaped through root/link"
+        );
+        assert!(!ok, "write_file through an in-root symlink must fail");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plugin_path_create_dir_through_in_root_symlink_is_rejected() {
+        let (_d, root, outside) = root_and_outside();
+        std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+        let (ok, _) = call1(api_with_root(&root), "create_dir", "link/a/b");
+        assert!(
+            !outside.join("a").exists(),
+            "create_dir escaped through root/link"
+        );
+        assert!(!ok, "create_dir through an in-root symlink must fail");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plugin_path_dangling_symlink_is_not_written_through() {
+        let (_d, root, outside) = root_and_outside();
+        let target = outside.join("new.txt");
+        std::os::unix::fs::symlink(&target, root.join("dangle")).unwrap();
+        let (ok_write, _) = call2(api_with_root(&root), "write_file", "dangle", "x");
+        assert!(
+            !target.exists(),
+            "write_file followed a dangling in-root symlink"
+        );
+        assert!(!ok_write);
+        let (ok_create, _) = call1(api_with_root(&root), "create_file", "dangle");
+        assert!(
+            !target.exists(),
+            "create_file followed a dangling in-root symlink"
+        );
+        assert!(!ok_create);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plugin_path_mcp_config_does_not_follow_symlinks() {
+        // A dangling .mcp.json link pointing outside.
+        let (_d, root, outside) = root_and_outside();
+        let target = outside.join("mcp.json");
+        std::os::unix::fs::symlink(&target, root.join(".mcp.json")).unwrap();
+        let canonical_root = std::fs::canonicalize(&root).unwrap();
+        let res = editor::write_mcp_files(&canonical_root, &root, "/bin/ferrispad");
+        assert!(!target.exists(), ".mcp.json written through a symlink");
+        assert!(res.is_err());
+
+        // A .gitignore link to an outside file.
+        let (_d2, root2, outside2) = root_and_outside();
+        let victim = outside2.join("victim");
+        std::fs::write(&victim, "keep\n").unwrap();
+        std::os::unix::fs::symlink(&victim, root2.join(".gitignore")).unwrap();
+        let canonical_root2 = std::fs::canonicalize(&root2).unwrap();
+        let res2 = editor::write_mcp_files(&canonical_root2, &root2, "/bin/ferrispad");
+        assert_eq!(
+            std::fs::read_to_string(&victim).unwrap(),
+            "keep\n",
+            ".gitignore written through a symlink"
+        );
+        assert!(res2.is_err());
+    }
+
+    /// The macOS `/var` → `/private/var` case: the root is given through an
+    /// alias symlink and the plugin passes absolute paths under that alias.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_path_absolute_path_under_root_alias_is_accepted() {
+        let (d, real_root, _outside) = root_and_outside();
+        let alias = d.path().join("alias");
+        std::os::unix::fs::symlink(&real_root, &alias).unwrap();
+        let deep = alias.join("nested").join("deep");
+        let (ok, err) = call1(api_with_root(&alias), "create_dir", deep.to_str().unwrap());
+        assert!(ok, "create_dir under the root alias must succeed: {err}");
+        assert!(real_root.join("nested/deep").is_dir());
+        let renamed = alias.join("nested").join("renamed");
+        let (ok2, err2) = call2(
+            api_with_root(&alias),
+            "rename",
+            deep.to_str().unwrap(),
+            renamed.to_str().unwrap(),
+        );
+        assert!(ok2, "rename under the root alias must succeed: {err2}");
+        assert!(real_root.join("nested/renamed").is_dir());
+    }
+
     // ── S4: file_exists / is_file without project root ────────────────
 
     #[test]

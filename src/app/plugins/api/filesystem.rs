@@ -17,7 +17,6 @@ pub fn file_exists(_: &mlua::Lua, this: &EditorApi, path: String) -> mlua::Resul
 
     match validate_path(&path, project_root) {
         PathValidation::Valid(canonical) => Ok(canonical.exists()),
-        PathValidation::NotFound => Ok(false),
         PathValidation::OutsideProjectRoot | PathValidation::InvalidPath(_) => {
             eprintln!(
                 "[plugin:security] file_exists blocked: '{}' outside project root",

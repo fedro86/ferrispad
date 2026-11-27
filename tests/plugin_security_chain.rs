@@ -82,16 +82,14 @@ fn test_path_traversal_blocked_from_plugin() {
     let traversal = format!("../../../../../../{}/secret.txt", outside.path().display());
     match validate_path(&traversal, root) {
         PathValidation::OutsideProjectRoot => {} // expected
-        PathValidation::NotFound => {}           // also acceptable
-        other => panic!("Expected OutsideProjectRoot or NotFound, got {:?}", other),
+        other => panic!("Expected OutsideProjectRoot, got {:?}", other),
     }
 
     // Attempt absolute path outside project
     let abs_path = format!("{}/secret.txt", outside.path().display());
     match validate_path(&abs_path, root) {
         PathValidation::OutsideProjectRoot => {}
-        PathValidation::NotFound => {}
-        other => panic!("Expected OutsideProjectRoot or NotFound, got {:?}", other),
+        other => panic!("Expected OutsideProjectRoot, got {:?}", other),
     }
 }
 
