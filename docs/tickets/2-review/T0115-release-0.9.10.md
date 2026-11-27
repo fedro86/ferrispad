@@ -94,7 +94,7 @@ that describes the final state.
   entry) and `scripts/build-releases.sh`. Edited directly, so
   `bump-version.sh` neither committed nor tagged.
 - `CHANGELOG.md` `## [0.9.10] - 2026-11-27`: one section for users coming
-  from 0.9.9, consolidated from rc.1, rc.2 and rc.3. It extracts as 39
+  from 0.9.9, consolidated from rc.1, rc.2 and rc.3. It extracts as 38
   lines. The three rc sections are byte-identical to `master`: `diff` of
   each extracted section is empty, and the diff removes no line.
 - **Security:** rc.3's five entries, verbatim.
