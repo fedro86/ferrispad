@@ -16,7 +16,6 @@
     </p>
     <ul>
       <li>Syntax highlighting for 50+ languages</li>
-      <li>Markdown preview in your browser (Ctrl+M)</li>
       <li>Tab groups and named multi-project sessions</li>
       <li>Lua plugin system, sandboxed by default</li>
       <li>Built-in terminal</li>
