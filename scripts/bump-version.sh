@@ -50,9 +50,11 @@ fi
 NEW_VERSION="${POSITIONAL[0]}"
 
 # Validate version format
-if ! [[ "$NEW_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+\.[0-9]+)?$ ]]; then
+# The same regex as release.yml's release-gate (T0111, tests/release_tags.rs):
+# a version this script accepts is one the release workflow publishes.
+if ! [[ "$NEW_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$ ]]; then
     echo -e "${RED}✗ Invalid version format: $NEW_VERSION${NC}"
-    echo "Version must be X.Y.Z or X.Y.Z-suffix.N (e.g., 0.1.4 or 0.2.0-beta.1)"
+    echo "Version must be X.Y.Z or X.Y.Z-(alpha|beta|rc).N, no leading zeros (e.g., 0.1.4 or 0.2.0-beta.1)"
     exit 1
 fi
 

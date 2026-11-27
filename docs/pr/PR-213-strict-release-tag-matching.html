@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strict release tags</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --ink: #1c2430; --muted: #5b6675;
+    --accent: #0b6e4f; --accent-soft: #e3f2ec; --line: #dde3ea;
+    --warn: #8a5a00; --warn-soft: #fdf3dd; --code-bg: #f0f2f5;
+    --chip: #eef1f4; --bad: #8a2020; --bad-soft: #fbeaea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181f; --surface: #1c222b; --ink: #e8ecf1; --muted: #9aa6b4;
+      --accent: #4cc39a; --accent-soft: #10352a; --line: #2c3541;
+      --warn: #e2b45a; --warn-soft: #33290f; --code-bg: #232a34;
+      --chip: #262e39; --bad: #e88; --bad-soft: #3a1c1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 "Open Sans", "Segoe UI", system-ui, sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  header.top { border-bottom: 3px solid var(--accent); padding-bottom: 1.2rem; margin-bottom: 2rem; }
+  .kicker { text-transform: uppercase; letter-spacing: .12em; font-size: .78rem; color: var(--accent); font-weight: 700; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: .3rem 0 .6rem; }
+  h2 { font-size: 1.35rem; margin: 0 0 .2rem; }
+  h3 { font-size: 1.02rem; margin: 1.3rem 0 .4rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem .6rem; margin-top: .8rem; }
+  .chip { background: var(--chip); border: 1px solid var(--line); border-radius: 999px;
+    padding: .15rem .7rem; font-size: .82rem; color: var(--muted); white-space: nowrap; }
+  .chip strong { color: var(--ink); font-weight: 600; }
+  .chip.green { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .chip.warn { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+  a { color: var(--accent); }
+  section.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.5rem 1.75rem; margin-bottom: 1.75rem; }
+  p { margin: .55rem 0; }
+  ul, ol { margin: .4rem 0 .6rem; padding-left: 1.3rem; }
+  li { margin: .25rem 0; }
+  code { font: .86em/1.5 "JetBrains Mono", "Fira Mono", monospace;
+    background: var(--code-bg); border-radius: 4px; padding: .08em .35em; word-break: break-word; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: .85rem 1rem; overflow-x: auto; font-size: .85rem; line-height: 1.55; }
+  pre code { background: none; padding: 0; }
+  .why { border-left: 4px solid var(--accent); background: var(--accent-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup { border-left: 4px solid var(--warn); background: var(--warn-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup strong.tag { color: var(--warn); }
+  .bad { border-left: 4px solid var(--bad); background: var(--bad-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .bad strong.tag { color: var(--bad); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; font-size: .9rem; }
+  th, td { text-align: left; border-bottom: 1px solid var(--line); padding: .45rem .6rem; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; font-family: "JetBrains Mono", "Fira Mono", monospace; white-space: nowrap; }
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li { counter-increment: step; position: relative; padding-left: 2.2rem; margin: .55rem 0; }
+  .steps li::before { content: counter(step); position: absolute; left: 0; top: .1rem;
+    width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--accent-soft);
+    color: var(--accent); font-weight: 700; font-size: .82rem; display: grid; place-items: center; }
+  .expect { display: block; margin-top: .2rem; color: var(--muted); font-size: .9em; }
+  .expect::before { content: "expected → "; color: var(--accent); font-weight: 600; }
+  .flow { display: grid; gap: .35rem; margin: .8rem 0; }
+  .flow div { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: .45rem .8rem; font-size: .9rem; }
+  .flow div strong { color: var(--accent); }
+  footer { color: var(--muted); font-size: .86rem; border-top: 1px solid var(--line);
+    margin-top: 2rem; padding-top: 1rem; }
+  img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
+  figure { margin: .9rem 0; }
+  figcaption { color: var(--muted); font-size: .88rem; font-style: italic; margin-top: .35rem; }
+  code.sha { white-space: nowrap; word-break: normal; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <div class="kicker">Pull request #213 · ticket/T0111 → master · process</div>
+  <h1>Only a real version tag starts, signs or publishes a release</h1>
+  <div class="flow">
+    <div><strong>Before</strong> · Pushing a tag such as <code>vandal</code>, <code>1.2.3-</code> or <code>01.2.3</code> started a release build. CI signed it with the release key, published it as a GitHub release and notified FlatPark.</div>
+    <div><strong>After</strong> · Only <code>X.Y.Z</code> and <code>X.Y.Z-(alpha|beta|rc).N</code>, with no leading zeros, can publish. The release workflow and <code>bump-version.sh</code> share one regex, and a test checks that both copies are the same string.</div>
+  </div>
+  <p>a3 found the gap while reviewing T0086, and the orchestrator reserved the ticket for 0.9.11. The release workflow decided what a version tag is in two places, and <code>bump-version.sh</code> in a third. All three accepted names that are not versions in this repo's convention. Every existing tag follows that convention.</p>
+  <ul>
+    <li>One strict rule: <code>^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$</code>.</li>
+    <li>The <code>release-gate</code> job and <code>bump-version.sh</code> use exactly that string.</li>
+    <li>The tag triggers are four globs. They pre-filter the runs; the gate decides what gets published.</li>
+    <li><code>RELEASE_PROCESS.md</code> states the convention and where it is enforced.</li>
+  </ul>
+  <div class="meta">
+    <span class="chip"><strong>T0111</strong> in <code>3-done/</code></span>
+    <span class="chip"><strong>5</strong> files · +378 / −18</span>
+    <span class="chip green">CI and scripts only</span>
+    <span class="chip green">gates green at every commit</span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/213">PR #213 on GitHub</a></span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/issues/211">issue #211</a></span>
+  </div>
+</header>
+
+<section class="card">
+  <h2>The branch's commits</h2>
+  <div class="scroll">
+  <table>
+    <tr><th>Commit</th><th>What changes</th></tr>
+    <tr><td><code class="sha">2a3465c</code>, <code class="sha">a7be0fa</code></td>
+      <td>T0086, already on master through #176. The branch was stacked on it.</td></tr>
+    <tr><td><code class="sha">0962449</code></td>
+      <td>The strict rule in the gate, the triggers and <code>bump-version.sh</code>; <code>tests/release_tags.rs</code> (red first); the guide.</td></tr>
+    <tr><td><code class="sha">d3f1964</code></td>
+      <td>Docs only: the green manual release run.</td></tr>
+    <tr><td><code class="sha">d7a4cd4</code></td>
+      <td>Merge of T0086's final head (<code class="sha">2205937</code>).</td></tr>
+    <tr><td><code class="sha">cf4a94f</code></td>
+      <td>Merge of master after 0.9.10.</td></tr>
+    <tr><td><code class="sha">ecf4732</code></td>
+      <td>Docs only: the ticket records the merge, the tag check and the gates.</td></tr>
+    <tr><td><code class="sha">347b4df</code></td>
+      <td>Docs only: this page.</td></tr>
+    <tr><td>head</td>
+      <td>Docs only: the ticket moves to <code>3-done/</code> after the user's OK (2026-11-27) and the reviewer's APPROVE (ferrispad-90, on <code class="sha">347b4df</code>); this page follows.</td></tr>
+  </table>
+  </div>
+  <p>Master holds T0086 as one squash commit, so T0086's final head was merged first.</p>
+  <ul>
+    <li>Master's <code>release.yml</code> and <code>RELEASE_PROCESS.md</code> equal T0086's final head, so they keep this branch's side.</li>
+    <li>T0086's ticket takes master's side, which has the post-tag checks from #230.</li>
+  </ul>
+  <p>The diff against master is T0111's own five files. They are byte-identical to <code class="sha">d3f1964</code>, so the manual run there still applies.</p>
+</section>
+
+<section class="card">
+  <h2>Where a tag is checked, now</h2>
+  <div class="flow">
+    <div><strong>Trigger</strong> · <code>on.push.tags</code> has four filters: <code>[0-9]+.[0-9]+.[0-9]+</code>, and the same with <code>-alpha.[0-9]+</code>, <code>-beta.[0-9]+</code> or <code>-rc.[0-9]+</code>. <code>v*</code> and <code>X.Y.Z-*</code> are gone. GitHub filters are globs, so they cannot rule out leading zeros.</div>
+    <div><strong>Gate</strong> · <code>release-gate</code> matches the strict regex. Only then do <code>sign-binaries</code>, <code>create-release</code> and <code>flatpark</code> run. Otherwise the run builds only.</div>
+    <div><strong>Bump</strong> · <code>scripts/bump-version.sh</code> refuses any other version before it changes a file.</div>
+  </div>
+</section>
+
+<section class="card ticket">
+  <h2>T0111: one strict rule for a release version</h2>
+  <div class="flow">
+    <div><strong>Before</strong> · The gate's regex was <code>^(v[^/]*|[0-9]+\.[0-9]+\.[0-9]+(-[^/]*)?)$</code>. It would have signed and published 15 of 19 non-versions.</div>
+    <div><strong>After</strong> · The gate and the bump script accept exactly the convention. The triggers accept every valid version and none of <code>v*</code>, <code>1.2.3-</code>, <code>1.2.3-foo.1</code> or <code>1.2.3-rc</code>.</div>
+  </div>
+  <p><code>tests/release_tags.rs</code> reads the gate regex, the bump-script regex and the trigger globs from the files themselves. It checks a table of 26 tag names against all three. <code>glob_semantics</code> pins the glob translation on GitHub's documented examples.</p>
+  <ul>
+    <li><strong>Cross-checks:</strong>
+      <ul>
+        <li>bash <code>[[ =~ ]]</code> with the regex from <code>release.yml</code> gives the table's verdict for all 26 names;</li>
+        <li><code>bump-version.sh -y</code> exits 1 for <code>vandal</code>, <code>01.2.3</code>, <code>1.2.3-</code> and <code>1.2.3-foo.1</code>, and changes no file.</li>
+      </ul></li>
+    <li><strong>Existing tags:</strong> all 38 in the repo match, including <code>0.9.10-rc.3</code> and <code>0.9.10</code>, which were tagged after the ticket was written.</li>
+    <li><strong>actionlint:</strong> clean. It had 9 <code>SC2086</code> notes, already present on T0086's branch, about <code>$GITHUB_OUTPUT</code> and a size argument without quotes. They are now quoted, with the same behaviour.</li>
+  </ul>
+  <p><strong>No visible change:</strong> this changes the release workflow, a script and a test, nothing in the app.</p>
+  <div class="bad"><strong class="tag">The defect, red first.</strong> On T0086's tip (<code class="sha">a7be0fa</code>) the test failed:
+<pre>release-gate and bump-version.sh use different rules:
+  gate: ^(v[^/]*|[0-9]+\.[0-9]+\.[0-9]+(-[^/]*)?)$
+  bump: ^[0-9]+\.[0-9]+\.[0-9]+(-[a-z]+\.[0-9]+)?$
+gate would sign and publish "vandal"
+a trigger filter starts a release for "vandal"
+gate would sign and publish "1.2.3-"
+gate would sign and publish "1.2.3-foo.1"
+bump-version.sh accepts "1.2.3-foo.1"
+gate would sign and publish "01.2.3"
+bump-version.sh accepts "01.2.3"</pre></div>
+  <div class="why"><strong>Why four globs and a strict gate.</strong> A glob cannot exclude leading zeros without dozens of patterns. The trigger is only a cheap pre-filter, tested to accept every valid version. The gate holds the one strict rule and decides signing and publishing.</div>
+  <div class="followup"><strong class="tag">Checked without publishing.</strong> A real tag push cannot be tried without publishing a release. The manual run checks the non-tag path, and the table test covers which tags would start a run and which would publish.
+    <ul>
+      <li>Manual run: <a href="https://github.com/fedro86/ferrispad/actions/runs/45904265691">45904265691</a> on <code class="sha">0962449</code>, started with <code>gh workflow run release.yml --ref ticket/T0111</code>.</li>
+      <li><code>release-gate</code> said "not a version tag: build only".</li>
+      <li>All builds passed, with 8 unsigned artifacts.</li>
+      <li><code>sign-binaries</code>, <code>create-release</code> and <code>flatpark</code> were skipped.</li>
+    </ul>
+    The first real check is the next release tag.</div>
+  <h3>How to test T0111</h3>
+  <ol class="steps">
+    <li><code>nix develop -c cargo test --test release_tags</code>
+      <span class="expect">ok. Before the fix, it failed with the output above.</span></li>
+    <li><code>nix run nixpkgs#actionlint -- .github/workflows/release.yml</code>
+      <span class="expect">no findings.</span></li>
+    <li><code>./scripts/bump-version.sh -y 1.2.3-foo.1</code>
+      <span class="expect">"Version must be X.Y.Z or X.Y.Z-(alpha|beta|rc).N, no leading zeros", exit 1, and <code>git status</code> shows no change.</span></li>
+  </ol>
+</section>
+
+<section class="card">
+  <h2>Release notes and compatibility</h2>
+  <ul>
+    <li><strong>CHANGELOG:</strong> none: process only.</li>
+    <li>All existing tags are valid versions, so nothing needs re-tagging. Users' files are untouched.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>What remains open</h2>
+  <ul>
+    <li><strong>The first real tag push after this lands</strong> (the 0.9.11 release) exercises the trigger and gate on a real tag.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>End-to-end verification</h2>
+  <p>A maintainer tries to start a release with a version the convention does not allow, and then with a valid one, without publishing anything. Run from the branch's worktree. The script is run only with the bad name, which it refuses before touching any file.</p>
+  <h3>Starting state</h3>
+  <ol class="steps">
+    <li><code>git status</code>
+      <span class="expect">a clean worktree on <code>ticket/T0111</code>.</span></li>
+  </ol>
+  <h3>The scenario</h3>
+  <ol class="steps">
+    <li><code>./scripts/bump-version.sh -y 01.2.3</code>
+      <span class="expect">refused, exit 1; <code>git status</code> is still clean.</span></li>
+    <li><code>re=$(sed -n '41s/.*=~ \(.*\) \]\]; then/\1/p' .github/workflows/release.yml); for t in vandal 1.2.3- 0.9.11 0.9.11-rc.1; do [[ $t =~ $re ]] &amp;&amp; echo "$t publish" || echo "$t build only"; done</code>
+      <span class="expect"><code>vandal</code> and <code>1.2.3-</code>: build only. <code>0.9.11</code> and <code>0.9.11-rc.1</code>: publish.</span></li>
+    <li><code>for t in $(git tag); do [[ $t =~ $re ]] || echo "bad: $t"; done</code>
+      <span class="expect">no output: every existing tag is a valid version.</span></li>
+  </ol>
+  <h3>The gates</h3>
+  <ol class="steps">
+    <li><code>nix develop -c cargo test</code>, <code>nix develop -c cargo clippy --all-targets --all-features -- -D warnings</code>, <code>nix develop -c cargo fmt --check</code>
+      <span class="expect">all green, zero warnings.</span></li>
+  </ol>
+</section>
+
+<footer>
+  Presentation of PR #213 · branch <code>ticket/T0111</code> · commits <code>0962449</code> → the <code>3-done/</code> move ·
+  ticket <code>docs/tickets/3-done/T0111-strict-release-tag-matching.md</code> · issue #211.
+</footer>
+</div>
+</body>
+</html>
