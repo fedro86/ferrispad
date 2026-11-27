@@ -16,14 +16,10 @@ pub mod settings_layout;
 pub mod shortcut_dialog;
 pub mod theme_manager;
 pub mod update;
+pub mod widgets;
 
-use fltk::{
-    app,
-    enums::{Color, FrameType},
-    group::Scroll,
-    prelude::*,
-    window::Window,
-};
+use crate::ui::color::fltk_rgb;
+use fltk::{app, enums::Color, group::Scroll, prelude::*, window::Window};
 
 use super::color::ThemeRgb;
 use super::scrollbar::style_scrollbar;
@@ -64,6 +60,13 @@ pub struct DialogTheme {
     pub accent: Color,
     /// Accent hover — slightly adjusted accent for hover state
     pub accent_hover: Color,
+    /// Selected row of a dialog list (T0097): >= 3:1 against `input_bg`
+    pub list_selection_bg: Color,
+    /// 1 px border of text fields and lists (T0105): >= 3:1 against `bg`
+    /// (WCAG 1.4.11, so an empty field stays easy to locate)
+    pub input_border: Color,
+    /// Text of the selected row: >= 4.5:1 on `list_selection_bg`
+    pub list_selection_text: Color,
     /// Scrollbar track background
     pub scroll_track: Color,
     /// Scrollbar thumb/slider color
@@ -200,6 +203,49 @@ pub(crate) fn intensify_dominant(r: u8, g: u8, b: u8, amount: f32) -> (u8, u8, u
 /// Dark: the track is darker than `base` and the thumb lighter. Light: both
 /// are darker, the thumb more so. Shared by the dialogs (`DialogTheme`, on the
 /// dialog background) and the main editor (on the editor background).
+/// Register the dialog list selection of the theme with background
+/// `theme_bg` with FerrisPad's contrast rule (T0097). Called on every
+/// re-theme, so the registered color never lags behind a theme switch.
+pub fn register_dialog_list_selection(theme_bg: (u8, u8, u8)) {
+    let selection = DialogTheme::from_theme_bg(theme_bg).list_selection_bg;
+    crate::ui::contrast::register_list_selection(selection.to_rgb());
+}
+
+/// Minimum WCAG contrast of a dialog list's selected row against the list
+/// background (T0097).
+const LIST_SELECTION_CONTRAST: f64 = 3.0;
+/// Minimum WCAG contrast of a text field's border against the dialog
+/// (WCAG 1.4.11, non-text contrast).
+const INPUT_BORDER_CONTRAST: f64 = 3.0;
+/// Minimum WCAG contrast of the selected row's text.
+const LIST_TEXT_CONTRAST: f64 = 4.5;
+
+/// The selected-row background and text of a dialog list (T0097). Starts from
+/// `base` (the button color) and steps it away from `list_bg` until it reaches
+/// [`LIST_SELECTION_CONTRAST`]: lighter in dark themes, darker in light ones,
+/// and the other way when that direction cannot get there (a mid-tone list).
+/// The text keeps `text` when it reads at [`LIST_TEXT_CONTRAST`] on the row,
+/// otherwise it is black or white, whichever reads better; that is also what
+/// FerrisPad's contrast rule makes FLTK draw there.
+pub(crate) fn list_selection_colors(
+    list_bg: ThemeRgb,
+    base: ThemeRgb,
+    text: ThemeRgb,
+    is_dark: bool,
+) -> (ThemeRgb, ThemeRgb) {
+    use super::color::{push_to_contrast, wcag_contrast};
+    let row = push_to_contrast(base, list_bg, LIST_SELECTION_CONTRAST, is_dark);
+    let rgb = |c: ThemeRgb| (c.r, c.g, c.b);
+    let text = if wcag_contrast(rgb(text), rgb(row)) >= LIST_TEXT_CONTRAST {
+        text
+    } else if wcag_contrast((0, 0, 0), rgb(row)) >= wcag_contrast((255, 255, 255), rgb(row)) {
+        ThemeRgb::new(0, 0, 0)
+    } else {
+        ThemeRgb::WHITE
+    };
+    (row, text)
+}
+
 pub(crate) fn scrollbar_colors(base: ThemeRgb, is_dark: bool) -> (Color, Color) {
     let (track, thumb) = if is_dark {
         (base.darken(0.70), base.lighten(0.20))
@@ -288,20 +334,24 @@ impl DialogTheme {
             let rr = (ir as f32 * t + d.r as f32 * (1.0 - t)) as u8;
             let rg = (ig as f32 * t + d.g as f32 * (1.0 - t)) as u8;
             let rb = (ib as f32 * t + d.b as f32 * (1.0 - t)) as u8;
-            Color::from_rgb(rr, rg, rb)
+            fltk_rgb(rr, rg, rb)
         };
 
         // Text colors based on brightness
         let (text, text_dim) = if is_dark {
-            (
-                Color::from_rgb(230, 230, 230),
-                Color::from_rgb(140, 140, 140),
-            )
+            (fltk_rgb(230, 230, 230), fltk_rgb(140, 140, 140))
         } else {
-            (Color::from_rgb(0, 0, 0), Color::from_rgb(80, 80, 80))
+            (fltk_rgb(0, 0, 0), fltk_rgb(80, 80, 80))
         };
 
         let (scroll_track, scroll_thumb) = scrollbar_colors(bg_rgb, is_dark);
+
+        let (list_selection_bg, list_selection_text) = list_selection_colors(
+            ThemeRgb::from_fltk(input_bg),
+            btn_rgb,
+            ThemeRgb::from_fltk(text),
+            is_dark,
+        );
 
         // Accent color: complementary hue from theme bg
         let accent_rgb = ThemeRgb::from_tuple(accent_from_bg(r, g, b, is_dark));
@@ -324,11 +374,25 @@ impl DialogTheme {
             row_bg,
             accent,
             accent_hover,
+            list_selection_bg: list_selection_bg.to_fltk(),
+            list_selection_text: list_selection_text.to_fltk(),
+            input_border: super::color::push_to_contrast(
+                btn_rgb,
+                bg_rgb,
+                INPUT_BORDER_CONTRAST,
+                is_dark,
+            )
+            .to_fltk(),
             scroll_track,
             scroll_thumb,
             is_dark,
             theme_bg,
         }
+    }
+
+    /// Background and text color of the selected row in a dialog list.
+    pub fn list_selection(&self) -> (Color, Color) {
+        (self.list_selection_bg, self.list_selection_text)
     }
 
     /// The syntax theme background this theme was derived from — what the
@@ -355,9 +419,9 @@ impl DialogTheme {
     /// Light red on dark backgrounds for readability, dark red on light backgrounds.
     pub fn error_color(&self) -> Color {
         if self.is_dark {
-            Color::from_rgb(255, 120, 120)
+            fltk_rgb(255, 120, 120)
         } else {
-            Color::from_rgb(180, 0, 0)
+            fltk_rgb(180, 0, 0)
         }
     }
 
@@ -382,6 +446,10 @@ impl DialogTheme {
             };
             crate::ui::theme::set_windows_titlebar_theme(window, self.theme_bg, fg);
         }
+        // macOS: the .app bundle provides the icon and the system draws the
+        // dialog title bar, so there is nothing to apply.
+        #[cfg(target_os = "macos")]
+        let _ = window;
     }
 
     /// Apply flat themed scrollbar styling to a Scroll widget.
@@ -515,17 +583,6 @@ pub(crate) fn popup_height(message: &str, has_input: bool) -> i32 {
     2 * POPUP_PADDING + message_h + POPUP_SPACING + input_h + POPUP_ROW_HEIGHT
 }
 
-/// Width of a popup button wide enough for `label`.
-/// Style a dialog action button like the Settings dialog's buttons: flat
-/// rounded, `button_bg`, label in `text`. Cancel and Reset included: a
-/// dimmed label would make an enabled button look disabled (FLTK greys the
-/// label of a deactivated button by itself).
-pub(crate) fn style_dialog_button(button: &mut fltk::button::Button, theme: &DialogTheme) {
-    button.set_frame(FrameType::RFlatBox);
-    button.set_color(theme.button_bg);
-    button.set_label_color(theme.text);
-}
-
 /// Points added to a label's font size when measuring it for layout, so a
 /// desktop font a little wider than the one measured still fits (the UI
 /// tests check labels at +2 pt too).
@@ -581,11 +638,9 @@ fn build_themed_popup(
     layout: &ChoiceLayout<'_>,
 ) -> ThemedPopup {
     use fltk::{
-        button::Button,
         enums::{Align, Event, Key},
         frame::Frame,
         group::{Flex, FlexType},
-        input::Input,
     };
     use std::cell::Cell;
     use std::rc::Rc;
@@ -617,13 +672,8 @@ fn build_themed_popup(
     msg_frame.set_align(Align::Left | Align::Inside | Align::Wrap | Align::Clip);
 
     let input = input_default.map(|text| {
-        let mut input = Input::default();
+        let mut input = theme.input();
         input.set_value(text);
-        input.set_color(theme.input_bg);
-        input.set_text_color(theme.text);
-        input.set_cursor_color(theme.text);
-        input.set_selection_color(theme.button_bg);
-        input.set_frame(FrameType::FlatBox);
         column.fixed(&input, POPUP_ROW_HEIGHT);
         input
     });
@@ -636,14 +686,13 @@ fn build_themed_popup(
     Frame::default(); // spacer: the buttons sit on the right, as in FLTK
     let mut default_btn = None;
     for &(index, label) in &layout.buttons {
-        let mut btn = Button::default().with_label(label);
-        btn.set_frame(FrameType::RFlatBox);
-        btn.set_label_color(theme.text);
-        btn.set_color(if index == layout.default {
-            theme.button_bg
+        // The Enter default stands out; the others are secondary.
+        let mut btn = if index == layout.default {
+            theme.button()
         } else {
-            theme.secondary_button_bg
-        });
+            theme.secondary_button()
+        }
+        .with_label(label);
         row.fixed(&btn, popup_button_width(label));
         let result_btn = result.clone();
         let mut dialog_btn = dialog.clone();
@@ -785,17 +834,19 @@ pub fn show_themed_input(
     }
 }
 
-#[cfg(test)]
-mod tests {
+/// FLTK widget checks that must run on the process main thread: on macOS,
+/// AppKit aborts when FLTK opens the display from another thread, which is
+/// where libtest runs unit tests. Called by the `harness = false` test binary
+/// `tests/fltk_main_thread.rs` (T0089); not part of the public API.
+#[doc(hidden)]
+pub mod main_thread_checks {
     use super::*;
     use fltk::group::Group;
 
     /// Regression for T0058: a popup built while another window's group is
     /// current (begun, not ended) must still be a top-level window, must not
     /// add itself to that group, and must leave that group current.
-    #[test]
-    fn popup_is_top_level() {
-        let _fltk = crate::ui::fltk_widget_test_lock();
+    pub fn popup_is_top_level() {
         let theme = DialogTheme::from_theme_bg((40, 44, 52));
         let previous = Group::try_current();
 
@@ -839,21 +890,116 @@ mod tests {
             "the caller's current group must be restored"
         );
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// T0105: the user-chosen field border reads at >= 3:1 against the
+    /// dialog background (WCAG 1.4.11) on every theme.
+    #[test]
+    fn input_border_stands_out_on_every_theme() {
+        use crate::ui::color::wcag_contrast;
+        let mut failures = Vec::new();
+        for (name, bg) in dialog_list_test_backgrounds() {
+            let theme = DialogTheme::from_theme_bg(bg);
+            let ratio = wcag_contrast(theme.input_border.to_rgb(), theme.bg.to_rgb());
+            if ratio < 3.0 {
+                failures.push(format!(
+                    "{name}: border {:?} on dialog {:?} = {ratio:.2}:1",
+                    theme.input_border.to_rgb(),
+                    theme.bg.to_rgb()
+                ));
+            }
+        }
+        assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+    }
+
+    /// a3's T0097 nit: the registered list selection must follow every
+    /// re-theme, not wait for the next dialog list to be styled.
+    #[test]
+    fn dialog_list_selection_follows_every_retheme() {
+        let theme_rs = include_str!("../theme.rs");
+        let body = theme_rs
+            .split("pub fn apply_syntax_theme_colors")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}\n").next())
+            .expect("apply_syntax_theme_colors");
+        assert!(
+            body.contains("register_dialog_list_selection(background)"),
+            "every re-theme must refresh the dialog list selection"
+        );
+        for bg in [(43, 48, 59), (239, 241, 245), (59, 31, 92)] {
+            register_dialog_list_selection(bg);
+            assert_eq!(
+                crate::ui::contrast::registered_list_selection(),
+                Some(DialogTheme::from_theme_bg(bg).list_selection_bg.to_rgb()),
+                "{bg:?}"
+            );
+        }
+    }
+
+    /// Theme backgrounds to check: every built-in syntax theme plus a sweep
+    /// of grays and tinted colors, standing in for custom themes.
+    fn dialog_list_test_backgrounds() -> Vec<(String, (u8, u8, u8))> {
+        use crate::app::domain::settings::SyntaxTheme;
+        let mut bgs: Vec<(String, (u8, u8, u8))> = SyntaxTheme::all()
+            .iter()
+            .map(|t| (format!("{t:?}"), t.background()))
+            .collect();
+        for v in (0..=255u8).step_by(15) {
+            bgs.push((format!("gray {v}"), (v, v, v)));
+            bgs.push((format!("blue-ish {v}"), (v / 2, v / 2, v)));
+            bgs.push((format!("warm {v}"), (v, v.saturating_sub(20), v / 2)));
+        }
+        bgs
+    }
+
+    /// T0097: the selected row of a dialog list must stand out from the list
+    /// background (>= 3:1) and the text FLTK draws on it must be readable
+    /// (>= 4.5:1), in light and dark themes. Measured 1.39:1 in the theme
+    /// manager before.
+    #[test]
+    fn dialog_list_selection_stands_out_in_every_theme() {
+        use crate::ui::color::wcag_contrast;
+        use crate::ui::contrast::{EditorSelectionBgs, ferrispad_contrast};
+        let mut failures = Vec::new();
+        for (name, bg) in dialog_list_test_backgrounds() {
+            let theme = DialogTheme::from_theme_bg(bg);
+            let (sel, text) = theme.list_selection();
+            let list_bg = theme.input_bg.to_rgb();
+            let row = wcag_contrast(sel.to_rgb(), list_bg);
+            // What FLTK draws on the selected row: fl_contrast(text, sel),
+            // with the dialog list selection known to the contrast rule.
+            let bgs = EditorSelectionBgs::default().with_list_selection(sel.to_rgb());
+            let drawn = ferrispad_contrast(theme.text, sel, bgs).to_rgb();
+            let readable = wcag_contrast(drawn, sel.to_rgb());
+            if row < 3.0 || readable < 4.5 || drawn != text.to_rgb() {
+                failures.push(format!(
+                    "{name}: row {:?} on list {list_bg:?} = {row:.2}:1, text {drawn:?} = {readable:.2}:1 (expected text {:?})",
+                    sel.to_rgb(),
+                    text.to_rgb()
+                ));
+            }
+        }
+        assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+    }
 
     #[test]
     fn scrollbar_colors_dark_darkens_track_and_lightens_thumb() {
         let (track, thumb) = scrollbar_colors(ThemeRgb::new(40, 44, 52), true);
         // track = base * 0.70; thumb = base + (255 - base) * 0.20
-        assert_eq!(track, Color::from_rgb(28, 30, 36));
-        assert_eq!(thumb, Color::from_rgb(83, 86, 92));
+        assert_eq!(track, fltk_rgb(28, 30, 36));
+        assert_eq!(thumb, fltk_rgb(83, 86, 92));
     }
 
     #[test]
     fn scrollbar_colors_light_darkens_both() {
         let (track, thumb) = scrollbar_colors(ThemeRgb::new(250, 250, 250), false);
         // track = base * 0.95; thumb = base * 0.75
-        assert_eq!(track, Color::from_rgb(237, 237, 237));
-        assert_eq!(thumb, Color::from_rgb(187, 187, 187));
+        assert_eq!(track, fltk_rgb(237, 237, 237));
+        assert_eq!(thumb, fltk_rgb(187, 187, 187));
     }
 
     #[test]

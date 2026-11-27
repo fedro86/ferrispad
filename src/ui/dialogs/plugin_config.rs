@@ -14,7 +14,7 @@
 //! - cli_args: Validates CLI arguments (blocks shell metacharacters)
 //! - regex:PATTERN: Validates against a custom regex pattern
 
-use fltk::{enums::FrameType, prelude::*, *};
+use fltk::{prelude::*, *};
 use regex_lite::Regex;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -143,8 +143,6 @@ pub fn show_plugin_config_dialog(
     let bg_color = theme.bg;
     let text_color = theme.text;
     let text_dim = theme.text_dim;
-    let input_bg = theme.input_bg;
-    let button_bg = theme.button_bg;
     let error_color = theme.error_color();
 
     // Calculate dialog height based on number of params
@@ -197,14 +195,12 @@ pub fn show_plugin_config_dialog(
 
         match def.param_type.as_str() {
             "boolean" => {
-                let mut cb = button::CheckButton::default()
+                let mut cb = theme
+                    .check_button()
                     .with_pos(FIELD_X, field_y)
                     .with_size(FIELD_WIDTH, 25)
                     .with_label("Enabled");
                 cb.set_value(current_value.eq_ignore_ascii_case("true"));
-                cb.set_label_color(text_color);
-                cb.set_color(bg_color);
-                cb.set_selection_color(button_bg);
                 param_widgets.borrow_mut().push(ParamWidgetInfo {
                     key: def.key.clone(),
                     label: def.label.clone(),
@@ -215,12 +211,10 @@ pub fn show_plugin_config_dialog(
                 });
             }
             "choice" => {
-                let mut choice = menu::Choice::default()
+                let mut choice = theme
+                    .choice()
                     .with_pos(FIELD_X, field_y)
                     .with_size(FIELD_WIDTH, 25);
-                choice.set_color(input_bg);
-                choice.set_text_color(text_color);
-                choice.set_selection_color(button_bg);
 
                 // Parse options and add to choice widget
                 let mut option_values: Vec<String> = Vec::new();
@@ -251,13 +245,11 @@ pub fn show_plugin_config_dialog(
             }
             param_type => {
                 // "string" or "number" - use Input widget
-                let mut inp = input::Input::default()
+                let mut inp = theme
+                    .input()
                     .with_pos(FIELD_X, field_y)
                     .with_size(FIELD_WIDTH, 25);
                 inp.set_value(&current_value);
-                inp.set_color(input_bg);
-                inp.set_text_color(text_color);
-                inp.set_selection_color(button_bg);
 
                 // Show placeholder if available and value is empty
                 if current_value.is_empty()
@@ -303,21 +295,17 @@ pub fn show_plugin_config_dialog(
     // Buttons at the bottom
     let button_y = dialog_height - 45;
 
-    let mut save_btn = button::Button::default()
+    let mut save_btn = theme
+        .button()
         .with_pos(DIALOG_WIDTH - 180, button_y)
         .with_size(75, 30)
         .with_label("Save");
-    save_btn.set_frame(FrameType::RFlatBox);
-    save_btn.set_color(button_bg);
-    save_btn.set_label_color(text_color);
 
-    let mut cancel_btn = button::Button::default()
+    let mut cancel_btn = theme
+        .button()
         .with_pos(DIALOG_WIDTH - 95, button_y)
         .with_size(75, 30)
         .with_label("Cancel");
-    cancel_btn.set_frame(FrameType::RFlatBox);
-    cancel_btn.set_color(button_bg);
-    cancel_btn.set_label_color(text_color);
 
     dialog.end();
     drop(top_level);
