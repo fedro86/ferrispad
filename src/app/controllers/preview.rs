@@ -12,9 +12,114 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 
-/// Directory for all FerrisPad preview files.
-fn preview_dir() -> std::path::PathBuf {
-    std::env::temp_dir().join("ferrispad_preview")
+/// Name of the preview folder inside the chosen base directory.
+const PREVIEW_DIR_NAME: &str = "ferrispad_preview";
+
+/// Directory for the preview files, chosen from where FerrisPad runs.
+///
+/// In a Flatpak the temp dir is the sandbox's private `/tmp`, which the host
+/// browser (reached through the OpenURI portal) cannot read, so the preview
+/// goes to the app's cache dir: `~/.var/app/<id>/cache` is the same path on
+/// the host. Everywhere else, and in a Flatpak without a cache dir, it stays
+/// in the temp dir.
+fn preview_dir_for(
+    in_flatpak: bool,
+    cache_dir: Option<&Path>,
+    temp_dir: &Path,
+) -> std::path::PathBuf {
+    match cache_dir {
+        Some(cache) if in_flatpak => cache.join(PREVIEW_DIR_NAME),
+        _ => temp_dir.join(PREVIEW_DIR_NAME),
+    }
+}
+
+/// The preview directory for this process.
+fn default_preview_dir() -> std::path::PathBuf {
+    preview_dir_for(
+        crate::app::services::updater::is_flatpak(),
+        dirs::cache_dir().as_deref(),
+        &std::env::temp_dir(),
+    )
+}
+
+/// Preview files older than this are leftovers of a crashed or killed run.
+/// Newer ones may still be in use by another FerrisPad window.
+const STALE_PREVIEW_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// True for a name FerrisPad gives its preview files: `preview_<16 hex>.html`.
+fn is_preview_file_name(name: &std::ffi::OsStr) -> bool {
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+    name.strip_prefix("preview_")
+        .and_then(|rest| rest.strip_suffix(".html"))
+        .is_some_and(|id| id.len() == 16 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// Remove preview files older than [`STALE_PREVIEW_AGE`] from `dir`: the
+/// leftovers of a crashed or killed run, which `cleanup` never saw. Only
+/// regular files named like a preview, directly inside `dir`; symlinks and
+/// subdirectories are skipped. Any error is ignored.
+fn sweep_stale_previews(dir: &Path, now: std::time::SystemTime) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if !is_preview_file_name(&entry.file_name()) {
+            continue;
+        }
+        let path = entry.path();
+        // symlink_metadata: a symlink is seen as a link, never followed.
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !meta.file_type().is_file() {
+            continue;
+        }
+        let stale = meta
+            .modified()
+            .ok()
+            .and_then(|mtime| now.duration_since(mtime).ok())
+            .is_some_and(|age| age > STALE_PREVIEW_AGE);
+        if stale {
+            let _ = fs::remove_file(&path);
+        }
+    }
+}
+
+/// Create the preview directory if needed and check that it is safe to write
+/// into: on Unix, a real directory (not a symlink) owned by this user, with
+/// mode 0700. Anything else is refused, so nothing is written or swept there.
+/// On Windows the per-user `%TEMP%` is used as is.
+fn prepare_preview_dir(dir: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)?;
+        // symlink_metadata: a symlink is seen as a link, never followed.
+        let meta = fs::symlink_metadata(dir)?;
+        if !meta.file_type().is_dir() {
+            return Err(std::io::Error::other(
+                "the preview folder is not a real directory",
+            ));
+        }
+        if meta.uid() != nix::unistd::geteuid().as_raw() {
+            return Err(std::io::Error::other(
+                "the preview folder belongs to another user",
+            ));
+        }
+        if meta.permissions().mode() & 0o777 != 0o700 {
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
+        }
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        fs::create_dir_all(dir)
+    }
 }
 
 /// Why a browser preview did not open — shown to the user as a popup.
@@ -47,17 +152,27 @@ impl PreviewNotice {
 }
 
 pub struct PreviewController {
+    /// Directory the preview files are written to, chosen once.
+    dir: std::path::PathBuf,
     /// Set of temp file paths created during this session.
     temp_files: HashSet<std::path::PathBuf>,
 }
 
 impl PreviewController {
     pub fn new() -> Self {
-        // Ensure preview directory exists
-        let dir = preview_dir();
-        let _ = fs::create_dir_all(&dir);
+        Self::with_dir(default_preview_dir())
+    }
+
+    /// A controller that writes its preview files to `dir`. Once, at
+    /// startup and with no timer, it drops what a crashed run left there,
+    /// unless the dir was refused.
+    fn with_dir(dir: std::path::PathBuf) -> Self {
+        if prepare_preview_dir(&dir).is_ok() {
+            sweep_stale_previews(&dir, std::time::SystemTime::now());
+        }
 
         Self {
+            dir,
             temp_files: HashSet::new(),
         }
     }
@@ -65,7 +180,7 @@ impl PreviewController {
     /// Generate a unique temp file path for a document.
     /// Uses file path hash for saved files (stable across sessions),
     /// or doc_id for untitled documents.
-    fn temp_path_for_doc(file_path: Option<&str>, doc_id: u64) -> std::path::PathBuf {
+    fn temp_path_for_doc(&self, file_path: Option<&str>, doc_id: u64) -> std::path::PathBuf {
         let id = match file_path {
             Some(path) => {
                 // Hash the file path for stable naming across sessions
@@ -75,7 +190,7 @@ impl PreviewController {
             }
             None => doc_id, // Untitled documents use doc_id
         };
-        preview_dir().join(format!("preview_{:016x}.html", id))
+        self.dir.join(format!("preview_{:016x}.html", id))
     }
 
     /// Render markdown text to HTML.
@@ -136,16 +251,29 @@ impl PreviewController {
         doc_id: u64,
         html: &str,
     ) -> Result<(), String> {
-        let temp_path = Self::temp_path_for_doc(file_path, doc_id);
+        let temp_path = self.write_preview(file_path, doc_id, html)?;
+        open::that(&temp_path).map_err(|e| format!("Failed to open browser: {}", e))
+    }
 
-        // Ensure preview directory exists (may have been cleaned since app start)
-        let _ = fs::create_dir_all(preview_dir());
+    /// Write a document's preview file, creating the directory if needed, and
+    /// track it for cleanup. Returns the file's path.
+    fn write_preview(
+        &mut self,
+        file_path: Option<&str>,
+        doc_id: u64,
+        html: &str,
+    ) -> Result<std::path::PathBuf, String> {
+        let temp_path = self.temp_path_for_doc(file_path, doc_id);
+
+        // Ensure preview directory exists (may have been cleaned since app
+        // start) and is safe to write into.
+        prepare_preview_dir(&self.dir)
+            .map_err(|e| format!("Failed to write preview file: {}", e))?;
 
         fs::write(&temp_path, html).map_err(|e| format!("Failed to write preview file: {}", e))?;
 
         self.temp_files.insert(temp_path.clone());
-
-        open::that(&temp_path).map_err(|e| format!("Failed to open browser: {}", e))
+        Ok(temp_path)
     }
 
     /// Write HTML to the temp file for a specific document without opening browser.
@@ -157,12 +285,14 @@ impl PreviewController {
         doc_id: u64,
         html: &str,
     ) -> Result<(), String> {
-        let temp_path = Self::temp_path_for_doc(file_path, doc_id);
+        let temp_path = self.temp_path_for_doc(file_path, doc_id);
 
         // Only update if preview file exists (from this session or a previous one)
         if !self.temp_files.contains(&temp_path) && !temp_path.exists() {
             return Ok(());
         }
+        prepare_preview_dir(&self.dir)
+            .map_err(|e| format!("Failed to write preview file: {}", e))?;
 
         fs::write(&temp_path, html).map_err(|e| format!("Failed to write preview file: {}", e))?;
 
@@ -178,7 +308,7 @@ impl PreviewController {
             let _ = fs::remove_file(path);
         }
         // Try to remove the directory (will only succeed if empty)
-        let _ = fs::remove_dir(preview_dir());
+        let _ = fs::remove_dir(&self.dir);
     }
 }
 
@@ -376,6 +506,206 @@ pub fn wrap_html_for_preview(html: &str, dark_mode: bool, base_dir: Option<&Path
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preview_dir_in_flatpak_uses_the_cache_dir() {
+        assert_eq!(
+            preview_dir_for(true, Some(Path::new("/c")), Path::new("/t")),
+            Path::new("/c/ferrispad_preview")
+        );
+    }
+
+    #[test]
+    fn preview_dir_outside_flatpak_is_unchanged() {
+        assert_eq!(
+            preview_dir_for(false, Some(Path::new("/c")), Path::new("/t")),
+            Path::new("/t/ferrispad_preview")
+        );
+    }
+
+    #[test]
+    fn preview_dir_in_flatpak_without_cache_dir_falls_back() {
+        assert_eq!(
+            preview_dir_for(true, None, Path::new("/t")),
+            Path::new("/t/ferrispad_preview")
+        );
+    }
+
+    #[test]
+    fn sweep_removes_only_old_preview_files() {
+        use std::time::{Duration, SystemTime};
+        let scratch = tempfile::tempdir().unwrap();
+        let dir = scratch.path().join(PREVIEW_DIR_NAME);
+        fs::create_dir(&dir).unwrap();
+        let now = SystemTime::now();
+        let old = now - Duration::from_secs(25 * 60 * 60);
+        let touch = |path: &Path, mtime: SystemTime| {
+            fs::write(path, "x").unwrap();
+            fs::File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_modified(mtime)
+                .unwrap();
+        };
+
+        let old_preview = dir.join("preview_0123456789abcdef.html");
+        let new_preview = dir.join("preview_fedcba9876543210.html");
+        let old_foreign = dir.join("notes.html");
+        let old_bad_hex = dir.join("preview_0123.html");
+        let subdir = dir.join("preview_aaaaaaaaaaaaaaaa.html");
+        let outside = scratch.path().join("preview_bbbbbbbbbbbbbbbb.html");
+        touch(&old_preview, old);
+        touch(&new_preview, now);
+        touch(&old_foreign, old);
+        touch(&old_bad_hex, old);
+        touch(&outside, old);
+        fs::create_dir(&subdir).unwrap();
+        let inner = subdir.join("preview_cccccccccccccccc.html");
+        touch(&inner, old);
+        #[cfg(unix)]
+        let link = {
+            let link = dir.join("preview_dddddddddddddddd.html");
+            std::os::unix::fs::symlink(&outside, &link).unwrap();
+            link
+        };
+
+        sweep_stale_previews(&dir, now);
+
+        assert!(!old_preview.exists(), "an old preview file is removed");
+        assert!(new_preview.exists(), "a recent preview may be in use");
+        assert!(old_foreign.exists(), "only the preview naming is touched");
+        assert!(old_bad_hex.exists(), "only the preview naming is touched");
+        assert!(inner.exists(), "no recursion");
+        assert!(outside.exists(), "nothing outside the dir");
+        #[cfg(unix)]
+        assert!(
+            fs::symlink_metadata(&link).is_ok(),
+            "a symlink is skipped, not removed or followed"
+        );
+    }
+
+    #[test]
+    fn sweep_of_a_missing_dir_is_a_no_op() {
+        let scratch = tempfile::tempdir().unwrap();
+        sweep_stale_previews(
+            &scratch.path().join("missing"),
+            std::time::SystemTime::now(),
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_open_dir_is_made_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let scratch = tempfile::tempdir().unwrap();
+        let dir = scratch.path().join(PREVIEW_DIR_NAME);
+        fs::create_dir(&dir).unwrap();
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o777)).unwrap();
+        let preview = PreviewController::with_dir(dir.clone());
+        let mode = fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "a pre-existing open preview dir is tightened");
+        drop(preview);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_preview_dir_is_refused() {
+        use std::time::{Duration, SystemTime};
+        let scratch = tempfile::tempdir().unwrap();
+        let target = scratch.path().join("elsewhere");
+        fs::create_dir(&target).unwrap();
+        let stale = target.join("preview_0123456789abcdef.html");
+        fs::write(&stale, "x").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&stale)
+            .unwrap()
+            .set_modified(SystemTime::now() - Duration::from_secs(25 * 60 * 60))
+            .unwrap();
+        let dir = scratch.path().join(PREVIEW_DIR_NAME);
+        std::os::unix::fs::symlink(&target, &dir).unwrap();
+
+        let mut preview = PreviewController::with_dir(dir.clone());
+        let err = preview
+            .write_preview(Some("/notes/a.md"), 1, "<p>one</p>")
+            .unwrap_err();
+        assert!(err.starts_with("Failed to write preview file"), "{err}");
+        let written: Vec<_> = fs::read_dir(&target)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(written, vec![stale.file_name().unwrap().to_owned()]);
+        assert!(stale.exists(), "no sweep in a refused dir");
+        drop(preview);
+        assert!(
+            fs::symlink_metadata(&dir).is_ok(),
+            "the link itself is left alone"
+        );
+    }
+
+    /// FLATPAK_ID alone is not a Flatpak: a host process can inherit it, e.g.
+    /// from VS Code's Flatpak (`com.visualstudio.code`). The preview uses the
+    /// updater's rule, `/.flatpak-info` only. The test re-runs itself with
+    /// only that variable set.
+    #[test]
+    fn flatpak_id_alone_is_not_a_flatpak() {
+        use crate::app::services::updater::is_flatpak;
+        const PROBE: &str = "FERRISPAD_FLATPAK_ID_PROBE";
+        if std::env::var_os(PROBE).is_some() {
+            assert!(!is_flatpak(), "FLATPAK_ID alone counted as a Flatpak");
+            return;
+        }
+        if Path::new("/.flatpak-info").exists() {
+            return; // inside a real sandbox: nothing to show here
+        }
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "app::controllers::preview::tests::flatpak_id_alone_is_not_a_flatpak",
+                "--test-threads=1",
+            ])
+            .env("FLATPAK_ID", "com.visualstudio.code")
+            .env(PROBE, "1")
+            .status()
+            .unwrap();
+        assert!(status.success(), "FLATPAK_ID alone counted as a Flatpak");
+    }
+
+    #[test]
+    fn cleanup_removes_files_and_dir() {
+        let scratch = tempfile::tempdir().unwrap();
+        let dir = scratch.path().join("cache").join(PREVIEW_DIR_NAME);
+        let mut preview = PreviewController::with_dir(dir.clone());
+        assert!(dir.is_dir());
+
+        let path = preview
+            .write_preview(Some("/notes/a.md"), 1, "<p>one</p>")
+            .unwrap();
+        assert!(path.starts_with(&dir));
+        // The live refresh on save rewrites the same file.
+        preview
+            .write_html(Some("/notes/a.md"), 1, "<p>two</p>")
+            .unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "<p>two</p>");
+
+        preview.cleanup();
+        assert!(!path.exists());
+        assert!(!dir.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preview_dir_is_private_to_the_user() {
+        use std::os::unix::fs::PermissionsExt;
+        let scratch = tempfile::tempdir().unwrap();
+        let dir = scratch.path().join("cache").join(PREVIEW_DIR_NAME);
+        let preview = PreviewController::with_dir(dir.clone());
+        let mode = fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700);
+        drop(preview);
+    }
 
     #[test]
     fn test_is_markdown_file() {

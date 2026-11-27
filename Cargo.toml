@@ -50,6 +50,9 @@ vte = "0.15"
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 tikv-jemallocator = "0.6"
 tikv-jemalloc-ctl = "0.6"
+# Safe geteuid() for the preview folder's owner check (T0119). Already in the
+# build through portable-pty; this only adds its "user" feature.
+nix = { version = "0.28", default-features = false, features = ["user"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
