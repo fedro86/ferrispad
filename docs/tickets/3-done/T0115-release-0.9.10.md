@@ -1,7 +1,7 @@
 ---
 id: T0115
 title: Prepare the 0.9.10 stable release
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-27
 severity: ~
 area: process
@@ -74,7 +74,7 @@ that describes the final state.
 
 ## Acceptance criteria
 
-- [ ] The user approved the CHANGELOG text and the release.
+- [x] The user approved the CHANGELOG text and the release (2026-11-27).
 - [x] Version 0.9.10 in `Cargo.toml`, `Cargo.lock` and
       `build-releases.sh`.
 - [x] The `[0.9.10]` section extracts with the `awk` above, and the rc
@@ -158,3 +158,12 @@ that describes the final state.
 - Start page unchanged. Its rc.3 entries list the release's main features.
   Xvfb, Noto Sans, light and dark: `ferrispad-wt/uitest-T0115/start-{Light,Dark}-16.png`
   show `v0.9.10` and all six entries inside the card.
+
+## User verification
+
+2026-11-27: the user approved the `[0.9.10]` CHANGELOG text and the
+release. The approval covers the narrowed T0099 line and a3's wording of
+the Known Issue note. The user was told that the case can trigger within
+seconds and also affects named files and tabs. The user chose to release
+with the note rather than land T0101 in an rc.4. The post-tag items stay
+open until the tag run is checked.
