@@ -2,7 +2,10 @@
 
 use std::process::Command;
 
-use super::super::security::{DEFAULT_COMMAND_TIMEOUT, validate_command_arg};
+use super::super::security::{
+    DEFAULT_COMMAND_TIMEOUT, is_bare_program, resolve_plugin_program, trusted_home_from_env,
+    validate_command_arg,
+};
 use super::EditorApi;
 
 /// Run an external command and return its output.
@@ -94,8 +97,37 @@ pub fn run_command(
         }
     }
 
+    // A non-bare program must be an executable in a trusted directory (the
+    // project root or the user's home), and is run by its absolute path
+    // (T0094). Bare names keep the PATH lookup: acceptable because plugins
+    // cannot create or overwrite executables (T0092), even when PATH
+    // contains "." or the project's venv.
+    let program: std::path::PathBuf = if is_bare_program(cmd) {
+        cmd.into()
+    } else {
+        match resolve_plugin_program(
+            cmd,
+            this.project_root.as_deref(),
+            trusted_home_from_env().as_deref(),
+            cfg!(windows),
+            std::env::var("PATHEXT").ok().as_deref(),
+        ) {
+            Ok(p) => p,
+            Err(reason) => {
+                eprintln!(
+                    "[plugin:security] {} run_command blocked '{}': {}",
+                    plugin_name, cmd, reason
+                );
+                return Err(mlua::Error::RuntimeError(format!(
+                    "Program '{}' refused: {}",
+                    cmd, reason
+                )));
+            }
+        }
+    };
+
     // Build command with pipes and optional working directory
-    let mut command = Command::new(cmd);
+    let mut command = Command::new(&program);
     command
         .args(cmd_args)
         .stdout(Stdio::piped())

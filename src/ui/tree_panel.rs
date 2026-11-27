@@ -3,6 +3,7 @@
 //! Used for showing file browsers, YAML/JSON viewers, and outline views.
 //! Plugin-driven via the Widget API.
 
+use crate::ui::color::fltk_rgb;
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -113,11 +114,11 @@ impl TreePanel {
         header_row.set_frame(FrameType::FlatBox);
         header_row.set_margin(0);
         header_row.set_pad(0);
-        header_row.set_color(Color::from_rgb(60, 60, 60));
+        header_row.set_color(fltk_rgb(60, 60, 60));
 
         let mut header = Frame::default();
         header.set_frame(FrameType::FlatBox);
-        header.set_color(Color::from_rgb(60, 60, 60));
+        header.set_color(fltk_rgb(60, 60, 60));
         header.set_label_color(Color::White);
         header.set_label_font(Font::HelveticaBold);
         header.set_label_size(12);
@@ -126,15 +127,15 @@ impl TreePanel {
 
         let mut refresh_btn = Button::default().with_size(24, 24).with_label("\u{21BB}");
         refresh_btn.set_frame(FrameType::FlatBox);
-        refresh_btn.set_color(Color::from_rgb(60, 60, 60));
-        refresh_btn.set_label_color(Color::from_rgb(180, 180, 180));
+        refresh_btn.set_color(fltk_rgb(60, 60, 60));
+        refresh_btn.set_label_color(fltk_rgb(180, 180, 180));
         refresh_btn.set_label_size(14);
         refresh_btn.set_tooltip("Refresh");
 
         let mut close_btn = Button::default().with_size(24, 24).with_label("X");
         close_btn.set_frame(FrameType::FlatBox);
-        close_btn.set_color(Color::from_rgb(60, 60, 60));
-        close_btn.set_label_color(Color::from_rgb(180, 180, 180));
+        close_btn.set_color(fltk_rgb(60, 60, 60));
+        close_btn.set_label_color(fltk_rgb(180, 180, 180));
         close_btn.set_label_size(11);
 
         // Title takes remaining space; only buttons are fixed
@@ -148,12 +149,12 @@ impl TreePanel {
         search_row.set_frame(FrameType::FlatBox);
         search_row.set_margin(0);
         search_row.set_pad(0);
-        search_row.set_color(Color::from_rgb(50, 50, 50));
+        search_row.set_color(fltk_rgb(50, 50, 50));
 
         let mut search_input = Input::default();
         search_input.set_frame(FrameType::FlatBox);
-        search_input.set_color(Color::from_rgb(50, 50, 50));
-        search_input.set_text_color(Color::from_rgb(160, 160, 160));
+        search_input.set_color(fltk_rgb(50, 50, 50));
+        search_input.set_text_color(fltk_rgb(160, 160, 160));
         search_input.set_text_size(13);
         search_input.set_value(SEARCH_PLACEHOLDER);
         search_input.set_tooltip("Search tree...");
@@ -164,10 +165,10 @@ impl TreePanel {
         // Tree widget
         let mut tree = Tree::default();
         tree.set_frame(FrameType::FlatBox);
-        tree.set_color(Color::from_rgb(40, 40, 40));
-        tree.set_selection_color(Color::from_rgb(70, 100, 130));
-        tree.set_item_label_fgcolor(Color::from_rgb(220, 220, 220));
-        tree.set_connector_color(Color::from_rgb(100, 100, 100));
+        tree.set_color(fltk_rgb(40, 40, 40));
+        tree.set_selection_color(fltk_rgb(70, 100, 130));
+        tree.set_item_label_fgcolor(fltk_rgb(220, 220, 220));
+        tree.set_connector_color(fltk_rgb(100, 100, 100));
         tree.set_margin_left(10);
         tree.set_item_draw_mode(fltk::tree::TreeItemDrawMode::LabelAndWidget);
         tree.set_item_reselect_mode(fltk::tree::TreeItemReselectMode::Always);
@@ -184,8 +185,8 @@ impl TreePanel {
 
         // Search input callback — placeholder text + search on each key press
         let search_sender = sender;
-        let active_text_color = Color::from_rgb(220, 220, 220);
-        let dim_color = Color::from_rgb(160, 160, 160);
+        let active_text_color = fltk_rgb(220, 220, 220);
+        let dim_color = fltk_rgb(160, 160, 160);
         search_input.handle(move |input, ev| {
             match ev {
                 Event::Focus => {
@@ -229,7 +230,7 @@ impl TreePanel {
             visible: false,
             on_click_action: None,
             double_click: true,
-            item_fg: Color::from_rgb(220, 220, 220),
+            item_fg: fltk_rgb(220, 220, 220),
             context_path: None,
             context_menu: Vec::new(),
             ctx_menu,
@@ -284,8 +285,7 @@ impl TreePanel {
         self.current_nodes = request.root.clone();
         self.current_expand_depth = request.expand_depth;
         self.search_input.set_value(SEARCH_PLACEHOLDER);
-        self.search_input
-            .set_text_color(Color::from_rgb(160, 160, 160));
+        self.search_input.set_text_color(fltk_rgb(160, 160, 160));
 
         // Update header title
         if !request.title.is_empty() {
@@ -321,7 +321,7 @@ impl TreePanel {
 
     /// Resolve a semantic label color name to an FLTK Color, theme-aware.
     fn resolve_label_color(&self, name: &str) -> Option<Color> {
-        git_label_rgb(name, self.is_dark).map(|(r, g, b)| Color::from_rgb(r, g, b))
+        git_label_rgb(name, self.is_dark).map(|(r, g, b)| fltk_rgb(r, g, b))
     }
 
     /// Add a node to the tree recursively.
@@ -772,8 +772,7 @@ impl TreePanel {
         self.context_menu.clear();
         self.current_nodes = None;
         self.search_input.set_value(SEARCH_PLACEHOLDER);
-        self.search_input
-            .set_text_color(Color::from_rgb(160, 160, 160));
+        self.search_input.set_text_color(fltk_rgb(160, 160, 160));
         *self.drag_source_path.borrow_mut() = None;
         self.dragging.set(false);
         self.expanded_paths.borrow_mut().clear();

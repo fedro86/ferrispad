@@ -274,7 +274,7 @@ mod tests {
     use super::*;
 
     fn rgb((r, g, b): (u8, u8, u8)) -> Color {
-        Color::from_rgb(r, g, b)
+        crate::ui::color::fltk_rgb(r, g, b)
     }
 
     /// Hand-checked reference pairs for the CIELAB port at level 10, from

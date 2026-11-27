@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{Two to four words}}</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --ink: #1c2430; --muted: #5b6675;
+    --accent: #0b6e4f; --accent-soft: #e3f2ec; --line: #dde3ea;
+    --warn: #8a5a00; --warn-soft: #fdf3dd; --code-bg: #f0f2f5;
+    --chip: #eef1f4; --bad: #8a2020; --bad-soft: #fbeaea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181f; --surface: #1c222b; --ink: #e8ecf1; --muted: #9aa6b4;
+      --accent: #4cc39a; --accent-soft: #10352a; --line: #2c3541;
+      --warn: #e2b45a; --warn-soft: #33290f; --code-bg: #232a34;
+      --chip: #262e39; --bad: #e88; --bad-soft: #3a1c1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 "Open Sans", "Segoe UI", system-ui, sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  header.top { border-bottom: 3px solid var(--accent); padding-bottom: 1.2rem; margin-bottom: 2rem; }
+  .kicker { text-transform: uppercase; letter-spacing: .12em; font-size: .78rem; color: var(--accent); font-weight: 700; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: .3rem 0 .6rem; }
+  h2 { font-size: 1.35rem; margin: 0 0 .2rem; }
+  h3 { font-size: 1.02rem; margin: 1.3rem 0 .4rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem .6rem; margin-top: .8rem; }
+  .chip { background: var(--chip); border: 1px solid var(--line); border-radius: 999px;
+    padding: .15rem .7rem; font-size: .82rem; color: var(--muted); white-space: nowrap; }
+  .chip strong { color: var(--ink); font-weight: 600; }
+  .chip.green { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .chip.warn { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+  a { color: var(--accent); }
+  section.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.5rem 1.75rem; margin-bottom: 1.75rem; }
+  p { margin: .55rem 0; }
+  ul, ol { margin: .4rem 0 .6rem; padding-left: 1.3rem; }
+  li { margin: .25rem 0; }
+  code { font: .86em/1.5 "JetBrains Mono", "Fira Mono", monospace;
+    background: var(--code-bg); border-radius: 4px; padding: .08em .35em; word-break: break-word; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: .85rem 1rem; overflow-x: auto; font-size: .85rem; line-height: 1.55; }
+  pre code { background: none; padding: 0; }
+  .why { border-left: 4px solid var(--accent); background: var(--accent-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup { border-left: 4px solid var(--warn); background: var(--warn-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup strong.tag { color: var(--warn); }
+  .bad { border-left: 4px solid var(--bad); background: var(--bad-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .bad strong.tag { color: var(--bad); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; font-size: .9rem; }
+  th, td { text-align: left; border-bottom: 1px solid var(--line); padding: .45rem .6rem; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; font-family: "JetBrains Mono", "Fira Mono", monospace; white-space: nowrap; }
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li { counter-increment: step; position: relative; padding-left: 2.2rem; margin: .55rem 0; }
+  .steps li::before { content: counter(step); position: absolute; left: 0; top: .1rem;
+    width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--accent-soft);
+    color: var(--accent); font-weight: 700; font-size: .82rem; display: grid; place-items: center; }
+  .expect { display: block; margin-top: .2rem; color: var(--muted); font-size: .9em; }
+  .expect::before { content: "expected → "; color: var(--accent); font-weight: 600; }
+  .flow { display: grid; gap: .35rem; margin: .8rem 0; }
+  .flow div { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: .45rem .8rem; font-size: .9rem; }
+  .flow div strong { color: var(--accent); }
+  footer { color: var(--muted); font-size: .86rem; border-top: 1px solid var(--line);
+    margin-top: 2rem; padding-top: 1rem; }
+  img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
+  figure { margin: .9rem 0; }
+  figcaption { color: var(--muted); font-size: .88rem; font-style: italic; margin-top: .35rem; }
+  code.sha { white-space: nowrap; word-break: normal; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<!--
+  new-pr template (docs/pr/README.md, .claude/skills/new-pr/SKILL.md).
+  Everything in {{double braces}} is a placeholder: replace it or delete its element.
+  Keep the style block above byte-identical. English only. Facts only: a number
+  that is not known yet stays a visible {{placeholder}}, never an estimate.
+-->
+<header class="top">
+  <div class="kicker">Pull request #{{n}} · ticket/{{T0NNN}} → master · {{area}}</div>
+  <h1>{{One sentence: what the PR delivers}}</h1>
+  <!-- The PR's story: what a user could not do before this PR, and what they can
+       do now. Concrete actions in the editor, not code. -->
+  <div class="flow">
+    <div><strong>Before</strong> · {{what could not be done, or went wrong, before this PR}}</div>
+    <div><strong>After</strong> · {{what can be done now, and where in the editor}}</div>
+  </div>
+  <p>{{Why, in two to four sentences: who reported it, on which version, and the
+  design constraint it touches (PHILOSOPHY.md: 0% CPU when idle, single binary,
+  no telemetry, memory frugality), if any.}}</p>
+  <ul>
+    <li>{{the user-visible or system-level changes, one per line;}}</li>
+    <li>{{…}}</li>
+  </ul>
+  <div class="meta">
+    <span class="chip"><strong>{{T0NNN}}</strong> in <code>{{2-review/ or 3-done/}}</code></span>
+    <span class="chip"><strong>{{files}}</strong> files · +{{insertions}} / −{{deletions}}</span>
+    <span class="chip warn">{{a behaviour change a user will notice, e.g. a settings default}}</span>
+    <span class="chip green">gates green at every commit</span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/{{n}}">PR #{{n}} on GitHub</a></span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/issues/{{issue}}">issue #{{issue}}</a></span>
+  </div>
+</header>
+
+<section class="card">
+  <h2>The branch's commits</h2>
+  <!-- One ticket per PR, squash-merged: master gets one commit. This table lists
+       the branch's commits for reference (implementation, review fixes, merges of
+       master, the 3-done move). -->
+  <div class="scroll">
+  <table>
+    <tr><th>Commit</th><th>What changes</th></tr>
+    <tr><td><code class="sha">{{sha8}}</code></td>
+      <td>{{What changes, in one or two lines. Say "Red test", "Review fix", "Merge of master" or "Docs only" where it applies.}}</td></tr>
+  </table>
+  </div>
+  <p>{{If master was merged in: which PRs it brought and the conflict it had.}}</p>
+</section>
+
+<section class="card">
+  <h2>{{How X works, now}}</h2>
+  <!-- Optional: delete this card when the ticket card says it all. -->
+  <div class="flow">
+    <div><strong>{{Stage}}</strong> · {{what happens there}}</div>
+    <div><strong>{{Stage}}</strong> · {{…}}</div>
+  </div>
+</section>
+
+<!-- The ticket card: the heart of the page. Use .why for a reason, .followup for a
+     consequence or a decision the reviewer may overturn, .bad for a defect (with its
+     red test) or for an approach that was tried and dropped. -->
+<section class="card ticket">
+  <h2>{{T0NNN}}: {{what it delivers}}</h2>
+  <!-- The ticket's story: what was not possible before, what is possible after. -->
+  <div class="flow">
+    <div><strong>Before</strong> · {{what could not be done before this ticket}}</div>
+    <div><strong>After</strong> · {{what can be done now}}</div>
+  </div>
+  <p>{{One paragraph of context, with whose decision it was and when.}}</p>
+  <ul>
+    <li><strong>{{Point}}:</strong> {{detail}}</li>
+  </ul>
+  <!-- Every visible change is shown (new-pr §3a): screenshots of the real app,
+       driven in Xvfb, master build (before) vs branch build (after), light AND dark.
+       Inline as base64 so the page stays one file; a data-URI <img> or an inline
+       <svg> in a <figure> both count. What Xvfb cannot show is stated as
+       "pending user on <platform>". No image? Replace the figures with:
+       <p><strong>No visible change:</strong> the reason.</p>
+       This comment does not count. No nested <section> in a ticket card. -->
+  <figure>
+    <img alt="{{what the screenshot shows}}" src="data:image/png;base64,{{…}}">
+    <figcaption>{{Before (master {{sha8}}), {{light/dark}}: what to look at in the image.}}</figcaption>
+  </figure>
+  <figure>
+    <img alt="{{what the screenshot shows}}" src="data:image/png;base64,{{…}}">
+    <figcaption>{{After (branch {{sha8}}), {{light/dark}}: what to look at in the image.}}</figcaption>
+  </figure>
+  <p>{{Pending user on {{native Wayland / Windows / macOS}}: what Xvfb cannot show, and what to look for.}}</p>
+  <div class="bad"><strong class="tag">{{The defect.}}</strong> {{What was wrong, the red test and its failing output.}}</div>
+  <div class="why"><strong>{{Why this shape.}}</strong> {{The reason, and the alternative turned down.}}</div>
+  <div class="followup"><strong class="tag">{{Consequence.}}</strong> {{What this means for a later ticket, a release or the reviewer.}}</div>
+  <h3>How to test {{T0NNN}}</h3>
+  <!-- From the ticket's "How to test": the tests, then the manual repro in the app,
+       each step with what is seen. -->
+  <ol class="steps">
+    <li><code>nix develop -c cargo test {{the ticket's test names}}</code>
+      <span class="expect">{{ok, and which cases name the rule; before the fix: the red failure}}</span></li>
+    <li>{{A click-path in the app (menu → item → field) that shows this ticket's change}}
+      <span class="expect">{{what the reviewer sees}}</span></li>
+  </ol>
+</section>
+
+<section class="card">
+  <h2>{{Measurements, if the PR has any}}</h2>
+  <!-- Optional: timings, memory, binary size. Delete the card when there are none. -->
+  <div class="scroll">
+  <table>
+    <tr><th>{{Case}}</th><th>{{Build}}</th><th class="n">{{before}}</th><th class="n">{{after}}</th></tr>
+    <tr><td>{{…}}</td><td>{{…}}</td><td class="n">{{…}}</td><td class="n">{{…}}</td></tr>
+  </table>
+  </div>
+  <p>{{Machine, build profile, method. A gate that fails is written as failed.}}</p>
+</section>
+
+<section class="card">
+  <h2>Release notes and compatibility</h2>
+  <ul>
+    <li><strong>CHANGELOG:</strong> {{the entry this change will get in the next release section, or "none: process only"}}.</li>
+    <li>{{Anything a user's existing files meet: settings.json, session files, plugins, themes. "None" when nothing changes.}}</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>What remains open</h2>
+  <ul>
+    <li><strong>{{Ticket or follow-up}}:</strong> {{what, and who or when}}.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>End-to-end verification</h2>
+  <!-- Not the ticket's tests again: one scenario the way a user meets the change,
+       from a clean start to what they see. Every step builds on the previous one. -->
+  <p>{{The scenario in one sentence: from what state to what outcome.}}
+  From the branch's worktree, with a throwaway config and data directory, so the
+  run never reads or writes your real settings and sessions.</p>
+  <h3>Starting state</h3>
+  <ol class="steps">
+    <li><code>export XDG_CONFIG_HOME=$(mktemp -d) XDG_DATA_HOME=$(mktemp -d)</code>{{, plus the fixture files or settings.json the scenario needs}}
+      <span class="expect">{{how to see that the starting state is right}}</span></li>
+    <li><code>nix develop -c cargo run</code>
+      <span class="expect">{{what the window shows at start}}</span></li>
+  </ol>
+  <h3>The scenario</h3>
+  <ol class="steps">
+    <li>{{Step 1: the user's action}}
+      <span class="expect">{{what they see}}</span></li>
+    <li>{{Step 2, building on step 1}}
+      <span class="expect">{{…}}</span></li>
+  </ol>
+  <h3>The gates</h3>
+  <ol class="steps">
+    <li><code>nix develop -c cargo test</code>, <code>nix develop -c cargo clippy --all-targets --all-features -- -D warnings</code>, <code>nix develop -c cargo fmt --check</code>
+      <span class="expect">all green, zero warnings.</span></li>
+  </ol>
+</section>
+
+<footer>
+  Presentation of PR #{{n}} · branch <code>ticket/{{T0NNN}}</code> · commits <code>{{first sha8}}</code> → <code>{{last sha8}}</code> ·
+  ticket <code>docs/tickets/{{3-done}}/{{T0NNN-slug}}.md</code> · issue #{{issue}}.
+</footer>
+</div>
+</body>
+</html>

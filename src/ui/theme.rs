@@ -1,3 +1,4 @@
+use crate::ui::color::fltk_rgb;
 use fltk::{
     app,
     enums::{Color, FrameType},
@@ -57,7 +58,7 @@ pub fn panel_selection_color(theme_bg: (u8, u8, u8)) -> (u8, u8, u8) {
 /// the contrast rule, so a selected row's labels are drawn readable.
 pub fn style_panel_selection<W: WidgetExt>(widget: &mut W, theme_bg: (u8, u8, u8)) {
     let (r, g, b) = panel_selection_color(theme_bg);
-    widget.set_selection_color(Color::from_rgb(r, g, b));
+    widget.set_selection_color(fltk_rgb(r, g, b));
     super::contrast::register_panel_selection((r, g, b));
 }
 
@@ -93,14 +94,14 @@ pub fn diff_tab_tint_from_bg(theme_bg: (u8, u8, u8), is_dark: bool) -> Color {
     let (r, g, b) = theme_bg;
     if is_dark {
         let (dr, dg, db) = DIFF_TAB_TINT_DARK;
-        Color::from_rgb(
+        fltk_rgb(
             r.saturating_add(dr),
             g.saturating_add(dg),
             b.saturating_add(db),
         )
     } else {
         let (dr, dg, db) = DIFF_TAB_TINT_LIGHT;
-        Color::from_rgb(
+        fltk_rgb(
             r.saturating_sub(dr),
             g.saturating_sub(dg),
             b.saturating_sub(db),
@@ -264,7 +265,7 @@ pub fn effective_editor_colors(
 /// Every re-theme (startup, dark-mode toggle, Settings, live preview and its
 /// revert on Cancel) ends here, after `apply_theme`.
 pub fn apply_syntax_theme_colors(editor: &mut TextEditor, colors: &EditorColors) {
-    let fltk = |c: (u8, u8, u8)| Color::from_rgb(c.0, c.1, c.2);
+    let fltk = |c: (u8, u8, u8)| fltk_rgb(c.0, c.1, c.2);
     let background = colors.background;
     editor.set_color(fltk(background));
     // Editor only — NOT FLTK's global Selection color, which is also used for
@@ -321,18 +322,18 @@ pub fn apply_theme(
 
     if is_dark {
         // Dark mode colors
-        window.set_color(Color::from_rgb(25, 25, 25));
-        window.set_label_color(Color::from_rgb(220, 220, 220));
+        window.set_color(fltk_rgb(25, 25, 25));
+        window.set_label_color(fltk_rgb(220, 220, 220));
         if let Some(b) = banner {
-            b.set_color(Color::from_rgb(139, 128, 0)); // Darker yellow/olive
+            b.set_color(fltk_rgb(139, 128, 0)); // Darker yellow/olive
             b.set_label_color(Color::White);
         }
     } else {
         // Light mode colors
-        window.set_color(Color::from_rgb(240, 240, 240));
+        window.set_color(fltk_rgb(240, 240, 240));
         window.set_label_color(Color::Black);
         if let Some(b) = banner {
-            b.set_color(Color::from_rgb(255, 250, 205)); // Lemon chiffon
+            b.set_color(fltk_rgb(255, 250, 205)); // Lemon chiffon
             b.set_label_color(Color::Black);
         }
     }
@@ -481,7 +482,10 @@ pub fn set_macos_titlebar_color(window: &Window, theme_bg: (u8, u8, u8), theme_f
         // Step 2: set the background color (now visible in the title bar area).
         let bg_color: *mut AnyObject = msg_send![
             class!(NSColor),
-            colorWithRed: r_f green: g_f blue: b_f alpha: 1.0_f64
+            colorWithRed: r_f,
+            green: g_f,
+            blue: b_f,
+            alpha: 1.0_f64,
         ];
         let _: () = msg_send![ns_window, setBackgroundColor: bg_color];
 
@@ -513,11 +517,14 @@ pub fn set_macos_titlebar_color(window: &Window, theme_bg: (u8, u8, u8), theme_f
 
         let text_color: *mut AnyObject = msg_send![
             class!(NSColor),
-            colorWithRed: fg_r green: fg_g blue: fg_b alpha: 1.0_f64
+            colorWithRed: fg_r,
+            green: fg_g,
+            blue: fg_b,
+            alpha: 1.0_f64,
         ];
         // NSFontWeightRegular = 0.0
         let font: *mut AnyObject =
-            msg_send![class!(NSFont), systemFontOfSize: 13.0_f64 weight: 0.0_f64];
+            msg_send![class!(NSFont), systemFontOfSize: 13.0_f64, weight: 0.0_f64];
 
         let _: () = msg_send![label, setTextColor: text_color];
         let _: () = msg_send![label, setFont: font];
@@ -546,9 +553,9 @@ pub fn set_macos_titlebar_color(window: &Window, theme_bg: (u8, u8, u8), theme_f
         // NSWindowBelow = -1
         let _: () = msg_send![
             titlebar_view,
-            addSubview: label
-            positioned: -1_isize
-            relativeTo: btn_group
+            addSubview: label,
+            positioned: -1_isize,
+            relativeTo: btn_group,
         ];
     }
 }
@@ -698,7 +705,7 @@ mod tests {
                 labels.push((name, git_label_rgb(name, is_dark).unwrap()));
             }
             let bgs = EditorSelectionBgs::default().with_panel_selection(sel);
-            let rgb = |(r, g, b): (u8, u8, u8)| Color::from_rgb(r, g, b);
+            let rgb = |(r, g, b): (u8, u8, u8)| fltk_rgb(r, g, b);
             for (name, fg) in labels {
                 let drawn = ferrispad_contrast(rgb(fg), rgb(sel), bgs).to_rgb();
                 let ratio = wcag_contrast(drawn, sel);
@@ -845,7 +852,7 @@ mod tests {
         editor_bg: (u8, u8, u8),
     ) -> (u8, u8, u8) {
         use crate::ui::contrast::{EditorSelectionBgs, ferrispad_contrast};
-        let c = |(r, g, b): (u8, u8, u8)| Color::from_rgb(r, g, b);
+        let c = |(r, g, b): (u8, u8, u8)| fltk_rgb(r, g, b);
         let registered = EditorSelectionBgs::new(editor_bg, editor_selection_color(editor_bg));
         ferrispad_contrast(c(fg), c(bg), registered).to_rgb()
     }
