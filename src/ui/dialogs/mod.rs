@@ -843,80 +843,6 @@ pub mod main_thread_checks {
     use super::*;
     use fltk::group::Group;
 
-    /// T0105: the user-chosen field border reads at >= 3:1 against the
-    /// dialog background (WCAG 1.4.11) on every theme.
-    #[test]
-    fn input_border_stands_out_on_every_theme() {
-        use crate::ui::color::wcag_contrast;
-        let mut failures = Vec::new();
-        for (name, bg) in crate::ui::color::theme_test_backgrounds() {
-            let theme = DialogTheme::from_theme_bg(bg);
-            let ratio = wcag_contrast(theme.input_border.to_rgb(), theme.bg.to_rgb());
-            if ratio < 3.0 {
-                failures.push(format!(
-                    "{name}: border {:?} on dialog {:?} = {ratio:.2}:1",
-                    theme.input_border.to_rgb(),
-                    theme.bg.to_rgb()
-                ));
-            }
-        }
-        assert!(failures.is_empty(), "\n{}", failures.join("\n"));
-    }
-
-    /// a3's T0097 nit: the registered list selection must follow every
-    /// re-theme, not wait for the next dialog list to be styled.
-    #[test]
-    fn dialog_list_selection_follows_every_retheme() {
-        let theme_rs = include_str!("../theme.rs");
-        let body = theme_rs
-            .split("pub fn apply_syntax_theme_colors")
-            .nth(1)
-            .and_then(|rest| rest.split("\n}\n").next())
-            .expect("apply_syntax_theme_colors");
-        assert!(
-            body.contains("register_dialog_list_selection(background)"),
-            "every re-theme must refresh the dialog list selection"
-        );
-        for bg in [(43, 48, 59), (239, 241, 245), (59, 31, 92)] {
-            register_dialog_list_selection(bg);
-            assert_eq!(
-                crate::ui::contrast::registered_list_selection(),
-                Some(DialogTheme::from_theme_bg(bg).list_selection_bg.to_rgb()),
-                "{bg:?}"
-            );
-        }
-    }
-
-    /// T0097: the selected row of a dialog list must stand out from the list
-    /// background (>= 3:1) and the text FLTK draws on it must be readable
-    /// (>= 4.5:1), in light and dark themes. Measured 1.39:1 in the theme
-    /// manager before.
-    #[test]
-    fn dialog_list_selection_stands_out_in_every_theme() {
-        use crate::ui::color::wcag_contrast;
-        use crate::ui::contrast::{EditorSelectionBgs, ferrispad_contrast};
-        let mut failures = Vec::new();
-        for (name, bg) in crate::ui::color::theme_test_backgrounds() {
-            let theme = DialogTheme::from_theme_bg(bg);
-            let (sel, text) = theme.list_selection();
-            let list_bg = theme.input_bg.to_rgb();
-            let row = wcag_contrast(sel.to_rgb(), list_bg);
-            // What FLTK draws on the selected row: fl_contrast(text, sel),
-            // with the dialog list selection known to the contrast rule.
-            let bgs = EditorSelectionBgs::default().with_list_selection(sel.to_rgb());
-            let drawn = ferrispad_contrast(theme.text, sel, bgs).to_rgb();
-            let readable = wcag_contrast(drawn, sel.to_rgb());
-            if row < 3.0 || readable < 4.5 || drawn != text.to_rgb() {
-                failures.push(format!(
-                    "{name}: row {:?} on list {list_bg:?} = {row:.2}:1, text {drawn:?} = {readable:.2}:1 (expected text {:?})",
-                    sel.to_rgb(),
-                    text.to_rgb()
-                ));
-            }
-        }
-        assert!(failures.is_empty(), "\n{}", failures.join("\n"));
-    }
-
     /// Regression for T0058: a popup built while another window's group is
     /// current (begun, not ended) must still be a top-level window, must not
     /// add itself to that group, and must leave that group current.
@@ -976,7 +902,7 @@ mod tests {
     fn input_border_stands_out_on_every_theme() {
         use crate::ui::color::wcag_contrast;
         let mut failures = Vec::new();
-        for (name, bg) in dialog_list_test_backgrounds() {
+        for (name, bg) in crate::ui::color::theme_test_backgrounds() {
             let theme = DialogTheme::from_theme_bg(bg);
             let ratio = wcag_contrast(theme.input_border.to_rgb(), theme.bg.to_rgb());
             if ratio < 3.0 {
@@ -1014,22 +940,6 @@ mod tests {
         }
     }
 
-    /// Theme backgrounds to check: every built-in syntax theme plus a sweep
-    /// of grays and tinted colors, standing in for custom themes.
-    fn dialog_list_test_backgrounds() -> Vec<(String, (u8, u8, u8))> {
-        use crate::app::domain::settings::SyntaxTheme;
-        let mut bgs: Vec<(String, (u8, u8, u8))> = SyntaxTheme::all()
-            .iter()
-            .map(|t| (format!("{t:?}"), t.background()))
-            .collect();
-        for v in (0..=255u8).step_by(15) {
-            bgs.push((format!("gray {v}"), (v, v, v)));
-            bgs.push((format!("blue-ish {v}"), (v / 2, v / 2, v)));
-            bgs.push((format!("warm {v}"), (v, v.saturating_sub(20), v / 2)));
-        }
-        bgs
-    }
-
     /// T0097: the selected row of a dialog list must stand out from the list
     /// background (>= 3:1) and the text FLTK draws on it must be readable
     /// (>= 4.5:1), in light and dark themes. Measured 1.39:1 in the theme
@@ -1039,7 +949,7 @@ mod tests {
         use crate::ui::color::wcag_contrast;
         use crate::ui::contrast::{EditorSelectionBgs, ferrispad_contrast};
         let mut failures = Vec::new();
-        for (name, bg) in dialog_list_test_backgrounds() {
+        for (name, bg) in crate::ui::color::theme_test_backgrounds() {
             let theme = DialogTheme::from_theme_bg(bg);
             let (sel, text) = theme.list_selection();
             let list_bg = theme.input_bg.to_rgb();
