@@ -103,7 +103,7 @@
   </ul>
   <div class="meta">
     <span class="chip"><strong>T0117</strong> in <code>2-review/</code></span>
-    <span class="chip"><strong>7</strong> files · +994 / −7</span>
+    <span class="chip"><strong>7</strong> files · +1135 / −7</span>
     <span class="chip green">no Rust change · gates green</span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/235">PR #235 on GitHub</a></span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/issues/234">issue #234</a></span>
@@ -119,11 +119,25 @@
       <td>The skill, the visual-check script, the template, the README, the ticket, and the pointers in <code>work-sequence.md</code> and <code>CLAUDE.md</code>. Docs and process only.</td></tr>
     <tr><td><code class="sha">6c92eb9</code></td>
       <td>The skill says how to write a literal <code>&#123;&#123;</code> in a page; the ticket records what was done.</td></tr>
-    <tr><td><code class="sha">this page</code></td>
+    <tr><td><code class="sha">f244801</code></td>
       <td>This presentation, written with the skill itself.</td></tr>
+    <tr><td><code class="sha">1e9f109</code></td>
+      <td>This page lists the follow-up commit.</td></tr>
+    <tr><td><code class="sha">85f07ac</code></td>
+      <td>Review fixes (a3, decided by the orchestrator):
+        <ul>
+          <li>the PR stays a draft until the user verifies;</li>
+          <li>the size chip excludes the page;</li>
+          <li>a narrower annotation-only exemption;</li>
+          <li><code>visual_check.sh</code> fails closed.</li>
+        </ul></td></tr>
+    <tr><td><code class="sha">2896ee4</code></td>
+      <td>Merge of <code>master</code> e80f7a7, which brought #233: the 0.9.10 post-tag record and the new ticket T0116. No conflict.</td></tr>
+    <tr><td><code class="sha">this page</code></td>
+      <td>This page follows the review and the merge.</td></tr>
   </table>
   </div>
-  <p>The size chip counts <code>b5d2e1a</code> against <code>master</code> 22dbab2. Master gets one squash commit.</p>
+  <p>The size chip counts everything except this page: <code>git diff --shortstat origin/master...HEAD -- . ':(exclude)docs/pr/PR-*.html'</code>. Master gets one squash commit.</p>
 </section>
 
 <section class="card">
@@ -133,12 +147,12 @@
     <div><strong>2 · Images</strong> · The skill builds <code>master</code> and the branch, drives both in Xvfb (light and dark, font 16 and 18), inspects every shot edge by edge, then crops and optimises the shots.</div>
     <div><strong>3 · Page</strong> · <code>docs/pr/PR-&lt;n&gt;-&lt;slug&gt;.html</code> from the template, facts only. The ticket card is the heart of the page.</div>
     <div><strong>4 · Copy</strong> · The page is copied to the main checkout's <code>docs/internal/pr/</code> (gitignored) for the user, again after every fix.</div>
-    <div><strong>5–6 · Commit, ready</strong> · The page is committed on its own. The PR body is one paragraph, the page's path and <code>Closes #&lt;issue&gt;</code>.</div>
+    <div><strong>5–6 · Commit, hand over</strong> · The page is committed on its own. The PR body is one paragraph, the page's path and <code>Closes #&lt;issue&gt;</code>. The PR <strong>stays a draft</strong> while the user verifies. It goes ready together with the move of the ticket to <code>3-done/</code>.</div>
     <div><strong>7 · Merge</strong> · Only when all five conditions hold:
       <ul>
         <li>the visual check has passed;</li>
         <li>the user's feedback is addressed;</li>
-        <li>the ticket is in <code>3-done/</code>;</li>
+        <li>the ticket is in <code>3-done/</code> and the PR is no longer a draft;</li>
         <li>every check is green on the head SHA;</li>
         <li>the user has given explicit consent for this PR.</li>
       </ul>
@@ -187,7 +201,8 @@
   <p><strong>No visible change:</strong> a skill and its docs only. Nothing in the editor changes. The page's own rendering is checked by the visual check below.</p>
   <div class="why"><strong>Why the Playwright headless shell.</strong> No Chromium is on the sandbox's PATH or in the nix profile. <code>~/.cache/ms-playwright/chromium_headless_shell-1248</code> runs inside the Flatpak sandbox, so the check needs no <code>flatpak-spawn</code>. Its dark mode is <code>--blink-settings=preferredColorScheme=0</code>. <code>--force-dark-mode</code> was tried and dropped: it leaves <code>prefers-color-scheme</code> light in the headless shell, tested on a probe page.</div>
   <div class="why"><strong>Why a probe copy.</strong> The page carries no script. <code>visual_check.sh</code> puts the measuring script into a copy in the output folder, reads the result from <code>--dump-dom</code>, and screenshots the untouched page at its full height.</div>
-  <div class="followup"><strong class="tag">The annotation-only exemption is slightly wider than core-services'.</strong> It covers any PR that changes only files under <code>docs/tickets/</code>: annotations of <code>3-done/</code> tickets, plus at most new <code>1-todo/</code> tickets, as #233 does. The orchestrator listed #233 as exempt. The reviewer may narrow it.</div>
+  <div class="followup"><strong class="tag">The annotation-only exemption is narrow.</strong> A PR needs no page only if every line of <code>git diff --name-status origin/master...HEAD</code> is <code>M docs/tickets/3-done/…</code> or <code>A docs/tickets/1-todo/…</code>, as in #230 and #233. a3 asked to narrow it in review, and the orchestrator decided to. Anything else gets a page: a ticket move, an edit to an open ticket, a deletion, the ticket template.</div>
+  <div class="bad"><strong class="tag">Found in review, fixed.</strong> The first version of §6 marked the PR ready before the user verified it, against <code>work-sequence.md</code> step 3. The draft flag would then have stopped meaning "waiting for the user". Now the PR goes ready only with the <code>3-done/</code> move. a3 also found that <code>visual_check.sh</code> would have passed four light renders if Chromium ignored the color-scheme flag. It now fails closed: a test wrapper that drops <code>--blink-settings</code> makes it exit 1.</div>
   <div class="followup"><strong class="tag">No docs gate yet.</strong> Nothing enforces the page in CI (name, no <code>&#123;&#123;</code>, style block, an image or "No visible change" per card). That is a follow-up candidate in the ticket's Notes (orchestrator's decision).</div>
   <h3>How to test T0117</h3>
   <ol class="steps">
