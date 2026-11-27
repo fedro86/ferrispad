@@ -6,12 +6,9 @@
 use super::DialogTheme;
 use fltk::{
     app,
-    button::Button,
     enums::{Align, FrameType},
     frame::Frame,
     group::Flex,
-    input::Input,
-    misc::Progress,
     prelude::*,
     text::TextBuffer,
     window::Window,
@@ -102,18 +99,15 @@ pub fn show_file_too_large_dialog(
     main_flex.fixed(&msg_frame, 80);
 
     // View Read-Only button
-    let mut view_btn =
-        Button::default().with_label("View Read-Only (browse entire file, no editing)");
-    view_btn.set_frame(FrameType::RFlatBox);
-    view_btn.set_color(theme.button_bg);
-    view_btn.set_label_color(theme.text);
+    let mut view_btn = theme
+        .button()
+        .with_label("View Read-Only (browse entire file, no editing)");
     main_flex.fixed(&view_btn, 30);
 
     // Open Tail button
-    let mut tail_btn = Button::default().with_label("Open Tail (last 10,000 lines, editable)");
-    tail_btn.set_frame(FrameType::RFlatBox);
-    tail_btn.set_color(theme.button_bg);
-    tail_btn.set_label_color(theme.text);
+    let mut tail_btn = theme
+        .button()
+        .with_label("Open Tail (last 10,000 lines, editable)");
     main_flex.fixed(&tail_btn, 30);
 
     // Open Lines row
@@ -121,30 +115,21 @@ pub fn show_file_too_large_dialog(
     lines_row.set_type(fltk::group::FlexType::Row);
     lines_row.set_spacing(5);
 
-    let mut lines_btn = Button::default().with_label("Open Lines:");
-    lines_btn.set_frame(FrameType::RFlatBox);
-    lines_btn.set_color(theme.button_bg);
-    lines_btn.set_label_color(theme.text);
+    let mut lines_btn = theme.button().with_label("Open Lines:");
     lines_row.fixed(&lines_btn, 100);
 
-    let mut start_input = Input::default();
+    let mut start_input = theme.input();
     start_input.set_value("1");
     start_input.set_tooltip("Start line");
-    start_input.set_color(theme.input_bg);
-    start_input.set_text_color(theme.text);
-    start_input.set_frame(FrameType::FlatBox);
     lines_row.fixed(&start_input, 80);
 
     let mut dash_label = Frame::default().with_label("-");
     dash_label.set_label_color(theme.text);
     lines_row.fixed(&dash_label, 20);
 
-    let mut end_input = Input::default();
+    let mut end_input = theme.input();
     end_input.set_value("10000");
     end_input.set_tooltip("End line");
-    end_input.set_color(theme.input_bg);
-    end_input.set_text_color(theme.text);
-    end_input.set_frame(FrameType::FlatBox);
     lines_row.fixed(&end_input, 80);
 
     Frame::default(); // Spacer
@@ -155,10 +140,7 @@ pub fn show_file_too_large_dialog(
     Frame::default(); // Spacer
 
     // Cancel button — visually distinct (secondary)
-    let mut cancel_btn = Button::default().with_label("Cancel");
-    cancel_btn.set_frame(FrameType::RFlatBox);
-    cancel_btn.set_color(theme.secondary_button_bg);
-    cancel_btn.set_label_color(theme.text_dim);
+    let mut cancel_btn = theme.secondary_button().with_label("Cancel");
     main_flex.fixed(&cancel_btn, 30);
 
     main_flex.end();
@@ -277,14 +259,10 @@ pub fn load_to_buffer_with_progress(
     status.set_label_color(theme.text);
     flex.fixed(&status, 25);
 
-    let mut progress = Progress::default();
+    let mut progress = theme.progress();
     progress.set_minimum(0.0);
     progress.set_maximum(size as f64);
     progress.set_value(0.0);
-    progress.set_frame(FrameType::FlatBox);
-    progress.set_color(theme.input_bg);
-    progress.set_selection_color(theme.button_bg);
-    progress.set_label_color(theme.text);
     flex.fixed(&progress, 25);
 
     let size_text = format!("0 / {}", format_size(size));
@@ -300,10 +278,7 @@ pub fn load_to_buffer_with_progress(
     let mut button_row = Flex::default();
     button_row.set_type(fltk::group::FlexType::Row);
     Frame::default(); // Spacer
-    let mut cancel_btn = Button::default().with_label("Cancel");
-    cancel_btn.set_frame(FrameType::RFlatBox);
-    cancel_btn.set_color(theme.secondary_button_bg);
-    cancel_btn.set_label_color(theme.text_dim);
+    let mut cancel_btn = theme.secondary_button().with_label("Cancel");
     button_row.fixed(&cancel_btn, 90);
     button_row.end();
     flex.fixed(&button_row, 28);
