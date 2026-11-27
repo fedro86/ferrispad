@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Restyle repaints a range</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --ink: #1c2430; --muted: #5b6675;
+    --accent: #0b6e4f; --accent-soft: #e3f2ec; --line: #dde3ea;
+    --warn: #8a5a00; --warn-soft: #fdf3dd; --code-bg: #f0f2f5;
+    --chip: #eef1f4; --bad: #8a2020; --bad-soft: #fbeaea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181f; --surface: #1c222b; --ink: #e8ecf1; --muted: #9aa6b4;
+      --accent: #4cc39a; --accent-soft: #10352a; --line: #2c3541;
+      --warn: #e2b45a; --warn-soft: #33290f; --code-bg: #232a34;
+      --chip: #262e39; --bad: #e88; --bad-soft: #3a1c1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 "Open Sans", "Segoe UI", system-ui, sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  header.top { border-bottom: 3px solid var(--accent); padding-bottom: 1.2rem; margin-bottom: 2rem; }
+  .kicker { text-transform: uppercase; letter-spacing: .12em; font-size: .78rem; color: var(--accent); font-weight: 700; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: .3rem 0 .6rem; }
+  h2 { font-size: 1.35rem; margin: 0 0 .2rem; }
+  h3 { font-size: 1.02rem; margin: 1.3rem 0 .4rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem .6rem; margin-top: .8rem; }
+  .chip { background: var(--chip); border: 1px solid var(--line); border-radius: 999px;
+    padding: .15rem .7rem; font-size: .82rem; color: var(--muted); white-space: nowrap; }
+  .chip strong { color: var(--ink); font-weight: 600; }
+  .chip.green { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .chip.warn { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+  a { color: var(--accent); }
+  section.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.5rem 1.75rem; margin-bottom: 1.75rem; }
+  p { margin: .55rem 0; }
+  ul, ol { margin: .4rem 0 .6rem; padding-left: 1.3rem; }
+  li { margin: .25rem 0; }
+  code { font: .86em/1.5 "JetBrains Mono", "Fira Mono", monospace;
+    background: var(--code-bg); border-radius: 4px; padding: .08em .35em; word-break: break-word; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: .85rem 1rem; overflow-x: auto; font-size: .85rem; line-height: 1.55; }
+  pre code { background: none; padding: 0; }
+  .why { border-left: 4px solid var(--accent); background: var(--accent-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup { border-left: 4px solid var(--warn); background: var(--warn-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup strong.tag { color: var(--warn); }
+  .bad { border-left: 4px solid var(--bad); background: var(--bad-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .bad strong.tag { color: var(--bad); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; font-size: .9rem; }
+  th, td { text-align: left; border-bottom: 1px solid var(--line); padding: .45rem .6rem; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; font-family: "JetBrains Mono", "Fira Mono", monospace; white-space: nowrap; }
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li { counter-increment: step; position: relative; padding-left: 2.2rem; margin: .55rem 0; }
+  .steps li::before { content: counter(step); position: absolute; left: 0; top: .1rem;
+    width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--accent-soft);
+    color: var(--accent); font-weight: 700; font-size: .82rem; display: grid; place-items: center; }
+  .expect { display: block; margin-top: .2rem; color: var(--muted); font-size: .9em; }
+  .expect::before { content: "expected → "; color: var(--accent); font-weight: 600; }
+  .flow { display: grid; gap: .35rem; margin: .8rem 0; }
+  .flow div { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: .45rem .8rem; font-size: .9rem; }
+  .flow div strong { color: var(--accent); }
+  footer { color: var(--muted); font-size: .86rem; border-top: 1px solid var(--line);
+    margin-top: 2rem; padding-top: 1rem; }
+  img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
+  figure { margin: .9rem 0; }
+  figcaption { color: var(--muted); font-size: .88rem; font-style: italic; margin-top: .35rem; }
+  code.sha { white-space: nowrap; word-break: normal; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <div class="kicker">Pull request #206 · ticket/T0095 → master · robustness</div>
+  <h1>A syntax-highlighting update repaints only the text it restyled, not the whole editor</h1>
+  <div class="flow">
+    <div><strong>Before</strong> · On an 8 MB one-line file, one typed key took about 2 s longer with highlighting on than off. Opening an 8 MB multi-line file spent about a quarter of its time repainting the whole editor after every 64 KiB chunk.</div>
+    <div><strong>After</strong> · A keystroke's re-highlight and each chunk repaint only their own range. One key on the 8 MB line costs 39 % fewer instructions, and the chunked open costs 45 % fewer. The colours on screen are pixel-identical.</div>
+  </div>
+  <p>This follows T0087's known limitation. The orchestrator reserved the ticket for 0.9.11, stacked on T0096. Every highlight write called <code>redraw()</code>. FLTK answers that with <code>FL_DAMAGE_ALL</code>, which runs <code>recalc_display()</code> twice, and each call re-measures the whole buffer. The change only does less work on user actions, so the 0% idle CPU rule is untouched.</p>
+  <ul>
+    <li>One rule, <code>HighlightController::show_restyle</code>, serves every partial style write of the active document.</li>
+    <li>The style table is re-bound only when it gained entries. Only the restyled range is repainted, with <code>redisplay_range</code>.</li>
+    <li>The 64 KiB chunk overhead that T0087 accepted is won back: the open now costs 17 % less than at 256 KiB before.</li>
+  </ul>
+  <div class="meta">
+    <span class="chip"><strong>T0095</strong> in <code>2-review/</code></span>
+    <span class="chip"><strong>3</strong> files · +377 / −33</span>
+    <span class="chip green">pixel-identical output</span>
+    <span class="chip green">gates green at every commit</span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/206">PR #206 on GitHub</a></span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/issues/204">issue #204</a></span>
+  </div>
+</header>
+
+<section class="card">
+  <h2>The branch's commits</h2>
+  <div class="scroll">
+  <table>
+    <tr><th>Commit</th><th>What changes</th></tr>
+    <tr><td><code class="sha">a73cc40</code> … <code class="sha">54b1759</code></td>
+      <td>T0087, already on master through #177. The branch was stacked on it.</td></tr>
+    <tr><td><code class="sha">bb694e5</code> … <code class="sha">23190d2</code></td>
+      <td>T0096, already on master through #195.</td></tr>
+    <tr><td><code class="sha">0c1db0c</code></td>
+      <td>The fix, <code>show_restyle</code>, and <code>tests/restyle_damage.rs</code> (red first).</td></tr>
+    <tr><td><code class="sha">aadec83</code></td>
+      <td>Merge of T0096's final head (<code class="sha">1936339</code>).</td></tr>
+    <tr><td><code class="sha">e76e63c</code></td>
+      <td>Merge of master after 0.9.10.</td></tr>
+    <tr><td><code class="sha">9708b5a</code></td>
+      <td>Docs only: the ticket records the gates after that merge.</td></tr>
+  </table>
+  </div>
+  <p>Master holds T0087 and T0096 as squash commits, so T0096's final head was merged first, and master after it. Three files conflicted:</p>
+  <ul>
+    <li><code>highlight.rs</code> kept this branch's side: master's copy equals T0096's final head.</li>
+    <li><code>state.rs</code> and <code>main.rs</code> took master's side, which has T0093's and T0107's dequeue hook. T0095 does not touch them.</li>
+  </ul>
+  <p>The diff against master is now T0095's own three files.</p>
+</section>
+
+<section class="card ticket">
+  <h2>T0095: a restyle repaints only the restyled range</h2>
+  <div class="flow">
+    <div><strong>Before</strong> · Every keystroke's re-highlight, and every chunk of the background highlight, re-bound the style table and called <code>redraw()</code> on the whole editor.</div>
+    <div><strong>After</strong> · <code>show_restyle</code> re-binds the table only when it gained entries, then calls <code>redisplay_range</code> on the range it restyled. <code>apply_incremental</code> (a keystroke step, or a T0096 continuation step) and each chunk step of <code>continue_chunked_highlight</code> go through it. T0096's <code>full_repaint</code> flag is gone.</div>
+  </div>
+  <p>FLTK's own recipe for a style-buffer update is <code>redisplay_range</code> (<code>test/editor.cxx</code>, <code>style_update</code>). It sets <code>FL_DAMAGE_SCROLL</code> and draws only that range. Every style-table entry uses the same font, so a restyle never changes glyph widths or wrap points.</p>
+  <ul>
+    <li><strong>Unchanged:</strong> whole-buffer style writes, which happen once per action and keep their full repaint. These are a full highlight, Re-highlight All, a theme or font change, and plugin line annotations.</li>
+    <li><strong>Unchanged:</strong> the 64 KiB chunk size.</li>
+  </ul>
+  <p><strong>No visible change:</strong> the repaint covers less area but draws the same colours. <code>pix95.sh</code> (<code>compare -metric AE</code>, before against after) found 0 differing pixels on each of five screenshots:</p>
+  <ul>
+    <li>a Rust file after open;</li>
+    <li>the same file after typing <code>/* x</code>, which turns the rest of the screen into a comment;</li>
+    <li>after closing the comment with <code> */</code>;</li>
+    <li>the 8 MB multi-line file at the top while chunking runs;</li>
+    <li>the same file at the end, after the chunked pass.</li>
+  </ul>
+  <p>Each screenshot was also inspected. Those runs predate the new-pr skill.</p>
+  <div class="scroll">
+  <table>
+    <tr><th>User-space instructions (release, Xvfb, two runs)</th><th>File</th><th class="n">before</th><th class="n">after</th></tr>
+    <tr><td>open</td><td><code>min8.js</code> (8 MB, one line)</td><td class="n">163.1 G / 162.6 G</td><td class="n">125.6 G / 124.7 G (−23 %)</td></tr>
+    <tr><td>one key</td><td><code>min8.js</code></td><td class="n">100.8 G / 100.5 G</td><td class="n">61.9 G / 62.0 G (−39 %)</td></tr>
+    <tr><td>open</td><td><code>multi8.js</code> (8 MB, 66 667 lines)</td><td class="n">108.3 G / 108.2 G</td><td class="n">59.8 G / 59.9 G (−45 %)</td></tr>
+    <tr><td>one key</td><td><code>multi8.js</code></td><td class="n">1.30 G / 1.25 G</td><td class="n">1.26 G / 1.28 G</td></tr>
+  </table>
+  </div>
+  <p>"Before" is T0096's tip (<code class="sha">23190d2</code>). Instructions were counted with <code>perf stat -e instructions:u</code>, attached to the process until it was idle. The machine was shared and wall times swung by 5x, while instruction counts repeat within 1 %. Two more measures:</p>
+  <ul>
+    <li>T0087's 256 KiB build opens <code>multi8.js</code> in 72.4 G instructions, so the 64 KiB open now costs 17 % less than that.</li>
+    <li>With gdb, one key on <code>min8.js</code> runs <code>recalc_display()</code> 4 times before and 2 times after. That equals T0087's count with highlighting off.</li>
+  </ul>
+  <div class="scroll">
+  <table>
+    <tr><th>Wall time, one interleaved pass at load 4 to 6</th><th>File</th><th class="n">before</th><th class="n">after</th></tr>
+    <tr><td>one key</td><td><code>min8.js</code></td><td class="n">8.9 s</td><td class="n">5.8 s</td></tr>
+    <tr><td>open</td><td><code>multi8.js</code></td><td class="n">10.8 s</td><td class="n">6.8 s</td></tr>
+  </table>
+  </div>
+  <div class="bad"><strong class="tag">The defect, red first.</strong> <code>tests/restyle_damage.rs</code> builds the real main window and <code>AppState</code>. On T0096's tip (<code class="sha">23190d2</code>) it failed:
+    <ul>
+      <li>"a keystroke's re-highlight repainted the whole editor: Damage(Expose | All)";</li>
+      <li>"a keystroke's re-highlight repainted no range: Damage(Expose | All)";</li>
+      <li>"26 of 27 chunk steps repainted the whole editor".</li>
+    </ul></div>
+  <div class="why"><strong>Why not skip identical style writes.</strong> On the 8 MB line, comparing the new style bytes with the current ones would copy the same 8 MB out of the style buffer that the write moves. After this change the remaining repaint covers only the visible part of the range, so the skip would save little and add a branch.</div>
+  <div class="followup"><strong class="tag">Seen in the screenshots, fixed elsewhere.</strong> The line-number gutter cut 5-digit numbers the same way before and after. That was T0107's bug, now on master through #197.</div>
+  <h3>How to test T0095</h3>
+  <ol class="steps">
+    <li><code>FERRISPAD_REQUIRE_UI_TESTS=1 nix develop -c cargo test --test restyle_damage</code>, with a display.
+      <span class="expect">ok. After a typed <code>"</code> in a highlighted Rust file, the editor has range damage and no <code>FL_DAMAGE_ALL</code>. No chunk step of a document over 1 MiB leaves <code>FL_DAMAGE_ALL</code>. Before the fix, it failed as shown above.</span></li>
+    <li>In the app: follow the end-to-end verification below.
+      <span class="expect">The colours look as before, and typing in a large file feels lighter.</span></li>
+  </ol>
+</section>
+
+<section class="card">
+  <h2>Release notes and compatibility</h2>
+  <ul>
+    <li><strong>CHANGELOG:</strong> Faster typing and opening on large files with highlighting on: a highlighting update repaints only the text it restyled.</li>
+    <li>Settings, session files, plugins and themes are untouched.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>What remains open</h2>
+  <ul>
+    <li><strong>FLTK's own cost of an edit on a very long line:</strong> the floor with highlighting off (T0087 cause B). Out of scope.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>End-to-end verification</h2>
+  <p>A user opens a large source file with highlighting on, types in it and scrolls while it is still being highlighted. Run from the branch's worktree with a throwaway config and data directory, so the run never reads or writes your real settings and sessions.</p>
+  <h3>Starting state</h3>
+  <ol class="steps">
+    <li><code>S=$(mktemp -d) &amp;&amp; export XDG_CONFIG_HOME=$S/cfg XDG_DATA_HOME=$S/data</code>, and <code>for i in $(seq 1 40); do cat src/app/controllers/highlight.rs; done &gt; $S/big.rs</code>
+      <span class="expect"><code>ls -l $S/big.rs</code> shows a file of several MB.</span></li>
+    <li><code>nix develop -c cargo run --release -- $S/big.rs</code>
+      <span class="expect">The file opens with highlighting, and the "highlighting…" banner shows while the background pass runs.</span></li>
+  </ol>
+  <h3>The scenario</h3>
+  <ol class="steps">
+    <li>While the banner is shown, scroll down with PageDown.
+      <span class="expect">The colours fill in as the pass advances, with no flicker of the whole editor.</span></li>
+    <li>Go to the middle of the file (Ctrl+G, a line number) and type <code>/* x</code>.
+      <span class="expect">The rest of the screen turns into a comment.</span></li>
+    <li>Type <code> */</code>, then pause.
+      <span class="expect">The colours return to normal, with no stale comment colour left.</span></li>
+    <li>Quit without saving, then <code>rm -rf "$S"</code>.
+      <span class="expect">The throwaway dir is gone.</span></li>
+  </ol>
+  <h3>The gates</h3>
+  <ol class="steps">
+    <li><code>nix develop -c cargo test</code>, <code>nix develop -c cargo clippy --all-targets --all-features -- -D warnings</code>, <code>nix develop -c cargo fmt --check</code>
+      <span class="expect">all green, zero warnings.</span></li>
+  </ol>
+</section>
+
+<footer>
+  Presentation of PR #206 · branch <code>ticket/T0095</code> · commits <code>0c1db0c</code> → <code>9708b5a</code> ·
+  ticket <code>docs/tickets/2-review/T0095-restyle-without-full-repaint.md</code> · issue #204.
+</footer>
+</div>
+</body>
+</html>
