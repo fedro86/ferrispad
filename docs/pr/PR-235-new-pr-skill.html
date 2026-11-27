@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The new-pr skill</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --ink: #1c2430; --muted: #5b6675;
+    --accent: #0b6e4f; --accent-soft: #e3f2ec; --line: #dde3ea;
+    --warn: #8a5a00; --warn-soft: #fdf3dd; --code-bg: #f0f2f5;
+    --chip: #eef1f4; --bad: #8a2020; --bad-soft: #fbeaea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181f; --surface: #1c222b; --ink: #e8ecf1; --muted: #9aa6b4;
+      --accent: #4cc39a; --accent-soft: #10352a; --line: #2c3541;
+      --warn: #e2b45a; --warn-soft: #33290f; --code-bg: #232a34;
+      --chip: #262e39; --bad: #e88; --bad-soft: #3a1c1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 "Open Sans", "Segoe UI", system-ui, sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  header.top { border-bottom: 3px solid var(--accent); padding-bottom: 1.2rem; margin-bottom: 2rem; }
+  .kicker { text-transform: uppercase; letter-spacing: .12em; font-size: .78rem; color: var(--accent); font-weight: 700; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: .3rem 0 .6rem; }
+  h2 { font-size: 1.35rem; margin: 0 0 .2rem; }
+  h3 { font-size: 1.02rem; margin: 1.3rem 0 .4rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem .6rem; margin-top: .8rem; }
+  .chip { background: var(--chip); border: 1px solid var(--line); border-radius: 999px;
+    padding: .15rem .7rem; font-size: .82rem; color: var(--muted); white-space: nowrap; }
+  .chip strong { color: var(--ink); font-weight: 600; }
+  .chip.green { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .chip.warn { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+  a { color: var(--accent); }
+  section.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.5rem 1.75rem; margin-bottom: 1.75rem; }
+  p { margin: .55rem 0; }
+  ul, ol { margin: .4rem 0 .6rem; padding-left: 1.3rem; }
+  li { margin: .25rem 0; }
+  code { font: .86em/1.5 "JetBrains Mono", "Fira Mono", monospace;
+    background: var(--code-bg); border-radius: 4px; padding: .08em .35em; word-break: break-word; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: .85rem 1rem; overflow-x: auto; font-size: .85rem; line-height: 1.55; }
+  pre code { background: none; padding: 0; }
+  .why { border-left: 4px solid var(--accent); background: var(--accent-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup { border-left: 4px solid var(--warn); background: var(--warn-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup strong.tag { color: var(--warn); }
+  .bad { border-left: 4px solid var(--bad); background: var(--bad-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .bad strong.tag { color: var(--bad); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; font-size: .9rem; }
+  th, td { text-align: left; border-bottom: 1px solid var(--line); padding: .45rem .6rem; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; font-family: "JetBrains Mono", "Fira Mono", monospace; white-space: nowrap; }
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li { counter-increment: step; position: relative; padding-left: 2.2rem; margin: .55rem 0; }
+  .steps li::before { content: counter(step); position: absolute; left: 0; top: .1rem;
+    width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--accent-soft);
+    color: var(--accent); font-weight: 700; font-size: .82rem; display: grid; place-items: center; }
+  .expect { display: block; margin-top: .2rem; color: var(--muted); font-size: .9em; }
+  .expect::before { content: "expected → "; color: var(--accent); font-weight: 600; }
+  .flow { display: grid; gap: .35rem; margin: .8rem 0; }
+  .flow div { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: .45rem .8rem; font-size: .9rem; }
+  .flow div strong { color: var(--accent); }
+  footer { color: var(--muted); font-size: .86rem; border-top: 1px solid var(--line);
+    margin-top: 2rem; padding-top: 1rem; }
+  img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
+  figure { margin: .9rem 0; }
+  figcaption { color: var(--muted); font-size: .88rem; font-style: italic; margin-top: .35rem; }
+  code.sha { white-space: nowrap; word-break: normal; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <div class="kicker">Pull request #235 · ticket/T0117 → master · process</div>
+  <h1>Every FerrisPad PR now comes with an HTML presentation, screenshots included</h1>
+  <div class="flow">
+    <div><strong>Before</strong> · A PR had a short Markdown body. To verify a UI change, the user followed a list of steps and found clipped labels or overlapping widgets only by trying the build themselves.</div>
+    <div><strong>After</strong> · Every PR has one English page in <code>docs/pr/</code>, copied to <code>docs/internal/pr/</code> of the main checkout. It tells the ticket's story and shows every visible change: master vs branch, light and dark. It also holds the ticket's own test recipe and an end-to-end check.</div>
+  </div>
+  <p>The user asked to port core-services' <code>new-mr</code> skill to FerrisPad (2026-11-27, relayed by the orchestrator). The orchestrator fixed the adaptation:</p>
+  <ul>
+    <li>GitHub and <code>gh</code>;</li>
+    <li>one ticket per PR;</li>
+    <li>a flat folder;</li>
+    <li>screenshots from the real app in Xvfb;</li>
+    <li>a merge only with the user's explicit consent, pinned to the head SHA.</li>
+  </ul>
+  <p>The skill follows <code>.claude/rules/work-sequence.md</code>, which it extends at steps 2 and 3.</p>
+  <ul>
+    <li><code>.claude/skills/new-pr/SKILL.md</code>: the procedure, from the draft PR to deleting the copy after the merge.</li>
+    <li><code>docs/pr/_template.html</code>: the page, with core-services' style block, byte-identical.</li>
+    <li><code>docs/pr/README.md</code>: the layout, the naming and the lifecycle, the annotation-only exemption, and a worked example of a UI card.</li>
+    <li><code>.claude/skills/new-pr/visual_check.sh</code>: the headless-Chromium check that runs inside the VSCode Flatpak sandbox.</li>
+    <li><code>work-sequence.md</code> (steps 2–3) and <code>.claude/CLAUDE.md</code> point to the skill.</li>
+  </ul>
+  <div class="meta">
+    <span class="chip"><strong>T0117</strong> in <code>2-review/</code></span>
+    <span class="chip"><strong>7</strong> files · +994 / −7</span>
+    <span class="chip green">no Rust change · gates green</span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/235">PR #235 on GitHub</a></span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/issues/234">issue #234</a></span>
+  </div>
+</header>
+
+<section class="card">
+  <h2>The branch's commits</h2>
+  <div class="scroll">
+  <table>
+    <tr><th>Commit</th><th>What changes</th></tr>
+    <tr><td><code class="sha">b5d2e1a</code></td>
+      <td>The skill, the visual-check script, the template, the README, the ticket, and the pointers in <code>work-sequence.md</code> and <code>CLAUDE.md</code>. Docs and process only.</td></tr>
+    <tr><td><code class="sha">this page</code></td>
+      <td>This presentation, written with the skill itself.</td></tr>
+  </table>
+  </div>
+  <p>The size chip counts <code>b5d2e1a</code> against <code>master</code> 22dbab2. Master gets one squash commit.</p>
+</section>
+
+<section class="card">
+  <h2>How a PR goes out, now</h2>
+  <div class="flow">
+    <div><strong>1 · Number</strong> · <code>gh pr create --draft</code> gives the PR number. It is never guessed.</div>
+    <div><strong>2 · Images</strong> · The skill builds <code>master</code> and the branch, drives both in Xvfb (light and dark, font 16 and 18), inspects every shot edge by edge, then crops and optimises the shots.</div>
+    <div><strong>3 · Page</strong> · <code>docs/pr/PR-&lt;n&gt;-&lt;slug&gt;.html</code> from the template, facts only. The ticket card is the heart of the page.</div>
+    <div><strong>4 · Copy</strong> · The page is copied to the main checkout's <code>docs/internal/pr/</code> (gitignored) for the user, again after every fix.</div>
+    <div><strong>5–6 · Commit, ready</strong> · The page is committed on its own. The PR body is one paragraph, the page's path and <code>Closes #&lt;issue&gt;</code>.</div>
+    <div><strong>7 · Merge</strong> · Only when all five conditions hold:
+      <ul>
+        <li>the visual check has passed;</li>
+        <li>the user's feedback is addressed;</li>
+        <li>the ticket is in <code>3-done/</code>;</li>
+        <li>every check is green on the head SHA;</li>
+        <li>the user has given explicit consent for this PR.</li>
+      </ul>
+      The merge uses <code>gh pr merge --squash --match-head-commit</code>.</div>
+    <div><strong>8 · After</strong> · Any session that sees the PR merged or closed deletes the copy. The page is never moved.</div>
+  </div>
+</section>
+
+<section class="card ticket">
+  <h2>T0117: the new-pr skill and its page template</h2>
+  <div class="flow">
+    <div><strong>Before</strong> · No written procedure for a PR's presentation. Screenshots were taken per ticket, when someone remembered, and never shown next to the master build.</div>
+    <div><strong>After</strong> · One procedure, one template, one place to read: a reviewer and the user see the change before they run it.</div>
+  </div>
+  <p>The orchestrator made the adaptation decisions (2026-11-27). The user verifies the result before the ticket moves to <code>3-done/</code>.</p>
+  <ul>
+    <li><strong>Kept from <code>new-mr</code>:</strong>
+      <ul>
+        <li>the draft-first number;</li>
+        <li>images before text;</li>
+        <li>the Before/After story;</li>
+        <li><code>.why</code>, <code>.followup</code> and <code>.bad</code>;</li>
+        <li>the per-ticket "How to test";</li>
+        <li>the end-to-end verification;</li>
+        <li>the copy for the user;</li>
+        <li>the four Chromium renders;</li>
+        <li>the merge on explicit consent only;</li>
+        <li>the annotation-only exemption.</li>
+      </ul></li>
+    <li><strong>Dropped:</strong>
+      <ul>
+        <li>the sorting of merged pages into app folders, and the symlinks (its §2): FerrisPad is one crate;</li>
+        <li>the Deploy card: there is no deployment;</li>
+        <li>the scratch stack.</li>
+      </ul></li>
+    <li><strong>Added for FerrisPad:</strong>
+      <ul>
+        <li>the Xvfb + xdotool + import capture recipe, with throwaway <code>XDG_CONFIG_HOME</code> and <code>XDG_DATA_HOME</code>;</li>
+        <li>before/after from a <code>master</code> worktree build;</li>
+        <li>the fonts at 16 and 18;</li>
+        <li>"Pending user on &lt;platform&gt;";</li>
+        <li>a "Release notes and compatibility" card in place of Deploy;</li>
+        <li>the list of check runs that must be green, since <code>Build Deps Check</code> runs only on its paths.</li>
+      </ul></li>
+  </ul>
+  <p><strong>No visible change:</strong> a skill and its docs only. Nothing in the editor changes. The page's own rendering is checked by the visual check below.</p>
+  <div class="why"><strong>Why the Playwright headless shell.</strong> No Chromium is on the sandbox's PATH or in the nix profile. <code>~/.cache/ms-playwright/chromium_headless_shell-1248</code> runs inside the Flatpak sandbox, so the check needs no <code>flatpak-spawn</code>. Its dark mode is <code>--blink-settings=preferredColorScheme=0</code>. <code>--force-dark-mode</code> was tried and dropped: it leaves <code>prefers-color-scheme</code> light in the headless shell, tested on a probe page.</div>
+  <div class="why"><strong>Why a probe copy.</strong> The page carries no script. <code>visual_check.sh</code> puts the measuring script into a copy in the output folder, reads the result from <code>--dump-dom</code>, and screenshots the untouched page at its full height.</div>
+  <div class="followup"><strong class="tag">The annotation-only exemption is slightly wider than core-services'.</strong> It covers any PR that changes only files under <code>docs/tickets/</code>: annotations of <code>3-done/</code> tickets, plus at most new <code>1-todo/</code> tickets, as #233 does. The orchestrator listed #233 as exempt. The reviewer may narrow it.</div>
+  <div class="followup"><strong class="tag">No docs gate yet.</strong> Nothing enforces the page in CI (name, no <code>&#123;&#123;</code>, style block, an image or "No visible change" per card). That is a follow-up candidate in the ticket's Notes (orchestrator's decision).</div>
+  <h3>How to test T0117</h3>
+  <ol class="steps">
+    <li>Read <code>.claude/skills/new-pr/SKILL.md</code> and <code>docs/pr/README.md</code>.
+      <span class="expect">every command is a FerrisPad one (<code>gh</code>, <code>nix develop -c cargo …</code>, <code>flatpak-spawn --host</code>, Xvfb); nothing refers to GitLab, <code>glab</code>, Django, app folders or <code>docs/4.0.0</code>.</span></li>
+    <li><code>grep -n '&#123;&#123;' docs/pr/PR-235-new-pr-skill.html</code>
+      <span class="expect">no output: no placeholder is left.</span></li>
+    <li><code>diff &lt;(sed -n '/&lt;style&gt;/,/&lt;\/style&gt;/p' docs/pr/_template.html) &lt;(sed -n '/&lt;style&gt;/,/&lt;\/style&gt;/p' docs/pr/PR-235-new-pr-skill.html)</code>
+      <span class="expect">no output: the style block is the template's.</span></li>
+    <li><code>.claude/skills/new-pr/visual_check.sh docs/pr/PR-235-new-pr-skill.html /tmp/vc-235</code>
+      <span class="expect">four lines ending <code>-&gt; ok</code>: scrollWidth ≤ innerWidth at 1280 and 390 px, light and dark, no long chip; the four PNGs show nothing overflowing.</span></li>
+    <li>Open <code>docs/internal/pr/PR-235-new-pr-skill.html</code> of the main checkout in a browser.
+      <span class="expect">the same page as on the branch, in your system's light or dark scheme.</span></li>
+  </ol>
+</section>
+
+<section class="card">
+  <h2>Release notes and compatibility</h2>
+  <ul>
+    <li><strong>CHANGELOG:</strong> none. This is a process change only.</li>
+    <li>No user file is affected: settings, sessions, plugins and themes are untouched.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>What remains open</h2>
+  <ul>
+    <li><strong>Docs gate:</strong> a check of <code>docs/pr/PR-*.html</code> in CI or the pre-commit hook. Follow-up candidate, not opened.</li>
+    <li><strong>First UI PR:</strong> the capture recipe in §2 gets its first full run on the next PR with a visible change. Fixes to the recipe go back into the skill.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>End-to-end verification</h2>
+  <p>Walk the next PR through the skill, from the draft to the copy the user reads. Use this PR as the model.</p>
+  <h3>Starting state</h3>
+  <ol class="steps">
+    <li>A ticket in <code>2-review/</code> on its pushed <code>ticket/T&lt;NNNN&gt;</code> branch, with <code>origin/master</code> merged in and the gates green.
+      <span class="expect"><code>git status</code> is clean and <code>git log origin/master..HEAD</code> shows the ticket's commits.</span></li>
+  </ol>
+  <h3>The scenario</h3>
+  <ol class="steps">
+    <li>Run §1: <code>gh pr create --draft …</code>, then <code>gh pr view ticket/T&lt;NNNN&gt; --json number</code>.
+      <span class="expect">a draft PR exists, and its number names the page.</span></li>
+    <li>Run §2 on a UI change: the <code>master</code> worktree build and the branch build, then <code>shot.sh</code> under <code>xvfb-run</code>.
+      <span class="expect"><code>before-*</code> and <code>after-*</code> PNGs for Light/Dark at fonts 16 and 18; each one is inspected edge by edge.</span></li>
+    <li>Run §3 and §4: write the page from the template, then copy it to <code>docs/internal/pr/</code>.
+      <span class="expect">the page opens in a browser from the main checkout, with the figures in the ticket card.</span></li>
+    <li>Run §7 condition 1: <code>visual_check.sh</code>.
+      <span class="expect">four <code>ok</code> lines.</span></li>
+  </ol>
+  <h3>The gates</h3>
+  <ol class="steps">
+    <li><code>nix develop -c cargo test</code>, <code>nix develop -c cargo clippy --all-targets --all-features -- -D warnings</code>, <code>nix develop -c cargo fmt --check</code>
+      <span class="expect">all green, zero warnings: no Rust file changes.</span></li>
+  </ol>
+</section>
+
+<footer>
+  Presentation of PR #235 · branch <code>ticket/T0117</code> · commits <code>b5d2e1a</code> → this page ·
+  ticket <code>docs/tickets/2-review/T0117-new-pr-skill.md</code> · issue #234.
+</footer>
+</div>
+</body>
+</html>
