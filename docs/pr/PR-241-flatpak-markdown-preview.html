@@ -91,10 +91,11 @@
     <li>Outside a Flatpak nothing moves: it stays in <code>/tmp/ferrispad_preview</code>.</li>
     <li>The preview folder is created private to the user (0700).</li>
     <li>The updater and the preview now share one Flatpak detection.</li>
+    <li>At startup, preview files older than 24 h are swept from the preview folder. Before, the leftovers of a crash were never removed.</li>
   </ul>
   <div class="meta">
     <span class="chip"><strong>T0119</strong> in <code>2-review/</code></span>
-    <span class="chip"><strong>5</strong> files · +396 / −14</span>
+    <span class="chip"><strong>5</strong> files · +539 / −14</span>
     <span class="chip warn">preview folder moves, Flatpak only</span>
     <span class="chip green">gates green at every commit</span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/241">PR #241 on GitHub</a></span>
@@ -113,6 +114,10 @@
       <td>Merge of master.</td></tr>
     <tr><td><code class="sha">29fa3a6</code></td>
       <td>The fix, its tests (the red one included), and the ticket moved to <code>2-review/</code> with what was done and the headless run in the Flatpak.</td></tr>
+    <tr><td><code class="sha">efbe699</code></td>
+      <td>Docs only: this page.</td></tr>
+    <tr><td><code class="sha">9d1326c</code></td>
+      <td>The startup sweep of stale previews and its tests (red first), added to the ticket's scope by the user's decision.</td></tr>
   </table>
   </div>
   <p>The merge brought in #235 (T0117, the new-pr skill), with no conflict.</p>
@@ -126,6 +131,7 @@
     <div><strong>Open</strong> · <code>open::that</code> runs <code>xdg-open</code>. In the sandbox that is flatpak-xdg-open, which goes through the OpenURI portal. The host browser can read the cache path, but not the sandbox's <code>/tmp</code>.</div>
     <div><strong>Save</strong> · Saving a Markdown file rewrites the same preview file. There is no new open; the user reloads the tab.</div>
     <div><strong>Quit</strong> · The session's preview files are removed, then the folder if it is empty.</div>
+    <div><strong>Next start</strong> · Preview files older than 24 h are removed once: what a crashed or killed run left behind. Newer ones stay.</div>
   </div>
 </section>
 
@@ -145,6 +151,13 @@
     <li><strong><code>services::flatpak</code> (new):</strong> <code>detect(flatpak_id, info_file_exists)</code> is true for a non-empty <code>FLATPAK_ID</code> or a present <code>/.flatpak-info</code>. <code>updater::is_flatpak()</code> now calls it, so the updater and the preview cannot disagree.</li>
     <li><strong><code>preview_dir_for(in_flatpak, cache_dir, temp_dir)</code>:</strong> a pure chooser. <code>PreviewController</code> calls it once in <code>new()</code> and stores the result. Writing, refreshing on save and cleanup all use that stored folder, so they cannot point at different places.</li>
     <li><strong>0700:</strong> <code>DirBuilder</code> with <code>recursive(true).mode(0o700)</code> on Unix, whenever the folder is created.</li>
+    <li><strong>Startup sweep</strong> (added to the ticket by the user's decision, 2026-11-27): <code>sweep_stale_previews</code> runs once in <code>PreviewController::new()</code>, with no timer and no thread.
+      <ul>
+        <li>It removes regular files named <code>preview_&lt;16 hex&gt;.html</code>, directly inside the preview folder, whose mtime is older than 24 h.</li>
+        <li>It does not recurse into subfolders, skips symlinks without following them (<code>symlink_metadata</code>), and never touches anything outside the folder.</li>
+        <li>Any read or remove error is ignored.</li>
+      </ul>
+      Before, <code>cleanup</code> ran only on a normal exit. A crash left its previews behind for good in Windows <code>%TEMP%</code> and in the Flatpak cache dir, which nothing clears.</li>
     <li><strong>Testable write:</strong> <code>open_in_browser</code> is now <code>write_preview</code> (write and track) followed by <code>open::that</code>. The cleanup test therefore runs without launching a browser.</li>
   </ul>
   <p><strong>No visible change</strong> in FerrisPad's own windows: the menus, dialogs and editor are identical. The change is in which file the host browser receives. <code>shoot.sh</code> cannot show that: it shims <code>xdg-open</code> to fail by design, and it does not run inside the Flatpak. The headless run inside the installed sandbox is in the table below.</p>
@@ -166,7 +179,8 @@
       <li><code>preview_dir_in_flatpak_uses_the_cache_dir</code> failed with <code>left: "/t/ferrispad_preview"</code>, <code>right: "/c/ferrispad_preview"</code>.</li>
       <li><code>flatpak_detection</code> failed on the <code>FLATPAK_ID</code>-only case.</li>
     </ul>
-    The guard <code>preview_dir_outside_flatpak_is_unchanged</code> passed before and after.</div>
+    The guard <code>preview_dir_outside_flatpak_is_unchanged</code> passed before and after. For the sweep, with an empty stub, <code>sweep_removes_only_old_preview_files</code> failed with <code>an old preview file is removed</code>.</div>
+  <div class="why"><strong>Why 24 hours, and only at startup.</strong> A newer file may belong to another FerrisPad window that is still running, so the sweep leaves it alone. Running once at startup keeps the 0% idle CPU rule: no timer, no watcher, no thread that lingers. The user approved this scope, relayed by the orchestrator.</div>
   <div class="why"><strong>Why the cache dir, and only in a Flatpak.</strong> The sandbox's <code>$XDG_CACHE_HOME</code> sits under <code>~/.var/app/&lt;id&gt;</code>, which the host sees at the same path, so the portal can hand it to the browser. Outside the Flatpak the browser already reads <code>/tmp</code>, so moving that folder would change behaviour no one asked to change.</div>
   <div class="why"><strong>Why 0700 everywhere.</strong> One rule for both folders. Outside the Flatpak it only tightens a folder FerrisPad creates itself, and the browser runs as the same user. This was my call within the orchestrator's spec, which asked for 0700 on the Flatpak folder.</div>
   <div class="followup"><strong class="tag">The updater's check widens.</strong> A non-empty <code>FLATPAK_ID</code> now counts as a Flatpak for the updater too, so there is no self-update when only <code>FLATPAK_ID</code> is set. That happens only inside a sandbox, or with a variable exported by hand. The orchestrator specified the two-signal rule.</div>
@@ -178,8 +192,14 @@
     </ul></div>
   <h3>How to test T0119</h3>
   <ol class="steps">
-    <li><code>nix develop -c cargo test --lib -- preview_dir flatpak_detection cleanup_removes_files_and_dir preview_dir_is_private_to_the_user</code>
-      <span class="expect">All pass. Before the fix, <code>preview_dir_in_flatpak_uses_the_cache_dir</code> failed with <code>left: "/t/ferrispad_preview"</code>, and <code>flatpak_detection</code> failed on the <code>FLATPAK_ID</code>-only case.</span></li>
+    <li><code>nix develop -c cargo test --lib -- preview_dir flatpak_detection cleanup_removes_files_and_dir preview_dir_is_private_to_the_user sweep</code>
+      <span class="expect">All pass. Before the fix, three tests failed:
+        <ul>
+          <li><code>preview_dir_in_flatpak_uses_the_cache_dir</code> with <code>left: "/t/ferrispad_preview"</code>;</li>
+          <li><code>flatpak_detection</code> on the <code>FLATPAK_ID</code>-only case;</li>
+          <li><code>sweep_removes_only_old_preview_files</code> with <code>an old preview file is removed</code>.</li>
+        </ul>
+        The sweep test sets up old and new previews, foreign names, a subfolder and a symlink. It checks that only the old regular previews go.</span></li>
     <li><code>nix develop -c cargo build --release</code>, then <code>flatpak run --filesystem=/nix:ro --command=$HOME/Code/personal/ferrispad-wt/T0119/target/release/FerrisPad com.ferrispad.FerrisPad /path/to/notes.md</code>
       <span class="expect">The branch binary runs inside the installed Flatpak. <code>--filesystem=/nix:ro</code> is needed because the Nix build loads its libraries from <code>/nix/store</code>. It applies to this run only and is not a saved override.</span></li>
     <li>Press Ctrl+M.
@@ -190,7 +210,7 @@
 <section class="card">
   <h2>Release notes and compatibility</h2>
   <ul>
-    <li><strong>CHANGELOG:</strong> Fixed: in the Flatpak, Markdown preview in the browser (Ctrl+M) did nothing. The preview is now written to the app's cache folder, which the browser can read.</li>
+    <li><strong>CHANGELOG:</strong> Fixed: in the Flatpak, Markdown preview in the browser (Ctrl+M) did nothing. The preview is now written to the app's cache folder, which the browser can read. Preview files left behind by a crash are removed at the next start, once they are older than a day.</li>
     <li>Settings, session files, plugins and themes are untouched. A preview left in the old sandbox <code>/tmp</code> by 0.9.10 is not carried over: that <code>/tmp</code> is private to each sandbox run.</li>
   </ul>
 </section>
@@ -198,7 +218,6 @@
 <section class="card">
   <h2>What remains open</h2>
   <ul>
-    <li><strong>A startup sweep of stale preview files:</strong> the user's decision is pending, relayed by the orchestrator. Not in this PR.</li>
     <li><strong>T0118's Markdown line:</strong> "Markdown preview in your browser (Ctrl+M)" can go back on the FlatPark page with the 0.9.11 submission once this is released.</li>
   </ul>
 </section>
@@ -234,7 +253,7 @@
 </section>
 
 <footer>
-  Presentation of PR #241 · branch <code>ticket/T0119</code> · commits <code>fa7931f</code> → <code>29fa3a6</code> ·
+  Presentation of PR #241 · branch <code>ticket/T0119</code> · commits <code>fa7931f</code> → <code>9d1326c</code> ·
   ticket <code>docs/tickets/2-review/T0119-flatpak-markdown-preview.md</code> · issue #239.
 </footer>
 </div>
