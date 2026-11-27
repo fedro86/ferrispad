@@ -2,10 +2,14 @@ name: Build and Release
 
 on:
   push:
+    # Release tags are X.Y.Z or X.Y.Z-(alpha|beta|rc).N (T0111). These
+    # globs cannot rule out leading zeros; release-gate below is the exact
+    # rule. tests/release_tags.rs checks both.
     tags:
-      - 'v*'
       - '[0-9]+.[0-9]+.[0-9]+'
-      - '[0-9]+.[0-9]+.[0-9]+-*'
+      - '[0-9]+.[0-9]+.[0-9]+-alpha.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'
   workflow_dispatch:
 
 env:
@@ -20,7 +24,9 @@ jobs:
   # notify FlatPark (T0086). A manual run on a branch (or on a tag that is not
   # a version) builds every platform, uploads the unsigned binaries as
   # workflow artifacts and ends green; sign-binaries, create-release and
-  # flatpark are skipped. The pattern mirrors on.push.tags above.
+  # flatpark are skipped. A version is X.Y.Z or X.Y.Z-(alpha|beta|rc).N
+  # without leading zeros (T0111): the same regex as scripts/bump-version.sh,
+  # checked by tests/release_tags.rs.
   release-gate:
     runs-on: ubuntu-latest
     outputs:
@@ -32,7 +38,7 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
         run: |
-          if [[ "$REF_TYPE" == "tag" && "$REF_NAME" =~ ^(v[^/]*|[0-9]+\.[0-9]+\.[0-9]+(-[^/]*)?)$ ]]; then
+          if [[ "$REF_TYPE" == "tag" && "$REF_NAME" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$ ]]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
             echo "Version tag $REF_NAME: sign and publish."
           else
@@ -65,7 +71,7 @@ jobs:
             # artifacts <Cargo.toml version>-dev.<short sha> instead.
             VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)-dev.${GITHUB_SHA::7}"
           fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -125,7 +131,7 @@ jobs:
             # artifacts <Cargo.toml version>-dev.<short sha> instead.
             VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)-dev.${GITHUB_SHA::7}"
           fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -172,7 +178,7 @@ jobs:
             # artifacts <Cargo.toml version>-dev.<short sha> instead.
             VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)-dev.${GITHUB_SHA::7}"
           fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -240,7 +246,7 @@ jobs:
               local radius=$((size / 5))  # macOS-like squircle radius
 
               # Create icon with gradient background, centered logo, and rounded corners
-              magick -size ${size}x${size} \
+              magick -size "${size}x${size}" \
                 gradient:'#FF6B35-#F7931E' \
                 \( docs/assets/logo-transparent.png -resize $((size * 70 / 100))x$((size * 70 / 100)) \) \
                 -gravity center -composite \
@@ -306,7 +312,7 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
           VERSION=${VERSION#v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Checkout ferrispad-plugins (signer tool)
         uses: actions/checkout@v7
@@ -413,12 +419,12 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
           VERSION=${VERSION#v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
           if [[ "$VERSION" =~ -(alpha|beta|rc) ]]; then
-            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
           else
-            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Download all artifacts
