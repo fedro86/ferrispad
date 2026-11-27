@@ -84,6 +84,37 @@ unsafe extern "C" {
     );
 }
 
+// A `DirtyChanged` is queued and not yet handled (T0093). Every document's
+// modify callback runs on the UI thread and shares it, so N clean -> dirty
+// flips in one step (e.g. a tab-size change touching every buffer) queue one
+// refresh, not N.
+thread_local! {
+    static DIRTY_REFRESH_QUEUED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The queued `DirtyChanged` was taken off the queue: later flips queue a
+/// new refresh.
+pub fn dirty_refresh_handled() {
+    DIRTY_REFRESH_QUEUED.with(|q| q.set(false));
+}
+
+/// Called for every message the main loop takes off the queue, before
+/// dispatch, through the one dequeue hook `AppState::note_dequeued`. Clearing the flag here, not in the handler, keeps the reset
+/// independent of whether the handler runs; otherwise one skipped handler
+/// would leave the flag set and silence every later flip.
+pub fn note_dequeued(msg: &Message) {
+    if matches!(msg, Message::DirtyChanged(_)) {
+        dirty_refresh_handled();
+    }
+}
+
+/// Queue a `DirtyChanged` unless one is already waiting.
+fn queue_dirty_refresh(sender: &Sender<Message>, doc_id: DocumentId) {
+    if !DIRTY_REFRESH_QUEUED.with(|q| q.replace(true)) {
+        sender.send(Message::DirtyChanged(doc_id));
+    }
+}
+
 /// Box the closure and register it via FFI.  Returns the `cbArg` pointer
 /// that must be stored for later cleanup.
 fn register_modify_callback(
@@ -105,6 +136,9 @@ fn register_modify_callback(
               _restyled: i32,
               _deleted_text: *const std::ffi::c_char| {
             if inserted > 0 || deleted > 0 {
+                // Report the clean -> dirty flip once, so the window title
+                // and the tab bar show it (T0093); later edits don't.
+                let was_clean = !changes.get();
                 changes.set(true);
                 if inserted > 0 {
                     let filler = "A".repeat(inserted as usize);
@@ -125,6 +159,9 @@ fn register_modify_callback(
                     inserted,
                     deleted,
                 });
+                if was_clean {
+                    queue_dirty_refresh(&sender, doc_id);
+                }
             }
         },
     );
@@ -465,5 +502,89 @@ impl Document {
 impl Drop for Document {
     fn drop(&mut self) {
         self.cleanup();
+    }
+}
+
+/// Checks that build documents (hence FLTK `TextBuffer`s), so they must run
+/// on the process main thread: on macOS the first `Fl::lock()` opens the
+/// display through AppKit, which aborts off the main thread, where libtest
+/// runs unit tests. Called by the `harness = false` test binary
+/// `tests/fltk_main_thread.rs` (T0089); not part of the public API.
+#[doc(hidden)]
+pub mod main_thread_checks {
+    use super::*;
+
+    /// How many `DirtyChanged` messages for `ids` are waiting. fltk-rs
+    /// channels share one global queue: drain it and filter by this test's
+    /// own ids. This check is the ONLY drainer of the channel (main.rs is the
+    /// only other consumer): extend it rather than adding another drainer.
+    fn dirty_flips(receiver: &fltk::app::Receiver<Message>, ids: &[DocumentId]) -> usize {
+        let mut n = 0;
+        while let Some(msg) = receiver.recv() {
+            if matches!(msg, Message::DirtyChanged(m) if ids.contains(&m)) {
+                n += 1;
+            }
+        }
+        n
+    }
+
+    /// T0093: the first edit of a clean document reports the clean → dirty
+    /// flip once, so the title and the tab bar can show it; later edits do
+    /// not; after a save (mark_clean) and the handler run, the next edit does
+    /// again. N documents flipping in one step (a tab-size change touches
+    /// every buffer) queue ONE refresh, i.e. one tab-bar rebuild, not N.
+    pub fn dirty_flip_is_reported_once() {
+        let (sender, receiver) = fltk::app::channel::<Message>();
+        dirty_refresh_handled();
+        let id = DocumentId(930_093);
+        let mut doc = Document::new_untitled(id, 1, sender);
+        assert!(!doc.is_dirty());
+
+        doc.buffer.insert(0, "x");
+        assert!(doc.is_dirty());
+        assert_eq!(dirty_flips(&receiver, &[id]), 1, "first edit");
+        dirty_refresh_handled();
+
+        doc.buffer.insert(1, "y");
+        doc.buffer.remove(0, 1);
+        assert_eq!(dirty_flips(&receiver, &[id]), 0, "already dirty");
+
+        doc.mark_clean();
+        doc.buffer.insert(0, "z");
+        assert_eq!(dirty_flips(&receiver, &[id]), 1, "dirty again after save");
+        dirty_refresh_handled();
+        doc.cleanup();
+
+        // Ten clean documents flipping before the handler runs: one message.
+        let ids: Vec<DocumentId> = (0..10).map(|i| DocumentId(930_100 + i)).collect();
+        let mut docs: Vec<Document> = ids
+            .iter()
+            .map(|&id| Document::new_untitled(id, 1, sender))
+            .collect();
+        for doc in &mut docs {
+            doc.buffer.insert(0, "t");
+        }
+        assert!(docs.iter().all(Document::is_dirty));
+        assert_eq!(dirty_flips(&receiver, &ids), 1, "coalesced");
+        // Once handled, the next flip queues a new refresh.
+        dirty_refresh_handled();
+        docs[3].mark_clean();
+        docs[3].buffer.insert(0, "u");
+        assert_eq!(dirty_flips(&receiver, &ids), 1, "next refresh");
+
+        // The main loop takes the message off the queue but never reaches
+        // the refresh handler (e.g. it is skipped with 0 tabs): the next
+        // flip must still send, or "*" is gone for the rest of the process.
+        note_dequeued(&Message::DirtyChanged(ids[3]));
+        docs[4].mark_clean();
+        docs[4].buffer.insert(0, "w");
+        assert_eq!(
+            dirty_flips(&receiver, &ids),
+            1,
+            "after an unhandled dequeue"
+        );
+        for doc in &mut docs {
+            doc.cleanup();
+        }
     }
 }

@@ -23,6 +23,7 @@ use std::process::ExitCode;
 use ferris_pad::app::controllers::highlight::main_thread_checks as highlight;
 use ferris_pad::app::controllers::session::main_thread_checks as session;
 use ferris_pad::app::controllers::tabs::main_thread_checks as tabs;
+use ferris_pad::app::domain::document::main_thread_checks as document;
 use ferris_pad::ui::dialogs::main_thread_checks as dialogs;
 use ferris_pad::ui::scrollbar::main_thread_checks as scrollbar;
 
@@ -35,6 +36,10 @@ const CHECKS: &[(&str, fn())] = &[
     (
         "long_line_clear_annotations_follows_the_plan",
         highlight::long_line_clear_annotations_follows_the_plan,
+    ),
+    (
+        "dirty_flip_is_reported_once",
+        document::dirty_flip_is_reported_once,
     ),
     (
         "untitled_first_new_after_startup_is_untitled",
