@@ -16,6 +16,30 @@ permissions:
   contents: write
 
 jobs:
+  # Only a version tag may sign with the release key, publish a release or
+  # notify FlatPark (T0086). A manual run on a branch (or on a tag that is not
+  # a version) builds every platform, uploads the unsigned binaries as
+  # workflow artifacts and ends green; sign-binaries, create-release and
+  # flatpark are skipped. The pattern mirrors on.push.tags above.
+  release-gate:
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.gate.outputs.publish }}
+    steps:
+      - name: Decide whether this run may sign and publish
+        id: gate
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ "$REF_TYPE" == "tag" && "$REF_NAME" =~ ^(v[^/]*|[0-9]+\.[0-9]+\.[0-9]+(-[^/]*)?)$ ]]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "Version tag $REF_NAME: sign and publish."
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$REF_TYPE '$REF_NAME' is not a version tag: build only, no signing, no release, no FlatPark."
+          fi
+
   build-linux:
     strategy:
       fail-fast: false
@@ -33,8 +57,14 @@ jobs:
       - name: Get version from tag
         id: get_version
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          VERSION=${VERSION#v}
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            VERSION=${VERSION#v}
+          else
+            # Manual run on a branch (T0086): the ref has slashes, so name the
+            # artifacts <Cargo.toml version>-dev.<short sha> instead.
+            VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)-dev.${GITHUB_SHA::7}"
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Install Rust
@@ -87,8 +117,14 @@ jobs:
         id: get_version
         shell: bash
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          VERSION=${VERSION#v}
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            VERSION=${VERSION#v}
+          else
+            # Manual run on a branch (T0086): the ref has slashes, so name the
+            # artifacts <Cargo.toml version>-dev.<short sha> instead.
+            VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)-dev.${GITHUB_SHA::7}"
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Install Rust
@@ -128,8 +164,14 @@ jobs:
       - name: Get version from tag
         id: get_version
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          VERSION=${VERSION#v}
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            VERSION=${VERSION#v}
+          else
+            # Manual run on a branch (T0086): the ref has slashes, so name the
+            # artifacts <Cargo.toml version>-dev.<short sha> instead.
+            VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)-dev.${GITHUB_SHA::7}"
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Install Rust
@@ -255,8 +297,8 @@ jobs:
           path: ${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-macos.dmg
 
   sign-binaries:
-    needs: [build-linux, build-windows, build-macos]
-    if: always()
+    needs: [release-gate, build-linux, build-windows, build-macos]
+    if: ${{ always() && needs.release-gate.outputs.publish == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Get version from tag
@@ -359,8 +401,8 @@ jobs:
           path: binaries/*.sig
 
   create-release:
-    needs: [build-linux, build-windows, build-macos, sign-binaries]
-    if: always()
+    needs: [release-gate, build-linux, build-windows, build-macos, sign-binaries]
+    if: ${{ always() && needs.release-gate.outputs.publish == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -433,9 +475,10 @@ jobs:
   # FlatPark's webhook, which verifies them against public data: no secret,
   # no token permissions, pinned to a commit.
   flatpark:
-    needs: create-release
-    # Stable releases only: a -alpha/-beta/-rc tag must not reach Flatpak users.
-    if: ${{ !contains(github.ref_name, '-') }}
+    needs: [release-gate, create-release]
+    # Stable releases only: a -alpha/-beta/-rc tag must not reach Flatpak users,
+    # and a branch (whatever its name) never does.
+    if: ${{ needs.release-gate.outputs.publish == 'true' && !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions: {}

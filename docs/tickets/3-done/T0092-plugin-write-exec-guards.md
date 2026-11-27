@@ -1,12 +1,12 @@
 ---
 id: T0092
 title: Close the plugin write→execute paths — no writes into executables or .git; web-only Details links
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: severe        # plugin-controlled code execution through an approved command
 area: security
 depends-on: [T0090]
-issue: ~                # GitHub issue number, filled when work starts
+issue: 224              # GitHub issue number, filled when work starts
 ---
 
 Disclosure: private until the fix ships in 0.9.10-rc.3 (user decision 2026-11-26).
@@ -230,3 +230,15 @@ Non-blocking notes (a3), not changed:
   compile everywhere. There is no Windows CI on this local branch, so the
   first pushed Windows CI run (at the rc.3 reveal) is the real compile check
   of the wiring.
+
+## Disclosure (2026-11-27)
+
+Made public with 0.9.10-rc.3: branch pushed, issue #224 opened. Lands after
+T0090 (#223).
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland) with the rc.3 integration
+build `verify/rc3` (checklist `VERIFICA-RC3.md`), which carried this chain
+(T0090 → T0092 → T0094). 2026-11-27: the session checks re-run on
+`master` + this chain (`verify/rc3-final`) pass.

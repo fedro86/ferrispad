@@ -6,12 +6,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use fltk::{
-    button::Button, enums::CallbackTrigger, frame::Frame, group::ColorChooser, input::Input,
-    prelude::*, window::Window,
-};
+use fltk::{enums::CallbackTrigger, frame::Frame, group::ColorChooser, prelude::*, window::Window};
 
-use super::{DialogTheme, label_width, max_label_width, style_dialog_button};
+use super::{DialogTheme, label_width, max_label_width};
 use crate::app::controllers::theme_manager::{format_hex_color, parse_hex_color};
 
 // Heights are fixed; widths are measured from the text they show
@@ -81,15 +78,7 @@ pub fn build_color_picker(
         CHOOSER_HEIGHT,
         None,
     );
-    chooser.set_color(theme.bg);
-    // The chooser's own parts (mode choice, value fields, hue/value boxes).
-    for i in 0..chooser.children() {
-        if let Some(mut part) = chooser.child(i) {
-            part.set_color(theme.input_bg);
-            part.set_selection_color(theme.button_bg);
-            part.set_label_color(theme.text);
-        }
-    }
+    theme.style_color_chooser(&mut chooser);
     chooser.end();
     let _ = chooser.set_tuple_rgb(initial);
 
@@ -100,12 +89,10 @@ pub fn build_color_picker(
         .with_label("Hex:")
         .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
     hex_label.set_label_color(theme.text);
-    let mut hex_input = Input::default()
+    let mut hex_input = theme
+        .input()
         .with_pos(PADDING + hex_label_w + GAP, hex_y)
         .with_size(hex_input_w, 26);
-    hex_input.set_color(theme.input_bg);
-    hex_input.set_text_color(theme.text);
-    hex_input.set_selection_color(theme.button_bg);
     hex_input.set_value(&format_hex_color(initial));
 
     let mut error = Frame::default()
@@ -116,16 +103,16 @@ pub fn build_color_picker(
     error.set_label_size(ERROR_SIZE);
 
     let btn_y = DIALOG_HEIGHT - PADDING - BUTTON_HEIGHT;
-    let mut cancel_btn = Button::default()
+    let mut cancel_btn = theme
+        .button()
         .with_pos(dialog_w - PADDING - button_w, btn_y)
         .with_size(button_w, BUTTON_HEIGHT)
         .with_label("Cancel");
-    style_dialog_button(&mut cancel_btn, &theme);
-    let mut ok_btn = Button::default()
+    let mut ok_btn = theme
+        .button()
         .with_pos(dialog_w - PADDING * 2 - button_w * 2, btn_y)
         .with_size(button_w, BUTTON_HEIGHT)
         .with_label("OK");
-    style_dialog_button(&mut ok_btn, &theme);
 
     dialog.end();
     drop(top_level);
