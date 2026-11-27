@@ -319,5 +319,6 @@ build `verify/rc3` (checklist `VERIFICA-RC3.md`), which carried this chain
 (T0090 → T0092 → T0094). 2026-11-27: the session checks re-run on
 `master` + this chain (`verify/rc3-final`) pass.
 
-Still pending on the published rc.3: on Windows, opening an already-open file
-from the file explorer must not open a second tab (the `open_file` path form).
+On the published rc.3 (2026-11-27), the user checked on Windows that
+clicking an already-open file in the file-explorer panel switches to its tab
+and does not open a second one (the `open_file` path form).

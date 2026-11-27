@@ -94,7 +94,7 @@ beta channel are offered rc.3, and stable users are never offered it.
 - [x] The start page shows the new version and all six entries without
       clipping (Xvfb screenshots), with 0–1 recent items too
       (`changelog_card_shows_every_entry`).
-- [ ] After the tag:
+- [x] After the tag:
   - a pre-release with all assets signed;
   - FlatPark, the website and `/releases/latest` unchanged;
   - T0086's tag path recorded as working.
@@ -171,3 +171,22 @@ lines narrowed in review (two windows, plugin program paths), and asked to
 merge and tag. Start-page screenshots:
 `ferrispad-wt/uitest-T0114/start-{Light,Dark}-{16,18}.png`. The post-tag
 items stay open until the tag run is checked.
+
+## After the tag (2026-11-27)
+
+Tag `0.9.10-rc.3` (annotated, on `2af7132`), release run 45975015836:
+- jobs: build-macos, build-linux amd64 and arm64, build-windows,
+  release-gate, sign-binaries and create-release succeeded; `flatpark` was
+  skipped;
+- the GitHub Release is a **pre-release** (not a draft) with Linux
+  amd64/arm64 (raw + `.deb`), Windows (`.exe` + `.zip`) and macOS (raw +
+  `.dmg`), plus `.sig` files for the four updater binaries
+  (`linux-amd64`, `linux-arm64`, `macos-universal`, `windows-x64.exe`);
+- `GET /releases/latest` still returns `0.9.9`; www.ferrispad.com and
+  `/download` show only 0.9.9.
+
+On the published rc.3, the user checked on Windows that clicking an
+already-open file in the file-explorer panel switches to its tab instead of
+opening a second one (T0090's `open_file` path form). Double-clicking a file
+in Windows Explorer starts a new FerrisPad window, as in 0.9.9: FerrisPad has
+no single-instance hand-off, and T0090 does not touch it.
