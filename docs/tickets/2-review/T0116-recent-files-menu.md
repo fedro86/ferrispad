@@ -203,3 +203,43 @@ nix develop -c cargo test recent_files
 - Every shot was read edge by edge. That is how the menu-position defect
   and the row that reached the card's edge were found; both are fixed.
 - The host was clean after every run.
+
+### Review round 1 (a3; decisions by the orchestrator, 2026-11-27)
+
+- **Blocking: names with `@` or `&`.** FLTK draws an `@` as the start of a
+  symbol and an `&` as a shortcut marker. a3 reproduced it in the app:
+  - "notes@home.md" showed as "notes" in Open Recent and on the start page;
+  - "R&D.md" showed as "RD.md" with an underline on the start page.
+- **The fix:** one shared helper in `ui::menu`, used for both the menu and
+  the start-page rows.
+  - `escape_label_text` turns `@` into `@@` and `&` into `&&`.
+  - `escape_menu_item` adds `/`, `\`, a leading `_` and a tab (shown as a
+    space).
+  - The start page measures the plain text and shows the escaped one.
+  - `recent_files::escape_menu_label` is gone.
+- **"Clear Recent" collision:** `labels()` reserves `CLEAR_RECENT_LABEL`, so a
+  file of that name becomes "Clear Recent (2)". Items still dispatch by
+  their `Message` payload.
+- **Red first:**
+  - `recent_files_menu_labels_escape_symbols_and_tabs` (on the old helper)
+    failed: "notes@home.md" ≠ "notes@@home.md";
+  - `recent_files_labels_never_collide_with_clear_recent` failed:
+    ["Clear Recent"] ≠ ["Clear Recent (2)"];
+  - the main-thread check `recent_files_open_recent_labels_are_whole` failed
+    with 3 items, ["notes@home.md", "R&&D.md", "Clear Recent"], instead of
+    4;
+  - after the fix the helper tests live in `ui::menu` as
+    `recent_files_label_text_escapes_symbols_and_shortcuts` and
+    `recent_files_menu_item_escapes_paths_dividers_and_tabs`.
+- **MCP opens are not recorded** (orchestrator): the list is the user's
+  history. `tools.rs` dispatches `FileController::without_recent(actions)`
+  (test `recent_files_agent_opens_are_not_remembered`). A plugin's
+  `open_file`, such as a click in the file explorer, is still recorded.
+- **Scenario:** the fixtures `notes@home.md` and `R&D.md` were added (four
+  files). The recapture shows both names whole in the submenu and on the
+  start page, light and dark.
+- **Tests:** `cargo test recent_files` 17 pass; `fltk_main_thread` 10 pass;
+  clippy and fmt are clean.
+- **Not changed** (a3's notes, low priority):
+  - paths are made absolute but not normalised (`/a/../b.md`);
+  - a CLI path to a new file is recorded only after a Save As.
