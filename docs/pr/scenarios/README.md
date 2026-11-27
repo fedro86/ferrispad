@@ -78,6 +78,7 @@ Coordinates are relative to the main window.
 |---|---|---|
 | `start-page.sh` | the start page of a fresh install | a page with no interaction (T0114) |
 | `editor.sh` | `fixtures/hello.rs` in the editor, the View menu, the Find dialog | the editor, a menu, a dialog |
+| `start-page-recent.sh` | the start page with four recent files, after closing their tabs (T0108) | a page at several window sizes (`--size`) |
 | `tab-labels.sh` | the file `fixtures/Untitled` next to a new untitled tab (T0112) | the tab bar after a shortcut |
 
 Commit a ticket's scenario with its PR. The next change to that UI can

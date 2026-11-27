@@ -84,6 +84,9 @@ pub enum Message {
     /// keyboard layout is active (T0057).
     RunShortcut(String),
 
+    /// The start page crossed its one/two-column width threshold: rebuild
+    /// it for the new width (T0108).
+    StartPageRelayout,
     /// A clean document was just edited (its dirty state flipped): refresh
     /// the window title and the tab bar (T0093). Not sent per keystroke, and
     /// coalesced: flips while one is queued send nothing more (the id is the
