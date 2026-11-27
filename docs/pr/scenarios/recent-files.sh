@@ -3,7 +3,7 @@
 # Four fixtures are opened on the command line, then all tabs are closed.
 # Session restore is off, so nothing else remembers them. Before T0116 the
 # start page's Recent Files card is empty and the File menu has no Open
-# Recent; after it, both files are listed, most recent first.
+# Recent; after it, the files are listed, most recent first.
 
 SETTINGS_EXTRA='"session_restore": "Off"'
 # notes@home.md and R&D.md: FLTK treats '@' and '&' as specials in labels.
