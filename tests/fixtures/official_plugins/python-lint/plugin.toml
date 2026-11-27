@@ -1,0 +1,76 @@
+name = "Python Lint"
+version = "2.8.0"
+description = "Run ruff/pyright on Python files (supports project venv)"
+
+[permissions]
+execute = ["ruff", "pyright"]
+
+[[menu_items]]
+label = "Run Lint"
+action = "lint"
+shortcut = "Ctrl+Shift+P"
+
+[[menu_items]]
+label = "Run Ruff Only"
+action = "run_ruff"
+
+[[menu_items]]
+label = "Run Pyright Only"
+action = "run_pyright"
+
+# Configurable parameters (accessible via api:get_config())
+[config]
+[[config.params]]
+key = "lint_on_save"
+label = "Lint on Save"
+type = "boolean"
+default = "true"
+
+[[config.params]]
+key = "ruff_enabled"
+label = "Run Ruff"
+type = "boolean"
+default = "true"
+
+[[config.params]]
+key = "pyright_enabled"
+label = "Run Pyright"
+type = "boolean"
+default = "true"
+
+[[config.params]]
+key = "ruff_select"
+label = "Ruff Rule Selection"
+type = "choice"
+options = ["default|Default Rules", "all|All Rules (--select=ALL)", "E,W|Errors & Warnings (E,W)", "E,W,F|Errors, Warnings & Pyflakes (E,W,F)", "custom|Custom (use Extra Args)"]
+default = "default"
+
+[[config.params]]
+key = "ruff_line_length"
+label = "Ruff Line Length"
+type = "choice"
+options = ["default|Default (88)", "79|79 (PEP 8)", "88|88 (Black)", "100|100", "120|120", "custom|Custom (use Extra Args)"]
+default = "default"
+
+[[config.params]]
+key = "ruff_args"
+label = "Extra Ruff Arguments"
+type = "string"
+default = ""
+placeholder = "--ignore=E501"
+validate = "cli_args"
+
+[[config.params]]
+key = "pyright_mode"
+label = "Pyright Type Checking Mode"
+type = "choice"
+options = ["default|Default", "off|Off", "basic|Basic", "standard|Standard", "strict|Strict", "all|All"]
+default = "default"
+
+[[config.params]]
+key = "pyright_args"
+label = "Extra Pyright Arguments"
+type = "string"
+default = ""
+placeholder = "--pythonversion=3.11"
+validate = "cli_args"
