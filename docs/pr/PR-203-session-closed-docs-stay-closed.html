@@ -87,7 +87,7 @@
   </div>
   <p>The orchestrator assigned this as T0099's follow-up for 0.9.11. One case came from a3's T0099 review. The fix is in the session merge, which runs on saves that already happen: there is no new timer or watcher, so the 0% idle CPU rule holds.</p>
   <ul>
-    <li>A save never drops another live instance's document or its temp file.</li>
+    <li>A save never drops another instance's unsaved document or its temp file. A test pins the 0.9.10 Known Issue sequence.</li>
     <li>A copy closed by an instance does not come back. A reopen of the same file in another instance survives.</li>
     <li>No temp file has two writers: a restore forks the temp file unless its owner is gone.</li>
     <li>The instance id is <code>&lt;pid&gt;-&lt;nonce&gt;</code>, so a reused pid never takes over a crashed instance's entries.</li>
@@ -95,7 +95,7 @@
   </ul>
   <div class="meta">
     <span class="chip"><strong>T0101</strong> in <code>2-review/</code></span>
-    <span class="chip"><strong>7</strong> files · +801 / −110</span>
+    <span class="chip"><strong>7</strong> files · +865 / −110</span>
     <span class="chip warn">session.json gains an owner field</span>
     <span class="chip green">gates green at every commit</span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/203">PR #203 on GitHub</a></span>
@@ -126,6 +126,10 @@
       <td>Merge of master after 0.9.10, with two follow-ups.</td></tr>
     <tr><td><code class="sha">1c725d3</code></td>
       <td>Docs only: the ticket records the gates after that merge.</td></tr>
+    <tr><td><code class="sha">3e99a46</code></td>
+      <td>Docs only: this page.</td></tr>
+    <tr><td><code class="sha">cae8065</code></td>
+      <td>Test: pins the 0.9.10 Known Issue sequence (a3's re-check), with its red run on 0.9.10 recorded in the ticket.</td></tr>
   </table>
   </div>
   <p>Master holds T0099 as one squash commit (#187), so the last merge was done in two steps:</p>
@@ -204,13 +208,19 @@
       <li><code>session_closed_pid_reuse_keeps_crashed_entries</code>: "the crashed instance's doc was dropped";</li>
       <li><code>session_closed_same_pid_other_run_is_gone</code>: "read as alive: fork".</li>
     </ul></div>
+  <div class="bad"><strong class="tag">The published 0.9.10 Known Issue, pinned.</strong> <code>session_closed_quit_instance_text_survives_other_saves</code> replays it exactly:
+    <ol>
+      <li>B quits with unsaved text and is gone. Its pid comes from a reaped child, so the test runs on every platform.</li>
+      <li>A saves three times with only its own document: a merge auto-save, an own-file auto-save, and the quit save.</li>
+    </ol>
+    B's entry and temp file must survive all three. On 0.9.10's merge rule, run in a throwaway worktree at tag <code>0.9.10</code>, it failed with "A's save 2: B's text left the session", <code>left: ["ta.tmp"]</code>. The merge save keeps B, and the own-file save drops it. a3 asked for this test in the re-check, and the orchestrator accepted it.</div>
   <div class="bad"><strong class="tag">Evidence redone: the first two-instance runs were invalid.</strong> The helper that found an instance's window ran <code>xdotool search --pid P --name FerrisPad</code>. xdotool ORs its search criteria, so both "A" and "B" resolved to the newest window, and every keystroke went to one process. With <code>--all</code>, A and B map to different windows. The tables above are the reruns, and their conclusions did not change. The unit tests never depended on the harness.</div>
   <div class="why"><strong>Why no tombstones.</strong> An ordered-tombstone variant, which persists a record of each close, was considered. The owner-scoped rule replaced it because it needs no clock. A close lost to a crash before the next save leaves the document in the session, which is the safe direction.</div>
   <div class="followup"><strong class="tag">Known limitation: crashed instances' entries pile up.</strong> An entry whose owner crashed with unsaved text is kept. Only a restore that adopts it, followed by a close, removes it. In <code>SavedFiles</code> mode a restore never adopts temp entries, so each crash with unsaved text adds entries and temp files that stay. The ticket sketches a follow-up, "Recover documents from crashed sessions": at startup, offer such documents once, with Restore or Discard. It is not opened.</div>
   <h3>How to test T0101</h3>
   <ol class="steps">
     <li><code>nix develop -c cargo test session_closed</code>
-      <span class="expect">10 pass. On the red scaffold, 6 failed, then 2 more with a bare-pid id, as listed above. The guards <code>session_closed_reopen_in_other_instance_survives</code> and <code>session_closed_crashed_instance_docs_are_kept</code> passed throughout.</span></li>
+      <span class="expect">11 pass. On the red scaffold, 6 failed, then 2 more with a bare-pid id. The Known-Issue test failed on 0.9.10's rule, as listed above. The guards <code>session_closed_reopen_in_other_instance_survives</code> and <code>session_closed_crashed_instance_docs_are_kept</code> passed throughout.</span></li>
     <li><code>nix develop -c cargo test --test session_roundtrip</code>
       <span class="expect">The T0015 and T0099 session tests still pass.</span></li>
     <li>In the app: follow the end-to-end verification below.
@@ -271,7 +281,7 @@
 </section>
 
 <footer>
-  Presentation of PR #203 · branch <code>ticket/T0101</code> · commits <code>5db0af7</code> → <code>1c725d3</code> ·
+  Presentation of PR #203 · branch <code>ticket/T0101</code> · commits <code>5db0af7</code> → <code>cae8065</code> ·
   ticket <code>docs/tickets/2-review/T0101-session-closed-docs-stay-closed.md</code> · issue #202.
 </footer>
 </div>
