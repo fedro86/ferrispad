@@ -152,6 +152,7 @@ rm "$main/BROKEN"
 # that sets DISPLAY=:99, as xvfb-run does.
 envdump="$tmp/gate-env"
 DISPLAY=:0 WAYLAND_DISPLAY=wayland-0 WAYLAND_SOCKET=3 \
+  XDG_RUNTIME_DIR=/run/user/4242 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/4242/bus \
   FERRISPAD_GATES_CMD="env > $(printf %q "$envdump") && test ! -e BROKEN" \
   check "15. gates pass in a clean worktree, caller on the user's display" 0 "git commit -m x" "$wt_clean"
 # expect_env <name> <regex> <present|absent> — about the recorded environment.
@@ -163,7 +164,7 @@ expect_env() {
     pass=$((pass + 1))
   else
     echo "FAIL $1: '$2' is $found in the gate's environment"
-    [[ -f "$envdump" ]] && grep -E '^(DISPLAY|WAYLAND_|FERRISPAD_REQUIRE)' "$envdump" | sed 's/^/     | /'
+    [[ -f "$envdump" ]] && grep -E '^(DISPLAY|WAYLAND_|FERRISPAD_REQUIRE|FLTK_BACKEND|XDG_RUNTIME_DIR|DBUS_SESSION)' "$envdump" | sed 's/^/     | /'
     fail=$((fail + 1))
   fi
 }
@@ -172,6 +173,13 @@ expect_env "15. the gate does not see WAYLAND_DISPLAY" '^WAYLAND_DISPLAY=' absen
 expect_env "15. the gate does not see WAYLAND_SOCKET" '^WAYLAND_SOCKET=' absent
 expect_env "15. the gate runs on the private display" '^DISPLAY=:99$' present
 expect_env "15. the UI tests are required" '^FERRISPAD_REQUIRE_UI_TESTS=1$' present
+# FLTK is built with use-wayland: with FLTK_BACKEND unset it first tries
+# wl_display_connect(NULL), which falls back to wayland-0 in
+# XDG_RUNTIME_DIR, i.e. the user's compositor (T0122 review).
+expect_env "15. FLTK is forced onto X11" '^FLTK_BACKEND=x11$' present
+expect_env "15. the gate does not see the caller's XDG_RUNTIME_DIR" '^XDG_RUNTIME_DIR=/run/user/4242$' absent
+expect_env "15. the gate has an XDG_RUNTIME_DIR of its own" '^XDG_RUNTIME_DIR=/' present
+expect_env "15. the gate does not see the caller's session bus" '^DBUS_SESSION_BUS_ADDRESS=' absent
 
 echo
 echo "$pass passed, $fail failed"

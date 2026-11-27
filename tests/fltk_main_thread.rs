@@ -145,6 +145,45 @@ fn display_available() -> bool {
             "UI tests required but no display (set DISPLAY, e.g. run under xvfb-run)"
         );
         eprintln!("skipping FLTK main-thread checks: no DISPLAY or WAYLAND_DISPLAY");
+    } else if std::env::var("FERRISPAD_REQUIRE_UI_TESTS").as_deref() == Ok("1") {
+        // T0122: under the gates and CI, the checks run on the private X
+        // display they were given, never on the user's screen (see
+        // tests/support/ui_layout.rs::assert_private_display_when_required).
+        let _ = fltk::app::screen_size();
+        // SAFETY: a read of FLTK's global backend state; no pointer involved.
+        let wayland = unsafe { fltk_sys::fl::Fl_using_wayland() } != 0;
+        assert!(
+            !wayland,
+            "FLTK main-thread checks are on a Wayland compositor, not the gate's private X display \
+             (DISPLAY={:?}, FLTK_BACKEND={:?}): run them through scripts/gates.sh",
+            std::env::var("DISPLAY").ok(),
+            std::env::var("FLTK_BACKEND").ok()
+        );
+        #[cfg(target_os = "linux")]
+        {
+            // The X connection FLTK really opened, by name.
+            unsafe extern "C" {
+                fn XDisplayString(display: *mut std::ffi::c_void) -> *const std::ffi::c_char;
+            }
+            let display = fltk::app::display();
+            // SAFETY: `display` is FLTK's open X connection (fltk asserts it is
+            // not null); XDisplayString returns a C string owned by it.
+            let opened = unsafe {
+                let name = XDisplayString(display);
+                assert!(!name.is_null(), "XDisplayString returned null");
+                std::ffi::CStr::from_ptr(name)
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            let screen_less = |d: &str| d.split('.').next().unwrap_or_default().to_string();
+            let wanted = std::env::var("DISPLAY").unwrap_or_default();
+            assert!(
+                screen_less(&opened) == screen_less(&wanted)
+                    && !matches!(screen_less(&opened).as_str(), ":0" | ":1" | ""),
+                "FLTK main-thread checks opened X display {opened:?}, not the gate's private one ({wanted:?})"
+            );
+            eprintln!("FLTK main-thread checks: FLTK on the private X display {opened}");
+        }
     }
     has_display
 }

@@ -65,6 +65,28 @@ CI already does it right: `xvfb-run -a cargo test`.
   records its environment, and an `xvfb-run` stand-in sets `DISPLAY=:99`.
   The case checks that none of the caller's three values reaches the gate,
   that `DISPLAY=:99` does, and that `FERRISPAD_REQUIRE_UI_TESTS=1` is set.
+- **Review fix (ferrispad-90, on e86b8c0): the Wayland path.** fltk is
+  built with `use-wayland`. Where its Wayland backend is compiled in, it
+  calls `wl_display_connect(NULL)` first when `FLTK_BACKEND` is unset, and
+  that falls back to `wayland-0` in `XDG_RUNTIME_DIR`, the user's
+  compositor. Removing `WAYLAND_DISPLAY` does not stop that. The test step
+  now also gets:
+  - `FLTK_BACKEND=x11`;
+  - an empty private `XDG_RUNTIME_DIR` (0700, removed on exit);
+  - no `DBUS_SESSION_BUS_ADDRESS`.
+- **A real-backend proof.** Under `FERRISPAD_REQUIRE_UI_TESTS=1` (the gates
+  and CI), the UI tests' display check asserts two things once the display
+  is open: in `tests/support/ui_layout.rs::assert_private_display_when_required`
+  and in `tests/fltk_main_thread.rs`'s own check:
+  - FLTK is not on Wayland (`Fl_using_wayland()`);
+  - on Linux, the X connection FLTK really opened
+    (`XDisplayString(fltk::app::display())`) is `$DISPLAY` and not `:0`,
+    `:1` or empty.
+
+  Both print the display, for example
+  `FLTK main-thread checks: FLTK on the private X display :99`. A person
+  running `cargo test` on their own desktop, without that variable, is not
+  affected.
 - **The docs** (`.claude/CLAUDE.md`, `engineering-standards.md`,
   `work-sequence.md`, the new-pr skill §0) name the script as the one gate
   command. They say why a bare `nix develop -c cargo test` from the host
@@ -109,6 +131,21 @@ step records the environment it sees.
   18 passed, 5 failed
   ```
 - After: 23 passed, 0 failed. `shellcheck` is clean on the three scripts.
+- Review fix: case 15 also asserts `FLTK_BACKEND=x11`, an
+  `XDG_RUNTIME_DIR` that is not the caller's, and no session bus. Red on
+  e86b8c0's `gates.sh`:
+  ```text
+  FAIL 15. FLTK is forced onto X11: '^FLTK_BACKEND=x11$' is absent in the gate's environment
+  FAIL 15. the gate does not see the caller's XDG_RUNTIME_DIR: '^XDG_RUNTIME_DIR=/run/user/4242$' is present in the gate's environment
+  FAIL 15. the gate does not see the caller's session bus: '^DBUS_SESSION_BUS_ADDRESS=' is present in the gate's environment
+  24 passed, 3 failed
+  ```
+  After: 27 passed, 0 failed.
+- The display-name check has no safe red run. Its failure case is FLTK
+  opening the user's `:0` or `:1`, and both belong to the user's session on
+  this machine (`/tmp/.X11-unix/X0`, `X1`). Showing it would mean opening
+  the user's display. It is shown green instead: every gate run prints the
+  private display FLTK opened (`:99`).
 - After: it passes. The three variables are not the caller's, and
   `DISPLAY` names an Xvfb display (`:99` or another, never `:0`/`:1`).
 
@@ -129,6 +166,12 @@ line. With the real `xvfb-run` and a stand-in test step that prints what it
 sees, the result was `inner DISPLAY=:99 WAYLAND_DISPLAY=unset REQUIRE=1`,
 and `xdpyinfo` on that display answered `The X.Org Foundation`. A real Xvfb
 served it.
+
+After the review fix (2026-11-28): `scripts/gates.sh` through
+`flatpak-spawn --host` exited 0 with 784 passed. The main-thread checks
+printed `FLTK on the private X display :99`, and a UI binary run with
+`--nocapture` printed `UI tests: FLTK on the private X display :99`. No
+`ferrispad-gates-runtime.*` directory and no new Xvfb were left behind.
 
 ### Leftovers
 
@@ -155,6 +198,22 @@ is known and not ours.
 - `.claude/CLAUDE.md`, `.claude/rules/engineering-standards.md`,
   `.claude/rules/work-sequence.md`, `.claude/skills/new-pr/SKILL.md`: the
   gate command.
+
+## Open question (from the review)
+
+Why is the local FLTK built without its Wayland backend? `Cargo.toml` asks
+for `fltk = { features = ["use-wayland"] }`, and `cargo tree -e features`
+shows `fltk-sys` "use-wayland" enabled. Yet in the nix-dev-shell build:
+- `target/debug/build/fltk-sys-*/out/include/FL/fl_config.h` has
+  `#define FLTK_USE_X11 1` and `/* #undef FLTK_USE_WAYLAND */`;
+- the CMake cache has no `FLTK_BACKEND_WAYLAND` entry, although the build
+  script defines it under that feature;
+- `ldd target/debug/FerrisPad` shows no `libwayland-client` (checked by
+  ferrispad-90).
+
+So here the leak was only through `DISPLAY=:0`, XWayland. Whether release
+builds (CI, the Flatpak) get Wayland, and whether they should, may be a
+packaging issue of its own. It is not answered in this ticket.
 
 ## Notes
 
