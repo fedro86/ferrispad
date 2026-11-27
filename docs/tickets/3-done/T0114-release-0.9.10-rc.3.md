@@ -1,7 +1,7 @@
 ---
 id: T0114
 title: Prepare the 0.9.10-rc.3 release candidate
-status: review            # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-27
 severity: ~
 area: process
@@ -86,7 +86,8 @@ beta channel are offered rc.3, and stable users are never offered it.
 
 ## Acceptance criteria
 
-- [ ] The user approved the CHANGELOG text and the release candidate.
+- [x] The user approved the CHANGELOG text and the release candidate
+      (2026-11-27).
 - [x] Version 0.9.10-rc.3 in `Cargo.toml`, `Cargo.lock` and
       `build-releases.sh`.
 - [x] The CHANGELOG section extracts with the `awk` above.
@@ -162,3 +163,11 @@ beta channel are offered rc.3, and stable users are never offered it.
   now starts with tabs on, like a fresh install. The CHANGELOG says so.
 - The security entries describe the protection, not how the old checks could
   be bypassed. The tickets (T0090/T0092/T0094) hold the details.
+
+## User verification
+
+2026-11-27: the user approved the rc.3 CHANGELOG text, including the two
+lines narrowed in review (two windows, plugin program paths), and asked to
+merge and tag. Start-page screenshots:
+`ferrispad-wt/uitest-T0114/start-{Light,Dark}-{16,18}.png`. The post-tag
+items stay open until the tag run is checked.
