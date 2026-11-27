@@ -1,12 +1,12 @@
 ---
 id: T0094
 title: A non-bare plugin program must be an executable in the project or the home directory
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: moderate
 area: security
 depends-on: [T0092]     # T0092 is what makes bare names (PATH) acceptable
-issue: ~                # GitHub issue number, filled when work starts
+issue: 226              # GitHub issue number, filled when work starts
 ---
 
 Disclosure: private until the fix ships in 0.9.10-rc.3 (user decision 2026-11-26).
@@ -153,3 +153,15 @@ test …plugin_run_accepts_venv_symlink_to_system_binary ... ok   (guard: must s
   trust check ran on the canonical parent of the path actually used. But the
   "relative → anchored at the root" statement did not hold for them. Test:
   `program_rule_windows_naming`.
+
+## Disclosure (2026-11-27)
+
+Made public with 0.9.10-rc.3: branch pushed, issue #226 opened. Lands after
+T0092 (#225).
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland) with the rc.3 integration
+build `verify/rc3` (checklist `VERIFICA-RC3.md`), which carried this chain
+(T0090 → T0092 → T0094). 2026-11-27: the session checks re-run on
+`master` + this chain (`verify/rc3-final`) pass.
