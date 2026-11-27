@@ -18,11 +18,14 @@ git-status label colors when selected (FLTK's contrast rule at level 10).
 
 ## In scope
 
-- **The tree's selected row is a soft band** (user decision 2026-11-27,
-  "Colore git, banda tenue"; see Notes): the tree background lightened
-  (dark theme) or darkened (light theme) by the least amount that reaches
+- **Dark themes: the tree's selected row is a soft band** (user decisions
+  2026-11-27, "Colore git, banda tenue" and "scuro vada meglio dopo"; see
+  Notes): the tree background lightened by the least amount that reaches
   **1.5:1** against the tree (`theme::panel_selection_color`, applied by
-  `style_panel_selection`). Master's band is 1.26–1.37:1.
+  `style_panel_selection`). Master's band is 1.34–1.37:1 there.
+- **Light themes: master's band, exactly** ("il light era meglio prima"):
+  the background darkened to 90 % (1.26:1). Dark or light is the rule the
+  tree always used: the background's mean channel below 128.
 - **The selected file's name keeps its git color** (the theme text for a
   clean file). The band is *not* registered with the T0078 contrast hook, so
   FLTK's level-10 rule draws the labels, and at 1.5:1 it keeps every label
@@ -43,36 +46,40 @@ git-status label colors when selected (FLTK's contrast rule at level 10).
 ## How to test
 
 ```bash
-nix develop -c cargo test panel_selection_band_keeps_the_label_colors
+nix develop -c cargo test panel_selection_band_keeps_the_label_colors light_tree_selection_is_masters_band
 ```
 
-It fails on master's band (rows 1.26–1.37:1) and on a 3:1 band (labels
-drawn black or white); output below. It passes on this branch.
+The first fails on master's dark band (1.34–1.37:1) and on a 3:1 band
+(labels drawn black or white); the second fails on the previous 1.5:1
+light band. Outputs below. Both pass on this branch.
 
 ```bash
-.claude/skills/new-pr/compare.sh docs/pr/scenarios/file-tree.sh ~/Code/personal/ferrispad-wt/uitest-T0104/soft
+.claude/skills/new-pr/compare.sh docs/pr/scenarios/file-tree.sh ~/Code/personal/ferrispad-wt/uitest-T0104/split
 ```
 
-`tree-selected-{light,dark}-compare.png`: the selected `modified.rs` keeps
-its orange (light) / yellow (dark) name on a visibly stronger gray band.
+`tree-selected-dark-compare.png`: the selected `modified.rs` keeps its
+yellow name on a stronger band. `tree-selected-light-compare.png`: both
+sides identical.
 
 Manual: open a folder with a modified and an untracked file in the file
 explorer, and select a file, in a light and a dark theme. Expected:
 
-- the selected row is a visible band, stronger than before;
+- dark theme: the selected row is a band stronger than before; light
+  theme: the band is as before;
 - the selected name keeps its git color; the other rows keep theirs;
 - the diagnostic panel looks exactly as on master.
 
 ## Acceptance criteria
 
-- [x] The tree's selected row is in [1.5, 1.6):1 against the tree on the 7
-      built-in themes and T0097's 54-background sweep.
+- [x] On dark backgrounds (4 built-in themes and the dark half of T0097's
+      54-background sweep) the selected row is in [1.5, 1.6):1 against the
+      tree; on the 3 built-in light themes it is master's color exactly.
 - [x] On the 7 built-in themes every label on the selected row (theme
       text, modified, added, conflict, ignored) is drawn in its own color.
 - [x] No re-apply timeout and no `unsafe` left in `tree_panel.rs`'s
       selection path.
-- [x] The diagnostic panel and everything outside the tree are
-      pixel-identical to master's (Xvfb, light and dark).
+- [x] Light: the whole window is pixel-identical to master's, tree
+      included. Dark: everything outside the tree is (Xvfb).
 - [x] Test failed on the old rules; full gates green; montage inspected.
 
 ## Affected files
@@ -97,7 +104,12 @@ explorer, and select a file, in a light and a dark theme. Expected:
   the name keeps its git color, on a band softer than 3:1 but clearly more
   visible than master's ≈1.3:1, theme-derived, chosen to maximise the worst
   git color's contrast while staying visibly distinct.
-- **Why 1.5:1 (implementer's choice, A).** On light themes every git color
+- **The user's second decision (2026-11-27), on the zooms of the 1.5:1
+  band in both themes:** "per il selected mi sembra che scuro vada meglio
+  dopo e il light era meglio prima". So dark themes keep the 1.5:1 band and
+  light themes get master's band back, exactly. The name keeps its git
+  color on both.
+- **Why 1.5:1 (implementer's choice, A; kept for dark themes).** On light themes every git color
   is darker than the tree, so a stronger band always costs them contrast;
   the softest visible band is the best for them. At 1.5:1 no built-in label
   is swapped; at 1.8:1 Ocean Light's and Solarized Light's `ignored` would
@@ -222,3 +234,27 @@ orange / yellow. The unselected shots are pixel-identical to master's
 (AE 0), and so is everything right of the tree in the selected shots
 (diagnostic panel included). No clipping or overlap; no panic or assert
 in the logs; host clean afterwards.
+
+### Dark soft, light as master (2026-11-27, the user's second decision)
+
+`panel_selection_color`: dark (brightness < 128) → the 1.5:1 band; light →
+`bg.darken(0.90)`, master's. `panel_selection_band_keeps_the_label_colors`
+now checks the band only on dark backgrounds, with the upper bound tied to
+`PANEL_SELECTION_CONTRAST` (+0.1, reviewer nit), and the labels on all 7
+built-in themes. New `light_tree_selection_is_masters_band` pins master's
+values: Ocean Light (215, 216, 220), Solarized Light (227, 221, 204),
+InspiredGitHub (229, 229, 229). Red on the previous light rule:
+
+```
+assertion `left == right` failed: Base16OceanLight
+  left: (197, 198, 202)
+ right: (215, 216, 220)
+```
+
+On the light themes the label contrasts are master's again (the "master"
+column of the table above). Gates: 759 tests passed; clippy and fmt clean.
+
+Xvfb (`compare.sh … file-tree.sh …/uitest-T0104/split`, master c3672fe vs
+64e6887): light, every shot is pixel-identical to master's (AE 0, tree
+included); dark, the band is (70, 75, 84) as before and everything outside
+the tree is AE 0. No panic or assert; host clean.
