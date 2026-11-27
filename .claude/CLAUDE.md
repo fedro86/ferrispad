@@ -21,9 +21,11 @@ verified the in-review ticket.** The binding rules load from `.claude/rules/`:
 
 Open new tickets with the `new-ticket` skill (`.claude/skills/new-ticket/`).
 Open every PR with the `new-pr` skill (`.claude/skills/new-pr/`). It writes
-the PR's English HTML presentation, `docs/pr/PR-<n>-<slug>.html`, with
-screenshots of every visible change taken in Xvfb, and copies it to the main
-checkout's `docs/internal/pr/` for the user. It also holds the merge
+the PR's English HTML presentation, `docs/pr/PR-<n>-<slug>.html`. Its
+`shoot.sh` and `compare.sh` launch, drive and screenshot FerrisPad in an
+isolated Xvfb, with before|after montages. Never hand-write an Xvfb script:
+on 2026-11-27 one opened file dialogs on the user's real desktop. The skill
+copies the page to the main checkout's `docs/internal/pr/` for the user. It also holds the merge
 conditions: the ticket in `3-done/`, all checks green on the head SHA, and
 the user's explicit consent for that PR, merged with `--match-head-commit`.
 The ticket workspace (`docs/tickets/`) and this `.claude/` overlay are **tracked

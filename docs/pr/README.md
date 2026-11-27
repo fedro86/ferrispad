@@ -95,7 +95,7 @@ for good.
    to `docs/internal/pr/` again. The PR stays a **draft** while the user
    verifies, and goes ready together with the `3-done/` move.
 4. **Merge.** Only when all of these hold:
-   - the technical visual check passes (headless Chromium at 1280 and
+   - the page's rendering check passes (headless Chromium at 1280 and
      390 px, light and dark, no overflow, chips of at most 40
      characters);
    - the user's feedback is addressed;

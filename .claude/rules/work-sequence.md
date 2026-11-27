@@ -36,9 +36,9 @@ ID, never reused or renumbered. Copy `docs/tickets/_template.md` for new tickets
    the CI gates run at all (T0036 wired them to `push`/`pull_request`). Open the
    PR with the **`new-pr` skill** (`.claude/skills/new-pr/SKILL.md`):
    1. open it as a **draft** against `master` to get its number;
-   2. take screenshots of every visible change from the real app in Xvfb
-      (master build vs branch build, light and dark, inspected edge by
-      edge);
+   2. see every visible change in the real app with the skill's
+      `compare.sh` / `shoot.sh` (an isolated Xvfb; master build vs branch
+      build, light and dark), and read every shot edge by edge;
    3. write `docs/pr/PR-<n>-<slug>.html` and copy it to the main checkout's
       `docs/internal/pr/`;
    4. hand back to the user with the page and the recipe to run. The PR
@@ -52,7 +52,7 @@ ID, never reused or renumbered. Copy `docs/tickets/_template.md` for new tickets
    this point and not before: the draft flag means "waiting for the user's
    verification". It is then **squash-merged**, only under the `new-pr`
    skill's §7 conditions:
-   - the visual check of the page has passed;
+   - the page's rendering check has passed;
    - the user's feedback on the page is addressed;
    - all checks are green on the head SHA;
    - the user has given **explicit consent for this PR**. A message from

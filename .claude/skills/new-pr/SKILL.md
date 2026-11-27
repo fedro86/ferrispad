@@ -1,6 +1,6 @@
 ---
 name: new-pr
-description: Open a FerrisPad pull request with its presentation. Open the PR as a draft on GitHub to get its number. Capture screenshots of every visible change from the real app, driven in Xvfb (master build vs branch build, light and dark, every dialog inspected edge by edge), or state "No visible change". Write the English HTML page from docs/pr/_template.html as docs/pr/PR-<n>-<slug>.html. Copy it to the main checkout's docs/internal/pr/ for the user (again after every fix), commit and push it, and merge only with the ticket in 3-done, all checks green on the head SHA and the user's explicit consent for that PR. Then delete the copy. Use when a ticket's implementation is done and its PR is opened (work-sequence step 2), or when asked for a PR presentation.
+description: Open a FerrisPad pull request with its presentation. Open the PR as a draft on GitHub to get its number. See every visible change in the real app with shoot.sh and compare.sh, which launch, drive and screenshot FerrisPad in an isolated Xvfb (master or a ref vs the branch, light and dark, labelled before|after montages), then read every shot edge by edge; or state "No visible change". Write the English HTML page from docs/pr/_template.html as docs/pr/PR-<n>-<slug>.html, copy it to the main checkout's docs/internal/pr/ for the user (again after every fix), and commit and push it. The PR stays a draft until the user verifies. Merge only with the ticket in 3-done, all checks green on the head SHA and the user's explicit consent for that PR, then delete the copy. Use when a ticket's implementation is done and its PR is opened (work-sequence step 2), or when asked for a PR presentation.
 ---
 
 # Open a pull request (with its presentation)
@@ -66,24 +66,10 @@ change be seen?* If it can, the card shows it. This covers:
 
 ### How to show it
 
-- **Before / after**, side by side in two figures:
-  - *before* is a build of `master` at the merge-base;
-  - *after* is the branch's build.
-  - Use the same fixture text, settings, window size and click-path in
-    both.
-- **Light and dark**: `"theme_mode": "Light"` and `"Dark"` in the
-  throwaway `settings.json`.
-- **A real font at a real size**: Xvfb uses the host's fontconfig (Noto
-  Sans on this machine; `fc-match sans` says which). Take the dialogs at
-  editor font sizes 16 and 18 (`"font_size"`).
-  - Real desktop fonts are wider than Xvfb's defaults, so the larger size
-    is the one that catches clipping.
-- **Inspect every screenshot edge by edge.** Look at each PNG yourself.
-  Any of these is a **blocking** defect, never "cosmetic":
-  - a label touching or crossing a border;
-  - text running into a neighbouring widget;
-  - a clipped widget, or one overlapping another.
-  - Fix it in the ticket before the page goes out.
+- **Before / after:** the same scenario on a build of `master` (or a
+  named ref) and on the branch, as one labelled montage (`compare.sh`).
+- **Light and dark**, at a real font: Noto Sans from nixpkgs, editor font
+  16, and 18 for dialogs, since the larger size catches clipping.
 - **What Xvfb cannot show** is said in the card: *"Pending user on
   <native Wayland | Windows | macOS | multi-monitor>: <what to look at>."*
 - **A UI card with no image** is not ready. Only a card whose change truly
@@ -92,73 +78,103 @@ change be seen?* If it can, the card shows it. This covers:
   - "a refactor with identical output, checked by `<test>`";
   - "a CI-only change".
 
-### How to capture (Xvfb + xdotool + import)
+### How to capture: `shoot.sh` and `compare.sh`
 
-Build both binaries first. Master goes in its own worktree, never in the
-user's checkout:
+These two tools are **the** way to see FerrisPad. Never hand-write an Xvfb
+script: the tools carry the isolation barriers below, and a hand-written
+script does not.
 
-```bash
-git worktree add ../ferrispad-wt/base-T<NNNN> "$(git merge-base origin/master HEAD)"
-flatpak-spawn --host bash -lc "cd ~/Code/personal/ferrispad-wt/base-T<NNNN> && nix develop -c cargo build"
-flatpak-spawn --host bash -lc "cd ~/Code/personal/ferrispad-wt/T<NNNN> && nix develop -c cargo build"
-```
-
-A capture script, in a host-visible folder such as
-`~/Code/personal/ferrispad-wt/uitest-T<NNNN>/`. The sandbox's `/tmp` is not
-the host's. The script takes the binary and a label:
+**`compare.sh` makes the before/after pair:**
 
 ```bash
-#!/usr/bin/env bash
-# shot.sh <binary> <label>   e.g. shot.sh …/target/debug/FerrisPad after
-set -u
-OUT=$HOME/Code/personal/ferrispad-wt/uitest-T<NNNN>
-export FLTK_BACKEND=x11; unset WAYLAND_DISPLAY
-for mode in Light Dark; do for size in 16 18; do
-  # Throwaway config AND data dirs: never the user's settings, sessions or recent files.
-  export XDG_CONFIG_HOME=$(mktemp -d) XDG_DATA_HOME=$(mktemp -d)
-  mkdir -p "$XDG_CONFIG_HOME/ferrispad"
-  echo "{\"theme_mode\": \"$mode\", \"font_size\": $size, \"tabs_enabled\": true,
-         \"window\": {\"x\": 20, \"y\": 20, \"width\": 1100, \"height\": 740, \"maximized\": false}}" \
-    > "$XDG_CONFIG_HOME/ferrispad/settings.json"
-  "$1" "$OUT/fixture.txt" >"$OUT/stderr-$2-$mode-$size.log" 2>&1 &
-  pid=$!; sleep 4
-  # Drive it: no window manager, so click the menu bar instead of Alt-keys.
-  # xdotool mousemove 40 46 click 1; sleep 1; xdotool mousemove 80 120 click 1; sleep 2
-  import -window root "$OUT/$2-$mode-$size.png"
-  kill $pid; wait $pid 2>/dev/null
-done; done
+.claude/skills/new-pr/compare.sh docs/pr/scenarios/<scenario>.sh \
+    ~/Code/personal/ferrispad-wt/uitest-T<NNNN> [--before <ref>] [--font 18] [--size 1100x740]
 ```
 
-Run it on both builds:
+It does the following:
+
+1. It builds `<ref>` in a throwaway worktree (default `origin/master`, or a
+   release tag such as `0.9.10-rc.2`) and the branch from this worktree.
+   Both are debug builds, through `flatpak-spawn --host … nix develop -c
+   cargo build`.
+2. It runs the same scenario on both, light and dark.
+3. It writes `<shot>-<theme>-compare.png`, a labelled `before | after`
+   montage at most 1600 px wide, ready to inline.
+
+The single shots and each run's log stay in `before/` and `after/`. Run it
+again with `--font 18`: the larger font is the one that catches clipping.
+
+**`shoot.sh` runs one scenario on one binary:**
 
 ```bash
-flatpak-spawn --host bash -lc "nix shell nixpkgs#xvfb-run nixpkgs#xdotool nixpkgs#imagemagick -c \
-  xvfb-run -a -s '-screen 0 1280x800x24' bash ~/Code/personal/ferrispad-wt/uitest-T<NNNN>/shot.sh \
-  ~/Code/personal/ferrispad-wt/base-T<NNNN>/target/debug/FerrisPad before"
-# … and again with ~/Code/personal/ferrispad-wt/T<NNNN>/target/debug/FerrisPad after
+.claude/skills/new-pr/shoot.sh target/debug/FerrisPad <outdir> <scenario> --theme dark --font 18
 ```
 
-- Use a **debug** build. fltk-rs debug asserts fire only there, and every
-  new or changed window must be opened at least once.
-- **Never image the user's real files, config or sessions.** Use only the
-  throwaway XDG dirs and fixture text written for the capture (a
-  `fixture.txt`, a small `.rs` or `.md`). A page enters git history for
-  good. Xvfb shows only the app, never the user's desktop.
-- **Crop** to the window or dialog that matters:
-  `magick in.png -crop WxH+X+Y +repage out.png`.
-- **Size:** at most about 1600 px wide, optimised. For example
-  `nix shell nixpkgs#pngquant -c pngquant --quality 70-90 --strip --output out.png in.png`,
-  or `magick in.png -strip -define png:compression-level=9 out.png`.
-  Keep a page to a few MB at most.
-- Remove the base worktree when done: `git worktree remove ../ferrispad-wt/base-T<NNNN>`.
+Use it while you work on a dialog. `compare.sh` calls it.
+
+**A scenario** is a small bash file in `docs/pr/scenarios/`, described in
+that folder's README:
+
+- `OPEN_FILES=(<fixture>)` opens fixture files from
+  `docs/pr/scenarios/fixtures/` on the command line;
+- `SETTINGS_EXTRA` adds `settings.json` members;
+- `scenario() { … }` drives the app with the helpers `click`, `dclick`,
+  `key`, `type`, `menu File|Edit|View|Format|Plugins|Help`, `wait_idle`,
+  `shot <name> [<window-title-regex>]` and `shot_screen`.
+
+Start from `start-page.sh` (no interaction) or `editor.sh` (a fixture, a
+menu, the Find dialog). Commit a ticket's scenario with its PR, so the
+next change to that UI can be compared against it.
+
+**Isolation: the app must never reach the user's desktop.** On 2026-11-27
+a hand-driven run pressed Ctrl+O. FerrisPad spawned zenity, and zenity
+opened "Open Files" dialogs on the user's real GNOME session, one per
+run. `shoot.sh` refuses to start without these barriers (its header has
+the details):
+
+- **a private D-Bus session:** `dbus-run-session` with no service
+  activation, so no portal;
+- **no compositor:** a private, empty `XDG_RUNTIME_DIR`, no
+  `WAYLAND_DISPLAY`, `GDK_BACKEND=x11`, and a `DISPLAY` that is the run's
+  own Xvfb (`:90`+), never `:0`/`:1`;
+- **shims:** `zenity`, `kdialog`, `xdg-open`, `gio` and the other openers
+  are shims that fail and log, and any shim call fails the run;
+- **no network:** update and plugin-update checks are off;
+- **no file dialog in a scenario:** fixtures open on the command line, and
+  `key` refuses `ctrl+o`, `ctrl+s` and `ctrl+shift+s`;
+- **one process group:** the app runs in its own group, which is killed
+  at the end, and a leftover process fails the run.
+
+**`shoot.sh --selftest <outdir>`** checks every barrier without starting
+FerrisPad. Run it after any change to `shoot.sh`. After a run, confirm on
+the host that nothing is left over:
+
+```bash
+flatpak-spawn --host bash -c 'pgrep -af "zenity|Xvfb|dbus-daemon --config-file" | grep -v pgrep || echo clean'
+```
+
+It also never touches the user's files: every run has a fresh
+`XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `XDG_CACHE_HOME`, and only fixture
+text. A page enters git history for good.
+
+**Read every PNG yourself, edge by edge**, the single shots and the
+montages. Any of these is a **blocking** defect, never cosmetic:
+
+- a label touching or crossing a border;
+- text running into a neighbouring widget;
+- a clipped widget, or two widgets overlapping.
+
+Fix it in the ticket before the page goes out. The log next to each shot
+holds the app's stdout/stderr, where fltk-rs debug asserts show up.
+`shoot.sh` fails on a panic, an assert or a crash.
 
 ### Where they go
 
-The images go in the ticket's card. Each is a `<figure>` with a one-line
-`<figcaption>`. The caption says **before or after**, **light or dark**,
-and **what to look at**. The PNG goes inline as base64
-(`base64 -w0 out.png`), so the page stays one file. The template's style
-keeps it inside the card.
+The montages go in the ticket's card, one `<figure>` per theme, each with
+a one-line `<figcaption>`. The caption says the refs (the montage labels
+them too), light or dark, and **what to look at**. The PNG goes inline as
+base64 (`base64 -w0 <shot>-<theme>-compare.png`), so the page stays one
+file. The template's style keeps it inside the card.
 
 ## 3. Write the page
 
@@ -223,7 +239,7 @@ element. The rules:
     outcome;
   - the gates come last.
 
-Before going on, run the technical visual check (§7 condition 1) on the
+Before going on, run the page's rendering check (§7 condition 1) on the
 page. It runs again on the committed page before the merge.
 
 ## 4. Deliver it to the user: a copy in the main checkout
@@ -243,7 +259,7 @@ M=$(git worktree list --porcelain | sed -n '1s/^worktree //p') && mkdir -p "$M/d
 - Copy the page as soon as it exists, and **again after every fix**. The
   copy the user reads must never be older than the branch's page.
 - Tell the user the copy's full path. Their feedback is a merge condition
-  (§7), separate from the technical check.
+  (§7), separate from the page's rendering check.
 
 ## 5. Commit and push it
 
@@ -286,14 +302,15 @@ with:
 3. Push, and copy the page to the user again.
 4. Mark the PR ready (`gh pr ready <n>`), together with the `3-done/`
    move and never before it.
-5. Run the technical check again on the new head.
+5. Run the page's rendering check again on the new head.
 
 ## 7. Merge only on the user's explicit consent
 
 Before a merge, all five hold:
 
-1. **The technical visual check has passed** on the committed page,
-   after the last fix:
+1. **The page's own rendering check has passed** on the committed page,
+   after the last fix. This is a minor check of the HTML page, not of
+   FerrisPad (that is §2):
    ```bash
    .claude/skills/new-pr/visual_check.sh docs/pr/PR-<n>-<slug>.html <scratchpad>/vc-<n>
    ```
