@@ -50,6 +50,30 @@ use crate::ui::theme::{PanelTheme, Themeable, apply_syntax_theme_colors, apply_t
 #[cfg(target_os = "macos")]
 use crate::ui::theme::{set_macos_titlebar_color, update_macos_title_label};
 
+/// The main window title: `[*]<tab label> - 🦀 FerrisPad [session]`, "*"
+/// when the active document has unsaved changes (T0093). `active` is the
+/// active document's tab label and dirty state; with no document open (the
+/// start page) the title is just the app name.
+pub fn window_title(active: Option<(&str, bool)>, session_name: &str) -> String {
+    let base_suffix = if cfg!(target_os = "windows") {
+        "FerrisPad"
+    } else {
+        "\u{1f980} FerrisPad"
+    };
+    let suffix = if session_name == session::DEFAULT_SESSION_NAME {
+        base_suffix.to_string()
+    } else {
+        format!("{} [{}]", base_suffix, session_name)
+    };
+    match active {
+        Some((label, dirty)) => {
+            let prefix = if dirty { "*" } else { "" };
+            format!("{prefix}{label} - {suffix}")
+        }
+        None => suffix,
+    }
+}
+
 pub struct AppState {
     pub tab_manager: TabManager,
     pub tabs_enabled: bool,
@@ -238,25 +262,16 @@ impl AppState {
         self.update_menus_for_file_type();
     }
 
-    /// Update the window title based on active document
+    /// Update the window title based on active document. The label is only
+    /// set when the text changes.
     pub fn update_window_title(&mut self) {
-        let base_suffix = if cfg!(target_os = "windows") {
-            "FerrisPad"
-        } else {
-            "\u{1f980} FerrisPad"
-        };
-        let session_name = self.session.current_session_name();
-        let suffix = if session_name == session::DEFAULT_SESSION_NAME {
-            base_suffix.to_string()
-        } else {
-            format!("{} [{}]", base_suffix, session_name)
-        };
-        if let Some(doc) = self.tab_manager.active_doc() {
-            let prefix = if doc.is_dirty() { "*" } else { "" };
-            self.window
-                .set_label(&format!("{}{} - {}", prefix, doc.tab_label(), suffix));
-        } else {
-            self.window.set_label(&format!("Untitled - {}", suffix));
+        let active = self
+            .tab_manager
+            .active_doc()
+            .map(|doc| (doc.tab_label(), doc.is_dirty()));
+        let title = window_title(active, self.session.current_session_name());
+        if self.window.label() != title {
+            self.window.set_label(&title);
         }
         #[cfg(target_os = "macos")]
         update_macos_title_label(&self.window);
@@ -425,8 +440,10 @@ impl AppState {
         self.tab_manager.remove(id);
 
         if self.tab_manager.count() == 0 {
-            // No document left: nothing to preview (T0103).
+            // No document left: nothing to preview (T0103), and the title
+            // drops "Untitled" for the start page (T0093).
             self.update_menus_for_file_type();
+            self.update_window_title();
             return true;
         }
 
@@ -850,12 +867,26 @@ impl AppState {
         }
     }
 
-    /// The main loop took `msg` off the queue, before dispatch (T0096).
-    /// Every message that owns a "pending" flag clears it here, so the reset
-    /// does not depend on its handler running (the main loop skips some
-    /// handlers when no tab is open).
+    /// A document's text changed (`BufferModified`): drop its cached tree,
+    /// recount its lines, and resize the gutter if the active document's
+    /// largest line number gained or lost a digit (T0107).
+    pub fn on_buffer_modified(&mut self, id: DocumentId) {
+        if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+            doc.cached_tree = None;
+            doc.cached_line_count = doc.buffer.count_lines(0, doc.buffer.length()) as usize;
+        }
+        if self.tab_manager.active_id() == Some(id) {
+            self.view.line_count_changed(&self.tab_manager);
+        }
+    }
+
+    /// The main loop took `msg` off the queue, before dispatch (T0096,
+    /// T0093). Every message that owns a "pending" flag clears it here, the
+    /// one hook for all of them, so the reset does not depend on its handler
+    /// running (the main loop skips some handlers when no tab is open).
     pub fn note_dequeued(&mut self, msg: &Message) {
         self.highlight.note_dequeued(msg);
+        crate::app::domain::document::note_dequeued(msg);
         if matches!(msg, Message::DoTextChangeHook) {
             self.text_change_timer_active = false;
         }
@@ -1578,5 +1609,37 @@ fn rewrite_styles(
             true
         }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// T0093: the title string (pinned; the bug was the missing refresh).
+    #[test]
+    fn dirty_window_title() {
+        let app = if cfg!(target_os = "windows") {
+            "FerrisPad"
+        } else {
+            "\u{1f980} FerrisPad"
+        };
+        let default = session::DEFAULT_SESSION_NAME;
+        assert_eq!(
+            window_title(Some(("notes.txt", true)), default),
+            format!("*notes.txt - {app}")
+        );
+        assert_eq!(
+            window_title(Some(("notes.txt", false)), default),
+            format!("notes.txt - {app}")
+        );
+        assert_eq!(
+            window_title(Some(("Untitled", true)), "work"),
+            format!("*Untitled - {app} [work]")
+        );
+        // No document open (the start page): just the app name, not a
+        // phantom "Untitled".
+        assert_eq!(window_title(None, default), app);
+        assert_eq!(window_title(None, "work"), format!("{app} [work]"));
     }
 }

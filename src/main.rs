@@ -563,7 +563,7 @@ fn main() {
     while app.wait() {
         if let Some(msg) = receiver.recv() {
             // Pending flags are cleared on dequeue, even if the handler is
-            // skipped below (T0096).
+            // skipped below (T0096, T0093): one hook for all of them.
             state.note_dequeued(&msg);
             let result = match msg {
                 // File
@@ -633,6 +633,13 @@ fn main() {
                 | Message::RunShortcut(_)
                 | Message::PreviewSyntaxTheme(_) => {
                     dispatch::handle_settings(msg, &mut state, &mut lw);
+                    dispatch::DispatchResult::Continue
+                }
+
+                // Dirty marker refresh: safe with no document (the title
+                // falls back to the app name, the tab bar to no tabs).
+                Message::DirtyChanged(_) => {
+                    dispatch::refresh_dirty_markers(&mut state);
                     dispatch::DispatchResult::Continue
                 }
 

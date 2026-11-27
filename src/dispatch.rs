@@ -387,6 +387,13 @@ pub fn handle_settings(msg: Message, state: &mut AppState, lw: &mut LayoutWidget
 // Syntax Highlighting
 // ---------------------------------------------------------------------------
 
+/// `DirtyChanged`: refresh the window title and the tab bar (T0093). One
+/// message stands for every flip since the last one was dequeued.
+pub fn refresh_dirty_markers(state: &mut AppState) {
+    state.update_window_title();
+    state.rebuild_tab_bar();
+}
+
 pub fn handle_highlight(msg: Message, state: &mut AppState) {
     match msg {
         Message::BufferModified {
@@ -395,10 +402,7 @@ pub fn handle_highlight(msg: Message, state: &mut AppState) {
             inserted,
             deleted,
         } => {
-            if let Some(doc) = state.tab_manager.doc_by_id_mut(id) {
-                doc.cached_tree = None;
-                doc.cached_line_count = doc.buffer.count_lines(0, doc.buffer.length()) as usize;
-            }
+            state.on_buffer_modified(id);
             state.schedule_rehighlight(id, pos);
             state.schedule_text_change_hook(id, pos, inserted, deleted);
             state.session.mark_dirty();
@@ -716,6 +720,8 @@ pub fn handle_deferred(
             {
                 let id = doc.id;
                 state.tab_manager.remove(id);
+                // No document now: the title drops "Untitled" (T0093).
+                state.update_window_title();
             }
 
             if tabs_enabled {

@@ -91,8 +91,9 @@ safe: it is the behaviour described in the Goal.
 - [x] A manual run of `release.yml` on a branch publishes no release and
       does not run the `flatpark` job.
 - [x] The workflow artifacts of that run contain the built binaries.
-- [ ] A tag push still creates the release (pre-release for `-rc` tags) and
-      runs `flatpark` only for tags without `-`.
+- [x] A tag push still creates the release (pre-release for `-rc` tags) and
+      runs `flatpark` only for tags without `-`. Checked on the
+      `0.9.10-rc.3` tag, 2026-11-27.
 - [x] `RELEASE_PROCESS.md` describes the manual run as it actually behaves.
 - [x] `actionlint` is clean; the cargo gates still pass (no Rust change).
 
@@ -189,9 +190,10 @@ conclusion **success**.
   `FerrisPad-v0.9.10-rc.2-dev.2a3465c-{linux-amd64,linux-arm64,ubuntu-amd64.deb,ubuntu-arm64.deb,windows-x64.exe,windows-x64.zip,macos-universal,macos.dmg}`.
 - `gh release list` still ends at `0.9.10-rc.2`: no new release, no new tag.
 
-Still to check on the next real tag (0.9.10-rc.3): the tag path publishes as
-before (signed assets, pre-release flag, no FlatPark for `-rc`). Record that
-run here.
+Tag path, checked on the `0.9.10-rc.3` tag (2026-11-27, release run
+45975015836): `release-gate` succeeded and let `sign-binaries` and
+`create-release` run; the release is a pre-release with every asset and the
+four `.sig` files; `flatpark` was skipped for the `-rc` tag.
 
 ## User verification
 

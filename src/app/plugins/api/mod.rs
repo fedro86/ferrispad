@@ -563,6 +563,519 @@ mod tests {
         );
     }
 
+    // ── T0090: one physical path rule (in-root symlinks) ──────────────
+
+    /// `root/` (the project) and `outside/` (must stay untouched), side by side.
+    #[cfg(unix)]
+    fn root_and_outside() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("root");
+        let outside = dir.path().join("outside");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        (dir, root, outside)
+    }
+
+    #[cfg(unix)]
+    fn call2(api: EditorApi, method: &str, a: &str, b: &str) -> (bool, String) {
+        let lua = mlua::Lua::new();
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+            let f: mlua::Function = ud.get(method).unwrap();
+            Ok(
+                f.call::<(bool, String)>((&ud, a.to_string(), b.to_string()))
+                    .unwrap(),
+            )
+        })
+        .unwrap()
+    }
+
+    #[cfg(unix)]
+    fn call1(api: EditorApi, method: &str, a: &str) -> (bool, String) {
+        let lua = mlua::Lua::new();
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+            let f: mlua::Function = ud.get(method).unwrap();
+            Ok(f.call::<(bool, String)>((&ud, a.to_string())).unwrap())
+        })
+        .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plugin_path_write_file_through_in_root_symlink_is_rejected() {
+        let (_d, root, outside) = root_and_outside();
+        std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+        let (ok, _) = call2(
+            api_with_root(&root),
+            "write_file",
+            "link/newdir/pwned.txt",
+            "x",
+        );
+        assert!(
+            !outside.join("newdir").exists(),
+            "write_file escaped through root/link"
+        );
+        assert!(!ok, "write_file through an in-root symlink must fail");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plugin_path_create_dir_through_in_root_symlink_is_rejected() {
+        let (_d, root, outside) = root_and_outside();
+        std::os::unix::fs::symlink(&outside, root.join("link")).unwrap();
+        let (ok, _) = call1(api_with_root(&root), "create_dir", "link/a/b");
+        assert!(
+            !outside.join("a").exists(),
+            "create_dir escaped through root/link"
+        );
+        assert!(!ok, "create_dir through an in-root symlink must fail");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plugin_path_dangling_symlink_is_not_written_through() {
+        let (_d, root, outside) = root_and_outside();
+        let target = outside.join("new.txt");
+        std::os::unix::fs::symlink(&target, root.join("dangle")).unwrap();
+        let (ok_write, _) = call2(api_with_root(&root), "write_file", "dangle", "x");
+        assert!(
+            !target.exists(),
+            "write_file followed a dangling in-root symlink"
+        );
+        assert!(!ok_write);
+        let (ok_create, _) = call1(api_with_root(&root), "create_file", "dangle");
+        assert!(
+            !target.exists(),
+            "create_file followed a dangling in-root symlink"
+        );
+        assert!(!ok_create);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plugin_path_mcp_config_does_not_follow_symlinks() {
+        // A dangling .mcp.json link pointing outside.
+        let (_d, root, outside) = root_and_outside();
+        let target = outside.join("mcp.json");
+        std::os::unix::fs::symlink(&target, root.join(".mcp.json")).unwrap();
+        let canonical_root = std::fs::canonicalize(&root).unwrap();
+        let res = editor::write_mcp_files(&canonical_root, &root, "/bin/ferrispad");
+        assert!(!target.exists(), ".mcp.json written through a symlink");
+        assert!(res.is_err());
+
+        // A .gitignore link to an outside file.
+        let (_d2, root2, outside2) = root_and_outside();
+        let victim = outside2.join("victim");
+        std::fs::write(&victim, "keep\n").unwrap();
+        std::os::unix::fs::symlink(&victim, root2.join(".gitignore")).unwrap();
+        let canonical_root2 = std::fs::canonicalize(&root2).unwrap();
+        let res2 = editor::write_mcp_files(&canonical_root2, &root2, "/bin/ferrispad");
+        assert_eq!(
+            std::fs::read_to_string(&victim).unwrap(),
+            "keep\n",
+            ".gitignore written through a symlink"
+        );
+        assert!(res2.is_err());
+    }
+
+    /// The macOS `/var` → `/private/var` case: the root is given through an
+    /// alias symlink and the plugin passes absolute paths under that alias.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_path_absolute_path_under_root_alias_is_accepted() {
+        let (d, real_root, _outside) = root_and_outside();
+        let alias = d.path().join("alias");
+        std::os::unix::fs::symlink(&real_root, &alias).unwrap();
+        let deep = alias.join("nested").join("deep");
+        let (ok, err) = call1(api_with_root(&alias), "create_dir", deep.to_str().unwrap());
+        assert!(ok, "create_dir under the root alias must succeed: {err}");
+        assert!(real_root.join("nested/deep").is_dir());
+        let renamed = alias.join("nested").join("renamed");
+        let (ok2, err2) = call2(
+            api_with_root(&alias),
+            "rename",
+            deep.to_str().unwrap(),
+            renamed.to_str().unwrap(),
+        );
+        assert!(ok2, "rename under the root alias must succeed: {err2}");
+        assert!(real_root.join("nested/renamed").is_dir());
+    }
+
+    // ── T0092: no writes into executables or under .git ───────────────
+
+    #[cfg(unix)]
+    fn make_executable(path: &std::path::Path, content: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(path, content).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// `fs::write` onto an existing file keeps its mode: overwriting an
+    /// executable (e.g. `.venv/bin/ruff`) and then running it through an
+    /// approved command would be code execution.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_write_refuses_existing_executables() {
+        let (_d, root, _outside) = root_and_outside();
+        std::fs::create_dir_all(root.join(".venv/bin")).unwrap();
+        let ruff = root.join(".venv/bin/ruff");
+        make_executable(&ruff, "#!/bin/sh\necho real ruff\n");
+        let (ok, _) = call2(
+            api_with_root(&root),
+            "write_file",
+            ".venv/bin/ruff",
+            "#!/bin/sh\nevil\n",
+        );
+        assert_eq!(
+            std::fs::read_to_string(&ruff).unwrap(),
+            "#!/bin/sh\necho real ruff\n"
+        );
+        assert!(!ok, "write_file overwrote an executable");
+
+        // Through an in-root symlink to the executable: same physical target.
+        std::os::unix::fs::symlink(&ruff, root.join("alias")).unwrap();
+        let (ok, _) = call2(api_with_root(&root), "write_file", "alias", "evil");
+        assert!(!ok, "write_file overwrote an executable through a symlink");
+
+        // rename INTO an existing executable is refused…
+        std::fs::write(root.join("payload"), "evil").unwrap();
+        let (ok, _) = call2(api_with_root(&root), "rename", "payload", ".venv/bin/ruff");
+        assert!(!ok, "rename replaced an executable");
+        assert_eq!(
+            std::fs::read_to_string(&ruff).unwrap(),
+            "#!/bin/sh\necho real ruff\n"
+        );
+    }
+
+    /// Moving an executable away, removing it, and writing a plain new file
+    /// stay allowed: the new file is not executable.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_write_allows_moving_or_removing_executables() {
+        let (_d, root, _outside) = root_and_outside();
+        let tool = root.join("tool.sh");
+        make_executable(&tool, "#!/bin/sh\n");
+        let (ok, err) = call2(api_with_root(&root), "rename", "tool.sh", "old-tool.sh");
+        assert!(ok, "moving an executable away: {err}");
+        let (ok, err) = call2(api_with_root(&root), "write_file", "tool.sh", "plain");
+        assert!(ok, "a new file where the executable was: {err}");
+        let (ok, err) = call1(api_with_root(&root), "remove", "old-tool.sh");
+        assert!(ok, "removing an executable: {err}");
+    }
+
+    /// git-diff has execute = ["git"]: a plugin that writes `.git/config`
+    /// (core.fsmonitor, core.pager, aliases) or a hook runs code through it.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_write_refuses_paths_under_dot_git() {
+        let (_d, root, _outside) = root_and_outside();
+        std::fs::create_dir_all(root.join(".git/hooks")).unwrap();
+        std::fs::write(root.join(".git/config"), "[core]\n").unwrap();
+        std::fs::write(root.join(".git/hooks/pre-commit.sample"), "x").unwrap();
+        std::fs::create_dir(root.join("sub")).unwrap();
+        std::os::unix::fs::symlink(root.join(".git"), root.join("gitlink")).unwrap();
+
+        for (method, args) in [
+            (
+                "write_file",
+                vec![".git/config", "[core]\nfsmonitor = evil\n"],
+            ),
+            ("write_file", vec!["sub/../.git/config", "x"]),
+            ("write_file", vec!["gitlink/config", "x"]),
+            (
+                "write_file",
+                vec![".git/hooks/post-checkout", "#!/bin/sh\n"],
+            ),
+            (
+                "rename",
+                vec![".git/hooks/pre-commit.sample", ".git/hooks/pre-commit"],
+            ),
+            ("rename", vec!["sub", ".git/sub"]),
+        ] {
+            let (ok, _) = call2(api_with_root(&root), method, args[0], args[1]);
+            assert!(!ok, "{method}{args:?} under .git must fail");
+        }
+        for (method, arg) in [
+            ("create_dir", ".git/hooks/x"),
+            ("create_file", ".git/hooks/pre-push"),
+            ("remove", ".git/hooks/pre-commit.sample"),
+        ] {
+            let (ok, _) = call1(api_with_root(&root), method, arg);
+            assert!(!ok, "{method}({arg}) under .git must fail");
+        }
+        assert_eq!(
+            std::fs::read_to_string(root.join(".git/config")).unwrap(),
+            "[core]\n"
+        );
+        assert!(root.join(".git/hooks/pre-commit.sample").exists());
+        assert!(!root.join(".git/hooks/post-checkout").exists());
+        assert!(!root.join(".git/hooks/pre-commit").exists());
+
+        // Reads stay allowed; look-alikes are not .git.
+        let lua = mlua::Lua::new();
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api_with_root(&root)).unwrap();
+            let read: mlua::Function = ud.get("read_file").unwrap();
+            let (content, err): (Option<String>, Option<String>) =
+                read.call((&ud, ".git/config".to_string())).unwrap();
+            assert_eq!(content.as_deref(), Some("[core]\n"), "{err:?}");
+            Ok(())
+        })
+        .unwrap();
+        for ok_path in [".github/workflows/ci.yml", "x.git/file", "docs/.gitkeep"] {
+            let (ok, err) = call2(api_with_root(&root), "write_file", ok_path, "x");
+            assert!(ok, "{ok_path}: {err}");
+        }
+    }
+
+    /// `.git` as a FILE (worktrees, submodules) is covered too.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_write_refuses_dot_git_file() {
+        let (_d, root, _outside) = root_and_outside();
+        std::fs::write(root.join(".git"), "gitdir: /elsewhere\n").unwrap();
+        let (ok, _) = call2(
+            api_with_root(&root),
+            "write_file",
+            ".git",
+            "gitdir: /evil\n",
+        );
+        assert!(!ok);
+        assert_eq!(
+            std::fs::read_to_string(root.join(".git")).unwrap(),
+            "gitdir: /elsewhere\n"
+        );
+    }
+
+    /// T0092 review: a destructive op on the project root itself — however
+    /// it is spelled — must never succeed (a plugin bug passing "" was enough
+    /// to wipe the project and its history).
+    #[cfg(unix)]
+    #[test]
+    fn plugin_remove_refuses_the_project_root() {
+        let (d, root, _outside) = root_and_outside();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("keep.txt"), "x").unwrap();
+        std::os::unix::fs::symlink(&root, root.join("rootlink")).unwrap();
+        let alias = d.path().join("alias");
+        std::os::unix::fs::symlink(&root, &alias).unwrap();
+        let abs = root.to_string_lossy().into_owned();
+        let alias_abs = alias.to_string_lossy().into_owned();
+        for spelling in [
+            "",
+            ".",
+            "./",
+            "sub/..",
+            "rootlink",
+            abs.as_str(),
+            alias_abs.as_str(),
+        ] {
+            let (ok, _) = call1(api_with_root(&root), "remove", spelling);
+            assert!(!ok, "remove({spelling:?}) must fail");
+            let (ok, _) = call2(api_with_root(&root), "rename", spelling, "moved");
+            assert!(!ok, "rename({spelling:?}) must fail");
+            assert!(
+                root.join(".git").is_dir() && root.join("keep.txt").exists(),
+                "{spelling:?}"
+            );
+        }
+    }
+
+    /// Removing or moving a directory must not take a `.git` inside it along.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_remove_refuses_directories_containing_dot_git() {
+        let (_d, root, outside) = root_and_outside();
+        std::fs::create_dir_all(root.join("sub/.git")).unwrap();
+        std::fs::create_dir_all(root.join("deep/a/b/c/.GIT")).unwrap();
+        std::fs::create_dir_all(root.join("deep/a/b/c/.git")).unwrap();
+        for dir in ["sub", "deep"] {
+            let (ok, _) = call1(api_with_root(&root), "remove", dir);
+            assert!(!ok, "remove({dir}) must fail");
+            let (ok, _) = call2(api_with_root(&root), "rename", dir, "moved");
+            assert!(!ok, "rename({dir}) must fail");
+        }
+        assert!(root.join("sub/.git").is_dir() && root.join("deep/a/b/c/.git").is_dir());
+
+        // A symlink inside the directory that points at a .git elsewhere is
+        // not followed: removing the directory removes the link, not its
+        // target, so it does not block either.
+        std::fs::create_dir_all(outside.join(".git")).unwrap();
+        std::fs::create_dir_all(root.join("links")).unwrap();
+        std::os::unix::fs::symlink(outside.join(".git"), root.join("links/g")).unwrap();
+        let (ok, err) = call1(api_with_root(&root), "remove", "links");
+        assert!(ok, "{err}");
+        assert!(
+            outside.join(".git").is_dir(),
+            "the link target is untouched"
+        );
+    }
+
+    /// The directory walk is bounded; past the bound the op fails closed.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_remove_walk_is_bounded() {
+        let (_d, root, _outside) = root_and_outside();
+        let mut deep = root.join("tall");
+        for i in 0..(sandbox::MAX_REMOVE_DEPTH + 2) {
+            deep.push(format!("d{i}"));
+        }
+        std::fs::create_dir_all(&deep).unwrap();
+        let (ok, _) = call1(api_with_root(&root), "remove", "tall");
+        assert!(!ok, "deeper than the bound must fail closed");
+        assert!(root.join("tall").is_dir());
+
+        let wide = root.join("wide");
+        std::fs::create_dir(&wide).unwrap();
+        for i in 0..=sandbox::MAX_REMOVE_ENTRIES {
+            std::fs::write(wide.join(format!("f{i}")), "").unwrap();
+        }
+        let (ok, _) = call1(api_with_root(&root), "remove", "wide");
+        assert!(!ok, "more entries than the bound must fail closed");
+        assert!(wide.is_dir());
+
+        // Within the bounds a plain directory is removed.
+        std::fs::create_dir_all(root.join("plain/a/b")).unwrap();
+        std::fs::write(root.join("plain/a/b/f"), "x").unwrap();
+        let (ok, err) = call1(api_with_root(&root), "remove", "plain");
+        assert!(ok, "{err}");
+        assert!(!root.join("plain").exists());
+    }
+
+    // ── T0094: where a non-bare run_command program may live ──────────
+
+    #[cfg(unix)]
+    fn api_running(root: Option<&std::path::Path>, allowed: &[&str]) -> EditorApi {
+        EditorApi {
+            project_root: root.map(|r| r.to_path_buf()),
+            allowed_commands: allowed.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    /// Ok(success) when the command ran, Err(message) when it was refused.
+    #[cfg(unix)]
+    fn run_cmd(api: EditorApi, cmd: &str) -> Result<bool, String> {
+        let lua = mlua::Lua::new();
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+            let f: mlua::Function = ud.get("run_command").unwrap();
+            Ok(match f.call::<mlua::Value>((&ud, cmd.to_string())) {
+                Ok(mlua::Value::Table(t)) => Ok(t.get::<bool>("success").unwrap_or(false)),
+                Ok(other) => Err(format!("{other:?}")),
+                Err(e) => Err(e.to_string()),
+            })
+        })
+        .unwrap()
+    }
+
+    /// The "outside" tests need a temp dir outside the user's home; skip them
+    /// (with a note) on a machine whose TMPDIR lies inside it.
+    #[cfg(unix)]
+    fn temp_is_outside_home(dir: &std::path::Path) -> bool {
+        let canonical = std::fs::canonicalize(dir).unwrap();
+        let outside = crate::app::plugins::security::trusted_home_from_env()
+            .is_none_or(|home| !canonical.starts_with(home));
+        if !outside {
+            eprintln!("skipped: the temp dir is inside $HOME");
+        }
+        outside
+    }
+
+    /// An executable script that leaves `marker` behind when it runs.
+    #[cfg(unix)]
+    fn marker_script(path: &std::path::Path, marker: &std::path::Path) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        make_executable(path, &format!("#!/bin/sh\ntouch '{}'\n", marker.display()));
+    }
+
+    /// A binary named like an approved command but dropped in a shared
+    /// directory (here: outside the root and outside $HOME) must not run.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_run_refuses_program_outside_root_and_home() {
+        let (d, root, outside) = root_and_outside();
+        if !temp_is_outside_home(d.path()) {
+            return;
+        }
+        let marker = d.path().join("ran");
+        let evil = outside.join("bin/ruff");
+        marker_script(&evil, &marker);
+        let res = run_cmd(api_running(Some(&root), &["ruff"]), evil.to_str().unwrap());
+        assert!(
+            !marker.exists(),
+            "an out-of-root, out-of-home 'ruff' ran: {res:?}"
+        );
+        assert!(res.is_err(), "{res:?}");
+    }
+
+    /// The parent directory is judged physically: a symlinked directory in
+    /// the root that points to a shared directory does not make it trusted.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_run_refuses_program_behind_symlinked_dir() {
+        let (d, root, outside) = root_and_outside();
+        if !temp_is_outside_home(d.path()) {
+            return;
+        }
+        let marker = d.path().join("ran");
+        marker_script(&outside.join("bin/ruff"), &marker);
+        std::os::unix::fs::symlink(outside.join("bin"), root.join("venvbin")).unwrap();
+        let res = run_cmd(api_running(Some(&root), &["ruff"]), "venvbin/ruff");
+        assert!(!marker.exists(), "ran through a symlinked dir: {res:?}");
+        assert!(res.is_err(), "{res:?}");
+    }
+
+    /// A relative program is anchored at the root and run by that absolute
+    /// path; without a project root it is refused.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_run_relative_program_is_anchored_at_the_root() {
+        let (d, root, _outside) = root_and_outside();
+        let marker = d.path().join("ran");
+        marker_script(&root.join(".venv/bin/ruff"), &marker);
+        let res = run_cmd(api_running(Some(&root), &["ruff"]), ".venv/bin/ruff");
+        assert_eq!(res, Ok(true));
+        assert!(marker.exists());
+        std::fs::remove_file(&marker).unwrap();
+        let res = run_cmd(api_running(None, &["ruff"]), ".venv/bin/ruff");
+        assert!(res.is_err() && !marker.exists(), "no root: {res:?}");
+    }
+
+    /// The python-lint layout: `<root>/.venv/bin/<tool>` may be a symlink to
+    /// a binary anywhere (`/usr/bin/…`), because only its directory has to be
+    /// trusted.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_run_accepts_venv_symlink_to_system_binary() {
+        let (_d, root, _outside) = root_and_outside();
+        let target = ["/usr/bin/true", "/bin/true"]
+            .into_iter()
+            .map(std::path::Path::new)
+            .find(|p| p.exists())
+            .expect("a system `true`");
+        std::fs::create_dir_all(root.join(".venv/bin")).unwrap();
+        std::os::unix::fs::symlink(target, root.join(".venv/bin/ruff")).unwrap();
+        let abs = root.join(".venv/bin/ruff");
+        assert_eq!(
+            run_cmd(api_running(Some(&root), &["ruff"]), abs.to_str().unwrap()),
+            Ok(true)
+        );
+    }
+
+    /// A non-executable file is never run.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_run_refuses_non_executable_program() {
+        let (_d, root, _outside) = root_and_outside();
+        std::fs::create_dir_all(root.join("tools")).unwrap();
+        std::fs::write(root.join("tools/ruff"), "#!/bin/sh\n").unwrap();
+        let res = run_cmd(api_running(Some(&root), &["ruff"]), "tools/ruff");
+        assert!(res.is_err(), "{res:?}");
+    }
+
     // ── S4: file_exists / is_file without project root ────────────────
 
     #[test]
