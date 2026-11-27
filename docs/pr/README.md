@@ -12,7 +12,10 @@ annotation-only PR, described under *Lifecycle*.
 docs/pr/
 ├── README.md
 ├── _template.html          # the page template
-└── PR-<n>-<slug>.html      # one per PR, open or merged
+├── PR-<n>-<slug>.html      # one per PR, open or merged
+├── scenarios/              # what shoot.sh / compare.sh drive (see its README)
+│   └── fixtures/           # fixture text the scenarios open
+└── examples/               # the worked example's montages
 ```
 
 The folder is flat. FerrisPad is one crate, so pages are not sorted into
@@ -62,7 +65,9 @@ never an estimate.
 **Every change that can be seen is shown.** Windows, dialogs, menus, the
 start page, the editor's drawing, and text a person reads:
 
-- **real app:** the screenshots come from the real app, driven in Xvfb;
+- **real app:** the screenshots come from the real app, driven by the skill's
+  `compare.sh` / `shoot.sh` in an isolated Xvfb from a scenario in
+  `scenarios/`;
 - **before / after:** a `master` build vs the branch build;
 - **themes:** light and dark;
 - **font sizes:** a real font at sizes 16 and 18;
@@ -126,14 +131,27 @@ Such a PR still merges as in step 4, but only these conditions apply:
 
 ## A worked example: a UI ticket card
 
-This is how T0114's start-page change would look as a card.
+T0114 fixed the start page's Changelog card, which cut off its sixth entry
+on a fresh install. Its scenario is `scenarios/start-page.sh`, and these
+montages come straight from:
 
-- The *after* screenshots are in `ferrispad-wt/uitest-T0114/`.
-- The *before* one comes from a master build. It shows the same five
-  entries as `ferrispad-wt/uitest-T0084/start-Light.png`, the rc.1 shot,
-  which has the same entry list and layout.
+```bash
+.claude/skills/new-pr/compare.sh docs/pr/scenarios/start-page.sh \
+    ~/Code/personal/ferrispad-wt/uitest-T0114 --before 0.9.10-rc.2
+```
 
-The base64 is cut short here:
+![T0114, light: before (0.9.10-rc.2) the Changelog card shows five entries; after, six and "more..."](examples/T0114-start-page-light.png)
+
+![T0114, dark: the same comparison in the dark theme](examples/T0114-start-page-dark.png)
+
+What to look at: on the left, the card ends after "Save prompt on
+title-bar close" and the sixth entry, "Updated dependencies, smaller
+binary", is cut off. On the right there are six entries, "more..." sits
+below them with margin, and Recent Files and Changelog end at the same
+height.
+
+In the page, the card carries those montages inline. The base64 is cut
+short here:
 
 ```html
 <section class="card ticket">
@@ -145,19 +163,18 @@ The base64 is cut short here:
       columns stay aligned.</div>
   </div>
   <figure>
-    <img alt="Start page, light theme, master build: five changelog entries visible"
+    <img alt="Start page, light: before, five changelog entries; after, six and more..."
          src="data:image/png;base64,iVBORw0KGgo…">
-    <figcaption>Before (master 021a089), light, font 16: the card ends after
-      "Save prompt on title-bar close"; the sixth entry is hidden.</figcaption>
+    <figcaption>Light, font 16, 0.9.10-rc.2 vs the branch: the left card ends after
+      "Save prompt on title-bar close"; the right one shows all six entries.</figcaption>
   </figure>
   <figure>
-    <img alt="Start page, dark theme, branch build: six changelog entries and more..."
+    <img alt="Start page, dark: the same comparison"
          src="data:image/png;base64,iVBORw0KGgo…">
-    <figcaption>After (branch 2cd2006), dark, font 18: six entries, "more..." below
-      them with margin; Recent Files and Changelog end at the same height.</figcaption>
+    <figcaption>Dark, the same comparison: nothing clipped on the right.</figcaption>
   </figure>
-  <p>Pending user on native Wayland: the GNOME font is wider than Xvfb's Noto
-    Sans; check that the longest entry still ends inside the card.</p>
+  <p>Pending user on native Wayland: the GNOME font is wider than Noto Sans in
+    Xvfb; check that the longest entry still ends inside the card.</p>
   <div class="bad"><strong class="tag">The defect.</strong> The card is as tall as
     the two left cards, which were sized for their recent rows only. Red test
     <code>changelog_card_shows_every_entry</code>: "1 recent item(s): changelog
@@ -166,13 +183,13 @@ The base64 is cut short here:
   <ol class="steps">
     <li><code>nix develop -c cargo test changelog_card_shows_every_entry</code>
       <span class="expect">ok (failed before the fix with 194 px &lt; 222 px).</span></li>
-    <li>Start <code>target/debug/FerrisPad</code> with an empty
-      <code>XDG_CONFIG_HOME</code> and <code>XDG_DATA_HOME</code>.
-      <span class="expect">Six entries and "more..." inside the card.</span></li>
+    <li><code>.claude/skills/new-pr/shoot.sh target/debug/FerrisPad &lt;outdir&gt;
+      docs/pr/scenarios/start-page.sh --theme dark --font 18</code>
+      <span class="expect">six entries and "more..." inside the card.</span></li>
   </ol>
 </section>
 ```
 
-Each figure says which build, which theme and what to look at. The card
-says what Xvfb could not check, and it carries the red test and its
-recipe.
+The scenario, the command and the montages make the card reproducible.
+The next change to the start page runs the same `compare.sh` against the
+release it replaces.

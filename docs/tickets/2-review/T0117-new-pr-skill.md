@@ -46,8 +46,15 @@ ticket per PR.
   style block.
 - `docs/pr/README.md`: the layout, the naming, the lifecycle, the
   annotation-only exemption, and one short worked example of a UI card.
-- The working headless-Chromium command for the technical visual check
-  from the VSCode Flatpak sandbox.
+- `shoot.sh` and `compare.sh`, the tools that let a session **see**
+  FerrisPad (added after the user's feedback, 2026-11-27):
+  - `shoot.sh` launches, drives and screenshots the app from a scenario
+    file, in an isolated Xvfb;
+  - `compare.sh` takes a base ref vs the branch, light and dark, and makes
+    labelled before|after montages;
+  - scenarios and fixtures live in `docs/pr/scenarios/`.
+- The working headless-Chromium command for the page's own rendering
+  check (a minor check) from the VSCode Flatpak sandbox.
 - `.claude/rules/work-sequence.md` steps 2–3 and `.claude/CLAUDE.md`
   point to the skill. This PR gets its own page (dogfood).
 
@@ -215,3 +222,111 @@ ticket per PR.
     "(dark=False, wanted True)" on both dark runs, exit 1. The real
     Chromium gives four ok lines, exit 0.
 - The acceptance boxes that are done are ticked.
+
+### Round 2: the user's feedback, "you need something that lets you SEE FerrisPad" (2026-11-27)
+
+The orchestrator relayed the user's feedback before approval:
+`visual_check.sh` is not the relevant part, and every session was
+hand-writing an Xvfb script. The skill's core is now two tools:
+
+- **`.claude/skills/new-pr/shoot.sh <binary> <outdir> <scenario> [--theme] [--font] [--size]`**:
+  - it runs on the host in Xvfb, with Noto fonts from nixpkgs and a fresh
+    settings.json (theme, font, window 0,0 at the given size, tabs on);
+  - it waits for the window (`xdotool search --sync --all --pid`);
+  - the scenario helpers are `click`, `dclick`, `key`, `type`, `menu`,
+    `wait_idle`, `shot` (the window crop, or a dialog by title) and
+    `shot_screen`;
+  - it writes the PNGs (≤1600 px, lossless) and a log;
+  - it fails if the window never appears, the app exits, the log shows a
+    panic or an assert, a shim is called, or a process outlives the app.
+- **`.claude/skills/new-pr/compare.sh <scenario> <outdir> [--before <ref>]`**:
+  - it builds `<ref>` (default `origin/master`) in a throwaway worktree,
+    and the branch from this worktree;
+  - it runs the scenario on both, light and dark;
+  - it writes `<shot>-<theme>-compare.png` montages labelled with the
+    refs (≤1600 px, pngquant), and removes the worktree.
+- **Scenarios:**
+  - `docs/pr/scenarios/start-page.sh` (T0114);
+  - `editor.sh` (`fixtures/hello.rs` opened on the command line, the View
+    menu, the Find dialog);
+  - a README with the format, the helpers and the rules.
+- **SKILL.md §2** uses the two tools as *the* way to capture, then
+  requires reading every PNG edge by edge. `visual_check.sh` is demoted
+  to "the page's rendering check".
+- **README worked example:**
+  - the real T0114 montages, `docs/pr/examples/T0114-start-page-{light,dark}.png`,
+    about 22 KB each;
+  - made by `compare.sh … --before 0.9.10-rc.2` on fee3dc0;
+  - before: five entries, with "Updated dependencies, smaller binary" cut
+    off; after: six entries and "more...".
+
+#### Incident: file dialogs on the user's real desktop
+
+**What happened.** While I debugged `open_file` (Ctrl+O, then type a path),
+the nix-built FerrisPad found no loadable GTK, so its file-chooser backend
+was **zenity**, spawned as a child. zenity did not open in Xvfb. It
+reached the user's real session (D-Bus and Wayland), and each debug run
+left an "Open Files" dialog on the user's GNOME desktop. The orchestrator
+stopped the runs. I killed 8 orphaned
+`sh -c zenity --title 'Open Files' …` processes on the host, started
+20:40:30–20:43:12 and reparented to `systemd --user`. `pgrep` then found
+none left.
+
+**Barriers now in `shoot.sh`** (it refuses to start without 1–2 and 5):
+
+1. **Private D-Bus:** `dbus-run-session --config-file=<minimal>` with no
+   `<servicedir>`, so no portal can even be activated. The inner half
+   refuses an empty address, the user's address, or anything under
+   `/run/user/`.
+2. **No compositor:**
+   - a private, empty `XDG_RUNTIME_DIR` (mode 700);
+   - `WAYLAND_DISPLAY` and `WAYLAND_SOCKET` unset;
+   - `GDK_BACKEND=x11`, `QT_QPA_PLATFORM=xcb`.
+3. **Shims** first in PATH: zenity, kdialog, xdg-open, gio, gnome-open,
+   kde-open(5), wslview, x-www-browser, sensible-browser and notify-send
+   all log and exit 1. Any shim call fails the run.
+4. **No file dialogs:** `open_file` is removed; fixtures open on the
+   command line (`OPEN_FILES`); `key` refuses `ctrl+o`, `ctrl+s` and
+   `ctrl+shift+s`.
+5. **The display:** the outer half picks a free `:90`+ for `xvfb-run -n`.
+   The inner half refuses unless `DISPLAY` equals it, and refuses `:0` or
+   `:1` and the user's `DISPLAY` outright.
+6. **No network:** `auto_check_updates` and `auto_check_plugin_updates`
+   are false.
+7. **One process group:** `setsid`; the group is killed at the end; a
+   leftover process fails the run.
+
+**Checks, all run before any FerrisPad run, as the orchestrator asked:**
+
+- `shoot.sh --selftest`: 12/12 ok:
+  - the private bus differs from the user's;
+  - a Ping to `org.freedesktop.portal.Desktop` fails;
+  - the runtime dir is empty with mode 700;
+  - there is no `WAYLAND_DISPLAY`;
+  - `DISPLAY` is the run's Xvfb (`:90`), and the guard refuses `:0` and
+    `:1`;
+  - `zenity --info` and `xdg-open` hit the shims, which log the calls;
+  - `key` refuses `ctrl+o` and `ctrl+shift+s` and allows `ctrl+t`.
+- Negative guard runs of the inner half, each refused with exit 1:
+  - on the user's bus: "is the user's session bus";
+  - without a bus: "no private D-Bus session";
+  - with `DISPLAY=:0`: "is not this run's Xvfb".
+
+**Runs after the orchestrator's go:**
+
+- `start-page.sh` and `editor.sh`, light and dark: all ok, with zero shim
+  calls and no update-checker log lines.
+- Every shot was read:
+  - the editor highlights `hello.rs`;
+  - the View menu is open over the editor;
+  - the Find dialog is cropped to its own window;
+  - nothing is clipped or overlapping.
+- After every run, `pgrep` on the host found no zenity, no Xvfb, no
+  private dbus-daemon and no FerrisPad.
+
+**Two lessons now in the tools:**
+
+- FLTK drops a click chained to the move in one xdotool call: `click`
+  moves, pauses 0.2 s, then clicks.
+- Without a window manager, FLTK takes keyboard focus only from a click:
+  `shoot.sh` clicks an empty spot before the scenario starts.
