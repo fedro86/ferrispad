@@ -1,7 +1,7 @@
 ---
 id: T0104
 title: Readable selected row in the file tree
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: minor
 area: ui
@@ -81,6 +81,26 @@ explorer, and select a file, in a light and a dark theme. Expected:
 - [x] Light: the whole window is pixel-identical to master's, tree
       included. Dark: everything outside the tree is (Xvfb).
 - [x] Test failed on the old rules; full gates green; montage inspected.
+- [x] User verification (2026-11-27).
+
+## User verification
+
+The user approved the PR on 2026-11-27 ("ok 201"), relayed by the
+orchestrator (ferrispad-03), at head 59b4f84, after two decisions on the
+presentation `docs/pr/PR-201-panel-selection-and-colors.html`:
+
+1. On the 3:1 band with the name in black: **"Colore git, banda tenue"**.
+2. On the zooms of the 1.5:1 band in both themes: **"per il selected mi
+   sembra che scuro vada meglio dopo e il light era meglio prima"**.
+
+So the shipped rule is: dark themes (tree background brightness < 128) get
+the 1.5:1 band; light themes keep master's band exactly
+(`darken(0.90)`); the name keeps its git color on both.
+
+The reviewer (ferrispad-90) approved 59b4f84: gates 759/0, CI green, its
+own sequential compare.sh run (light AE 0 everywhere; dark band
+(64,68,78) → (70,75,84), AE 0 outside the tree), and a mutation probe
+(`darken(0.89)` turns `light_tree_selection_is_masters_band` red).
 
 ## Affected files
 
