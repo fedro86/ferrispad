@@ -21,6 +21,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::ExitCode;
 
 use ferris_pad::app::controllers::highlight::main_thread_checks as highlight;
+use ferris_pad::app::controllers::session::main_thread_checks as session;
+use ferris_pad::app::controllers::tabs::main_thread_checks as tabs;
 use ferris_pad::app::domain::document::main_thread_checks as document;
 use ferris_pad::ui::dialogs::main_thread_checks as dialogs;
 use ferris_pad::ui::scrollbar::main_thread_checks as scrollbar;
@@ -38,6 +40,22 @@ const CHECKS: &[(&str, fn())] = &[
     (
         "dirty_flip_is_reported_once",
         document::dirty_flip_is_reported_once,
+    ),
+    (
+        "untitled_first_new_after_startup_is_untitled",
+        tabs::untitled_first_new_after_startup_is_untitled,
+    ),
+    (
+        "untitled_reuses_lowest_free_number",
+        tabs::untitled_reuses_lowest_free_number,
+    ),
+    (
+        "untitled_saved_doc_frees_its_number",
+        tabs::untitled_saved_doc_frees_its_number,
+    ),
+    (
+        "untitled_full_restore_numbers_from_one",
+        session::untitled_full_restore_numbers_from_one,
     ),
 ];
 
