@@ -104,7 +104,7 @@
   </ul>
   <div class="meta">
     <span class="chip"><strong>T0117</strong> in <code>2-review/</code></span>
-    <span class="chip"><strong>15</strong> files · +1861 / −7</span>
+    <span class="chip"><strong>15</strong> files · +1984 / −7</span>
     <span class="chip green">no Rust change · gates green</span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/235">PR #235 on GitHub</a></span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/issues/234">issue #234</a></span>
@@ -140,8 +140,17 @@
       <td>a3's re-review nit: an annotation-only PR goes ready once the user has seen it, before consent is asked.</td></tr>
     <tr><td><code class="sha">fee3dc0</code></td>
       <td>The user's feedback: <code>shoot.sh</code> and <code>compare.sh</code>, with their isolation barriers, the scenarios, and §2 of the skill rewritten around them.</td></tr>
-    <tr><td><code class="sha">this commit</code></td>
+    <tr><td><code class="sha">75cd2fa</code></td>
       <td>The real T0114 montages in the README, the ticket's record of round 2 and of the incident, and this page.</td></tr>
+    <tr><td><code class="sha">ee27c27</code></td>
+      <td>Review round 3 (a3, decided by the orchestrator):
+        <ul>
+          <li><code>compare.sh</code> fails on a failed or stale build;</li>
+          <li><code>shoot.sh</code> runs the app under an <code>env -i</code> allowlist with its own HOME, cwd and TMPDIR;</li>
+          <li>a per-run marker catches processes that leave the group.</li>
+        </ul></td></tr>
+    <tr><td><code class="sha">this commit</code></td>
+      <td>The ticket's record of round 3, and this page.</td></tr>
   </table>
   </div>
   <p>The size chip counts everything except this page: <code>git diff --shortstat origin/master...HEAD -- . ':(exclude)docs/pr/PR-*.html'</code>. Master gets one squash commit.</p>
@@ -224,10 +233,16 @@
       <li>fixtures opened on the command line, and <code>key</code> refusing Ctrl+O and Ctrl+S;</li>
       <li>its process group killed at the end.</li>
     </ul>
-    <code>shoot.sh --selftest</code> checks all of them without starting FerrisPad: 12/12 ok. The guard refuses the user's bus, a missing bus and <code>DISPLAY=:0</code>. Every run since has left nothing on the host.</div>
+    Review round 3 added more barriers:
+    <ul>
+      <li>the app's whole environment is an <code>env -i</code> allowlist, with its own HOME, cwd, TMPDIR and <code>SHELL=/bin/sh</code>;</li>
+      <li>a per-run marker in <code>/proc/*/environ</code> catches any process that left the group.</li>
+    </ul>
+    <code>shoot.sh --selftest</code> checks all of them without starting FerrisPad: 18/18 ok. The guard refuses the user's bus, a missing bus and <code>DISPLAY=:0</code>. Every run since has left nothing on the host.</div>
   <div class="why"><strong>Why the Playwright headless shell (the minor page check).</strong> No Chromium is on the sandbox's PATH or in the nix profile. <code>~/.cache/ms-playwright/chromium_headless_shell-1248</code> runs inside the Flatpak sandbox, so the check needs no <code>flatpak-spawn</code>. Its dark mode is <code>--blink-settings=preferredColorScheme=0</code>. <code>--force-dark-mode</code> was tried and dropped: it leaves <code>prefers-color-scheme</code> light in the headless shell, tested on a probe page.</div>
   <div class="why"><strong>Why a probe copy.</strong> The page carries no script. <code>visual_check.sh</code> puts the measuring script into a copy in the output folder, reads the result from <code>--dump-dom</code>, and screenshots the untouched page at its full height.</div>
   <div class="followup"><strong class="tag">The annotation-only exemption is narrow.</strong> A PR needs no page only if every line of <code>git diff --name-status origin/master...HEAD</code> is <code>M docs/tickets/3-done/…</code> or <code>A docs/tickets/1-todo/…</code>, as in #230 and #233. a3 asked to narrow it in review, and the orchestrator decided to. Anything else gets a page: a ticket move, an edit to an open ticket, a deletion, the ticket template.</div>
+  <div class="bad"><strong class="tag">Found in review round 3, fixed.</strong> <code>compare.sh</code> piped cargo into <code>tail</code>. So if the branch's build failed, the old binary was used and the montage labelled it with HEAD's SHA. The build now keeps cargo's status and refuses a binary older than its sources. A deliberately broken worktree makes <code>compare.sh</code> exit 1 with no montage.</div>
   <div class="bad"><strong class="tag">Found in review, fixed.</strong> The first version of §6 marked the PR ready before the user verified it, against <code>work-sequence.md</code> step 3. The draft flag would then have stopped meaning "waiting for the user". Now the PR goes ready only with the <code>3-done/</code> move. a3 also found that <code>visual_check.sh</code> would have passed four light renders if Chromium ignored the color-scheme flag. It now fails closed: a test wrapper that drops <code>--blink-settings</code> makes it exit 1.</div>
   <div class="followup"><strong class="tag">No docs gate yet.</strong> Nothing enforces the page in CI (name, no <code>&#123;&#123;</code>, style block, an image or "No visible change" per card). That is a follow-up candidate in the ticket's Notes (orchestrator's decision).</div>
   <h3>How to test T0117</h3>
@@ -239,7 +254,7 @@
     <li><code>diff &lt;(sed -n '/&lt;style&gt;/,/&lt;\/style&gt;/p' docs/pr/_template.html) &lt;(sed -n '/&lt;style&gt;/,/&lt;\/style&gt;/p' docs/pr/PR-235-new-pr-skill.html)</code>
       <span class="expect">no output: the style block is the template's.</span></li>
     <li><code>.claude/skills/new-pr/shoot.sh --selftest ~/Code/personal/ferrispad-wt/uitest-T0117/selftest</code>
-      <span class="expect">twelve <code>ok</code> lines, exit 0, and no FerrisPad window: every isolation barrier holds.</span></li>
+      <span class="expect">eighteen <code>ok</code> lines, exit 0, and no FerrisPad window: every isolation barrier holds.</span></li>
     <li><code>.claude/skills/new-pr/compare.sh docs/pr/scenarios/start-page.sh ~/Code/personal/ferrispad-wt/uitest-T0117/compare-T0114 --before 0.9.10-rc.2</code> (about two minutes: it builds 0.9.10-rc.2)
       <span class="expect">four <code>ok:</code> lines and two montages, <code>start-page-{light,dark}-compare.png</code>, like the two above. Then <code>pgrep -af "zenity|Xvfb|dbus-daemon --config-file"</code> on the host prints nothing, and no dialog appeared on your desktop.</span></li>
     <li><code>.claude/skills/new-pr/shoot.sh target/debug/FerrisPad ~/Code/personal/ferrispad-wt/uitest-T0117/editor docs/pr/scenarios/editor.sh --theme dark</code> (after <code>nix develop -c cargo build</code>)

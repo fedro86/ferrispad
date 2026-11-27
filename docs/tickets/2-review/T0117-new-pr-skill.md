@@ -330,3 +330,56 @@ none left.
   moves, pauses 0.2 s, then clicks.
 - Without a window manager, FLTK takes keyboard focus only from a click:
   `shoot.sh` clicks an empty spot before the scenario starts.
+
+### Round 3 (a3's review of 75cd2fa; the orchestrator decided all items)
+
+- **Must-fix, `compare.sh` labelled a stale binary.** `cargo build … | tail -1`
+  returned tail's status, so a failed *after* build silently used the old
+  `target/debug/FerrisPad`, and the montage labelled it with HEAD's SHA.
+  Now `build()`:
+  - keeps cargo's status (`set -o pipefail`) and stops on failure;
+  - refuses a binary older than any source of its worktree (`src/`,
+    `Cargo.toml`, `Cargo.lock`, `build.rs`).
+
+  It is "older than the sources" and not "older than the build start"
+  because cargo does not relink a no-op build. The throwaway worktree is
+  removed by an exit trap, also on failure.
+  - Negative test: a worktree of HEAD with a syntax error appended to
+    `src/main.rs`, compared with `--before HEAD`:
+    - `compare.sh: the build failed in …/broken-T0117`, exit 1;
+    - no montage written;
+    - the `compare-75cd2fa` worktree removed.
+- **`env -i` allowlist.** The app gets:
+  - `PATH` with the shims first;
+  - `HOME`, `SHELL=/bin/sh`, `TMPDIR`;
+  - `DISPLAY`, `XAUTHORITY`, the private bus, `XDG_RUNTIME_DIR` and the
+    XDG config/data/cache dirs;
+  - `FONTCONFIG_FILE`, the GDK/QT/FLTK backends, `LANG=C.UTF-8`;
+  - `SHOOT_RUN_ID`.
+
+  Nothing else of the session (`AT_SPI_BUS_ADDRESS`, `SESSION_MANAGER`,
+  `BROWSER`, …) reaches it.
+- **Private HOME, cwd and TMPDIR** inside the run's work dir. The cwd is
+  `files/`, which is also the MCP project root. The terminal panel cannot
+  source the real `~/.bashrc`, and the Markdown preview writes into the
+  run's `tmp/`. The Noto fonts still resolve: `FONTCONFIG_FILE` is
+  explicit, and the selftest checks `fc-match sans` = Noto Sans inside the
+  app env.
+- **Per-run marker.** After the run, `/proc/*/environ` is swept for
+  `SHOOT_RUN_ID=<run>`. Any process carrying it is killed and fails the
+  run. This catches a child that left the process group with `setsid`
+  (e.g. the terminal panel's shell).
+- **Selftest: 18/18 ok.** The new cases:
+  - the app env drops the session's variables;
+  - HOME, TMPDIR and SHELL are private;
+  - the shims are first in PATH;
+  - the real font resolves with the private HOME;
+  - the marker sweep finds a `setsid sleep 60` child started with the app
+    env, and is clean after the kill.
+- **Header:** two runs started at the same moment may pick the same `:9N`;
+  the second Xvfb then fails and that run aborts (fails safe).
+- **Runs on ee27c27:**
+  - start-page and editor, light and dark, font 18: all ok, shots read,
+    host clean;
+  - the T0114 compare against 0.9.10-rc.2: 4× ok, 2 montages, worktree
+    removed, host clean.
