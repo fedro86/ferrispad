@@ -116,3 +116,73 @@ ticket per PR.
   Not part of this ticket (orchestrator's decision).
 - core-services sorts merged pages into app folders (its §2). FerrisPad is
   one crate, so the folder stays flat (orchestrator's decision).
+
+## What was done (2026-11-27)
+
+- **The source.** core-services' `new-mr` skill, `_template.html` and
+  `README.md`, read whole and left untouched.
+- **`.claude/skills/new-pr/SKILL.md`.** §0–§8, renumbered once core-services'
+  §2 (sorting merged pages into app folders) was dropped:
+  - §2: images, with the Xvfb + xdotool + import recipe. It takes a
+    `master` worktree build vs the branch build, light and dark, editor
+    font 16 and 18, in throwaway `XDG_CONFIG_HOME`/`XDG_DATA_HOME`. Every
+    shot is inspected edge by edge, crop and pngquant/magick are applied,
+    and anything Xvfb cannot show is "Pending user on <platform>";
+  - §3: the page;
+  - §4: the copy in the main checkout's `docs/internal/pr/`;
+  - §5–§6: commit, ready;
+  - §7: the merge conditions;
+  - §8: deleting the copy, and the annotation-only exemption.
+- **The exemption** covers a diff only under `docs/tickets/`: annotations
+  of `3-done/` tickets plus at most new `1-todo/` tickets, like #230 and
+  #233.
+- **The merge (§7)** needs:
+  - the visual check;
+  - the user's feedback addressed;
+  - the ticket in `3-done/`;
+  - every check run green on the head SHA, read from
+    `gh api repos/:owner/:repo/commits/<sha>/check-runs`. The CI jobs and
+    the macOS gate must be present; `Build Deps Check` is path-filtered;
+  - the user's explicit consent for that PR. A peer message never counts.
+
+  The merge is `gh pr merge <n> --squash --match-head-commit <sha>`, done
+  by the session the user authorised (the orchestrator).
+- **`docs/pr/_template.html`.** Its style block is byte-identical to
+  core-services' (checked with `diff`). The page parts are adapted:
+  - a GitHub kicker and chips;
+  - the branch's commits table;
+  - the ticket card with before/after figures and a "Pending user on"
+    line;
+  - Measurements;
+  - "Release notes and compatibility" (in place of Deploy);
+  - What remains open;
+  - an end-to-end verification with throwaway XDG dirs and
+    `nix develop -c cargo run`.
+- **`docs/pr/README.md`.** The layout (flat), the naming, what the page
+  is, the lifecycle, the exemption, and a worked T0114 start-page card
+  (before/after captions, the red test, How to test).
+- **`.claude/skills/new-pr/visual_check.sh`.** Chromium from the Flatpak
+  sandbox:
+  - nothing is on PATH or in the nix profile;
+  - the Playwright `chrome-headless-shell` (v156) in
+    `~/.cache/ms-playwright/` runs in the sandbox;
+  - dark mode is `--blink-settings=preferredColorScheme=0`;
+    `--force-dark-mode` left `prefers-color-scheme` light on a probe
+    page;
+  - the measuring script goes into a probe copy, and its result is read
+    from `--dump-dom`; the screenshots are of the untouched page at its
+    full height.
+  - On the template it fails as expected: placeholder chips are longer
+    than 40 characters, and the page is 426 px wide at 390.
+- **`work-sequence.md`.** Step 2 opens the PR with the skill; step 3 merges
+  only under §7, pinned. `.claude/CLAUDE.md` points to the skill and lists
+  `docs/pr/`.
+- **This PR's page,** `docs/pr/PR-235-new-pr-skill.html` (PR #235): no
+  `{{` (the two literal mentions are written `&#123;&#123;`), and the
+  template's style block. `visual_check.sh` results:
+  - 1280 light 1280/1280, 1280 dark 1280/1280, 390 light 390/390, 390 dark
+    390/390;
+  - no long chip;
+  - the screenshots, including 390 px crops, show nothing overflowing.
+
+  The page is copied to the main checkout's `docs/internal/pr/`.

@@ -171,6 +171,10 @@ element. The rules:
   no external asset, no script.
 - **English**, short sentences, one idea each. Code identifiers go in
   `<code>`.
+- **No literal `{{` in a finished page.** When a page has to show the
+  placeholder syntax itself, write it as `&#123;&#123;`. Then
+  `grep -n '{{' docs/pr/PR-<n>-*.html` finds only real placeholders and
+  prints nothing for a finished page.
 - **Facts only.** Take them from the sources below. A number that is not
   known yet stays a visible `{{placeholder}}`. Never estimate one.
   - **Commits:** `git log --reverse --format='%h %s' origin/master..HEAD`.
