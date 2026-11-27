@@ -660,6 +660,22 @@ mod tests {
         assert_eq!(lowest_free_number([2, 3]), 1);
     }
 
+    #[test]
+    fn test_group_color_to_rgb() {
+        let color = GroupColor::Blue;
+        let (r, g, b) = color.to_rgb();
+        assert!(r < g && g < b); // Blue should have highest blue component
+    }
+
+    #[test]
+    fn test_group_color_to_rgb_dark() {
+        let color = GroupColor::Green;
+        let (r, g, b) = color.to_rgb_dark();
+        // Dark mode colors should be different from light mode
+        let (lr, lg, lb) = color.to_rgb();
+        assert!(r != lr || g != lg || b != lb);
+    }
+
     // --- T0112: tab labels (the rule; the TabManager wiring runs on the
     // main thread, `main_thread_checks::tab_label_follows_paths_and_closes`) ---
 

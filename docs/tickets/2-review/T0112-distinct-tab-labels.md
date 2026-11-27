@@ -82,7 +82,8 @@ The red run above was taken on the first form of these tests, which built a
 `TabManager` (FLTK `TextBuffer`s) in `#[cfg(test)]`. Since T0113 that is not
 allowed: on macOS the first `Fl::lock()` off the main thread aborts. They are
 now split (see *After the master merge* below); the cases and the expected
-labels are the same.
+labels are the same. Both halves of the split were run red again; see
+*Fresh red runs* below.
 
 ### After the master merge (2026-11-27)
 
@@ -108,6 +109,54 @@ nix develop -c cargo test --test fltk_main_thread
 Both pass (4 unit tests; 9 main-thread checks, including
 `tab_label_follows_paths_and_closes`). Gates: 757 passed, clippy
 `-D warnings` and fmt clean.
+
+The merge of T0091's tip (c919558) had also dropped master's two
+`GroupColor` unit tests from `tabs.rs` (`test_group_color_to_rgb`,
+`test_group_color_to_rgb_dark`). The reviewer (ferrispad-90) caught it; they
+are restored verbatim. `tabs.rs` now differs from master only by T0112.
+
+### Fresh red runs (review, 2026-11-27)
+
+Asked by the reviewer (ferrispad-90) for the split form of the tests. Both
+probes were throwaway and are not committed.
+
+**The wiring, on master's code.** `tab_label_follows_paths_and_closes`
+was added to a worktree of master (c3672fe), with the label read through
+master's cached `Document::tab_label()`. The probe collects every wrong
+step instead of stopping at the first one:
+`nix develop -c cargo test --test fltk_main_thread`:
+
+```text
+new tab, file: got "Untitled", want "Untitled (notes)"
+save as in place, open: got "main.rs", want "main.rs (y)"
+save as in place, saved: got "main.rs", want "main.rs (x)"
+test tab_label_follows_paths_and_closes ... FAILED
+test result: FAILED. 8 passed; 1 failed
+```
+
+This is the bug's own reason: the cache is stale after a new tab and after
+Save As. The steps after the closes pass on master, because `remove`
+recomputes the cache.
+
+**The rule, with master's disambiguation.** `labels_for` was temporarily
+given master's rule: untitled documents grouped with files (empty path),
+and the suffix applied even when empty.
+`nix develop -c cargo test --lib -- untitled_label save_as_same_name file_labels_unchanged`:
+
+```text
+untitled_label_with_two_files_of_its_name        ... FAILED
+  left: ["Untitled", "Untitled 2 ()", "Untitled 2 (a)", "Untitled 2 (b)"]
+ right: ["Untitled", "Untitled 2", "Untitled 2 (a)", "Untitled 2 (b)"]
+untitled_label_distinct_from_file_named_untitled ... FAILED: file opened first, then a new tab
+  left: ["Untitled (notes)", "Untitled ()"]
+ right: ["Untitled (notes)", "Untitled"]
+save_as_same_name_labels_distinct                ... ok
+file_labels_unchanged                            ... ok
+```
+
+`save_as_same_name_labels_distinct` passes under master's rule, as
+expected. Once it ran, the old rule was right; the Save As defect is the
+stale cache, and the wiring probe above shows it.
 
 ### Xvfb (debug builds, tabs on; "before" = `ticket/T0091` tip)
 
