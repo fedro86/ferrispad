@@ -554,7 +554,23 @@ pub fn build_menu(
                 resolve_shortcut(registry, id, default)
             });
         menu.add_emit(&entry.path, shortcut, entry.flag, *sender, entry.msg);
+        // File → Open Recent goes right under File → Open… (T0116). It is
+        // created here, in order, because FLTK's insert() appends a path
+        // item at the end of its submenu whatever the index; the list itself
+        // is filled by rebuild_recent_menu.
+        if entry.path == "File/Open..." {
+            add_empty_recent_item(menu);
+        }
     }
+}
+
+fn add_empty_recent_item(menu: &mut MenuBar) {
+    menu.add(
+        &format!("{OPEN_RECENT_MENU}/(no recent files)"),
+        Shortcut::None,
+        MenuFlag::Inactive,
+        |_| {},
+    );
 }
 
 /// The submenu that lists the recently opened files (T0116).
@@ -562,38 +578,23 @@ pub const OPEN_RECENT_MENU: &str = "File/Open Recent";
 
 /// Rebuild File → Open Recent from `list`: one item per file (most recent
 /// first), a divider, then Clear Recent. An empty list shows a single
-/// inactive "(no recent files)". The submenu is created under File → Open…
-/// the first time.
+/// inactive "(no recent files)". `build_menu` creates the submenu under
+/// File → Open….
 pub fn rebuild_recent_menu(menu: &mut MenuBar, sender: &Sender<Message>, list: &[String]) {
     use crate::app::services::recent_files::{escape_menu_label, labels};
 
     let idx = menu.find_index(OPEN_RECENT_MENU);
-    if idx >= 0 {
-        if let Err(e) = menu.clear_submenu(idx) {
-            eprintln!("[menu] could not clear {OPEN_RECENT_MENU}: {e:?}");
-            return;
-        }
-    } else {
-        let open = menu.find_index("File/Open...");
-        if open < 0 {
-            return;
-        }
-        menu.insert(
-            open + 1,
-            OPEN_RECENT_MENU,
-            Shortcut::None,
-            MenuFlag::Submenu,
-            |_| {},
-        );
+    if idx < 0 {
+        // build_menu creates the submenu; without it there is nowhere to go.
+        return;
+    }
+    if let Err(e) = menu.clear_submenu(idx) {
+        eprintln!("[menu] could not clear {OPEN_RECENT_MENU}: {e:?}");
+        return;
     }
 
     if list.is_empty() {
-        menu.add(
-            &format!("{OPEN_RECENT_MENU}/(no recent files)"),
-            Shortcut::None,
-            MenuFlag::Inactive,
-            |_| {},
-        );
+        add_empty_recent_item(menu);
         return;
     }
     let last = list.len() - 1;
@@ -913,6 +914,77 @@ pub fn update_preview_menu(menu: &mut MenuBar, file_path: Option<&str>) {
         file_path,
         &[".md", ".markdown"],
     );
+}
+
+/// FLTK menu checks that must run on the process main thread (see
+/// `ui::dialogs::main_thread_checks`); called by `tests/fltk_main_thread.rs`
+/// (T0089). Not part of the public API.
+#[doc(hidden)]
+pub mod main_thread_checks {
+    use super::*;
+    use crate::app::services::shortcut_registry::ShortcutRegistry;
+
+    fn file_menu_labels(menu: &MenuBar) -> Vec<String> {
+        let file = menu.find_index("File");
+        let mut labels = Vec::new();
+        let mut i = file + 1;
+        let mut depth = 0;
+        while let Some(item) = menu.at(i) {
+            match item.label() {
+                None if depth == 0 => break,
+                None => depth -= 1,
+                Some(label) => {
+                    if depth == 0 {
+                        labels.push(label);
+                    }
+                    if item.is_submenu() {
+                        depth += 1;
+                    }
+                }
+            }
+            i += 1;
+        }
+        labels
+    }
+
+    fn built_menu(list: &[String]) -> MenuBar {
+        let (sender, _receiver) = fltk::app::channel::<Message>();
+        let mut menu = MenuBar::default();
+        build_menu(
+            &mut menu,
+            &sender,
+            &AppSettings::default(),
+            false,
+            true,
+            &ShortcutRegistry::from_settings(&Default::default()),
+        );
+        rebuild_recent_menu(&mut menu, &sender, list);
+        menu
+    }
+
+    /// T0116: File → Open Recent sits right under File → Open…, and a
+    /// rebuild replaces its items instead of adding a second submenu.
+    pub fn recent_files_open_recent_sits_under_open() {
+        let list = vec!["/work/notes.txt".to_string(), "/work/todo.md".to_string()];
+        let mut menu = built_menu(&list);
+        let labels = file_menu_labels(&menu);
+        let open = labels.iter().position(|l| l == "Open...");
+        let recent = labels.iter().position(|l| l == "Open Recent");
+        assert_eq!(recent, open.map(|o| o + 1), "File menu order: {labels:?}");
+        assert!(menu.find_index("File/Open Recent/notes.txt") >= 0);
+        assert!(menu.find_index("File/Open Recent/Clear Recent") >= 0);
+
+        let (sender, _receiver) = fltk::app::channel::<Message>();
+        rebuild_recent_menu(&mut menu, &sender, &[]);
+        let labels = file_menu_labels(&menu);
+        assert_eq!(
+            labels.iter().filter(|l| *l == "Open Recent").count(),
+            1,
+            "{labels:?}"
+        );
+        assert!(menu.find_index("File/Open Recent/notes.txt") < 0);
+        assert!(menu.find_index("File/Open Recent/(no recent files)") >= 0);
+    }
 }
 
 #[cfg(test)]
