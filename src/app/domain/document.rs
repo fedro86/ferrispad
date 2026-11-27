@@ -225,6 +225,10 @@ pub struct Document {
     /// only counts while the document has no path: see
     /// [`Document::untitled_number`].
     untitled_number: Option<u32>,
+    /// The session temp file this document's unsaved text was restored
+    /// from (T0099): saving the session writes back to it, so the document
+    /// keeps one identity across restarts.
+    pub restored_temp_file: Option<String>,
     /// Pointer to the heap-allocated closure passed to FLTK's modify callback.
     /// Must be freed in cleanup() after removing the callback.
     modify_cb_data: *mut c_void,
@@ -322,6 +326,7 @@ impl Document {
             partial_info: PartialFileInfo::Full,
             current_line,
             untitled_number: Some(number),
+            restored_temp_file: None,
             modify_cb_data,
         }
     }
@@ -374,6 +379,7 @@ impl Document {
             partial_info: PartialFileInfo::Full,
             current_line,
             untitled_number: None,
+            restored_temp_file: None,
             modify_cb_data,
         }
     }
@@ -438,6 +444,7 @@ impl Document {
             partial_info: PartialFileInfo::Full,
             current_line,
             untitled_number: None,
+            restored_temp_file: None,
             modify_cb_data,
         }
     }
