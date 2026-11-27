@@ -84,6 +84,37 @@ unsafe extern "C" {
     );
 }
 
+// A `DirtyChanged` is queued and not yet handled (T0093). Every document's
+// modify callback runs on the UI thread and shares it, so N clean -> dirty
+// flips in one step (e.g. a tab-size change touching every buffer) queue one
+// refresh, not N.
+thread_local! {
+    static DIRTY_REFRESH_QUEUED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The queued `DirtyChanged` was taken off the queue: later flips queue a
+/// new refresh.
+pub fn dirty_refresh_handled() {
+    DIRTY_REFRESH_QUEUED.with(|q| q.set(false));
+}
+
+/// Called for every message the main loop takes off the queue, before
+/// dispatch, through the one dequeue hook `AppState::note_dequeued`. Clearing the flag here, not in the handler, keeps the reset
+/// independent of whether the handler runs; otherwise one skipped handler
+/// would leave the flag set and silence every later flip.
+pub fn note_dequeued(msg: &Message) {
+    if matches!(msg, Message::DirtyChanged(_)) {
+        dirty_refresh_handled();
+    }
+}
+
+/// Queue a `DirtyChanged` unless one is already waiting.
+fn queue_dirty_refresh(sender: &Sender<Message>, doc_id: DocumentId) {
+    if !DIRTY_REFRESH_QUEUED.with(|q| q.replace(true)) {
+        sender.send(Message::DirtyChanged(doc_id));
+    }
+}
+
 /// Box the closure and register it via FFI.  Returns the `cbArg` pointer
 /// that must be stored for later cleanup.
 fn register_modify_callback(
@@ -105,6 +136,9 @@ fn register_modify_callback(
               _restyled: i32,
               _deleted_text: *const std::ffi::c_char| {
             if inserted > 0 || deleted > 0 {
+                // Report the clean -> dirty flip once, so the window title
+                // and the tab bar show it (T0093); later edits don't.
+                let was_clean = !changes.get();
                 changes.set(true);
                 if inserted > 0 {
                     let filler = "A".repeat(inserted as usize);
@@ -125,6 +159,9 @@ fn register_modify_callback(
                     inserted,
                     deleted,
                 });
+                if was_clean {
+                    queue_dirty_refresh(&sender, doc_id);
+                }
             }
         },
     );
@@ -184,6 +221,10 @@ pub struct Document {
     pub partial_info: PartialFileInfo,
     /// Current-line twin state (T0081), shared with the modify callback.
     pub current_line: Rc<Cell<CurrentLineTwin>>,
+    /// The `n` of "Untitled n" this document was created with (T0091). It
+    /// only counts while the document has no path: see
+    /// [`Document::untitled_number`].
+    untitled_number: Option<u32>,
     /// Pointer to the heap-allocated closure passed to FLTK's modify callback.
     /// Must be freed in cleanup() after removing the callback.
     modify_cb_data: *mut c_void,
@@ -197,10 +238,14 @@ impl Document {
         self.mark_style_stale();
     }
 
-    /// Rewrite part of the style buffer (incremental highlight, markers).
+    /// Rewrite part of the style buffer (incremental highlight, chunks) with
+    /// the same number of style bytes. Only a rewrite that touches the
+    /// twinned current line makes the twin stale (T0096).
     pub fn replace_styles(&mut self, start: i32, end: i32, styles: &str) {
         self.style_buffer.replace(start, end, styles);
-        self.mark_style_stale();
+        let mut twin = self.current_line.get();
+        twin.mark_stale_in(start, end);
+        self.current_line.set(twin);
     }
 
     /// The style bytes were rewritten: twin chars there may be gone.
@@ -210,12 +255,38 @@ impl Document {
         self.current_line.set(twin);
     }
 
-    pub fn new_untitled(id: DocumentId, counter: u32, sender: Sender<Message>) -> Self {
-        let display_name = if counter == 1 {
+    /// The display name of untitled document number `n`: "Untitled" for 1,
+    /// "Untitled n" from 2 on.
+    pub fn untitled_name(n: u32) -> String {
+        if n <= 1 {
             "Untitled".to_string()
         } else {
-            format!("Untitled {}", counter)
-        };
+            format!("Untitled {n}")
+        }
+    }
+
+    /// The untitled number this document holds: its creation number while
+    /// it has no path, `None` once it has one (saved or opened) — a saved
+    /// document frees its number.
+    pub fn untitled_number(&self) -> Option<u32> {
+        if self.file_path.is_none() {
+            self.untitled_number
+        } else {
+            None
+        }
+    }
+
+    /// Turn this document back into untitled document number `n` (the
+    /// tabs-off "New", which reuses the single document).
+    pub fn set_untitled(&mut self, n: u32) {
+        self.file_path = None;
+        self.untitled_number = Some(n);
+        self.display_name = Self::untitled_name(n);
+        self.disambiguated_name = None;
+    }
+
+    pub fn new_untitled(id: DocumentId, number: u32, sender: Sender<Message>) -> Self {
+        let display_name = Self::untitled_name(number);
 
         let buffer = TextBuffer::default();
         let style_buffer = TextBuffer::default();
@@ -250,6 +321,7 @@ impl Document {
             disambiguated_name: None,
             partial_info: PartialFileInfo::Full,
             current_line,
+            untitled_number: Some(number),
             modify_cb_data,
         }
     }
@@ -301,6 +373,7 @@ impl Document {
             disambiguated_name: None,
             partial_info: PartialFileInfo::Full,
             current_line,
+            untitled_number: None,
             modify_cb_data,
         }
     }
@@ -364,6 +437,7 @@ impl Document {
             disambiguated_name: None,
             partial_info: PartialFileInfo::Full,
             current_line,
+            untitled_number: None,
             modify_cb_data,
         }
     }
@@ -428,5 +502,89 @@ impl Document {
 impl Drop for Document {
     fn drop(&mut self) {
         self.cleanup();
+    }
+}
+
+/// Checks that build documents (hence FLTK `TextBuffer`s), so they must run
+/// on the process main thread: on macOS the first `Fl::lock()` opens the
+/// display through AppKit, which aborts off the main thread, where libtest
+/// runs unit tests. Called by the `harness = false` test binary
+/// `tests/fltk_main_thread.rs` (T0089); not part of the public API.
+#[doc(hidden)]
+pub mod main_thread_checks {
+    use super::*;
+
+    /// How many `DirtyChanged` messages for `ids` are waiting. fltk-rs
+    /// channels share one global queue: drain it and filter by this test's
+    /// own ids. This check is the ONLY drainer of the channel (main.rs is the
+    /// only other consumer): extend it rather than adding another drainer.
+    fn dirty_flips(receiver: &fltk::app::Receiver<Message>, ids: &[DocumentId]) -> usize {
+        let mut n = 0;
+        while let Some(msg) = receiver.recv() {
+            if matches!(msg, Message::DirtyChanged(m) if ids.contains(&m)) {
+                n += 1;
+            }
+        }
+        n
+    }
+
+    /// T0093: the first edit of a clean document reports the clean → dirty
+    /// flip once, so the title and the tab bar can show it; later edits do
+    /// not; after a save (mark_clean) and the handler run, the next edit does
+    /// again. N documents flipping in one step (a tab-size change touches
+    /// every buffer) queue ONE refresh, i.e. one tab-bar rebuild, not N.
+    pub fn dirty_flip_is_reported_once() {
+        let (sender, receiver) = fltk::app::channel::<Message>();
+        dirty_refresh_handled();
+        let id = DocumentId(930_093);
+        let mut doc = Document::new_untitled(id, 1, sender);
+        assert!(!doc.is_dirty());
+
+        doc.buffer.insert(0, "x");
+        assert!(doc.is_dirty());
+        assert_eq!(dirty_flips(&receiver, &[id]), 1, "first edit");
+        dirty_refresh_handled();
+
+        doc.buffer.insert(1, "y");
+        doc.buffer.remove(0, 1);
+        assert_eq!(dirty_flips(&receiver, &[id]), 0, "already dirty");
+
+        doc.mark_clean();
+        doc.buffer.insert(0, "z");
+        assert_eq!(dirty_flips(&receiver, &[id]), 1, "dirty again after save");
+        dirty_refresh_handled();
+        doc.cleanup();
+
+        // Ten clean documents flipping before the handler runs: one message.
+        let ids: Vec<DocumentId> = (0..10).map(|i| DocumentId(930_100 + i)).collect();
+        let mut docs: Vec<Document> = ids
+            .iter()
+            .map(|&id| Document::new_untitled(id, 1, sender))
+            .collect();
+        for doc in &mut docs {
+            doc.buffer.insert(0, "t");
+        }
+        assert!(docs.iter().all(Document::is_dirty));
+        assert_eq!(dirty_flips(&receiver, &ids), 1, "coalesced");
+        // Once handled, the next flip queues a new refresh.
+        dirty_refresh_handled();
+        docs[3].mark_clean();
+        docs[3].buffer.insert(0, "u");
+        assert_eq!(dirty_flips(&receiver, &ids), 1, "next refresh");
+
+        // The main loop takes the message off the queue but never reaches
+        // the refresh handler (e.g. it is skipped with 0 tabs): the next
+        // flip must still send, or "*" is gone for the rest of the process.
+        note_dequeued(&Message::DirtyChanged(ids[3]));
+        docs[4].mark_clean();
+        docs[4].buffer.insert(0, "w");
+        assert_eq!(
+            dirty_flips(&receiver, &ids),
+            1,
+            "after an unhandled dequeue"
+        );
+        for doc in &mut docs {
+            doc.cleanup();
+        }
     }
 }

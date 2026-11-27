@@ -141,6 +141,16 @@ impl CurrentLineTwin {
         self.stale = true;
     }
 
+    /// The style bytes `[start, end)` were rewritten in place (same length):
+    /// stale only if that touches the twinned range. A rewrite elsewhere
+    /// cannot remove twin chars, and re-twinning would repaint the whole
+    /// editor for nothing, once per background highlight step (T0096).
+    pub fn mark_stale_in(&mut self, start: i32, end: i32) {
+        if self.twinned.is_some_and(|r| r.start < end && start < r.end) {
+            self.stale = true;
+        }
+    }
+
     /// Nothing changed since the last apply and the cursor did not move:
     /// the update can return without looking at the buffer.
     pub fn is_current(&self, cursor: i32) -> bool {
@@ -607,5 +617,19 @@ mod tests {
         assert_eq!(shift_range(r, 0, 0, 100), ByteRange::new(0, 0));
         // Replace (delete + insert) across the whole buffer.
         assert_eq!(shift_range(r, 0, 50, 100), ByteRange::new(0, 50));
+    }
+
+    /// T0096: a style rewrite away from the twinned line leaves the twin
+    /// current; one that touches it makes it stale.
+    #[test]
+    fn current_line_rewrite_elsewhere_keeps_twin_current() {
+        let mut twin = CurrentLineTwin::default();
+        twin.applied(Some(ByteRange::new(100, 140)), Some(120));
+        twin.mark_stale_in(5000, 70_000);
+        assert!(twin.is_current(120), "far away: still current");
+        twin.mark_stale_in(0, 100);
+        assert!(twin.is_current(120), "ends where the line starts");
+        twin.mark_stale_in(130, 200);
+        assert!(!twin.is_current(120), "overlaps the line: stale");
     }
 }
