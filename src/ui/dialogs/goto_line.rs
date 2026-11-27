@@ -1,8 +1,6 @@
 use fltk::{
-    button::Button,
     enums::CallbackTrigger,
     frame::Frame,
-    input::IntInput,
     prelude::*,
     text::{TextBuffer, TextEditor},
     window::Window,
@@ -29,23 +27,18 @@ pub fn show_goto_line_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme
         .with_size(100, 30)
         .with_label("Line number:");
     label.set_label_color(theme.text);
-    let mut line_input = IntInput::default().with_pos(130, 20).with_size(100, 30);
-    line_input.set_color(theme.input_bg);
-    line_input.set_text_color(theme.text);
-    line_input.set_selection_color(theme.button_bg);
+    let mut line_input = theme.int_input().with_pos(130, 20).with_size(100, 30);
 
-    let mut go_btn = Button::default()
+    let mut go_btn = theme
+        .button()
         .with_pos(60, 70)
         .with_size(80, 30)
         .with_label("Go");
-    go_btn.set_color(theme.button_bg);
-    go_btn.set_label_color(theme.text);
-    let mut cancel_btn = Button::default()
+    let mut cancel_btn = theme
+        .button()
         .with_pos(150, 70)
         .with_size(80, 30)
         .with_label("Cancel");
-    cancel_btn.set_color(theme.button_bg);
-    cancel_btn.set_label_color(theme.text);
 
     dialog_win.end();
     drop(top_level);

@@ -76,8 +76,11 @@ pub fn style_scrollbars<W: WidgetExt>(widget: &W, track: Color, thumb: Color) {
     }
 }
 
-#[cfg(test)]
-mod tests {
+/// FLTK widget checks that must run on the process main thread (see
+/// `ui::dialogs::main_thread_checks`); called by `tests/fltk_main_thread.rs`
+/// (T0089). Not part of the public API.
+#[doc(hidden)]
+pub mod main_thread_checks {
     use super::*;
     use fltk::{
         text::{TextDisplay, TextEditor},
@@ -92,11 +95,9 @@ mod tests {
             .collect()
     }
 
-    // All widget construction lives in this one test: FLTK's "current group"
-    // is process-global, so building widgets from parallel test threads races.
-    #[test]
-    fn child_index_invariant_matches_bundled_fltk() {
-        let _fltk = crate::ui::fltk_widget_test_lock();
+    /// Which child of each FLTK widget is which scrollbar, as the helpers
+    /// above assume for the bundled FLTK.
+    pub fn child_index_invariant_matches_bundled_fltk() {
         let display = TextDisplay::default();
         let editor = TextEditor::default();
         let tree = Tree::default();

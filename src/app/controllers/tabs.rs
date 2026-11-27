@@ -94,7 +94,6 @@ pub struct TabManager {
     documents: Vec<Document>,
     active_id: Option<DocumentId>,
     next_id: u64,
-    untitled_counter: u32,
     sender: Sender<Message>,
     groups: Vec<TabGroup>,
     next_group_id: u64,
@@ -106,7 +105,6 @@ impl TabManager {
             documents: Vec::new(),
             active_id: None,
             next_id: 1,
-            untitled_counter: 0,
             sender,
             groups: Vec::new(),
             next_group_id: 1,
@@ -119,13 +117,21 @@ impl TabManager {
         id
     }
 
+    /// Add an empty untitled document, numbered with the lowest number no
+    /// open untitled document holds (T0091): the first is "Untitled", and a
+    /// closed or saved one frees its number for the next.
     pub fn add_untitled(&mut self) -> DocumentId {
-        self.untitled_counter += 1;
+        let number = self.lowest_free_untitled_number();
         let id = self.next_document_id();
-        let doc = Document::new_untitled(id, self.untitled_counter, self.sender);
+        let doc = Document::new_untitled(id, number, self.sender);
         self.documents.push(doc);
         self.active_id = Some(id);
         id
+    }
+
+    /// The smallest `n >= 1` that no open untitled document holds.
+    pub fn lowest_free_untitled_number(&self) -> u32 {
+        lowest_free_number(self.documents.iter().filter_map(Document::untitled_number))
     }
 
     pub fn add_from_file(&mut self, path: String, content: &str) -> DocumentId {
@@ -620,9 +626,31 @@ impl TabManager {
 // with parallel test execution. Tests for TabManager logic are covered via
 // integration testing. Unit tests for pure functions like GroupColor are below.
 
+/// The smallest `n >= 1` not in `used` (T0091): the number of the next
+/// untitled document.
+pub fn lowest_free_number(used: impl IntoIterator<Item = u32>) -> u32 {
+    let used: std::collections::BTreeSet<u32> = used.into_iter().collect();
+    let mut n = 1;
+    while used.contains(&n) {
+        n += 1;
+    }
+    n
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- T0091: untitled numbering (the rule; the TabManager wiring runs
+    // on the main thread, `main_thread_checks`) ---
+
+    #[test]
+    fn untitled_lowest_free_number() {
+        assert_eq!(lowest_free_number([]), 1, "none open: \"Untitled\"");
+        assert_eq!(lowest_free_number([1, 2, 3]), 4);
+        assert_eq!(lowest_free_number([1, 3]), 2, "a closed one is reused");
+        assert_eq!(lowest_free_number([2, 3]), 1);
+    }
 
     #[test]
     fn test_group_color_to_rgb() {
@@ -638,5 +666,63 @@ mod tests {
         // Dark mode colors should be different from light mode
         let (lr, lg, lb) = color.to_rgb();
         assert!(r != lr || g != lg || b != lb);
+    }
+}
+
+/// Checks that build documents (hence FLTK `TextBuffer`s), so they must run
+/// on the process main thread: on macOS the first `Fl::lock()` opens the
+/// display through AppKit, which aborts off the main thread, where libtest
+/// runs unit tests. Called by the `harness = false` test binary
+/// `tests/fltk_main_thread.rs` (T0089); not part of the public API.
+#[doc(hidden)]
+pub mod main_thread_checks {
+    use super::*;
+
+    fn tabs() -> TabManager {
+        let (sender, _receiver) = fltk::app::channel::<Message>();
+        TabManager::new(sender)
+    }
+
+    fn name(tabs: &TabManager, id: DocumentId) -> String {
+        tabs.doc_by_id(id).unwrap().display_name.clone()
+    }
+
+    /// Startup creates the default untitled document and removes it for the
+    /// start page; the user's first new tab must still be "Untitled".
+    pub fn untitled_first_new_after_startup_is_untitled() {
+        let mut tabs = tabs();
+        let default = tabs.add_untitled();
+        tabs.remove(default);
+        let first = tabs.add_untitled();
+        assert_eq!(name(&tabs, first), "Untitled");
+        let second = tabs.add_untitled();
+        assert_eq!(name(&tabs, second), "Untitled 2");
+    }
+
+    pub fn untitled_reuses_lowest_free_number() {
+        let mut tabs = tabs();
+        let ids: Vec<_> = (0..3).map(|_| tabs.add_untitled()).collect();
+        let names: Vec<_> = ids.iter().map(|&id| name(&tabs, id)).collect();
+        assert_eq!(names, ["Untitled", "Untitled 2", "Untitled 3"]);
+        tabs.remove(ids[1]);
+        let again = tabs.add_untitled();
+        assert_eq!(name(&tabs, again), "Untitled 2");
+        for id in [ids[0], ids[2], again] {
+            tabs.remove(id);
+        }
+        let fresh = tabs.add_untitled();
+        assert_eq!(name(&tabs, fresh), "Untitled");
+    }
+
+    /// Saving an untitled document gives it a path: its number is free.
+    pub fn untitled_saved_doc_frees_its_number() {
+        let mut tabs = tabs();
+        let first = tabs.add_untitled();
+        let doc = tabs.doc_by_id_mut(first).unwrap();
+        doc.file_path = Some("/tmp/t0091/notes.txt".to_string());
+        doc.update_display_name();
+        assert_eq!(name(&tabs, first), "notes.txt");
+        let next = tabs.add_untitled();
+        assert_eq!(name(&tabs, next), "Untitled");
     }
 }

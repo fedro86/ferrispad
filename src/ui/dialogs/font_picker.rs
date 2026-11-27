@@ -8,8 +8,8 @@ use std::rc::Rc;
 
 use fltk::{
     browser::HoldBrowser,
-    button::{Button, CheckButton},
-    enums::{CallbackTrigger, Event, FrameType, Key},
+    button::CheckButton,
+    enums::{CallbackTrigger, Event, Key},
     frame::Frame,
     input::{Input, IntInput},
     prelude::*,
@@ -62,19 +62,14 @@ pub fn show_font_picker(
         .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
     search_label.set_label_color(theme.text);
 
-    let mut search_input = Input::default().with_pos(85, 15).with_size(220, 25);
-    search_input.set_frame(FrameType::FlatBox);
-    search_input.set_color(theme.input_bg);
-    search_input.set_text_color(theme.text);
-    search_input.set_selection_color(theme.button_bg);
+    let mut search_input = theme.input().with_pos(85, 15).with_size(220, 25);
     search_input.set_trigger(CallbackTrigger::Changed);
 
-    let mut monospace_toggle = CheckButton::default()
+    let mut monospace_toggle = theme
+        .check_button()
         .with_pos(320, 15)
         .with_size(180, 25)
         .with_label("Monospace only");
-    monospace_toggle.set_label_color(theme.text);
-    monospace_toggle.set_color(theme.bg);
     monospace_toggle.set_value(true);
 
     // Left column: font list
@@ -82,12 +77,10 @@ pub fn show_font_picker(
     let list_y = 55;
     let list_w = 280;
     let list_h = 320;
-    let mut browser = HoldBrowser::default()
+    let mut browser = theme
+        .list()
         .with_pos(list_x, list_y)
         .with_size(list_w, list_h);
-    browser.set_color(theme.input_bg);
-    browser.set_selection_color(theme.button_bg);
-    browser.set_frame(FrameType::FlatBox);
 
     // Right column: size + preview
     let right_x = list_x + list_w + 20;
@@ -100,13 +93,10 @@ pub fn show_font_picker(
         .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
     size_label.set_label_color(theme.text);
 
-    let mut size_input = IntInput::default()
+    let mut size_input = theme
+        .int_input()
         .with_pos(right_x + 60, list_y)
         .with_size(70, 25);
-    size_input.set_frame(FrameType::FlatBox);
-    size_input.set_color(theme.input_bg);
-    size_input.set_text_color(theme.text);
-    size_input.set_selection_color(theme.button_bg);
     size_input.set_value(&current_size.to_string());
 
     let mut size_hint = Frame::default()
@@ -127,14 +117,11 @@ pub fn show_font_picker(
     let preview_h = list_y + list_h - preview_y;
     let mut preview_buffer = TextBuffer::default();
     preview_buffer.set_text(PREVIEW_SAMPLE);
-    let mut preview = TextDisplay::default()
+    let mut preview = theme
+        .text_display()
         .with_pos(right_x, preview_y)
         .with_size(right_w, preview_h);
     preview.set_buffer(preview_buffer);
-    preview.set_color(theme.input_bg);
-    preview.set_text_color(theme.text);
-    preview.set_selection_color(theme.button_bg);
-    preview.set_frame(FrameType::FlatBox);
     preview.set_text_font(settings::resolve_font(current_name));
     preview.set_text_size(current_size as i32);
 
@@ -143,19 +130,17 @@ pub fn show_font_picker(
     let btn_w = 90;
     let btn_h = 30;
 
-    let mut ok_btn = Button::default()
+    let mut ok_btn = theme
+        .button()
         .with_pos(DW - 2 * btn_w - 30, btn_y)
         .with_size(btn_w, btn_h)
         .with_label("OK");
-    ok_btn.set_color(theme.button_bg);
-    ok_btn.set_label_color(theme.text);
 
-    let mut cancel_btn = Button::default()
+    let mut cancel_btn = theme
+        .button()
         .with_pos(DW - btn_w - 20, btn_y)
         .with_size(btn_w, btn_h)
         .with_label("Cancel");
-    cancel_btn.set_color(theme.button_bg);
-    cancel_btn.set_label_color(theme.text);
 
     dialog_win.end();
     drop(top_level);
