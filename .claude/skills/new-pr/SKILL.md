@@ -391,6 +391,8 @@ Its one-paragraph GitHub body is enough.
 - Open it as in §1, set its body as in §6, and merge it as in §7. With no
   page and no ticket of its own, only conditions 4 and 5 apply, plus "not
   a draft".
+- It has no `3-done/` move, so mark it ready (`gh pr ready <n>`) once the
+  user has seen it, before asking for consent.
 - Anything else gets a page: code, configuration, CI, skills, docs
   outside those two folders, a ticket moved between states, an edit to a
   ticket in `1-todo/` or `2-review/`, a deletion, or a change to

@@ -119,7 +119,8 @@ or `A docs/tickets/1-todo/…`. Anything else gets a page.
 
 Such a PR still merges as in step 4, but only these conditions apply:
 
-- not a draft;
+- not a draft: it goes ready once the user has seen it, before consent is
+  asked;
 - the checks;
 - the user's consent.
 
