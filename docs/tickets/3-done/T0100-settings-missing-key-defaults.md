@@ -1,7 +1,7 @@
 ---
 id: T0100
 title: A settings.json missing a key gets that key's default (one rule for every field)
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: minor
 area: robustness
@@ -170,7 +170,7 @@ After the fix it passes. All 25 settings unit tests and
 - [x] A present key is read as before (existing tests green).
 - [x] Regression test added; it failed before the fix.
 - [x] Gates pass with zero warnings; Xvfb check of steps 1–3.
-- [ ] Pending user verification.
+- [x] User verification.
 
 ## Affected files
 
@@ -183,3 +183,8 @@ After the fix it passes. All 25 settings unit tests and
 
 - Assigned by the orchestrator (ferrispad-5a) from the T0091 neighbour
   check.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland) with the rc.3 integration
+build `verify/rc3` (checklist `VERIFICA-RC3.md`).
