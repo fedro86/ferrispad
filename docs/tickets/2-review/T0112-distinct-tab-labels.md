@@ -158,6 +158,9 @@ file_labels_unchanged                            ... ok
 expected. Once it ran, the old rule was right; the Save As defect is the
 stale cache, and the wiring probe above shows it.
 
+After the review fix and a merge of master (T0111, #213): gates 761 passed,
+clippy `-D warnings` and fmt clean.
+
 ### Xvfb (debug builds, tabs on; "before" = `ticket/T0091` tip)
 
 `uitest-T0087/t0112.sh`; the tab bar is shown in screenshots.

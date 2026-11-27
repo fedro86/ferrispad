@@ -93,7 +93,7 @@
   </ul>
   <div class="meta">
     <span class="chip"><strong>T0112</strong> in <code>2-review/</code></span>
-    <span class="chip"><strong>9</strong> files · +396 / −120</span>
+    <span class="chip"><strong>9</strong> files · +451 / −110</span>
     <span class="chip green">gates green at every commit</span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/215">PR #215 on GitHub</a></span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/issues/214">issue #214</a></span>
@@ -115,6 +115,12 @@
       <td>Merge of master; the ticket records it.</td></tr>
     <tr><td><code class="sha">fa59176</code></td>
       <td>Docs only: the <code>tab-labels.sh</code> screenshot scenario and its fixture.</td></tr>
+    <tr><td><code class="sha">9c1b25b</code></td>
+      <td>Docs only: this page.</td></tr>
+    <tr><td><code class="sha">7f68f8d</code></td>
+      <td>Review fix: restores master's two <code>GroupColor</code> tests, which the merge in <code class="sha">c919558</code> had dropped. The ticket records the fresh red runs.</td></tr>
+    <tr><td><code class="sha">d6e7d6c</code></td>
+      <td>Merge of master after T0111 (#213); no conflict.</td></tr>
   </table>
   </div>
   <p>Master brought T0091 (#181), T0093 (#185), T0099 (#187), T0107 (#197) and T0113 (#219). Four files conflicted:</p>
@@ -122,7 +128,7 @@
     <li><code>document.rs</code> keeps master's new <code>restored_temp_file</code> (T0099) and drops only <code>disambiguated_name</code>.</li>
     <li><code>state.rs</code> keeps T0107's pure <code>window_title()</code> and feeds it <code>TabManager::tab_label</code>.</li>
     <li><code>tests/fltk_main_thread.rs</code> runs both lists of checks.</li>
-    <li><code>tabs.rs</code> was already merged with T0091's tip.</li>
+    <li><code>tabs.rs</code> was already merged with T0091's tip. That merge had dropped master's <code>test_group_color_to_rgb</code> and <code>test_group_color_to_rgb_dark</code>; the reviewer (ferrispad-90) caught it, and <code class="sha">7f68f8d</code> restores them verbatim.</li>
   </ul>
   <p>The diff against master is T0112's own files, plus the scenario.</p>
 </section>
@@ -155,7 +161,21 @@ untitled_label_with_two_files_of_its_name        ... FAILED  left: "Untitled 2 (
 file_labels_unchanged                            ... ok      (guard)</pre>
   </div>
   <div class="why"><strong>Why compute instead of invalidate.</strong> A cache must be cleared by every code path that changes a name or a path: open, close, new tab, Save As, tail and chunk views. One missed path makes a stale label. Computing on show makes the rule hold by construction, at the cost of one pass over the open tabs per redraw.</div>
-  <div class="followup"><strong class="tag">The tests changed shape after the red run.</strong> The red run above used the first form of the tests, which built a <code>TabManager</code> (FLTK <code>TextBuffer</code>s) in <code>#[cfg(test)]</code>. T0113 forbids that, because macOS aborts on the first <code>Fl::lock()</code> off the main thread. The rule is now the pure <code>labels_for(&amp;[(name, path)])</code>, and the four tests call it with the same cases and expected labels. The <code>TabManager</code> wiring (a new tab, a Save As done in place, closes) is <code>tab_label_follows_paths_and_closes</code>, run on the main thread by <code>tests/fltk_main_thread.rs</code>. Implementer B made this split while merging; the reviewer may ask for a fresh red run of the new form.</div>
+  <div class="followup"><strong class="tag">The tests changed shape after that red run, so both halves ran red again.</strong> The first form built a <code>TabManager</code> (FLTK <code>TextBuffer</code>s) in <code>#[cfg(test)]</code>, which T0113 forbids: macOS aborts on the first <code>Fl::lock()</code> off the main thread. The rule is now the pure <code>labels_for(&amp;[(name, path)])</code>, and the four tests call it with the same cases. The <code>TabManager</code> wiring is <code>tab_label_follows_paths_and_closes</code>, run on the main thread by <code>tests/fltk_main_thread.rs</code>. The reviewer (ferrispad-90) asked for a fresh red run of each half; both probes were throwaway.</div>
+  <div class="bad"><strong class="tag">The wiring, on master's code (c3672fe).</strong> The check, with labels read through master's cached <code>Document::tab_label()</code>, fails on the stale cache, which is the bug's own reason:
+<pre>new tab, file: got "Untitled", want "Untitled (notes)"
+save as in place, open: got "main.rs", want "main.rs (y)"
+save as in place, saved: got "main.rs", want "main.rs (x)"
+test tab_label_follows_paths_and_closes ... FAILED</pre>
+  The steps after the closes pass on master, because <code>remove</code> recomputes the cache.</div>
+  <div class="bad"><strong class="tag">The rule, with master's disambiguation.</strong> With <code>labels_for</code> given master's rule (untitled documents grouped with files, the suffix applied even when empty):
+<pre>untitled_label_with_two_files_of_its_name        ... FAILED
+  left: ["Untitled", "Untitled 2 ()", "Untitled 2 (a)", "Untitled 2 (b)"]
+untitled_label_distinct_from_file_named_untitled ... FAILED
+  left: ["Untitled (notes)", "Untitled ()"]
+save_as_same_name_labels_distinct                ... ok
+file_labels_unchanged                            ... ok</pre>
+  Under the old rule the Save As case passes, as expected: the rule was right whenever it ran. The Save As defect is the stale cache shown above.</div>
   <h3>How to test T0112</h3>
   <ol class="steps">
     <li><code>nix develop -c cargo test --lib -- untitled_label save_as_same_name file_labels_unchanged</code>
@@ -211,7 +231,7 @@ file_labels_unchanged                            ... ok      (guard)</pre>
 </section>
 
 <footer>
-  Presentation of PR #215 · branch <code>ticket/T0112</code> · commits <code>624b523</code> → <code>fa59176</code> ·
+  Presentation of PR #215 · branch <code>ticket/T0112</code> · commits <code>624b523</code> → <code>d6e7d6c</code> ·
   ticket <code>docs/tickets/2-review/T0112-distinct-tab-labels.md</code> · issue #214.
 </footer>
 </div>
