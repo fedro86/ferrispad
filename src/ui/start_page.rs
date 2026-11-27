@@ -219,9 +219,13 @@ impl StartPage {
         files_box.fixed(&h, 30);
         let sep = separator(border_color);
         files_box.fixed(&sep, 1);
+        // A row must fit the card even in bold (the hover font): the folder
+        // is elided in the middle when it would be cut at the edge (T0116).
+        let row_w = LEFT_W - 2 * 8 - 8;
+        fltk::draw::set_font(Font::HelveticaBold, 14);
         for (display, path) in &recent {
             let short = shorten(path);
-            let label = format!("{} {}", display, short);
+            let label = fit_row_label(display, &short, row_w, |t| fltk::draw::measure(t, false).0);
             let mut btn = hoverable_item(&label, path, &theme, card_bg, false);
             files_box.fixed(&btn, 28);
             let s = sender;
@@ -518,6 +522,42 @@ fn hoverable_item(
     btn
 }
 
+/// "<name> <folder>", with the folder (and, if still needed, the name)
+/// elided in the middle with "…" until `measure` says it fits `max_w`.
+fn fit_row_label(name: &str, folder: &str, max_w: i32, measure: impl Fn(&str) -> i32) -> String {
+    let full = format!("{name} {folder}");
+    if measure(&full) <= max_w {
+        return full;
+    }
+    let middle = |s: &str, keep: usize| -> String {
+        let chars: Vec<char> = s.chars().collect();
+        if keep >= chars.len() {
+            return s.to_string();
+        }
+        let head = keep / 2;
+        let tail = keep - head;
+        let mut out: String = chars[..head].iter().collect();
+        out.push('…');
+        out.extend(&chars[chars.len() - tail..]);
+        out
+    };
+    let folder_len = folder.chars().count();
+    for keep in (0..folder_len).rev() {
+        let label = format!("{name} {}", middle(folder, keep));
+        if measure(&label) <= max_w {
+            return label;
+        }
+    }
+    let name_len = name.chars().count();
+    for keep in (1..name_len).rev() {
+        let label = middle(name, keep);
+        if measure(&label) <= max_w {
+            return label;
+        }
+    }
+    "…".to_string()
+}
+
 fn shorten(path: &str) -> String {
     Path::new(path)
         .parent()
@@ -550,6 +590,27 @@ mod tests {
                 "{items} recent item(s): changelog card {card} px < {needed} px needed"
             );
         }
+    }
+
+    /// T0116: a Recent Files row never runs past the card: the folder is
+    /// elided first, then the name.
+    #[test]
+    fn recent_files_row_label_fits_the_card() {
+        let measure = |t: &str| t.chars().count() as i32 * 7;
+        assert_eq!(
+            fit_row_label("a.txt", "~/docs", 200, measure),
+            "a.txt ~/docs"
+        );
+        let long = "/tmp/ferrispad-shoot.abcdef/files/and/a/very/long/folder";
+        let fitted = fit_row_label("notes.txt", long, 280, measure);
+        assert!(measure(&fitted) <= 280, "{fitted}");
+        assert!(fitted.starts_with("notes.txt /tmp"), "{fitted}");
+        assert!(
+            fitted.contains('…') && fitted.ends_with("folder"),
+            "{fitted}"
+        );
+        let tiny = fit_row_label(&"n".repeat(80), "/x", 140, measure);
+        assert!(measure(&tiny) <= 140, "{tiny}");
     }
 
     #[test]
