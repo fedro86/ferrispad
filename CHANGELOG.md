@@ -5,6 +5,34 @@ All notable changes to FerrisPad will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.10-rc.3] - 2026-11-27
+
+Third release candidate, published as a GitHub pre-release only. It has everything in [0.9.10-rc.2](https://github.com/fedro86/ferrispad/releases/tag/0.9.10-rc.2) and adds plugin security hardening and the fixes below. The website, FlatPark and the in-app updater on the stable channel stay on 0.9.9.
+
+### Security
+- **Plugin File Sandbox**: A plugin can no longer reach files outside the project folder through a symbolic link inside it. Every plugin file operation checks the real location of the path on disk. When a plugin asks FerrisPad to open a file, FerrisPad opens the path it checked.
+- **Approved Plugin Commands**: A plugin can no longer change what an approved command runs. Plugins can't write into executable files or into a `.git` folder, and they can't delete or move the project folder or a folder that holds `.git`.
+- **Plugin Program Paths**: When an approved command is given as a path, it must be an executable inside the project folder or your home folder. A program with the same name somewhere else, for example in `/tmp`, is refused, and so are ambiguous program paths on Windows.
+- **Web-Only Links**: The documentation link of a plugin diagnostic (opened with a double-click) and the "Details" button in the Plugin Manager open only web addresses (`http` and `https`).
+- **Dependency Updates**: Updated `serde` (1.0.229), `serde_json` (1.0.154), `similar` (3.2.1), `sha2` (0.11.1) and, on macOS, `objc2` (0.6.5).
+
+### Fixed
+- **Long Lines**: Files with very long lines, such as minified JavaScript, no longer stall FerrisPad when they are opened or edited. Lines longer than 16 KB are shown without syntax colors.
+- **Unclosed Comments in Large Files**: Typing an unclosed `/*` or quote near the top of a large file no longer freezes the editor on every keystroke. The rest of the file is re-highlighted in steps.
+- **Unsaved Text in Two Windows**: With session restore set to Full, two FerrisPad windows on the same session each keep their own unsaved untitled text. Before, the window that saved its session last could drop the other window's text.
+- **Markdown Preview After Restore**: Preview in Browser (Ctrl+M) is available right away when a restored `.md` file is the active tab. Before, you had to switch tabs first.
+- **Unsaved Marker**: The window title shows "*" and the tab shows its dot as soon as a document changes.
+- **Untitled Tab Numbers**: New tabs are numbered from "Untitled", using the lowest free number. Before, the first new tab was "Untitled 2".
+- **Line Numbers**: The line-number gutter is wide enough for the largest line number. Before, long files showed cut-off numbers.
+- **Black in the Theme Manager**: The color `#000000` is drawn black. Before, it showed light gray in dark mode.
+- **Dialog Lists**: The selected row of dialog lists is clearly visible in light and dark themes.
+- **Dialog Inputs**: Every dialog input uses the theme's selection and cursor colors. For example, the Large Files fields in Settings no longer select text in navy blue.
+- **System Dark Mode on Linux**: The "System default" theme detects GNOME's dark mode through the XDG desktop portal, also inside Flatpak and nix shells.
+- **Settings File Defaults**: When `settings.json` is missing a setting, that setting gets its default value, and one invalid value no longer resets all settings. This changes one behavior: an old settings file without `"tabs_enabled"` now starts with tabs on, like a fresh install.
+
+### Note
+- **System Appearance Changes**: When you switch your system between light and dark, FerrisPad picks up the change at its next start or when you press Save in Settings. FerrisPad does not watch the system in the background, so it uses no CPU when idle.
+
 ## [0.9.10-rc.2] - 2026-11-26
 
 Second release candidate, published as a GitHub pre-release only. It has the same features and fixes as [0.9.10-rc.1](https://github.com/fedro86/ferrispad/releases/tag/0.9.10-rc.1) (custom editor themes, current-line highlight, remembered window size, blue selection, save prompt on title-bar close, Settings layout) and adds the Windows build that rc.1 was missing. The website, FlatPark and the in-app updater on the stable channel stay on 0.9.9.
