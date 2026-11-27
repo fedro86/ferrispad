@@ -1,12 +1,12 @@
 ---
 id: T0116
 title: Keep a real recent-files list and show it in File → Open Recent
-status: todo            # todo | review | done
+status: review          # todo | review | done
 created: 2026-11-27
 severity: ~
 area: ui
 depends-on: []
-issue: ~                # GitHub issue number, filled when work starts (request: #221)
+issue: 238              # tracking issue; the request is #221
 ---
 
 ## Goal

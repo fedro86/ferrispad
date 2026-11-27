@@ -5,7 +5,6 @@
 //! - Right: donate button + changelog/sponsor card (aligned with left cards)
 
 use crate::ui::color::fltk_rgb;
-use std::collections::HashSet;
 use std::path::Path;
 
 use fltk::{
@@ -19,7 +18,8 @@ use fltk::{
 };
 
 use crate::app::domain::messages::Message;
-use crate::app::services::session::{self, SessionRestore};
+use crate::app::services::recent_files;
+use crate::app::services::session;
 use crate::ui::dialogs::DialogTheme;
 
 const WIKI_FERRISPAD: &str = "https://github.com/fedro86/ferrispad/wiki";
@@ -49,6 +49,8 @@ pub struct StartPage {
     flex: Flex,
     is_visible: bool,
     last_theme_bg: Option<(u8, u8, u8)>,
+    /// The recent-files list the page was last drawn with (T0116).
+    last_recent: Vec<String>,
 }
 
 impl Default for StartPage {
@@ -66,6 +68,7 @@ impl StartPage {
             flex,
             is_visible: false,
             last_theme_bg: None,
+            last_recent: Vec::new(),
         }
     }
 
@@ -81,13 +84,24 @@ impl StartPage {
         self.last_theme_bg
     }
 
+    /// The recent-files list the page was last drawn with.
+    pub fn last_recent(&self) -> &[String] {
+        &self.last_recent
+    }
+
     pub fn hide(&mut self) {
         self.is_visible = false;
         self.flex.hide();
         self.flex.clear();
     }
 
-    pub fn show(&mut self, sender: Sender<Message>, theme_bg: (u8, u8, u8), active_session: &str) {
+    pub fn show(
+        &mut self,
+        sender: Sender<Message>,
+        theme_bg: (u8, u8, u8),
+        active_session: &str,
+        recent_list: &[String],
+    ) {
         let theme = DialogTheme::from_theme_bg(theme_bg);
         let bg = fltk_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
         let card_bg = theme.row_bg;
@@ -125,7 +139,9 @@ impl StartPage {
         // Gather data
         let all_sessions = session::list_sessions();
         let sessions: Vec<&String> = all_sessions.iter().take(MAX_RECENT).collect();
-        let recent = gather_recent_files();
+        // The same list as File → Open Recent (T0116).
+        let recent = recent_files::start_page_entries(recent_list);
+        self.last_recent = recent_list.to_vec();
         let max_card_items = sessions.len().max(recent.len()).max(1) as i32;
         let card_items_h = left_card_h(max_card_items, CHANGELOG_ENTRIES.len());
 
@@ -210,11 +226,8 @@ impl StartPage {
             files_box.fixed(&btn, 28);
             let s = sender;
             let p = path.clone();
-            btn.set_callback(move |_| {
-                if Path::new(&p).exists() {
-                    s.send(Message::DeferredOpenFile(p.clone()));
-                }
-            });
+            // Like File → Open Recent: a missing file is reported and dropped.
+            btn.set_callback(move |_| s.send(Message::OpenRecentFile(p.clone())));
         }
         spacer(card_bg);
         files_box.end();
@@ -519,28 +532,6 @@ fn shorten(path: &str) -> String {
             s.to_string()
         })
         .unwrap_or_default()
-}
-
-fn gather_recent_files() -> Vec<(String, String)> {
-    let mut files = Vec::new();
-    let mut seen = HashSet::new();
-    for name in session::list_sessions() {
-        if let Some(data) = session::load_session(SessionRestore::SavedFiles, &name) {
-            for doc in &data.documents {
-                if let Some(ref p) = doc.file_path
-                    && seen.insert(p.clone())
-                {
-                    let display = Path::new(p)
-                        .file_name()
-                        .map(|f| f.to_string_lossy().to_string())
-                        .unwrap_or_else(|| p.clone());
-                    files.push((display, p.clone()));
-                }
-            }
-        }
-    }
-    files.truncate(MAX_RECENT);
-    files
 }
 
 #[cfg(test)]

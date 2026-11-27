@@ -557,6 +557,69 @@ pub fn build_menu(
     }
 }
 
+/// The submenu that lists the recently opened files (T0116).
+pub const OPEN_RECENT_MENU: &str = "File/Open Recent";
+
+/// Rebuild File → Open Recent from `list`: one item per file (most recent
+/// first), a divider, then Clear Recent. An empty list shows a single
+/// inactive "(no recent files)". The submenu is created under File → Open…
+/// the first time.
+pub fn rebuild_recent_menu(menu: &mut MenuBar, sender: &Sender<Message>, list: &[String]) {
+    use crate::app::services::recent_files::{escape_menu_label, labels};
+
+    let idx = menu.find_index(OPEN_RECENT_MENU);
+    if idx >= 0 {
+        if let Err(e) = menu.clear_submenu(idx) {
+            eprintln!("[menu] could not clear {OPEN_RECENT_MENU}: {e:?}");
+            return;
+        }
+    } else {
+        let open = menu.find_index("File/Open...");
+        if open < 0 {
+            return;
+        }
+        menu.insert(
+            open + 1,
+            OPEN_RECENT_MENU,
+            Shortcut::None,
+            MenuFlag::Submenu,
+            |_| {},
+        );
+    }
+
+    if list.is_empty() {
+        menu.add(
+            &format!("{OPEN_RECENT_MENU}/(no recent files)"),
+            Shortcut::None,
+            MenuFlag::Inactive,
+            |_| {},
+        );
+        return;
+    }
+    let last = list.len() - 1;
+    for (i, (path, label)) in list.iter().zip(labels(list)).enumerate() {
+        let flag = if i == last {
+            MenuFlag::MenuDivider
+        } else {
+            MenuFlag::Normal
+        };
+        menu.add_emit(
+            &format!("{OPEN_RECENT_MENU}/{}", escape_menu_label(&label)),
+            Shortcut::None,
+            flag,
+            *sender,
+            Message::OpenRecentFile(path.clone()),
+        );
+    }
+    menu.add_emit(
+        &format!("{OPEN_RECENT_MENU}/Clear Recent"),
+        Shortcut::None,
+        MenuFlag::Normal,
+        *sender,
+        Message::ClearRecentFiles,
+    );
+}
+
 /// Remove all menu entries for a plugin by name.
 /// This handles both flat toggles and submenu items.
 fn remove_plugin_menu_entries(menu: &mut MenuBar, name: &str) {
