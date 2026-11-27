@@ -121,6 +121,14 @@ beta channel are offered rc.3, and stable users are never offered it.
   the code: the diagnostic link is opened with a double-click and is not
   called "Details" (only the Plugin Manager button is), and the Settings
   button is "Save". The `awk` extraction prints the section (27 lines).
+- Review wording fixes (a3, orchestrator):
+  - The T0099 entry now says exactly what T0099 fixed and the user
+    verified: two windows on the same session are closed one after the
+    other, and the unsaved untitled text of both comes back.
+  - It no longer promises that unsaved text is never lost. T0101, which
+    stays for 0.9.11, documents a remaining path.
+  - "A program with an approved name in any other folder" replaces "a
+    program with the same name somewhere else".
 - Start page: "Plugin sandbox hardening", "No stalls on long lines", then
   "Custom themes & theme manager", "Current-line highlight", "Window size
   remembered", "Blue, readable selection".

@@ -12,14 +12,14 @@ Third release candidate, published as a GitHub pre-release only. It has everythi
 ### Security
 - **Plugin File Sandbox**: A plugin can no longer reach files outside the project folder through a symbolic link inside it. Every plugin file operation checks the real location of the path on disk. When a plugin asks FerrisPad to open a file, FerrisPad opens the path it checked.
 - **Approved Plugin Commands**: A plugin can no longer change what an approved command runs. Plugins can't write into executable files or into a `.git` folder, and they can't delete or move the project folder or a folder that holds `.git`.
-- **Plugin Program Paths**: When an approved command is given as a path, it must be an executable inside the project folder or your home folder. A program with the same name somewhere else, for example in `/tmp`, is refused, and so are ambiguous program paths on Windows.
+- **Plugin Program Paths**: When an approved command is given as a path, it must be an executable inside the project folder or your home folder. A program with an approved name in any other folder, for example `/tmp`, is refused, and so are ambiguous program paths on Windows.
 - **Web-Only Links**: The documentation link of a plugin diagnostic (opened with a double-click) and the "Details" button in the Plugin Manager open only web addresses (`http` and `https`).
 - **Dependency Updates**: Updated `serde` (1.0.229), `serde_json` (1.0.154), `similar` (3.2.1), `sha2` (0.11.1) and, on macOS, `objc2` (0.6.5).
 
 ### Fixed
 - **Long Lines**: Files with very long lines, such as minified JavaScript, no longer stall FerrisPad when they are opened or edited. Lines longer than 16 KB are shown without syntax colors.
 - **Unclosed Comments in Large Files**: Typing an unclosed `/*` or quote near the top of a large file no longer freezes the editor on every keystroke. The rest of the file is re-highlighted in steps.
-- **Unsaved Text in Two Windows**: With session restore set to Full, two FerrisPad windows on the same session each keep their own unsaved untitled text. Before, the window that saved its session last could drop the other window's text.
+- **Unsaved Text in Two Windows**: With session restore set to Full, when two FerrisPad windows on the same session are closed one after the other, the unsaved untitled text of both comes back at the next start. Before, only the text of the window closed last came back.
 - **Markdown Preview After Restore**: Preview in Browser (Ctrl+M) is available right away when a restored `.md` file is the active tab. Before, you had to switch tabs first.
 - **Unsaved Marker**: The window title shows "*" and the tab shows its dot as soon as a document changes.
 - **Untitled Tab Numbers**: New tabs are numbered from "Untitled", using the lowest free number. Before, the first new tab was "Untitled 2".
