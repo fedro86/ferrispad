@@ -55,6 +55,20 @@ Repro inside the installed sandbox
   preview files, then the dir if it is empty, whichever dir was chosen. The
   live refresh on save (`write_html`, via `FileController::update_preview_file`)
   rewrites the same file in the same dir.
+- **Startup sweep of stale previews** (added by the user's decision,
+  2026-11-27). `cleanup` runs only on a normal exit, so a crashed or killed
+  run leaves its previews behind for good:
+  - Fedora clears `/tmp` at reboot;
+  - Windows `%TEMP%` and the Flatpak cache dir are never cleared.
+
+  The sweep:
+  - runs once in `PreviewController::new()`, with no timer and no thread;
+  - removes preview files in the chosen dir whose mtime is older than 24 h,
+    leaving newer ones because another FerrisPad window may still use them;
+  - only touches regular files named `preview_<16 hex>.html` directly
+    inside the dir: no recursion, symlinks skipped via `symlink_metadata`
+    and never followed, nothing outside the dir;
+  - ignores any read or remove error, with no panic and no popup.
 
 ## Out of scope
 
@@ -86,7 +100,9 @@ Repro inside the installed sandbox
   - `temp_path_for_doc`, `write_html` and `cleanup` use the stored dir;
   - `create_preview_dir` makes it with mode 0700 on Unix;
   - `open_in_browser` is now `write_preview` (write and track) plus
-    `open::that`.
+    `open::that`;
+  - `sweep_stale_previews(dir, now)` with `is_preview_file_name`, called
+    once from `new()`.
 
 ## How to test
 
@@ -118,6 +134,19 @@ nix develop -c cargo test --lib -- preview_dir flatpak_detection
 - On Unix, the Flatpak dir is created with mode `0o700` (checked on a scratch
   dir).
 
+- `sweep_removes_only_old_preview_files`: a temp dir holds
+  - an old and a new `preview_<hex>.html`;
+  - an old `notes.html` and an old `preview_0123.html`;
+  - a subdir named like a preview, with an old preview inside;
+  - (Unix) a symlink named like a preview, pointing to an old preview
+    outside the dir.
+
+  mtimes are set with `File::set_modified`. Only the old regular preview
+  goes.
+  - **Red** (the sweep as an empty stub): `panicked … an old preview file is
+    removed`.
+- `sweep_of_a_missing_dir_is_a_no_op`.
+
 Then run the full gates.
 
 Red run (today's behaviour behind the pure functions, before the fix):
@@ -130,8 +159,8 @@ preview_dir_in_flatpak_without_cache_dir_falls_back ... ok
 ```
 
 After the fix, all of them pass, as do `cleanup_removes_files_and_dir` and
-`preview_dir_is_private_to_the_user`. Gates: 760 passed, 0 failed; clippy
-`-D warnings` and fmt are clean.
+`preview_dir_is_private_to_the_user`. With the sweep added, the gates give
+762 passed, 0 failed; clippy `-D warnings` and fmt are clean.
 
 ### Inside the installed Flatpak, headless (done)
 
@@ -153,7 +182,8 @@ again, then quit.
 | second Ctrl+M | | same path opened again |
 | after quit | | file and dir removed |
 
-This was a hand-written harness (`uitest-T0119/run.sh`), from before the
+This run predates the sweep, which only removes files older than 24 h and
+is covered by its unit test. It was a hand-written harness (`uitest-T0119/run.sh`), from before the
 new-pr skill's `shoot.sh` landed. `shoot.sh` cannot replace it here: it
 shims `xdg-open` to fail, and it does not run inside the Flatpak.
 
@@ -196,6 +226,8 @@ adds it for this one run; it is a command-line flag, not a saved override.
       (guard test).
 - [x] The updater and the preview use the same Flatpak detection.
 - [x] Cleanup removes the session's preview files in either dir.
+- [x] At startup, preview files older than 24 h are swept from the preview
+      dir, and nothing else is touched (unit test).
 - [x] Regression tests added; the Flatpak one failed before the fix.
 - [x] `cargo test`, `cargo clippy --all-targets --all-features`, and
       `cargo fmt --check` all pass with zero warnings.

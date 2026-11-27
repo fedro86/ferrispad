@@ -42,6 +42,51 @@ fn default_preview_dir() -> std::path::PathBuf {
     )
 }
 
+/// Preview files older than this are leftovers of a crashed or killed run.
+/// Newer ones may still be in use by another FerrisPad window.
+const STALE_PREVIEW_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// True for a name FerrisPad gives its preview files: `preview_<16 hex>.html`.
+fn is_preview_file_name(name: &std::ffi::OsStr) -> bool {
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+    name.strip_prefix("preview_")
+        .and_then(|rest| rest.strip_suffix(".html"))
+        .is_some_and(|id| id.len() == 16 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// Remove preview files older than [`STALE_PREVIEW_AGE`] from `dir`: the
+/// leftovers of a crashed or killed run, which `cleanup` never saw. Only
+/// regular files named like a preview, directly inside `dir`; symlinks and
+/// subdirectories are skipped. Any error is ignored.
+fn sweep_stale_previews(dir: &Path, now: std::time::SystemTime) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if !is_preview_file_name(&entry.file_name()) {
+            continue;
+        }
+        let path = entry.path();
+        // symlink_metadata: a symlink is seen as a link, never followed.
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !meta.file_type().is_file() {
+            continue;
+        }
+        let stale = meta
+            .modified()
+            .ok()
+            .and_then(|mtime| now.duration_since(mtime).ok())
+            .is_some_and(|age| age > STALE_PREVIEW_AGE);
+        if stale {
+            let _ = fs::remove_file(&path);
+        }
+    }
+}
+
 /// Create the preview directory, private to the user (0700) on Unix.
 fn create_preview_dir(dir: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
@@ -96,7 +141,10 @@ pub struct PreviewController {
 
 impl PreviewController {
     pub fn new() -> Self {
-        Self::with_dir(default_preview_dir())
+        let preview = Self::with_dir(default_preview_dir());
+        // Once per startup, no timer: drop what a crashed run left behind.
+        sweep_stale_previews(&preview.dir, std::time::SystemTime::now());
+        preview
     }
 
     /// A controller that writes its preview files to `dir`.
@@ -457,6 +505,69 @@ mod tests {
         assert_eq!(
             preview_dir_for(true, None, Path::new("/t")),
             Path::new("/t/ferrispad_preview")
+        );
+    }
+
+    #[test]
+    fn sweep_removes_only_old_preview_files() {
+        use std::time::{Duration, SystemTime};
+        let scratch = tempfile::tempdir().unwrap();
+        let dir = scratch.path().join(PREVIEW_DIR_NAME);
+        fs::create_dir(&dir).unwrap();
+        let now = SystemTime::now();
+        let old = now - Duration::from_secs(25 * 60 * 60);
+        let touch = |path: &Path, mtime: SystemTime| {
+            fs::write(path, "x").unwrap();
+            fs::File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_modified(mtime)
+                .unwrap();
+        };
+
+        let old_preview = dir.join("preview_0123456789abcdef.html");
+        let new_preview = dir.join("preview_fedcba9876543210.html");
+        let old_foreign = dir.join("notes.html");
+        let old_bad_hex = dir.join("preview_0123.html");
+        let subdir = dir.join("preview_aaaaaaaaaaaaaaaa.html");
+        let outside = scratch.path().join("preview_bbbbbbbbbbbbbbbb.html");
+        touch(&old_preview, old);
+        touch(&new_preview, now);
+        touch(&old_foreign, old);
+        touch(&old_bad_hex, old);
+        touch(&outside, old);
+        fs::create_dir(&subdir).unwrap();
+        let inner = subdir.join("preview_cccccccccccccccc.html");
+        touch(&inner, old);
+        #[cfg(unix)]
+        let link = {
+            let link = dir.join("preview_dddddddddddddddd.html");
+            std::os::unix::fs::symlink(&outside, &link).unwrap();
+            link
+        };
+
+        sweep_stale_previews(&dir, now);
+
+        assert!(!old_preview.exists(), "an old preview file is removed");
+        assert!(new_preview.exists(), "a recent preview may be in use");
+        assert!(old_foreign.exists(), "only the preview naming is touched");
+        assert!(old_bad_hex.exists(), "only the preview naming is touched");
+        assert!(inner.exists(), "no recursion");
+        assert!(outside.exists(), "nothing outside the dir");
+        #[cfg(unix)]
+        assert!(
+            fs::symlink_metadata(&link).is_ok(),
+            "a symlink is skipped, not removed or followed"
+        );
+    }
+
+    #[test]
+    fn sweep_of_a_missing_dir_is_a_no_op() {
+        let scratch = tempfile::tempdir().unwrap();
+        sweep_stale_previews(
+            &scratch.path().join("missing"),
+            std::time::SystemTime::now(),
         );
     }
 
