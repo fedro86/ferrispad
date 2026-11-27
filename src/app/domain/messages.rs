@@ -17,6 +17,10 @@ pub enum Message {
     FileOpen,
     FileSave,
     FileSaveAs,
+    /// File → Open Recent, or the start page's Recent Files card (T0116).
+    OpenRecentFile(String),
+    /// File → Open Recent → Clear Recent (T0116).
+    ClearRecentFiles,
     FileReload,
     FileReloadAll,
     FileQuit,

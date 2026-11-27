@@ -375,10 +375,7 @@ impl HighlightController {
     }
 
     /// Write an incremental result into the document's style buffer and put
-    /// its checkpoints back; repaint if it is the active document. A
-    /// keystroke's step repaints the editor as before (`full_repaint`); a
-    /// background continuation step repaints only its range: a full repaint
-    /// makes FLTK re-measure the whole buffer, once per step (T0096).
+    /// its checkpoints back, then show it (`show_restyle`).
     fn apply_incremental(
         &mut self,
         id: DocumentId,
@@ -386,7 +383,6 @@ impl HighlightController {
         checkpoints: crate::app::services::syntax::checkpoint::SparseCheckpoints,
         tab_manager: &mut TabManager,
         widgets: &mut HighlightWidgets,
-        full_repaint: bool,
     ) {
         let start = result.byte_start as i32;
         let end = start + result.style_chars.len() as i32;
@@ -394,22 +390,36 @@ impl HighlightController {
             doc.replace_styles(start, end, &result.style_chars);
             doc.checkpoints = checkpoints;
         }
+        self.show_restyle(id, start, end, tab_manager, widgets);
+    }
 
-        if tab_manager.active_id() == Some(id) {
-            if self.highlighter.style_table_changed() {
-                if let Some(doc) = tab_manager.doc_by_id(id) {
-                    let style_buf = doc.style_buffer.clone();
-                    let table = self.highlighter.style_table();
-                    widgets.editor.set_highlight_data_ext(style_buf, table);
-                }
-                self.highlighter.reset_style_table_changed();
-            }
-            if full_repaint {
-                widgets.editor.redraw();
-            } else {
-                widgets.editor.redisplay_range(start, end);
-            }
+    /// Show a rewrite of the styles in `start..end` of document `id` (a
+    /// keystroke's re-highlight step, a background continuation step, a
+    /// chunk), if it is the active document. The style table is re-bound
+    /// only when it gained entries, and only the restyled range is
+    /// repainted. Never `redraw()`: FLTK answers `FL_DAMAGE_ALL` with two
+    /// `recalc_display()` calls, each re-measuring the whole buffer (T0095).
+    /// Every style uses the same font, so a restyle moves no glyph.
+    fn show_restyle(
+        &mut self,
+        id: DocumentId,
+        start: i32,
+        end: i32,
+        tab_manager: &TabManager,
+        widgets: &mut HighlightWidgets,
+    ) {
+        if tab_manager.active_id() != Some(id) {
+            return;
         }
+        if self.highlighter.style_table_changed() {
+            if let Some(doc) = tab_manager.doc_by_id(id) {
+                let style_buf = doc.style_buffer.clone();
+                let table = self.highlighter.style_table();
+                widgets.editor.set_highlight_data_ext(style_buf, table);
+            }
+            self.highlighter.reset_style_table_changed();
+        }
+        widgets.editor.redisplay_range(start, end);
     }
 
     /// One budgeted step of a paused incremental re-highlight (T0096).
@@ -433,7 +443,7 @@ impl HighlightController {
             &mut checkpoints,
             &paused.syntax_name,
         );
-        self.apply_incremental(id, &result, checkpoints, tab_manager, widgets, false);
+        self.apply_incremental(id, &result, checkpoints, tab_manager, widgets);
         if let Some(resume) = result.resume {
             self.set_incremental_resume(
                 PausedHighlight {
@@ -552,7 +562,7 @@ impl HighlightController {
             &syntax_name,
             floor_line,
         );
-        self.apply_incremental(id, &result, checkpoints, tab_manager, widgets, true);
+        self.apply_incremental(id, &result, checkpoints, tab_manager, widgets);
         // Not converged within the budget: continue in the background
         // (T0096).
         if let Some(resume) = result.resume {
@@ -659,22 +669,12 @@ impl HighlightController {
         }
 
         if let Some(output) = self.highlighter.process_chunk() {
-            let is_active = tab_manager.active_id() == Some(doc_id);
-
+            let start = output.byte_start as i32;
+            let end = start + output.style_chars.len() as i32;
             if let Some(doc) = tab_manager.doc_by_id_mut(doc_id) {
-                let start = output.byte_start as i32;
-                let end = start + output.style_chars.len() as i32;
                 doc.replace_styles(start, end, &output.style_chars);
             }
-
-            if is_active {
-                if let Some(doc) = tab_manager.doc_by_id(doc_id) {
-                    let style_buf = doc.style_buffer.clone();
-                    let table = self.highlighter.style_table();
-                    widgets.editor.set_highlight_data_ext(style_buf, table);
-                }
-                widgets.editor.redraw();
-            }
+            self.show_restyle(doc_id, start, end, tab_manager, widgets);
 
             if output.done {
                 if let (Some(doc), Some(cp)) =

@@ -25,6 +25,7 @@ use ferris_pad::app::controllers::session::main_thread_checks as session;
 use ferris_pad::app::controllers::tabs::main_thread_checks as tabs;
 use ferris_pad::app::domain::document::main_thread_checks as document;
 use ferris_pad::ui::dialogs::main_thread_checks as dialogs;
+use ferris_pad::ui::menu::main_thread_checks as menu;
 use ferris_pad::ui::scrollbar::main_thread_checks as scrollbar;
 
 const CHECKS: &[(&str, fn())] = &[
@@ -56,6 +57,14 @@ const CHECKS: &[(&str, fn())] = &[
     (
         "untitled_full_restore_numbers_from_one",
         session::untitled_full_restore_numbers_from_one,
+    ),
+    (
+        "recent_files_open_recent_sits_under_open",
+        menu::recent_files_open_recent_sits_under_open,
+    ),
+    (
+        "recent_files_open_recent_labels_are_whole",
+        menu::recent_files_open_recent_labels_are_whole,
     ),
 ];
 

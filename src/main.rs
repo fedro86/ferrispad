@@ -573,6 +573,8 @@ fn main() {
                 | Message::FileReloadAll
                 | Message::FileSave
                 | Message::FileSaveAs
+                | Message::OpenRecentFile(_)
+                | Message::ClearRecentFiles
                 | Message::FileQuit
                 | Message::WindowClose => dispatch::handle_file(msg, &mut state),
 

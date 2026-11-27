@@ -21,6 +21,19 @@ use support::ui_layout::{display_available, lay_out};
 const DARK: (u8, u8, u8) = (43, 48, 59);
 const LIGHT: (u8, u8, u8) = (239, 241, 245);
 
+/// A full Recent Files card (T0116 shows four), with long folders and the
+/// FLTK label specials '@' and '&': the widest rows the card can get.
+fn recent() -> Vec<String> {
+    [
+        "/home/someone/projects/a-rather-long-folder-name/notes.txt",
+        "/home/someone/projects/another/deeply/nested/folder/todo.md",
+        "/home/someone/Documents/notes@home.md",
+        "/home/someone/Documents/R&D.md",
+    ]
+    .map(String::from)
+    .to_vec()
+}
+
 /// Every visible widget under `group`, depth first, and whether it lies
 /// inside a `Scroll` (so it may extend below the window: it scrolls).
 fn visible_widgets(group: &fltk::group::Group, in_scroll: bool, out: &mut Vec<(Widget, bool)>) {
@@ -84,7 +97,7 @@ fn settle(
         if !relayout {
             return;
         }
-        page.show(sender, theme_bg, "default");
+        page.show(sender, theme_bg, "default", &recent());
         lay_out(window);
     }
     panic!("the start page keeps asking for a relayout");
@@ -113,7 +126,7 @@ fn start_page_fits_every_width() {
             let mut page = StartPage::new();
             column.end();
             window.end();
-            page.show(sender, theme_bg, "default");
+            page.show(sender, theme_bg, "default", &recent());
             settle(&mut page, &window, sender, &receiver, theme_bg);
             failures.extend(clipped(&window, &format!("{theme_name} {w}x{h}")));
             drop(window);
@@ -127,7 +140,7 @@ fn start_page_fits_every_width() {
     let mut page = StartPage::new();
     column.end();
     window.end();
-    page.show(sender, DARK, "default");
+    page.show(sender, DARK, "default", &recent());
     settle(&mut page, &window, sender, &receiver, DARK);
     for (w, h) in [(500, 600), (1100, 760), (420, 380)] {
         window.resize(0, 0, w, h);
@@ -145,7 +158,7 @@ fn start_page_fits_every_width() {
         }
         assert!(requests <= 1, "{requests} relayout requests for one build");
         if requests == 1 {
-            page.show(sender, DARK, "default");
+            page.show(sender, DARK, "default", &recent());
         }
         settle(&mut page, &window, sender, &receiver, DARK);
         failures.extend(clipped(&window, &format!("resized to {w}x{h}")));

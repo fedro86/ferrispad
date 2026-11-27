@@ -83,6 +83,11 @@ pub fn handle_file(msg: Message, state: &mut AppState) -> DispatchResult {
             state.dispatch_file_actions(actions);
             state.session.mark_dirty();
         }
+        Message::OpenRecentFile(path) => {
+            state.open_recent(path);
+            state.session.mark_dirty();
+        }
+        Message::ClearRecentFiles => state.clear_recent(),
         Message::FileQuit | Message::WindowClose => {
             // Snapshot the window before the prompt; saved only on a confirmed
             // quit. A title-bar close arrives here as WindowClose with the
@@ -1358,7 +1363,8 @@ pub fn relayout_start_page(state: &mut AppState, lw: &mut LayoutWidgets) {
     }
     let theme_bg = state.highlight.highlighter().theme_background();
     let session_name = state.session.current_session_name().to_string();
-    lw.start_page.show(state.sender, theme_bg, &session_name);
+    lw.start_page
+        .show(state.sender, theme_bg, &session_name, &state.recent_files);
     let parent = lw.editor_col.as_mut().unwrap_or(&mut lw.content_row);
     parent.layout();
     lw.start_page.enforce_min_window_size();
@@ -1386,9 +1392,14 @@ pub fn sync_start_page(state: &mut AppState, lw: &mut LayoutWidgets) {
     } else if !has_tabs && start_visible {
         // Start page visible — check if theme changed and re-render
         let theme_bg = state.highlight.highlighter().theme_background();
-        if lw.start_page.last_theme_bg() != Some(theme_bg) {
+        // Re-render on a theme change, or when the recent-files list changed
+        // (Clear Recent, or an entry dropped) while the page is shown (T0116).
+        if lw.start_page.last_theme_bg() != Some(theme_bg)
+            || lw.start_page.last_recent() != state.recent_files.as_slice()
+        {
             let session_name = state.session.current_session_name().to_string();
-            lw.start_page.show(state.sender, theme_bg, &session_name);
+            lw.start_page
+                .show(state.sender, theme_bg, &session_name, &state.recent_files);
             let parent = lw.editor_col.as_mut().unwrap_or(&mut lw.content_row);
             parent.layout();
             lw.start_page.enforce_min_window_size();
@@ -1404,7 +1415,8 @@ pub fn sync_start_page(state: &mut AppState, lw: &mut LayoutWidgets) {
         }
         let theme_bg = state.highlight.highlighter().theme_background();
         let session_name = state.session.current_session_name().to_string();
-        lw.start_page.show(state.sender, theme_bg, &session_name);
+        lw.start_page
+            .show(state.sender, theme_bg, &session_name, &state.recent_files);
         let parent = lw.editor_col.as_mut().unwrap_or(&mut lw.content_row);
         parent.layout();
         lw.start_page.enforce_min_window_size();
