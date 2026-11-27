@@ -20,6 +20,7 @@ pub mod scope_atoms;
 pub mod session;
 pub mod shortcut_registry;
 pub mod syntax;
+pub mod system_appearance;
 pub mod terminal;
 pub mod text_ops;
 pub mod updater;

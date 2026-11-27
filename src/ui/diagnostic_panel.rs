@@ -3,6 +3,7 @@
 //! Shows a collapsible panel below the editor with colored diagnostics
 //! sorted by severity (errors first, then warnings, then info).
 
+use crate::ui::color::fltk_rgb;
 use fltk::{
     app::Sender,
     browser::HoldBrowser,
@@ -52,7 +53,7 @@ impl DiagnosticPanel {
         // Header bar with summary
         let mut header = Frame::default().with_size(0, HEADER_HEIGHT);
         header.set_frame(FrameType::FlatBox);
-        header.set_color(Color::from_rgb(60, 60, 60));
+        header.set_color(fltk_rgb(60, 60, 60));
         header.set_label_color(Color::White);
         header.set_label_font(Font::HelveticaBold);
         header.set_label_size(12);
@@ -63,8 +64,8 @@ impl DiagnosticPanel {
         // Browser for listing diagnostics
         let mut browser = HoldBrowser::default();
         browser.set_frame(FrameType::FlatBox);
-        browser.set_color(Color::from_rgb(40, 40, 40));
-        browser.set_selection_color(Color::from_rgb(80, 80, 80));
+        browser.set_color(fltk_rgb(40, 40, 40));
+        browser.set_selection_color(fltk_rgb(80, 80, 80));
         browser.set_text_size(12);
         browser.hide();
 
@@ -118,7 +119,7 @@ impl DiagnosticPanel {
 
         if self.diagnostics.is_empty() {
             // All good - show green success state
-            self.header.set_color(Color::from_rgb(46, 125, 50)); // Green
+            self.header.set_color(fltk_rgb(46, 125, 50)); // Green
             self.header.set_label("  \u{2714} All checks passed");
             self.browser.hide();
             self.expanded = false;
@@ -143,11 +144,11 @@ impl DiagnosticPanel {
 
             // Set header color based on most severe
             if error_count > 0 {
-                self.header.set_color(Color::from_rgb(198, 40, 40)); // Red
+                self.header.set_color(fltk_rgb(198, 40, 40)); // Red
             } else if warning_count > 0 {
-                self.header.set_color(Color::from_rgb(245, 124, 0)); // Orange
+                self.header.set_color(fltk_rgb(245, 124, 0)); // Orange
             } else {
-                self.header.set_color(Color::from_rgb(25, 118, 210)); // Blue
+                self.header.set_color(fltk_rgb(25, 118, 210)); // Blue
             }
 
             // Build header label
@@ -371,9 +372,9 @@ impl DiagnosticPanel {
 impl Themeable for DiagnosticPanel {
     fn apply_theme(&mut self, theme: PanelTheme) {
         if theme.is_dark {
-            self.browser.set_color(Color::from_rgb(40, 40, 40));
+            self.browser.set_color(fltk_rgb(40, 40, 40));
         } else {
-            self.browser.set_color(Color::from_rgb(250, 250, 250));
+            self.browser.set_color(fltk_rgb(250, 250, 250));
         }
     }
 }
