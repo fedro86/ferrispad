@@ -39,8 +39,6 @@ pub fn show_plugin_settings_dialog(
     let bg_color = theme.bg;
     let text_color = theme.text;
     let text_dim = theme.text_dim;
-    let input_bg = theme.input_bg;
-    let button_bg = theme.button_bg;
 
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
@@ -96,7 +94,8 @@ pub fn show_plugin_settings_dialog(
         empty_label.set_label_color(text_dim);
     } else {
         for (name, enabled) in available_plugins {
-            let mut cb = button::CheckButton::default()
+            let mut cb = theme
+                .check_button()
                 .with_size(DIALOG_WIDTH - 80, 22)
                 .with_label(&format!(
                     "{}{}",
@@ -104,8 +103,6 @@ pub fn show_plugin_settings_dialog(
                     if *enabled { "" } else { " (disabled)" }
                 ));
             cb.set_label_color(if *enabled { text_color } else { text_dim });
-            cb.set_color(bg_color);
-            cb.set_selection_color(button_bg);
 
             // Check if this plugin is selected (all_selected means check all enabled ones)
             let should_check = if all_selected {
@@ -130,13 +127,8 @@ pub fn show_plugin_settings_dialog(
     shortcut_label.set_label_color(text_color);
     shortcut_label.set_align(enums::Align::Left | enums::Align::Inside);
 
-    let mut shortcut_input = input::Input::default()
-        .with_pos(120, 250)
-        .with_size(150, 25);
+    let mut shortcut_input = theme.input().with_pos(120, 250).with_size(150, 25);
     shortcut_input.set_value(&settings.run_all_checks_shortcut);
-    shortcut_input.set_color(input_bg);
-    shortcut_input.set_text_color(text_color);
-    shortcut_input.set_selection_color(button_bg);
 
     let mut shortcut_hint = frame::Frame::default()
         .with_pos(275, 250)
@@ -147,19 +139,17 @@ pub fn show_plugin_settings_dialog(
     shortcut_hint.set_align(enums::Align::Left | enums::Align::Inside);
 
     // Buttons
-    let mut save_btn = button::Button::default()
+    let mut save_btn = theme
+        .button()
         .with_pos(DIALOG_WIDTH - 180, DIALOG_HEIGHT - 45)
         .with_size(75, 30)
         .with_label("Save");
-    save_btn.set_color(button_bg);
-    save_btn.set_label_color(text_color);
 
-    let mut cancel_btn = button::Button::default()
+    let mut cancel_btn = theme
+        .button()
         .with_pos(DIALOG_WIDTH - 95, DIALOG_HEIGHT - 45)
         .with_size(75, 30)
         .with_label("Cancel");
-    cancel_btn.set_color(button_bg);
-    cancel_btn.set_label_color(text_color);
 
     dialog.end();
     drop(top_level);

@@ -4,6 +4,7 @@ use fltk::{
 };
 
 use super::tabs::TabManager;
+use crate::ui::line_numbers;
 
 /// Manages view-related state and toggles (line numbers, word wrap, dark mode, fonts).
 ///
@@ -14,6 +15,8 @@ pub struct ViewController {
     pub show_linenumbers: bool,
     pub word_wrap: bool,
     editor: TextEditor,
+    /// Digits of the largest line number the gutter is sized for (T0107).
+    gutter_digits: u32,
 }
 
 impl ViewController {
@@ -28,22 +31,43 @@ impl ViewController {
             show_linenumbers,
             word_wrap,
             editor,
+            gutter_digits: 0,
         }
     }
 
-    /// Update line number gutter width based on document line count.
+    /// Size the line-number gutter for the active document's largest line
+    /// number, in the line-number font (T0107). Sets the width only when it
+    /// changes: setting it makes FLTK recalculate the whole display.
     pub fn update_linenumber_width(&mut self, tab_manager: &TabManager) {
-        if !self.show_linenumbers {
-            self.editor.set_linenumber_width(0);
-            return;
+        let width = if self.show_linenumbers {
+            let line_count = tab_manager
+                .active_doc()
+                .map(|d| d.cached_line_count)
+                .unwrap_or(0);
+            self.gutter_digits = line_numbers::digits(line_count);
+            line_numbers::gutter_width(
+                line_count,
+                self.editor.linenumber_font(),
+                self.editor.linenumber_size(),
+            )
+        } else {
+            0
+        };
+        if self.editor.linenumber_width() != width {
+            self.editor.set_linenumber_width(width);
         }
-        let line_count = tab_manager
+    }
+
+    /// The active document's line count changed: resize the gutter only if
+    /// its largest line number gained or lost a digit (T0107), so typing
+    /// costs nothing here.
+    pub fn line_count_changed(&mut self, tab_manager: &TabManager) {
+        let digits = tab_manager
             .active_doc()
-            .map(|d| d.cached_line_count)
-            .unwrap_or(0);
-        let digits = ((line_count as i32 + 1) as f64).log10().floor() as i32 + 1;
-        let width = (digits * 8 + 16).max(40);
-        self.editor.set_linenumber_width(width);
+            .map_or(1, |d| line_numbers::digits(d.cached_line_count));
+        if self.show_linenumbers && digits != self.gutter_digits {
+            self.update_linenumber_width(tab_manager);
+        }
     }
 
     pub fn toggle_line_numbers(&mut self, tab_manager: &TabManager) {

@@ -114,8 +114,18 @@ fn parse_single_diagnostic(table: &Table, plugin_name: &str) -> Option<Diagnosti
     // Optional: fix message (e.g., "Organize imports")
     let fix_message: Option<String> = table.get("fix_message").ok();
 
-    // Optional: documentation URL
-    let url: Option<String> = table.get("url").ok();
+    // Optional: documentation URL. It ends up in `open::that`, so only a web
+    // URL is kept; the diagnostic itself stays (T0090).
+    let url: Option<String> = table.get::<String>("url").ok().filter(|url| {
+        let web = super::security::is_web_url(url);
+        if !web {
+            eprintln!(
+                "[plugin:security] diagnostic url dropped for '{}': not an http(s) URL",
+                plugin_name
+            );
+        }
+        web
+    });
 
     Some(Diagnostic {
         line,
@@ -241,4 +251,52 @@ fn parse_annotation_color(table: &Table) -> Option<AnnotationColor> {
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn diag_with_url(url: &str) -> Option<Diagnostic> {
+        let lua = mlua::Lua::new();
+        let table = lua.create_table().unwrap();
+        table.set("line", 1).unwrap();
+        table.set("message", "m").unwrap();
+        table.set("url", url).unwrap();
+        parse_single_diagnostic(&table, "test-plugin")
+    }
+
+    /// T0090: a diagnostic's docs URL is handed to `open::that` (ShellExecute /
+    /// `open` / `xdg-open`), which opens or *runs* a local path. Only web URLs
+    /// may survive parsing; the diagnostic itself is kept.
+    #[test]
+    fn diagnostic_url_must_be_a_web_url() {
+        for bad in [
+            r"C:\x\run.bat",
+            "file:///tmp/x.desktop",
+            "FILE:///tmp/x.desktop",
+            "javascript:alert(1)",
+            "/home/u/project/evil.command",
+            "evil.desktop",
+            "ftp://host/x",
+            "https:",
+            "https://",
+            "http//example.com",
+            " https://example.com",
+            "https://exa mple.com",
+            "https://example.com/\nfile:///etc/passwd",
+            "",
+        ] {
+            let d = diag_with_url(bad).expect("the diagnostic itself is kept");
+            assert_eq!(d.url, None, "{bad:?} must not reach open::that");
+        }
+        for good in [
+            "https://docs.astral.sh/ruff/rules/unused-import",
+            "https://rust-lang.github.io/rust-clippy/master/index.html#needless_return",
+            "HTTPS://Example.com/x",
+            "http://example.com",
+        ] {
+            assert_eq!(diag_with_url(good).unwrap().url.as_deref(), Some(good));
+        }
+    }
 }
