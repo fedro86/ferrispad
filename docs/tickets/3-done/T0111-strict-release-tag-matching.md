@@ -1,7 +1,7 @@
 ---
 id: T0111
 title: Only a real version tag starts, signs or publishes a release
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: minor
 area: process
@@ -149,7 +149,21 @@ All 38 tags now in the repo match the rule, including `0.9.10-rc.3` and
 - [x] Regression test added; it failed before the fix.
 - [x] `cargo test`, `cargo clippy --all-targets --all-features`, and
       `cargo fmt --check` all pass with zero warnings.
-- [ ] Pending user verification.
+- [x] User verification (2026-11-27).
+
+## User verification
+
+The user approved the PR on 2026-11-27 ("mergia 213"), relayed by the
+orchestrator (ferrispad-03), after reading the presentation
+`docs/pr/PR-213-strict-release-tag-matching.html`. The reviewer
+(ferrispad-90) approved head 347b4df. The reviewer reran the gates (756
+passed), actionlint, the bash cross-check of all 38 tags and two mutation
+probes: a loose `-*` glob and a diverging bump regex both make
+`release_tags` fail. CI was green on 347b4df, macOS included. The first
+real tag push (0.9.11) is the remaining live check.
+
+Reviewer nits, left as they are: the page's recipe pins `release.yml` line
+41; `create-release` keeps a dead `VERSION=${VERSION#v}`.
 
 ## Affected files
 
