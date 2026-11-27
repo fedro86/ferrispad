@@ -213,9 +213,6 @@ pub struct Document {
     pub cached_line_count: usize,
     /// Last-known modification time of the on-disk file (None for untitled docs)
     pub disk_mtime: Option<std::time::SystemTime>,
-    /// Disambiguated tab label when multiple files share the same filename.
-    /// Set by TabManager; None means display_name is already unique.
-    pub disambiguated_name: Option<String>,
     /// For tail/chunk documents: byte offsets into the original file so edits
     /// can be saved back to the correct position.
     pub partial_info: PartialFileInfo,
@@ -286,7 +283,6 @@ impl Document {
         self.file_path = None;
         self.untitled_number = Some(n);
         self.display_name = Self::untitled_name(n);
-        self.disambiguated_name = None;
     }
 
     pub fn new_untitled(id: DocumentId, number: u32, sender: Sender<Message>) -> Self {
@@ -322,7 +318,6 @@ impl Document {
             cached_tree: None,
             cached_line_count: 0,
             disk_mtime: None,
-            disambiguated_name: None,
             partial_info: PartialFileInfo::Full,
             current_line,
             untitled_number: Some(number),
@@ -375,7 +370,6 @@ impl Document {
             cached_tree: None,
             cached_line_count: content.lines().count(),
             disk_mtime: None,
-            disambiguated_name: None,
             partial_info: PartialFileInfo::Full,
             current_line,
             untitled_number: None,
@@ -440,7 +434,6 @@ impl Document {
             cached_tree: None,
             cached_line_count,
             disk_mtime: None,
-            disambiguated_name: None,
             partial_info: PartialFileInfo::Full,
             current_line,
             untitled_number: None,
@@ -460,16 +453,7 @@ impl Document {
     pub fn update_display_name(&mut self) {
         if let Some(ref path) = self.file_path {
             self.display_name = extract_filename(path);
-            self.disambiguated_name = None; // recomputed by TabManager
         }
-    }
-
-    /// Return the label for tabs and window title.
-    /// Uses the disambiguated name if set, otherwise the plain display name.
-    pub fn tab_label(&self) -> &str {
-        self.disambiguated_name
-            .as_deref()
-            .unwrap_or(&self.display_name)
     }
 
     /// Clean up FFI resources. Called automatically by Drop.

@@ -1,0 +1,35 @@
+name = "file-explorer"
+version = "0.7.2"
+description = "File explorer tree view for project directories"
+
+[permissions]
+# No execute permissions needed — uses native filesystem API
+
+[[menu_items]]
+label = "Show File Explorer"
+action = "show_explorer"
+shortcut = "Ctrl+Shift+E"
+
+[[menu_items]]
+label = "Refresh Explorer"
+action = "refresh"
+
+[config]
+[[config.params]]
+key = "show_hidden_files"
+label = "Show Hidden Files"
+type = "boolean"
+default = "false"
+
+[[config.params]]
+key = "ignore_patterns"
+label = "Ignored Folders (comma-separated)"
+type = "string"
+default = ".git,node_modules,target,__pycache__,.venv,venv,.mypy_cache,.pytest_cache,.tox,dist,build,.eggs,.cache"
+
+[[config.params]]
+key = "position"
+label = "Panel Position"
+type = "choice"
+default = "left"
+options = ["left|Left", "right|Right", "bottom|Bottom"]
