@@ -1,7 +1,7 @@
 ---
 id: T0107
 title: Size the line-number gutter for the widest line number, and keep it up to date
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: minor
 area: ui
@@ -150,7 +150,7 @@ end of the file after Ctrl+End):
 - [x] Regression tests added; they failed before the fix.
 - [x] Gates pass with zero warnings; Xvfb screenshots at 9 999 / 100 000 /
       1 000 000 lines.
-- [ ] Pending user verification.
+- [x] User verification.
 
 ## Affected files
 
@@ -165,3 +165,8 @@ end of the file after Ctrl+End):
 
 - Noticed during the T0096 Xvfb pass; assigned by the orchestrator as T0107
   (rc.3 candidate).
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland) with the rc.3 integration
+build `verify/rc3` (checklist `VERIFICA-RC3.md`).
