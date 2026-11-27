@@ -929,8 +929,8 @@ impl Themeable for TreePanel {
             self.search_input.set_text_color(theme.text);
         }
 
-        // Selected row: >= 3:1 against the tree, labels on it readable via
-        // the contrast rule (T0104).
+        // Selected row: a soft band (1.5:1) on which a file's name keeps its
+        // git color (T0104).
         crate::ui::theme::style_panel_selection(&mut self.tree, theme_bg);
         self.tree.set_select_frame(FrameType::FlatBox);
 

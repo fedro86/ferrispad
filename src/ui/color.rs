@@ -116,6 +116,37 @@ pub fn push_to_contrast(base: ThemeRgb, bg: ThemeRgb, min: f64, lighter: bool) -
         })
 }
 
+/// The smallest shift of `bg` that reaches `min` WCAG contrast against `bg`
+/// itself: lightened toward white when `lighter`, otherwise darkened (scaled
+/// toward black, which keeps the hue). Unlike [`push_to_contrast`], whose
+/// fixed steps overshoot, the shift is found by bisection, so a *soft* band
+/// lands on its target (T0104). Falls back to white or black when even the
+/// full shift stays below `min`.
+pub fn shift_to_contrast(bg: ThemeRgb, min: f64, lighter: bool) -> ThemeRgb {
+    let rgb = |c: ThemeRgb| (c.r, c.g, c.b);
+    let at = |f: f32| {
+        if lighter {
+            bg.lighten(f)
+        } else {
+            bg.darken(1.0 - f)
+        }
+    };
+    let reaches = |f: f32| wcag_contrast(rgb(at(f)), rgb(bg)) >= min;
+    if !reaches(1.0) {
+        return at(1.0);
+    }
+    let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    for _ in 0..24 {
+        let mid = (lo + hi) / 2.0;
+        if reaches(mid) {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    at(hi)
+}
+
 /// WCAG 2 relative luminance of an sRGB color, from 0.0 (black) to 1.0
 /// (white).
 pub fn wcag_luminance((r, g, b): (u8, u8, u8)) -> f64 {
@@ -219,6 +250,26 @@ mod tests {
         assert!((wcag_contrast((10, 20, 30), (10, 20, 30)) - 1.0).abs() < 1e-9);
         assert_eq!(wcag_luminance(black), 0.0);
         assert!((wcag_luminance(white) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn shift_to_contrast_lands_on_its_target() {
+        for (bg, lighter) in [
+            (ThemeRgb::new(43, 48, 59), true),
+            (ThemeRgb::new(0, 0, 0), true),
+            (ThemeRgb::new(239, 241, 245), false),
+            (ThemeRgb::WHITE, false),
+        ] {
+            let c = shift_to_contrast(bg, 1.5, lighter);
+            let ratio = wcag_contrast((c.r, c.g, c.b), (bg.r, bg.g, bg.b));
+            assert!((1.5..1.53).contains(&ratio), "{bg:?} -> {c:?} = {ratio:.3}");
+            assert_eq!(lighter, c.brightness() > bg.brightness(), "{bg:?} -> {c:?}");
+        }
+        // Out of reach: white cannot get lighter, so the full shift is returned.
+        assert_eq!(
+            shift_to_contrast(ThemeRgb::WHITE, 1.5, true),
+            ThemeRgb::WHITE
+        );
     }
 
     #[test]

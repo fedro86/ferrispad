@@ -35,31 +35,35 @@ pub struct PanelTheme {
     pub bg: (u8, u8, u8),
 }
 
+/// How far the file tree's selected row stands out from the tree (WCAG
+/// ratio, T0104). Master's ±10 % band measured 1.26–1.37:1 and was hard to
+/// see; the dialog lists' 3:1 (T0097) would hide the git-status colors. 1.5:1
+/// is the user's "soft band": clearly visible, and every label of the
+/// built-in themes keeps its own color on it (see [`panel_selection_color`]).
+pub const PANEL_SELECTION_CONTRAST: f64 = 1.5;
+
 /// The selected-row color of the main-window file tree for a theme whose
 /// editor background, which the tree uses, is `theme_bg` (T0104). (The
 /// diagnostic list keeps its own pre-T0104 colors, by the user's choice.)
 ///
-/// The same rule as the dialog lists (T0097, variant A): the dialog button
-/// color pushed to >= 3:1 against the panel background. Labels on it are
-/// made readable by the contrast rule ([`super::contrast`]), which therefore
-/// knows this color ([`register_panel_selection`]).
+/// The tree background lightened (dark theme) or darkened (light theme, which
+/// keeps its hue) by the least amount that reaches
+/// [`PANEL_SELECTION_CONTRAST`]: the same band as before, only stronger, and
+/// as soft as allowed so the git colors keep the most contrast on it. The
+/// color is deliberately *not* registered with the contrast rule: a selected
+/// file's name keeps its git color (the user's decision "Colore git, banda
+/// tenue"), and FLTK's level-[`FLTK_CONTRAST_LEVEL`] rule keeps it on this
+/// band for every label of the built-in themes.
 pub fn panel_selection_color(theme_bg: (u8, u8, u8)) -> (u8, u8, u8) {
-    let theme = super::dialogs::DialogTheme::from_theme_bg(theme_bg);
-    let (row, _) = super::dialogs::list_selection_colors(
-        ThemeRgb::from_tuple(theme_bg),
-        ThemeRgb::from_fltk(theme.button_bg),
-        ThemeRgb::from_fltk(theme.text),
-        theme.is_dark(),
-    );
+    let bg = ThemeRgb::from_tuple(theme_bg);
+    let row = super::color::shift_to_contrast(bg, PANEL_SELECTION_CONTRAST, bg.brightness() < 128);
     (row.r, row.g, row.b)
 }
 
-/// Apply [`panel_selection_color`] to a panel widget and register it with
-/// the contrast rule, so a selected row's labels are drawn readable.
+/// Apply [`panel_selection_color`] to a panel widget.
 pub fn style_panel_selection<W: WidgetExt>(widget: &mut W, theme_bg: (u8, u8, u8)) {
     let (r, g, b) = panel_selection_color(theme_bg);
     widget.set_selection_color(fltk_rgb(r, g, b));
-    super::contrast::register_panel_selection((r, g, b));
 }
 
 /// A panel whose colors follow the app theme. One signature for every panel,
@@ -679,21 +683,31 @@ pub fn set_windows_titlebar_theme(window: &Window, theme_bg: (u8, u8, u8), theme
 mod tests {
     use super::*;
 
-    /// T0104: the file tree's selected row stands out from the tree (>= 3:1),
-    /// and every label drawn on it (the theme text, the git-status colors)
-    /// reads at >= 4.5:1 there, through the contrast rule.
+    /// T0104, the user's decision "Colore git, banda tenue": the file tree's
+    /// selected row stands out from the tree at >= 1.5:1
+    /// ([`PANEL_SELECTION_CONTRAST`]) and stays soft (< 1.6:1) on every
+    /// background of the sweep, and on the built-in themes every label drawn
+    /// on it (the theme text, the git-status colors) keeps its own color:
+    /// the contrast rule never swaps it for black or white.
     #[test]
-    fn panel_selection_stands_out_in_every_theme() {
+    fn panel_selection_band_keeps_the_label_colors() {
         use crate::ui::color::wcag_contrast;
         use crate::ui::contrast::{EditorSelectionBgs, ferrispad_contrast};
         use crate::ui::tree_panel::git_label_rgb;
+        let builtin: Vec<String> = crate::app::domain::settings::SyntaxTheme::all()
+            .iter()
+            .map(|t| format!("{t:?}"))
+            .collect();
         let mut failures = Vec::new();
         for (theme, bg) in crate::ui::color::theme_test_backgrounds() {
             let is_dark = ThemeRgb::from_tuple(bg).brightness() < 128;
             let sel = panel_selection_color(bg);
             let row = wcag_contrast(sel, bg);
-            if row < 3.0 {
+            if !(PANEL_SELECTION_CONTRAST..1.6).contains(&row) {
                 failures.push(format!("{theme}: row {sel:?} on {bg:?} = {row:.2}:1"));
+            }
+            if !builtin.contains(&theme) {
+                continue;
             }
             let mut labels = vec![(
                 "text",
@@ -704,14 +718,14 @@ mod tests {
             for name in ["modified", "added", "conflict", "ignored"] {
                 labels.push((name, git_label_rgb(name, is_dark).unwrap()));
             }
-            let bgs = EditorSelectionBgs::default().with_panel_selection(sel);
             let rgb = |(r, g, b): (u8, u8, u8)| fltk_rgb(r, g, b);
             for (name, fg) in labels {
-                let drawn = ferrispad_contrast(rgb(fg), rgb(sel), bgs).to_rgb();
-                let ratio = wcag_contrast(drawn, sel);
-                if ratio < 4.5 {
+                // Nothing registered: the tree's band gets the level-10 rule.
+                let drawn = ferrispad_contrast(rgb(fg), rgb(sel), EditorSelectionBgs::default());
+                if drawn.to_rgb() != fg {
                     failures.push(format!(
-                        "{theme}: {name} {drawn:?} on the selected row {sel:?} = {ratio:.2}:1"
+                        "{theme}: {name} {fg:?} drawn as {:?} on the selected row {sel:?}",
+                        drawn.to_rgb()
                     ));
                 }
             }
