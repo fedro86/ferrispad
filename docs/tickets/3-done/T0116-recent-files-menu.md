@@ -1,7 +1,7 @@
 ---
 id: T0116
 title: Keep a real recent-files list and show it in File → Open Recent
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-27
 severity: ~
 area: ui
@@ -86,15 +86,35 @@ nix develop -c cargo test recent_files
 
 ## Acceptance criteria
 
-- [ ] File → Open Recent lists up to 10 recently opened or saved-as files,
+- [x] File → Open Recent lists up to 10 recently opened or saved-as files,
       most recent first, and survives a restart.
-- [ ] The start page's Recent Files card uses the same list.
-- [ ] Missing files are reported and dropped on click; Clear Recent empties
+- [x] The start page's Recent Files card uses the same list.
+- [x] Missing files are reported and dropped on click; Clear Recent empties
       the list.
-- [ ] No timer, watcher or background work: idle CPU stays at 0.
-- [ ] A malformed `recent_files.json` never breaks startup.
-- [ ] Unit tests added; Xvfb screenshots checked edge by edge; gates pass
+- [x] No timer, watcher or background work: idle CPU stays at 0.
+- [x] A malformed `recent_files.json` never breaks startup.
+- [x] Unit tests added; Xvfb screenshots checked edge by edge; gates pass
       with zero warnings, including the macOS gate.
+- [x] User verification (2026-11-27).
+
+## User verification
+
+The user approved the PR on 2026-11-27 ("ok per 206, 240, 215"), relayed by
+the orchestrator (ferrispad-03), after reading the presentation
+`docs/pr/PR-240-recent-files-menu.html`. The approval covers the three
+choices the page put to the user:
+
+- **Seeded once from the saved sessions:** without a `recent_files.json`,
+  the list is filled once from the named, existing files of the saved
+  sessions, so an upgrade doesn't empty the start-page card.
+- **MCP opens are not recorded:** the list is the user's history; a file an
+  AI agent opens through MCP stays out of it. A plugin's `open_file` (a
+  click in the file explorer) is still recorded.
+- **The list lives in the data dir** (`recent_files.json`, next to the
+  sessions), not in `settings.json`.
+
+The reviewer (ferrispad-90, a3) approved head ad83858. The later commits
+(9a730ea, d35543d) change only the screenshot scenario and the page.
 
 ## Affected files
 

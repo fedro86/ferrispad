@@ -94,8 +94,8 @@
     <li>Files an AI agent opens through MCP are not added: the list is your history.</li>
   </ul>
   <div class="meta">
-    <span class="chip"><strong>T0116</strong> in <code>2-review/</code></span>
-    <span class="chip"><strong>18</strong> files · +1200 / −155</span>
+    <span class="chip"><strong>T0116</strong> in <code>3-done/</code></span>
+    <span class="chip"><strong>18</strong> files · +1220 / −155</span>
     <span class="chip warn">new state file: recent_files.json</span>
     <span class="chip green">gates green at every commit</span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/240">PR #240 on GitHub</a></span>
@@ -134,8 +134,10 @@
       <td>The ticket's record of the review, and this page with the new montages.</td></tr>
     <tr><td><code class="sha">9a730ea</code></td>
       <td>The scenario hovers Open Recent instead of keying into it. On master the keys had slid into the Edit menu, so the before shot showed the wrong menu (the orchestrator caught it).</td></tr>
-    <tr><td><code class="sha">this commit</code></td>
+    <tr><td><code class="sha">d35543d</code></td>
       <td>This page with the recaptured montages.</td></tr>
+    <tr><td><code class="sha">this commit</code></td>
+      <td>The user's verification: the ticket moves to <code>3-done/</code>, and this page records it.</td></tr>
   </table>
   </div>
   <p>The size chip counts everything except this page. Master gets one squash commit.</p>
@@ -183,10 +185,10 @@
       <li>"R&amp;D.md" showed as "RD.md" with an underline on the start page.</li>
     </ul>
     One shared helper in <code>ui::menu</code> now makes both labels: <code>escape_label_text</code> for <code>@</code> and <code>&amp;</code>, and <code>escape_menu_item</code>, which adds <code>/</code>, <code>\</code>, a leading <code>_</code> and a tab. The red tests came first. The main-thread check <code>recent_files_open_recent_labels_are_whole</code> found 3 items instead of 4, with "notes@home.md" unescaped. a3 also found that a file named "Clear Recent" replaced the menu's own item. That label is now reserved, and such a file shows as "Clear Recent (2)".</div>
-  <div class="followup"><strong class="tag">MCP opens are left out (the orchestrator's decision).</strong> The list is the user's history. A file an AI agent reads through MCP must not fill it, so <code>tools.rs</code> drops the record (test <code>recent_files_agent_opens_are_not_remembered</code>). A plugin's <code>open_file</code>, such as a click in the file explorer, is a user's click and is still recorded.</div>
+  <div class="followup"><strong class="tag">MCP opens are left out (the orchestrator's decision, approved by the user).</strong> The list is the user's history. A file an AI agent reads through MCP must not fill it, so <code>tools.rs</code> drops the record (test <code>recent_files_agent_opens_are_not_remembered</code>). A plugin's <code>open_file</code>, such as a click in the file explorer, is a user's click and is still recorded.</div>
   <div class="why"><strong>Why one recording point.</strong> Recording in each way of opening a file (the dialog, the command line, drag and drop, a plugin, MCP, the start page, the menu itself) would miss the next one added. <code>FileController::open_file</code> is the one function they all call. It appends <code>RememberRecent</code> only when its own actions show a file (a tab switch or a title update, and no error). A cancelled dialog or a failed read is therefore never remembered.</div>
-  <div class="followup"><strong class="tag">Seeded once after an upgrade (my decision; the reviewer may overturn it).</strong> Without it, an existing user's card would go from "files in my sessions" to empty on the first start of 0.9.11. When <code>recent_files.json</code> does not exist yet, the list is filled once from the named, existing files of the saved sessions, and saved. After that, only opens and Save As change it.</div>
-  <div class="followup"><strong class="tag">State, not a setting.</strong> The list lives in the data dir next to the sessions (the ticket's decision), so it never ends up in a <code>settings.json</code> someone shares. Clear Recent is the privacy switch. There is no setting to turn the list off (out of scope).</div>
+  <div class="followup"><strong class="tag">Seeded once after an upgrade (the implementer's decision, approved by the user).</strong> Without it, an existing user's card would go from "files in my sessions" to empty on the first start of 0.9.11. When <code>recent_files.json</code> does not exist yet, the list is filled once from the named, existing files of the saved sessions, and saved. After that, only opens and Save As change it.</div>
+  <div class="followup"><strong class="tag">State, not a setting.</strong> The list lives in the data dir next to the sessions (the ticket's decision, approved by the user), so it never ends up in a <code>settings.json</code> someone shares. Clear Recent is the privacy switch. There is no setting to turn the list off (out of scope).</div>
   <h3>How to test T0116</h3>
   <ol class="steps">
     <li><code>nix develop -c cargo test recent_files</code>
@@ -212,6 +214,7 @@
 <section class="card">
   <h2>What remains open</h2>
   <ul>
+    <li><strong>Verified by the user (2026-11-27):</strong> "ok per 206, 240, 215", relayed by the orchestrator, together with the three choices above (seed from the saved sessions once, MCP opens not recorded, the list in the data dir). The reviewer approved ad83858; the later commits change only the scenario and this page.</li>
     <li><strong>Native Wayland check (the user):</strong> the File menu and the submenu in the GNOME font; see "Pending user" above.</li>
     <li><strong>Layout note, no action (the orchestrator):</strong> the start page's left column grows with up to four recent files. Its two cards keep the same height, as before, so the empty Recent Sessions card and the Changelog card then end with empty space at the bottom. This is the existing T0114 sizing rule, which aligns the columns.</li>
     <li><strong>Out of scope (ticket):</strong> recent folders or projects, pinned entries, OS recent documents, a list-size setting.</li>
@@ -252,7 +255,7 @@
 
 <footer>
   Presentation of PR #240 · branch <code>ticket/T0116</code> · commits <code>9fdf592</code> → this page ·
-  ticket <code>docs/tickets/2-review/T0116-recent-files-menu.md</code> · issue #238 (request #221).
+  ticket <code>docs/tickets/3-done/T0116-recent-files-menu.md</code> · issue #238 (request #221).
 </footer>
 </div>
 </body>
