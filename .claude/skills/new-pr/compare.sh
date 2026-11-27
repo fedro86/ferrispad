@@ -51,13 +51,32 @@ host() {
   if [ -e /.flatpak-info ]; then flatpak-spawn --host bash -lc "$1"; else bash -lc "$1"; fi
 }
 
+# Build a worktree's debug binary. A failed build fails the comparison (the
+# pipe keeps cargo's status), and a binary older than any source file of its
+# worktree is refused: a montage must never label a stale build. (cargo does
+# not relink when nothing changed, so "newer than the sources" is the test,
+# not "newer than the build start".)
+build() {
+  local wt=$1 bin=$1/target/debug/FerrisPad newest
+  host "set -o pipefail; cd $(printf %q "$wt") && nix develop -c cargo build 2>&1 | tail -3" \
+    || { echo "compare.sh: the build failed in $wt" >&2; exit 1; }
+  [ -x "$bin" ] || { echo "compare.sh: no binary after the build: $bin" >&2; exit 1; }
+  newest=$(cd "$wt" && find src Cargo.toml Cargo.lock $( [ -e build.rs ] && echo build.rs ) -type f -printf '%T@\n' | sort -n | tail -1)
+  if [ "$(stat -c %Y "$bin")" -lt "${newest%.*}" ]; then
+    echo "compare.sh: $bin is older than its sources: refusing to label a stale build" >&2
+    exit 1
+  fi
+}
+
 echo "before: $before_ref ($before_sha) in $before_wt"
 if [ ! -d "$before_wt" ]; then
   git worktree add --detach "$before_wt" "$before_sha" >/dev/null
 fi
-host "cd $(printf %q "$before_wt") && nix develop -c cargo build 2>&1 | tail -1"
+# Remove the throwaway worktree on every exit, a failed build included.
+[ -n "$keep" ] || trap 'git -C "$top" worktree remove --force "$before_wt" 2>/dev/null || true' EXIT
+build "$before_wt"
 echo "after: $after_sha in $top"
-host "cd $(printf %q "$top") && nix develop -c cargo build 2>&1 | tail -1"
+build "$top"
 
 status=0
 for theme in light dark; do
@@ -83,7 +102,4 @@ for b in before/*.png; do
   echo \"montage: $(printf %q "$out")/\$n-compare.png\"
 done"
 
-if [ -z "$keep" ]; then
-  git worktree remove --force "$before_wt"
-fi
 exit "$status"

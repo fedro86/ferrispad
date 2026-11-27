@@ -37,7 +37,13 @@
 #      the user's DISPLAY; update and plugin-update checks are off, so a
 #      run makes no network requests;
 #   6. the app runs in its own process group; the whole group is killed at
-#      the end, and any process left over fails the run.
+#      the end, and any process left over fails the run;
+#   7. the app's environment is an allowlist (env -i) with its own HOME,
+#      cwd, TMPDIR and SHELL=/bin/sh, and a per-run SHOOT_RUN_ID marker: a
+#      process carrying it after the run (even one that left the group with
+#      setsid) is killed and fails the run.
+# Two runs started at the same moment may pick the same :9N display; the
+# second Xvfb then fails to start and that run aborts (it fails safe).
 # It also never reads or writes the user's settings, sessions, recent
 # files or documents: fresh XDG_CONFIG_HOME, XDG_DATA_HOME, XDG_CACHE_HOME,
 # the app started from $HOME, and only fixture files copied into the run's
@@ -162,7 +168,34 @@ export PATH=$shims:$PATH
 
 # Fresh config, data and cache; fixtures only.
 export XDG_CONFIG_HOME=$work/config XDG_DATA_HOME=$work/data XDG_CACHE_HOME=$work/cache
-mkdir -p "$XDG_CONFIG_HOME/ferrispad" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$work/files"
+mkdir -p "$XDG_CONFIG_HOME/ferrispad" "$XDG_DATA_HOME" "$XDG_CACHE_HOME" "$work/files" \
+  "$work/home" "$work/tmp"
+
+# 7. The app's whole environment is an allowlist (env -i): nothing of the
+# user's session (AT_SPI_BUS_ADDRESS, SESSION_MANAGER, BROWSER, …) leaks in.
+# HOME, cwd and TMPDIR are the run's own: the terminal panel would source the
+# real ~/.bashrc, Markdown preview writes into $TMPDIR, and the MCP project
+# root is the cwd. SHOOT_RUN_ID marks every process the run starts, also a
+# child that leaves the process group with setsid.
+run_id=shoot-$(basename "$work")
+app_env=(
+  "PATH=$shims:$PATH" "HOME=$work/home" "SHELL=/bin/sh" "TMPDIR=$work/tmp"
+  "DISPLAY=$DISPLAY" "XAUTHORITY=${XAUTHORITY:-}"
+  "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" "XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
+  "XDG_CONFIG_HOME=$XDG_CONFIG_HOME" "XDG_DATA_HOME=$XDG_DATA_HOME" "XDG_CACHE_HOME=$XDG_CACHE_HOME"
+  "FONTCONFIG_FILE=$work/fonts.conf" "GDK_BACKEND=x11" "QT_QPA_PLATFORM=xcb" "FLTK_BACKEND=x11"
+  "LANG=C.UTF-8" "SHOOT_RUN_ID=$run_id"
+)
+# Processes that carry this run's marker (kill and report them).
+marked() {
+  local f p
+  for f in /proc/[0-9]*/environ; do
+    p=${f#/proc/}; p=${p%/environ}
+    [ "$p" = "$$" ] && continue
+    grep -qa "SHOOT_RUN_ID=$run_id" "$f" 2>/dev/null && echo "$p"
+  done
+  return 0
+}
 
 # A real font: Noto Sans / Noto Sans Mono from nixpkgs, preferred over
 # whatever the host has, so shots are comparable between machines.
@@ -212,6 +245,20 @@ if [ -n "$selftest" ]; then
     check "key refuses ctrl+o" 'forbidden_key ctrl+o'
     check "key refuses ctrl+shift+s" 'forbidden_key ctrl+shift+s'
     check "key allows ctrl+t" '! forbidden_key ctrl+t'
+    # The app's environment: only the allowlist, with private HOME and TMPDIR.
+    appenv=$(env -i "${app_env[@]}" /usr/bin/env)
+    check "app env drops the session's variables" '! grep -qE "^(WAYLAND_DISPLAY|AT_SPI_BUS_ADDRESS|SESSION_MANAGER|BROWSER|XDG_SESSION|GNOME_|SSH_AUTH_SOCK)" <<<"$appenv"'
+    check "app env has a private HOME, TMPDIR and SHELL=/bin/sh" 'grep -qx "HOME=$work/home" <<<"$appenv" && grep -qx "TMPDIR=$work/tmp" <<<"$appenv" && grep -qx "SHELL=/bin/sh" <<<"$appenv"'
+    check "app env puts the shims first in PATH" 'grep -q "^PATH=$shims:" <<<"$appenv"'
+    check "the real font still resolves with the private HOME" '[ "$(env -i "${app_env[@]}" fc-match -f "%{family[0]}" sans)" = "Noto Sans" ]'
+    # A child that leaves the process group is still found by its marker.
+    env -i "${app_env[@]}" setsid sleep 60 &
+    disown
+    sleep 0.5
+    stray=$(marked)
+    check "the marker sweep finds a setsid child" '[ -n "$stray" ]'
+    kill -9 $stray 2>/dev/null || true; sleep 0.3
+    check "the marker sweep is clean after the kill" '[ -z "$(marked)" ]'
   } 2>&1 | tee "$log"
   grep -q '^FAIL' "$log" && exit 1
   exit 0
@@ -249,8 +296,9 @@ log=$out/$name-$theme.log
   echo "---- app stdout/stderr ----"
 } > "$log"
 
-# 5. Own process group, so the end of the run can kill everything it spawned.
-(cd "$HOME" && exec setsid "$bin" "${args[@]}") >>"$log" 2>&1 &
+# 6. Own process group, so the end of the run can kill everything it spawned;
+# the SHOOT_RUN_ID sweep below catches what leaves the group.
+(cd "$work/files" && exec env -i "${app_env[@]}" setsid "$bin" "${args[@]}") >>"$log" 2>&1 &
 pid=$!
 
 stop_group() {
@@ -346,6 +394,12 @@ status=0
 if pgrep -g "$pid" >/dev/null 2>&1; then
   echo "shoot.sh: processes outlived the app: $(pgrep -a -g "$pid" | tr '\n' ';')" | tee -a "$log" >&2
   kill -9 -- -"$pid" 2>/dev/null || true
+  status=1
+fi
+left=$(marked)
+if [ -n "$left" ]; then
+  echo "shoot.sh: processes with this run's marker outlived it: $(for p in $left; do tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null; echo ';'; done)" | tee -a "$log" >&2
+  kill -9 $left 2>/dev/null || true
   status=1
 fi
 if [ -s "$shim_log" ]; then
