@@ -12,15 +12,26 @@ annotation-only PR, described under *Lifecycle*.
 docs/pr/
 ├── README.md
 ├── _template.html          # the page template
-├── PR-<n>-<slug>.html      # one per PR, open or merged
+├── 0.9.11/                 # one folder per planned release
+│   └── PR-<n>-<slug>.html  # one per PR, open or merged
 ├── scenarios/              # what shoot.sh / compare.sh drive (see its README)
 │   └── fixtures/           # fixture text the scenarios open
 └── examples/               # the worked example's montages
 ```
 
-The folder is flat. FerrisPad is one crate, so pages are not sorted into
-app folders, and there are no symlinks. Whether a PR is open or merged is
-GitHub's state, not the file's: a page is written once and never moved.
+A page lives in the folder of the release its ticket is planned for: the
+ticket's `release:` frontmatter field (`X.Y.Z`, e.g. `0.9.11`; a ticket
+that ships in `0.9.11-rc.1` is still planned for `0.9.11`).
+`.claude/skills/new-pr/page_dir.sh <ticket>` prints the folder and fails
+loudly when the field is missing. The release is the only level:
+FerrisPad is one crate, so there are no app folders, and there are no
+symlinks. Whether a PR is open or merged is GitHub's state, not the file's.
+
+A page moves, with `git mv`, only when its PR's planned release changes,
+together with the ticket's `release:`. **Before tagging `X.Y.Z`**, every
+page in `docs/pr/X.Y.Z/` must be a PR merged into that release; a planned
+PR that slipped moves to the next release's folder (the skill's §8 has
+the check).
 
 ## Naming
 
@@ -91,13 +102,13 @@ for good.
 
 1. **Open.** Open the PR as a draft to get its number. Write the page when
    the ticket's implementation is done (work-sequence step 2).
-2. **Deliver.** Copy the page into `docs/internal/pr/` of the main checkout
-   (the first entry of `git worktree list`; `docs/internal/*` is
-   gitignored). The user reads it there and gives feedback before anything
+2. **Deliver.** Copy the page into `docs/internal/pr/<release>/` of the
+   main checkout (the first entry of `git worktree list`; `docs/internal/*`
+   is gitignored). The user reads it there and gives feedback before anything
    proceeds.
 3. **Update.** Keep the page current while the PR is open: a review fix, a
    merge of `master`, the move of the ticket to `3-done/`. Copy every fix
-   to `docs/internal/pr/` again. The PR stays a **draft** while the user
+   to `docs/internal/pr/<release>/` again. The PR stays a **draft** while the user
    verifies, and goes ready together with the `3-done/` move.
 4. **Merge.** Only when all of these hold:
    - the page's rendering check passes (headless Chromium at 1280 and
@@ -112,8 +123,8 @@ for good.
    session. The merge is pinned:
    `gh pr merge <n> --squash --match-head-commit <sha>`.
 5. **After.** Any session that sees the PR merged or closed deletes its
-   copy from `docs/internal/pr/`. Nothing happens to the page in
-   `docs/pr/`.
+   copy from `docs/internal/pr/<release>/`. Nothing happens to the page in
+   `docs/pr/<release>/`.
 
 **The annotation-only PR.** Some PRs only modify tickets already in
 `3-done/` and/or add new tickets to `1-todo/`. Examples are post-tag records

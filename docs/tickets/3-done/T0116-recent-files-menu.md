@@ -101,7 +101,7 @@ nix develop -c cargo test recent_files
 
 The user approved the PR on 2026-11-27 ("ok per 206, 240, 215"), relayed by
 the orchestrator (ferrispad-03), after reading the presentation
-`docs/pr/PR-240-recent-files-menu.html`. The approval covers the three
+`docs/pr/0.9.11/PR-240-recent-files-menu.html`. The approval covers the three
 choices the page put to the user:
 
 - **Seeded once from the saved sessions:** without a `recent_files.json`,

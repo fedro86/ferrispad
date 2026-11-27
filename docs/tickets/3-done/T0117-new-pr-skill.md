@@ -185,7 +185,7 @@ ticket per PR.
 - **`work-sequence.md`.** Step 2 opens the PR with the skill; step 3 merges
   only under §7, pinned. `.claude/CLAUDE.md` points to the skill and lists
   `docs/pr/`.
-- **This PR's page,** `docs/pr/PR-235-new-pr-skill.html` (PR #235): no
+- **This PR's page,** `docs/pr/0.9.11/PR-235-new-pr-skill.html` (PR #235): no
   `{{` (the two literal mentions are written `&#123;&#123;`), and the
   template's style block. `visual_check.sh` results:
   - 1280 light 1280/1280, 1280 dark 1280/1280, 390 light 390/390, 390 dark
