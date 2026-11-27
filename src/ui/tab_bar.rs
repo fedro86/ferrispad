@@ -1,3 +1,4 @@
+use crate::ui::color::fltk_rgb;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -866,12 +867,9 @@ pub fn theme_colors_from_bg(theme_bg: &ThemeRgb) -> ThemeColors {
 
     // Text colors based on brightness
     let (active_text, inactive_text) = if is_dark {
-        (
-            Color::from_rgb(230, 230, 230),
-            Color::from_rgb(140, 140, 140),
-        )
+        (fltk_rgb(230, 230, 230), fltk_rgb(140, 140, 140))
     } else {
-        (Color::from_rgb(0, 0, 0), Color::from_rgb(80, 80, 80))
+        (fltk_rgb(0, 0, 0), fltk_rgb(80, 80, 80))
     };
 
     // Close button hover: slightly different from inactive
@@ -952,7 +950,7 @@ fn group_color_to_fltk(gc: GroupColor, is_dark: bool) -> Color {
     } else {
         gc.to_rgb()
     };
-    Color::from_rgb(r, g, b)
+    fltk_rgb(r, g, b)
 }
 
 /// Draw a tab's rounded background. Active tabs leave a 2px gap at the top
@@ -1033,7 +1031,7 @@ fn draw_scroll_arrow(
     draw_rounded_rect(ax, arrow_y, SCROLL_ARROW_WIDTH, arrow_h, 4, bg);
 
     let text_color = if !enabled {
-        Color::from_rgb(100, 100, 100)
+        fltk_rgb(100, 100, 100)
     } else if is_hover {
         colors.active_text
     } else {
@@ -1141,7 +1139,7 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                         } else {
                             ginfo.color.to_rgb()
                         };
-                        Color::from_rgb(
+                        fltk_rgb(
                             r.saturating_add(30),
                             g.saturating_add(30),
                             b.saturating_add(30),
@@ -1155,7 +1153,7 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                         // Draw a white dot in the center
                         let dot_x = lx + *width / 2;
                         let dot_y = pill_y + pill_h / 2;
-                        draw::set_draw_color(Color::from_rgb(255, 255, 255));
+                        draw::set_draw_color(fltk_rgb(255, 255, 255));
                         draw::draw_pie(
                             dot_x - GROUP_DOT_RADIUS,
                             dot_y - GROUP_DOT_RADIUS,
@@ -1166,7 +1164,7 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                         );
                     } else {
                         // Draw group name
-                        draw::set_draw_color(Color::from_rgb(255, 255, 255));
+                        draw::set_draw_color(fltk_rgb(255, 255, 255));
                         draw::set_font(Font::Helvetica, 11);
                         draw::draw_text2(&ginfo.name, lx, pill_y, *width, pill_h, Align::Center);
                     }
@@ -1192,7 +1190,7 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                     } else {
                         color.to_rgb()
                     };
-                    Color::from_rgb(
+                    fltk_rgb(
                         r.saturating_add(30),
                         g.saturating_add(30),
                         b.saturating_add(30),
@@ -1208,7 +1206,7 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                 } else {
                     format!("{name} ({count})")
                 };
-                draw::set_draw_color(Color::from_rgb(255, 255, 255));
+                draw::set_draw_color(fltk_rgb(255, 255, 255));
                 draw::set_font(Font::Helvetica, 11);
 
                 if name.is_empty() {
@@ -1339,7 +1337,7 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                         (80u8, 160u8, 255u8)
                     };
                     // 50% blend: (bg + tint) / 2
-                    let blended = Color::from_rgb(
+                    let blended = fltk_rgb(
                         ((br as u16 + tr as u16) / 2) as u8,
                         ((bg_g as u16 + tg as u16) / 2) as u8,
                         ((bb as u16 + tb as u16) / 2) as u8,
@@ -1389,9 +1387,9 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                 };
                 if let Some(ix) = indicator_x {
                     let indicator_color = if st.is_dark {
-                        Color::from_rgb(100, 160, 255)
+                        fltk_rgb(100, 160, 255)
                     } else {
-                        Color::from_rgb(30, 100, 220)
+                        fltk_rgb(30, 100, 220)
                     };
                     draw::set_draw_color(indicator_color);
                     draw::draw_rectf(ix - 1, wy + 2, 3, wh - 4);
@@ -1409,7 +1407,7 @@ fn draw_tab_bar(wid: &Widget, st: &TabBarState) {
                             (80u8, 160u8, 255u8)
                         };
                         // 50% blend: (bg + tint) / 2
-                        let blended = Color::from_rgb(
+                        let blended = fltk_rgb(
                             ((br as u16 + tr as u16) / 2) as u8,
                             ((bg_g as u16 + tg as u16) / 2) as u8,
                             ((bb as u16 + tb as u16) / 2) as u8,

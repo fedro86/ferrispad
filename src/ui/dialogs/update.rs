@@ -1,12 +1,11 @@
+use crate::ui::color::fltk_rgb;
 use fltk::{
     app,
-    button::Button,
-    enums::{Color, Font, FrameType},
+    enums::{Font, FrameType},
     frame::Frame,
     group::Flex,
-    misc::Progress,
     prelude::*,
-    text::{TextBuffer, TextEditor, WrapMode},
+    text::{TextBuffer, WrapMode},
     window::Window,
 };
 use std::cell::RefCell;
@@ -83,7 +82,7 @@ pub fn show_update_available_dialog(
     theme_bg: (u8, u8, u8),
 ) {
     let theme = DialogTheme::from_theme_bg(theme_bg);
-    let dialog_bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
+    let dialog_bg = fltk_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
     let current_version = env!("CARGO_PKG_VERSION");
     let direct_asset = updater::get_platform_asset_name()
         .and_then(|name| release.assets.iter().find(|a| a.name.ends_with(name)));
@@ -138,24 +137,16 @@ pub fn show_update_available_dialog(
     notes_label.set_color(dialog_bg);
     flex.fixed(&notes_label, 25);
 
-    let mut notes_editor = TextEditor::default();
+    let mut notes_editor = theme.text_editor();
     notes_editor.set_buffer(TextBuffer::default());
     notes_editor.buffer().unwrap().set_text(&release.body);
     notes_editor.wrap_mode(WrapMode::AtBounds, 0);
-    notes_editor.set_color(theme.input_bg);
-    notes_editor.set_text_color(theme.text);
-    notes_editor.set_cursor_color(theme.text);
-    notes_editor.set_selection_color(theme.button_bg);
-    notes_editor.set_frame(FrameType::FlatBox);
     notes_editor.set_scrollbar_size(super::SCROLLBAR_SIZE);
 
     // Progress bar (initially hidden)
-    let mut progress = Progress::default().with_size(0, 25);
+    let mut progress = theme.progress().with_size(0, 25);
     progress.set_minimum(0.0);
     progress.set_maximum(1.0);
-    progress.set_color(theme.input_bg);
-    progress.set_selection_color(theme.button_bg);
-    progress.set_label_color(theme.text);
     progress.hide();
     flex.fixed(&progress, 25);
 
@@ -173,25 +164,13 @@ pub fn show_update_available_dialog(
     button_row.set_spacing(10);
     button_row.set_color(dialog_bg);
 
-    let mut install_btn = Button::default().with_label("Install Now");
-    install_btn.set_frame(FrameType::RFlatBox);
-    install_btn.set_color(theme.button_bg);
-    install_btn.set_label_color(theme.text);
+    let mut install_btn = theme.button().with_label("Install Now");
 
-    let mut download_btn = Button::default().with_label("View on GitHub");
-    download_btn.set_frame(FrameType::RFlatBox);
-    download_btn.set_color(theme.button_bg);
-    download_btn.set_label_color(theme.text);
+    let mut download_btn = theme.button().with_label("View on GitHub");
 
-    let mut skip_btn = Button::default().with_label("Skip This Version");
-    skip_btn.set_frame(FrameType::RFlatBox);
-    skip_btn.set_color(theme.button_bg);
-    skip_btn.set_label_color(theme.text);
+    let mut skip_btn = theme.button().with_label("Skip This Version");
 
-    let mut later_btn = Button::default().with_label("Remind Later");
-    later_btn.set_frame(FrameType::RFlatBox);
-    later_btn.set_color(theme.button_bg);
-    later_btn.set_label_color(theme.text);
+    let mut later_btn = theme.button().with_label("Remind Later");
 
     if direct_asset.is_none() {
         install_btn.deactivate();

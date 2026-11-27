@@ -26,7 +26,7 @@ use crate::app::services::window_geometry::{
     restore_geometry, startup_maximize,
 };
 use crate::app::state::AppState;
-use crate::app::{AppSettings, Message, ThemeMode, detect_system_dark_mode};
+use crate::app::{AppSettings, Message, detect_system_dark_mode};
 use crate::ui::main_window::{LayoutWidgets, build_main_window};
 use crate::ui::menu::build_menu;
 #[cfg(target_os = "macos")]
@@ -226,11 +226,8 @@ fn main() {
     }
 
     let tabs_enabled = settings.tabs_enabled;
-    let initial_dark_mode = match settings.theme_mode {
-        ThemeMode::Light => false,
-        ThemeMode::Dark => true,
-        ThemeMode::SystemDefault => detect_system_dark_mode(),
-    };
+    // The one desktop query at startup; apply_settings below reuses it.
+    let initial_dark_mode = settings.theme_mode.resolve_dark(detect_system_dark_mode);
 
     // Read tree panel position from file-explorer plugin config
     let tree_position = settings
@@ -329,7 +326,7 @@ fn main() {
     }
 
     // Apply initial settings (theme, font, line numbers, word wrap)
-    state.apply_settings(settings.clone());
+    state.apply_settings(settings.clone(), initial_dark_mode);
 
     // Populate plugins menu with loaded plugins (before wind.end()/show()
     // so FLTK registers shortcuts the same way as built-in menu items)
@@ -565,6 +562,9 @@ fn main() {
     // Main event loop with message dispatch
     while app.wait() {
         if let Some(msg) = receiver.recv() {
+            // Pending flags are cleared on dequeue, even if the handler is
+            // skipped below (T0096).
+            state.note_dequeued(&msg);
             let result = match msg {
                 // File
                 Message::FileNew

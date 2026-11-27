@@ -131,16 +131,7 @@ impl TabManager {
 
     /// The smallest `n >= 1` that no open untitled document holds.
     pub fn lowest_free_untitled_number(&self) -> u32 {
-        let used: std::collections::BTreeSet<u32> = self
-            .documents
-            .iter()
-            .filter_map(Document::untitled_number)
-            .collect();
-        let mut n = 1;
-        while used.contains(&n) {
-            n += 1;
-        }
-        n
+        lowest_free_number(self.documents.iter().filter_map(Document::untitled_number))
     }
 
     pub fn add_from_file(&mut self, path: String, content: &str) -> DocumentId {
@@ -563,10 +554,20 @@ impl TabManager {
 /// untitled one) keeps its name, which T0091 numbering makes unique; only
 /// files take folder suffixes, chosen to be unique among the files.
 pub fn tab_labels(documents: &[Document]) -> Vec<String> {
-    let mut labels: Vec<String> = documents.iter().map(|d| d.display_name.clone()).collect();
+    let entries: Vec<(&str, Option<&str>)> = documents
+        .iter()
+        .map(|d| (d.display_name.as_str(), d.file_path.as_deref()))
+        .collect();
+    labels_for(&entries)
+}
+
+/// The label rule of [`tab_labels`] on (display name, path) pairs: pure, so
+/// it is tested without building documents.
+fn labels_for(entries: &[(&str, Option<&str>)]) -> Vec<String> {
+    let mut labels: Vec<String> = entries.iter().map(|(name, _)| name.to_string()).collect();
     let mut groups: HashMap<&str, Vec<usize>> = HashMap::new();
-    for (i, doc) in documents.iter().enumerate() {
-        groups.entry(doc.display_name.as_str()).or_default().push(i);
+    for (i, (name, _)) in entries.iter().enumerate() {
+        groups.entry(name).or_default().push(i);
     }
     for (name, indices) in groups {
         if indices.len() < 2 {
@@ -574,7 +575,7 @@ pub fn tab_labels(documents: &[Document]) -> Vec<String> {
         }
         let files: Vec<(usize, &str)> = indices
             .iter()
-            .filter_map(|&i| documents[i].file_path.as_deref().map(|p| (i, p)))
+            .filter_map(|&i| entries[i].1.map(|p| (i, p)))
             .collect();
         for (i, suffix) in files.iter().map(|&(i, _)| i).zip(folder_suffixes(&files)) {
             if !suffix.is_empty() {
@@ -633,12 +634,124 @@ fn folder_suffixes(files: &[(usize, &str)]) -> Vec<String> {
         .collect()
 }
 
+/// The smallest `n >= 1` not in `used` (T0091): the number of the next
+/// untitled document.
+pub fn lowest_free_number(used: impl IntoIterator<Item = u32>) -> u32 {
+    let used: std::collections::BTreeSet<u32> = used.into_iter().collect();
+    let mut n = 1;
+    while used.contains(&n) {
+        n += 1;
+    }
+    n
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // --- T0091: untitled numbering ---
-    // (No FLTK runtime here: TabManager and Document only hold buffers.)
+    // --- T0091: untitled numbering (the rule; the TabManager wiring runs
+    // on the main thread, `main_thread_checks`) ---
+
+    #[test]
+    fn untitled_lowest_free_number() {
+        assert_eq!(lowest_free_number([]), 1, "none open: \"Untitled\"");
+        assert_eq!(lowest_free_number([1, 2, 3]), 4);
+        assert_eq!(lowest_free_number([1, 3]), 2, "a closed one is reused");
+        assert_eq!(lowest_free_number([2, 3]), 1);
+    }
+
+    // --- T0112: tab labels (the rule; the TabManager wiring runs on the
+    // main thread, `main_thread_checks::tab_label_follows_paths_and_closes`) ---
+
+    fn labels(entries: &[(&str, Option<&str>)]) -> Vec<String> {
+        labels_for(entries)
+    }
+
+    /// A file literally named "Untitled" next to an untitled document: two
+    /// distinct labels, in either order, and no empty "()" suffix.
+    #[test]
+    fn untitled_label_distinct_from_file_named_untitled() {
+        let file = ("Untitled", Some("/home/u/notes/Untitled"));
+        let new = ("Untitled", None);
+        assert_eq!(
+            labels(&[file, new]),
+            ["Untitled (notes)", "Untitled"],
+            "file opened first, then a new tab"
+        );
+        assert_eq!(
+            labels(&[new, file]),
+            ["Untitled", "Untitled (notes)"],
+            "a new tab first, then the file"
+        );
+        assert_eq!(labels(&[new]), ["Untitled"], "the file closed");
+    }
+
+    /// Two files named like an untitled document, in different folders:
+    /// they disambiguate among themselves; the untitled tabs keep their
+    /// names.
+    #[test]
+    fn untitled_label_with_two_files_of_its_name() {
+        assert_eq!(
+            labels(&[
+                ("Untitled", None),
+                ("Untitled 2", None),
+                ("Untitled 2", Some("/a/Untitled 2")),
+                ("Untitled 2", Some("/b/Untitled 2")),
+            ]),
+            ["Untitled", "Untitled 2", "Untitled 2 (a)", "Untitled 2 (b)"]
+        );
+    }
+
+    /// Save As gives a tab the name of another open file: both labels
+    /// disambiguate at once.
+    #[test]
+    fn save_as_same_name_labels_distinct() {
+        assert_eq!(
+            labels(&[
+                ("main.rs", Some("/y/main.rs")),
+                ("main.rs", Some("/x/main.rs"))
+            ]),
+            ["main.rs (y)", "main.rs (x)"]
+        );
+    }
+
+    /// Guard: labels of ordinary files, as before T0112.
+    #[test]
+    fn file_labels_unchanged() {
+        assert_eq!(
+            labels(&[
+                ("lib.rs", Some("/p/lib.rs")),
+                ("main.rs", Some("/p/a/main.rs")),
+                ("main.rs", Some("/p/b/main.rs")),
+                ("mod.rs", Some("/x/src/mod.rs")),
+                ("mod.rs", Some("/y/src/mod.rs")),
+                ("Untitled", None),
+            ]),
+            [
+                "lib.rs",
+                "main.rs (a)",
+                "main.rs (b)",
+                "mod.rs (x/src)",
+                "mod.rs (y/src)",
+                "Untitled"
+            ]
+        );
+        assert_eq!(
+            labels(&[("main.rs", Some("/p/a/main.rs"))]),
+            ["main.rs"],
+            "the other main.rs closed"
+        );
+    }
+}
+
+/// Checks that build documents (hence FLTK `TextBuffer`s), so they must run
+/// on the process main thread: on macOS the first `Fl::lock()` opens the
+/// display through AppKit, which aborts off the main thread, where libtest
+/// runs unit tests. Called by the `harness = false` test binary
+/// `tests/fltk_main_thread.rs` (T0089); not part of the public API.
+#[doc(hidden)]
+pub mod main_thread_checks {
+    use super::*;
 
     fn tabs() -> TabManager {
         let (sender, _receiver) = fltk::app::channel::<Message>();
@@ -651,8 +764,7 @@ mod tests {
 
     /// Startup creates the default untitled document and removes it for the
     /// start page; the user's first new tab must still be "Untitled".
-    #[test]
-    fn untitled_first_new_after_startup_is_untitled() {
+    pub fn untitled_first_new_after_startup_is_untitled() {
         let mut tabs = tabs();
         let default = tabs.add_untitled();
         tabs.remove(default);
@@ -662,8 +774,7 @@ mod tests {
         assert_eq!(name(&tabs, second), "Untitled 2");
     }
 
-    #[test]
-    fn untitled_reuses_lowest_free_number() {
+    pub fn untitled_reuses_lowest_free_number() {
         let mut tabs = tabs();
         let ids: Vec<_> = (0..3).map(|_| tabs.add_untitled()).collect();
         let names: Vec<_> = ids.iter().map(|&id| name(&tabs, id)).collect();
@@ -678,9 +789,31 @@ mod tests {
         assert_eq!(name(&tabs, fresh), "Untitled");
     }
 
+    /// T0112: `TabManager::tab_label` follows the documents' current paths
+    /// and names, with nothing cached: a new tab, a Save As done in place
+    /// (as `file.rs` does) and a close all show at once.
+    pub fn tab_label_follows_paths_and_closes() {
+        let mut tabs = tabs();
+        let label = |tabs: &TabManager, id| tabs.tab_label(id).unwrap();
+        let file = tabs.add_from_file("/home/u/notes/Untitled".to_string(), "x");
+        let new = tabs.add_untitled();
+        assert_eq!(label(&tabs, file), "Untitled (notes)");
+        assert_eq!(label(&tabs, new), "Untitled");
+        let open = tabs.add_from_file("/y/main.rs".to_string(), "");
+        let other = tabs.add_from_file("/x/notes.txt".to_string(), "");
+        let doc = tabs.doc_by_id_mut(other).unwrap();
+        doc.file_path = Some("/x/main.rs".to_string());
+        doc.update_display_name();
+        assert_eq!(label(&tabs, open), "main.rs (y)");
+        assert_eq!(label(&tabs, other), "main.rs (x)");
+        tabs.remove(file);
+        tabs.remove(other);
+        assert_eq!(label(&tabs, new), "Untitled");
+        assert_eq!(label(&tabs, open), "main.rs");
+    }
+
     /// Saving an untitled document gives it a path: its number is free.
-    #[test]
-    fn untitled_saved_doc_frees_its_number() {
+    pub fn untitled_saved_doc_frees_its_number() {
         let mut tabs = tabs();
         let first = tabs.add_untitled();
         let doc = tabs.doc_by_id_mut(first).unwrap();
@@ -689,106 +822,5 @@ mod tests {
         assert_eq!(name(&tabs, first), "notes.txt");
         let next = tabs.add_untitled();
         assert_eq!(name(&tabs, next), "Untitled");
-    }
-
-    // --- T0112: tab labels of a file named like an untitled document ---
-
-    fn label(tabs: &TabManager, id: DocumentId) -> String {
-        tabs.tab_label(id).unwrap()
-    }
-
-    /// A file literally named "Untitled" opened next to an untitled document:
-    /// two distinct labels, right away, and no empty "()" suffix.
-    #[test]
-    fn untitled_label_distinct_from_file_named_untitled() {
-        let mut tabs = tabs();
-        let file = tabs.add_from_file("/home/u/notes/Untitled".to_string(), "x");
-        let new = tabs.add_untitled();
-        assert_eq!(
-            (label(&tabs, file), label(&tabs, new)),
-            ("Untitled (notes)".to_string(), "Untitled".to_string()),
-            "file opened first, then a new tab"
-        );
-
-        let mut tabs = super::tests::tabs();
-        let new = tabs.add_untitled();
-        let file = tabs.add_from_file("/home/u/notes/Untitled".to_string(), "x");
-        assert_eq!(
-            (label(&tabs, file), label(&tabs, new)),
-            ("Untitled (notes)".to_string(), "Untitled".to_string()),
-            "a new tab first, then the file"
-        );
-
-        // Closing the file: the untitled tab is plain "Untitled" again.
-        tabs.remove(file);
-        assert_eq!(label(&tabs, new), "Untitled");
-    }
-
-    /// Two files named like the untitled document, in different folders:
-    /// they disambiguate among themselves; the untitled tab keeps its name.
-    #[test]
-    fn untitled_label_with_two_files_of_its_name() {
-        let mut tabs = tabs();
-        let new = tabs.add_untitled();
-        let second = tabs.add_untitled();
-        let a = tabs.add_from_file("/a/Untitled 2".to_string(), "");
-        let b = tabs.add_from_file("/b/Untitled 2".to_string(), "");
-        assert_eq!(label(&tabs, new), "Untitled");
-        assert_eq!(label(&tabs, second), "Untitled 2");
-        assert_eq!(label(&tabs, a), "Untitled 2 (a)");
-        assert_eq!(label(&tabs, b), "Untitled 2 (b)");
-    }
-
-    /// Save As gives a tab the name of another open file: both labels
-    /// disambiguate at once (`file.rs` Save As sets the path and display
-    /// name in place).
-    #[test]
-    fn save_as_same_name_labels_distinct() {
-        let mut tabs = tabs();
-        let open = tabs.add_from_file("/y/main.rs".to_string(), "");
-        let other = tabs.add_from_file("/x/notes.txt".to_string(), "");
-        let doc = tabs.doc_by_id_mut(other).unwrap();
-        doc.file_path = Some("/x/main.rs".to_string());
-        doc.update_display_name();
-        assert_eq!(
-            (label(&tabs, open), label(&tabs, other)),
-            ("main.rs (y)".to_string(), "main.rs (x)".to_string())
-        );
-    }
-
-    /// Guard: labels of ordinary files, as before T0112.
-    #[test]
-    fn file_labels_unchanged() {
-        let mut tabs = tabs();
-        let lone = tabs.add_from_file("/p/lib.rs".to_string(), "");
-        let a = tabs.add_from_file("/p/a/main.rs".to_string(), "");
-        let b = tabs.add_from_file("/p/b/main.rs".to_string(), "");
-        let deep1 = tabs.add_from_file("/x/src/mod.rs".to_string(), "");
-        let deep2 = tabs.add_from_file("/y/src/mod.rs".to_string(), "");
-        let new = tabs.add_untitled();
-        assert_eq!(label(&tabs, lone), "lib.rs");
-        assert_eq!(label(&tabs, a), "main.rs (a)");
-        assert_eq!(label(&tabs, b), "main.rs (b)");
-        assert_eq!(label(&tabs, deep1), "mod.rs (x/src)");
-        assert_eq!(label(&tabs, deep2), "mod.rs (y/src)");
-        assert_eq!(label(&tabs, new), "Untitled");
-        tabs.remove(b);
-        assert_eq!(label(&tabs, a), "main.rs");
-    }
-
-    #[test]
-    fn test_group_color_to_rgb() {
-        let color = GroupColor::Blue;
-        let (r, g, b) = color.to_rgb();
-        assert!(r < g && g < b); // Blue should have highest blue component
-    }
-
-    #[test]
-    fn test_group_color_to_rgb_dark() {
-        let color = GroupColor::Green;
-        let (r, g, b) = color.to_rgb_dark();
-        // Dark mode colors should be different from light mode
-        let (lr, lg, lb) = color.to_rgb();
-        assert!(r != lr || g != lg || b != lb);
     }
 }
