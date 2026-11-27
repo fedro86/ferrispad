@@ -161,6 +161,31 @@ inspected edge by edge:
   the request is handled give **one** request. Red with the flag bypassed:
   `10 relayout requests for one build`.
 
+## Merge of master after 0.9.10 (2026-11-27)
+
+Master brought T0114, which sizes the left cards so the changelog card
+shows all its entries (`left_card_h`, `changelog_card_h`,
+`changelog_content_h`), and T0093's `DirtyChanged` message. The conflicts
+were resolved like this:
+- `messages.rs`: both variants are kept.
+- `start_page.rs`:
+  - the cards use T0114's `left_card_h`;
+  - one rule, `changelog_h(columns, left_card_h, entries)`, gives the
+    changelog height: beside the left cards it spans both
+    (`changelog_card_h`); alone, in one column, it is
+    `changelog_content_h`;
+  - both test modules are kept.
+- **A defect the merge exposed.** T0108's own one-column height,
+  `30 + 1 + 22·n + 25 + 12`, is 200 px for the 6 entries, and T0114
+  measured 222 px of content. In one column the last entry would have been
+  clipped, the bug T0114 fixed for two columns. New test
+  `start_page_layout_changelog_shows_every_entry` (both layouts, 1 to
+  `MAX_RECENT` recent items). It is red on that formula:
+  `One, 1 item(s): 200 px < 222 px`.
+
+Gates after the merge: 762 passed (UI tests required, under Xvfb);
+clippy `-D warnings` and fmt are clean.
+
 ## Acceptance criteria
 
 - [x] Nothing is clipped at any width down to the start-page minimum; one
