@@ -127,7 +127,30 @@ session_closed_pid_reuse_keeps_crashed_entries ... FAILED   513297: the crashed 
 session_closed_same_pid_other_run_is_gone      ... FAILED   "<our pid>-<other nonce>" read as alive: fork
 ```
 
-After the fix all 10 pass, as do the T0015 and T0099 session tests. Gates
+**The 0.9.10 Known Issue, pinned** (a3's re-check; the orchestrator
+accepted it). `session_closed_quit_instance_text_survives_other_saves`
+replays the published sequence:
+- B quits with unsaved text and is gone. Its pid comes from a reaped child,
+  so the test runs on every platform.
+- A then saves three times with only its own document: a merge auto-save,
+  an own-file auto-save, and the quit save.
+- B's entry and its temp file must survive all three.
+
+Red on 0.9.10's merge rule: the same test, adapted to that version's API
+(no `owner`; `merge_and_persist` with Full mode), in a throwaway worktree
+at tag `0.9.10`:
+
+```text
+session_closed_quit_instance_text_survives_other_saves ... FAILED
+assertion `left == right` failed: A's save 2: B's text left the session
+  left: ["ta.tmp"]
+ right: ["ta.tmp", "tb.tmp"]
+```
+
+A's first save merges B's entry. The second, which finds A's own file and
+skips the merge, drops it.
+
+After the fix all 11 pass, as do the T0015 and T0099 session tests. Gates
 (after merging `master`): 679 passed, clippy `-D warnings` and fmt clean.
 
 After 0.9.10 (2026-11-27), master was merged again (12f759a). T0099's final

@@ -877,6 +877,47 @@ mod tests {
         );
     }
 
+    /// The 0.9.10 Known Issue, exactly: B quits with unsaved text and is
+    /// gone. A then saves three times with only its own document: a merge
+    /// auto-save, an auto-save of its own file, and the save on quit. B's
+    /// entry and its temp file must survive all three.
+    #[test]
+    fn session_closed_quit_instance_text_survives_other_saves() {
+        // A pid that is gone: a reaped child of ours (any platform).
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "no_such_test"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let gone_b = format!("{}-feedfacefeedface", child.id());
+        child.wait().unwrap();
+        assert_eq!(instance_state(&gone_b), InstanceState::Gone);
+        let a = instance_id();
+
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        fs::write(d.join("ta.tmp"), "a1").unwrap();
+        save(d, a, vec![entry(None, Some("ta.tmp"), a)], &[]);
+        // B quits with its unsaved document; the session keeps it.
+        fs::write(d.join("tb.tmp"), "b1").unwrap();
+        save(d, &gone_b, vec![entry(None, Some("tb.tmp"), &gone_b)], &[]);
+        // A: merge auto-save, own-file auto-save, quit save.
+        for i in 1..=3 {
+            save(d, a, vec![entry(None, Some("ta.tmp"), a)], &[]);
+            assert_eq!(
+                ids(d),
+                ["ta.tmp", "tb.tmp"],
+                "A's save {i}: B's text left the session"
+            );
+            assert_eq!(
+                fs::read_to_string(d.join("tb.tmp")).ok().as_deref(),
+                Some("b1"),
+                "A's save {i}: B's temp file was deleted"
+            );
+        }
+    }
+
     /// (a) B closed b1 and saves with nothing open: b1 leaves the session,
     /// A's document stays.
     #[test]
