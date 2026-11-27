@@ -110,13 +110,6 @@ fn zenity_folder(directory: &str) -> String {
     }
 }
 
-/// Background and text colour of a selected row in the themed chooser's file
-/// list: the selection colour and text colour every other themed dialog list
-/// uses (session picker, font picker).
-fn selected_row_colors(theme: &DialogTheme) -> (Color, Color) {
-    (theme.button_bg, theme.text)
-}
-
 /// Show the chooser and return the chosen paths (empty when cancelled).
 fn choose(
     title: &str,
@@ -170,8 +163,10 @@ fn show_themed(
     window.set_label_color(theme.text);
     style_children(&window, &theme);
     // The file list (`Fl_File_Chooser::color` / `textcolor`).
+    // Rows in the theme text; a selected row's text is picked by the
+    // contrast rule on the registered selection (T0097, T0105).
     chooser.set_color(theme.input_bg);
-    chooser.set_text_color(selected_row_colors(&theme).1);
+    chooser.set_text_color(theme.text);
     chooser.show();
     while chooser.shown() {
         app::wait();
@@ -199,23 +194,18 @@ fn style_children(group: &impl GroupExt, theme: &DialogTheme) {
             child.set_label_color(theme.text);
         }
         if let Some(mut list) = FileBrowser::from_dyn_widget(&child) {
-            // Its background and text colour are set through the chooser.
-            list.set_selection_color(selected_row_colors(theme).0);
+            // The shared, registered list selection (its background and row
+            // text are set through the chooser).
+            theme.style_list(&mut list);
         } else if let Some(mut input) = FileInput::from_dyn_widget(&child) {
             // The path-segment buttons above the Filename field are drawn
             // with this box type; no box keeps them clickable but invisible.
             input.set_down_frame(FrameType::NoBox);
-            input.set_color(theme.input_bg);
-            input.set_text_color(theme.text);
-            input.set_selection_color(theme.button_bg);
+            theme.style_foreign_input(&mut input);
         } else if let Some(mut menu) = Choice::from_dyn_widget(&child) {
-            menu.set_color(theme.input_bg);
-            menu.set_text_color(theme.text);
-            menu.set_selection_color(theme.button_bg);
+            theme.style_foreign_menu(&mut menu);
         } else if let Some(mut menu) = MenuButton::from_dyn_widget(&child) {
-            menu.set_color(theme.secondary_button_bg);
-            menu.set_text_color(theme.text);
-            menu.set_selection_color(theme.button_bg);
+            theme.style_foreign_menu_button(&mut menu);
         } else {
             child.set_color(theme.bg);
         }
@@ -266,13 +256,18 @@ mod tests {
     use crate::ui::color::wcag_contrast;
 
     /// The text colour `Fl_File_Browser::item_draw` really uses on a selected
-    /// row: `fl_contrast(textcolor(), selection_color())`, i.e. FLTK's CIELAB
-    /// rule at FerrisPad's contrast level (the row is not an editor
-    /// selection, see `ui::contrast`).
+    /// row: `fl_contrast(textcolor(), selection_color())`, through FerrisPad's
+    /// contrast rule with the dialog list selection registered (T0097, see
+    /// `ui::contrast`).
     fn fltk_drawn_text(fg: (u8, u8, u8), bg: (u8, u8, u8)) -> (u8, u8, u8) {
         use crate::ui::contrast::{EditorSelectionBgs, ferrispad_contrast};
-        let c = |(r, g, b): (u8, u8, u8)| Color::from_rgb(r, g, b);
-        ferrispad_contrast(c(fg), c(bg), EditorSelectionBgs::default()).to_rgb()
+        let c = |(r, g, b): (u8, u8, u8)| crate::ui::color::fltk_rgb(r, g, b);
+        ferrispad_contrast(
+            c(fg),
+            c(bg),
+            EditorSelectionBgs::default().with_list_selection(bg),
+        )
+        .to_rgb()
     }
 
     /// The selected row of the fallback chooser must be readable in every
@@ -283,7 +278,7 @@ mod tests {
         let mut failures = Vec::new();
         for &syntax in SyntaxTheme::all() {
             let theme = DialogTheme::from_theme_bg(syntax.background());
-            let (bg, fg) = selected_row_colors(&theme);
+            let (bg, fg) = theme.list_selection();
             let (bg, fg) = (bg.to_rgb(), fg.to_rgb());
             let drawn = fltk_drawn_text(fg, bg);
             let ratio = wcag_contrast(drawn, bg);

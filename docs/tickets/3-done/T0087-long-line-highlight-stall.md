@@ -1,7 +1,7 @@
 ---
 id: T0087
 title: Do not stall on files with very long lines (bound syntax-highlighting work in bytes)
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: moderate
 area: robustness
@@ -406,7 +406,7 @@ After the fix all six pass, and the full suite is green.
 - [x] Regression tests added and green; they failed before the fix.
 - [x] `cargo test`, `cargo clippy --all-targets --all-features -- -D warnings`
       and `cargo fmt --check` all pass with zero warnings.
-- [ ] Pending user verification: the manual repro on a real desktop (Wayland
+- [x] User verification: the manual repro on a real desktop (Wayland
       / GPU), where FLTK's per-recalc cost may differ from Xvfb.
 
 ## Affected files
@@ -453,3 +453,8 @@ After the fix all six pass, and the full suite is green.
   > program; load a file containing one 8 MB line without newlines; press
   > Right a few times, with and without word wrap. Every key press takes
   > seconds, and CPU is at 100 % in `wrapped_line_counter` / `fl_width`.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland) with the rc.3 integration
+build `verify/rc3` (checklist `VERIFICA-RC3.md`).

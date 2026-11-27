@@ -1014,61 +1014,6 @@ mod tests {
         assert_eq!(highlight_plan(&huge), HighlightPlan::Synchronous);
     }
 
-    /// A tab manager holding one active JavaScript document with `text`.
-    /// (Nothing here may touch the FLTK runtime, e.g. `defer_send`: it pins
-    /// fltk-rs's UI thread to this test's thread.)
-    fn js_tab(text: &str) -> (TabManager, DocumentId) {
-        let (sender, _receiver) = fltk::app::channel::<Message>();
-        let mut tabs = TabManager::new(sender);
-        let id = tabs.add_untitled();
-        let doc = tabs.doc_by_id_mut(id).unwrap();
-        doc.buffer.set_text(text);
-        doc.syntax_name = Some("JavaScript".to_string());
-        (tabs, id)
-    }
-
-    fn style_text(tabs: &TabManager, id: DocumentId) -> String {
-        buffer_text_no_leak(&tabs.doc_by_id(id).unwrap().style_buffer)
-    }
-
-    /// T0087: clearing a plugin's annotations re-highlights through the same
-    /// plan as every other path. A document over the plan's bound goes to
-    /// the chunked highlight instead of one synchronous full pass.
-    #[test]
-    fn long_line_clear_annotations_follows_the_plan() {
-        // Over the line bound: 6000 short lines.
-        let big = "var x = 1;\n".repeat(LARGE_FILE_THRESHOLD + 1000);
-        let (mut tabs, id) = js_tab(&big);
-        let before = style_text(&tabs, id);
-        let mut hc = controller();
-        let outcome = hc.clear_annotations(&mut tabs);
-        assert_eq!(outcome, ClearAnnotations::Chunked(id));
-        assert_eq!(style_text(&tabs, id), before, "no synchronous pass");
-
-        // Its chunked run already in flight: restarted in place from the
-        // top, not queued a second time (one ContinueHighlight chain).
-        hc.highlighter.start_chunked(id, big.clone(), "JavaScript");
-        hc.highlighter
-            .process_chunk()
-            .expect("chunked highlight is active");
-        let outcome = hc.clear_annotations(&mut tabs);
-        assert_eq!(outcome, ClearAnnotations::Restarted);
-        assert_eq!(hc.highlighter.chunked_doc_id(), Some(id));
-        assert!(hc.highlight_queue.is_empty());
-        let first = hc.highlighter.process_chunk().unwrap();
-        assert_eq!(first.byte_start, 0, "from the top");
-
-        // Within the plan: restyled at once, as before.
-        let small = "var x = 1;\nfunction f(a) { return a; }\n";
-        let (mut tabs, id) = js_tab(small);
-        let outcome = hc.clear_annotations(&mut tabs);
-        assert_eq!(outcome, ClearAnnotations::Restyled);
-        assert_eq!(
-            style_text(&tabs, id),
-            hc.highlight_full(small, "JavaScript").style_string
-        );
-    }
-
     /// T0096: at most one `ContinueHighlight` chain. A second request while
     /// one is queued sends nothing; once the handler has taken it, the next
     /// request sends again.
@@ -1202,5 +1147,72 @@ mod tests {
         assert_eq!(hc.highlighter().theme_key(), format!("custom:{id}"));
         assert_eq!(hc.editor_colors().background, (1, 2, 3));
         assert_eq!(hc.highlighter().theme_background(), (1, 2, 3));
+    }
+}
+
+/// Checks that build FLTK objects (a `TabManager` with documents, hence
+/// `TextBuffer`s), so they must run on the process main thread: on macOS the
+/// first `Fl::lock()` opens the display through AppKit, which aborts off the
+/// main thread, where libtest runs unit tests. Called by the
+/// `harness = false` test binary `tests/fltk_main_thread.rs` (T0089); not
+/// part of the public API.
+#[doc(hidden)]
+pub mod main_thread_checks {
+    use super::*;
+
+    fn controller() -> HighlightController {
+        HighlightController::new(SyntaxTheme::Base16OceanLight, Font::Courier, 14, true)
+    }
+
+    /// A tab manager holding one active JavaScript document with `text`.
+    fn js_tab(text: &str) -> (TabManager, DocumentId) {
+        let (sender, _receiver) = fltk::app::channel::<Message>();
+        let mut tabs = TabManager::new(sender);
+        let id = tabs.add_untitled();
+        let doc = tabs.doc_by_id_mut(id).unwrap();
+        doc.buffer.set_text(text);
+        doc.syntax_name = Some("JavaScript".to_string());
+        (tabs, id)
+    }
+
+    fn style_text(tabs: &TabManager, id: DocumentId) -> String {
+        buffer_text_no_leak(&tabs.doc_by_id(id).unwrap().style_buffer)
+    }
+
+    /// T0087: clearing a plugin's annotations re-highlights through the same
+    /// plan as every other path. A document over the plan's bound goes to
+    /// the chunked highlight instead of one synchronous full pass.
+    pub fn long_line_clear_annotations_follows_the_plan() {
+        // Over the line bound: 6000 short lines.
+        let big = "var x = 1;\n".repeat(LARGE_FILE_THRESHOLD + 1000);
+        let (mut tabs, id) = js_tab(&big);
+        let before = style_text(&tabs, id);
+        let mut hc = controller();
+        let outcome = hc.clear_annotations(&mut tabs);
+        assert_eq!(outcome, ClearAnnotations::Chunked(id));
+        assert_eq!(style_text(&tabs, id), before, "no synchronous pass");
+
+        // Its chunked run already in flight: restarted in place from the
+        // top, not queued a second time (one ContinueHighlight chain).
+        hc.highlighter.start_chunked(id, big.clone(), "JavaScript");
+        hc.highlighter
+            .process_chunk()
+            .expect("chunked highlight is active");
+        let outcome = hc.clear_annotations(&mut tabs);
+        assert_eq!(outcome, ClearAnnotations::Restarted);
+        assert_eq!(hc.highlighter.chunked_doc_id(), Some(id));
+        assert!(hc.highlight_queue.is_empty());
+        let first = hc.highlighter.process_chunk().unwrap();
+        assert_eq!(first.byte_start, 0, "from the top");
+
+        // Within the plan: restyled at once, as before.
+        let small = "var x = 1;\nfunction f(a) { return a; }\n";
+        let (mut tabs, id) = js_tab(small);
+        let outcome = hc.clear_annotations(&mut tabs);
+        assert_eq!(outcome, ClearAnnotations::Restyled);
+        assert_eq!(
+            style_text(&tabs, id),
+            hc.highlight_full(small, "JavaScript").style_string
+        );
     }
 }
