@@ -130,7 +130,7 @@ git grep -nE 'docs/pr/PR-[0-9]' -- . ':(exclude)docs/pr/0.9.11'   # nothing
 - **The skill** (`SKILL.md`): the description, the intro, §0 (the
   `release:` precondition and `D=$(page_dir.sh …)`), §1 and §6 (the body's
   path), §3 (`$D/PR-<n>-<slug>.html`, the `{{` grep, the size chip's
-  exclude `':(exclude)docs/pr/*/PR-*.html'`), §4 (the copy into
+  exclude `':(exclude)docs/pr/*PR-*.html'`), §4 (the copy into
   `docs/internal/pr/<release>/`), §7 (`visual_check.sh $D/…`), §8 (the
   deletion `docs/internal/pr/*/PR-<n>-*.html`) and a new "The release
   folder" section with the pre-tag check. `docs/pr/README.md` (layout,

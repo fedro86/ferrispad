@@ -207,7 +207,7 @@ element. The rules:
     the branch's commits for reference: master gets one squash commit.
   - **The size chip:** everything except the page itself, so the number
     stays right across the page's own commits:
-    `git diff --shortstat origin/master...HEAD -- . ':(exclude)docs/pr/*/PR-*.html'`
+    `git diff --shortstat origin/master...HEAD -- . ':(exclude)docs/pr/*PR-*.html'`
     (three dots: from the merge-base).
   - **The ticket:** its file in `docs/tickets/`, which holds the decisions,
     the red test and the recipe.
