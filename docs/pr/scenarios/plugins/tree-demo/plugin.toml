@@ -1,0 +1,9 @@
+name = "tree-demo"
+version = "0.1.0"
+description = "Screenshot fixture: a file tree with git-status labels and one diagnostic per level"
+
+[permissions]
+
+[[menu_items]]
+label = "Show Demo Tree"
+action = "demo"
