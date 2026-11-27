@@ -1,7 +1,7 @@
 ---
 id: T0118
 title: The FlatPark app page lists custom editor themes
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-27
 severity: ~
 area: process
@@ -31,13 +31,14 @@ is not listed.
     themes" with `Light and dark themes, plus your own editor themes: create
     them in the app or import .tmTheme files`.
 - The same metainfo change prepared for flatpark/flatpark (commit and patch).
-  The PR there is opened only with the user's explicit OK.
+  It is **queued for the 0.9.11 release**, not submitted now (see *FlatPark
+  submission: queued for 0.9.11*).
 
 ## Out of scope
 
 - The website (fedro86/fedro-websites), README and wiki feature lists.
 - Screenshots, summary, permissions text and the manifest.
-- Opening the FlatPark PR. That waits for the user's OK.
+- Opening the FlatPark PR. By the user's decision it waits for 0.9.11.
 - The Markdown preview line, and fixing the preview in the Flatpak. The fix
   gets its own ticket.
 
@@ -53,8 +54,26 @@ Flatpak.** `PreviewController::open_in_browser` writes the HTML under
 `open::that`, which goes through the portal. So the line is dropped here and
 from the FlatPark patch.
 
-It comes back once the Flatpak preview fix (its own ticket, to be opened) is
-released.
+It comes back once the Flatpak preview fix, T0119, is released.
+
+## FlatPark submission: queued for 0.9.11
+
+The user decided on 2026-11-27: no FlatPark PR now. The FlatPark page is
+updated once, at 0.9.11, together with the Markdown preview line once T0119
+has landed.
+
+Until then **our mirror intentionally differs from the registry by the themes
+`<li>` line**. Everything else is identical to flatpark/flatpark main
+`013005c`.
+
+The 0.9.11 release-prep ticket must:
+1. add `Markdown preview in your browser (Ctrl+M)` right after "Syntax
+   highlighting for 50+ languages", if T0119 is in the release;
+2. re-sync the mirror with the registry, since FlatPark's bot will have added
+   the releases in between;
+3. open the flatpark/flatpark PR, with the user's OK.
+
+The prepared branch and draft below are the starting point.
 
 ## How to test
 
@@ -121,7 +140,12 @@ No build is needed: the manifest and the payload are unchanged.
 - [x] The themes line reads exactly as approved; AppStream validation passes.
 - [x] The Markdown line is not shipped: Ctrl+M does not work in the Flatpak
       (user test, 2026-11-27).
-- [ ] The user decided on opening the FlatPark PR.
+- [x] The user decided on the FlatPark PR: queued for the 0.9.11 release.
+
+## User verification
+
+2026-11-27, by the user: approved the themes line and merging #237, with the
+FlatPark submission queued for 0.9.11 (see above).
 
 ## Affected files
 
@@ -130,7 +154,7 @@ No build is needed: the manifest and the payload are unchanged.
 - `packaging/flatpark/com.ferrispad.FerrisPad/com.ferrispad.FerrisPad.yml`:
   extra-data pinned to 0.9.10, as in the registry.
 
-## Submission draft (not opened)
+## Submission draft (queued for 0.9.11, not opened)
 
 - Local commit `f530b86` on branch `docs/ferrispad-description`, on top of
   flatpark/flatpark main `013005c`. The author is the noreply address.
