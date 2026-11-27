@@ -179,6 +179,20 @@ quit A, then B ("Quit Without Saving"); start a third instance.
 
 No panic in the debug log.
 
+**Harness correction (2026-11-27).** The scripted two-instance runs above
+looked up each instance's window with `xdotool search --pid P --name
+FerrisPad`. xdotool ORs those criteria, so both "instances" could resolve to
+one window. The same cell was rerun with the fixed lookup (`--all`,
+`uitest-T0087/uc.sh`): one unsaved untitled tab per instance, close one
+window and then the other with "Quit Without Saving", restart one instance.
+- `master` 4cd7cf5 keeps only the last writer's text ("da B" when A closes
+  first, "da A" when B closes first), because both instances write one
+  shared temp file.
+- `ticket/T0099` keeps both texts in either close order, also with an
+  auto-save before the closes.
+
+The conclusion above stands.
+
 ## What was done
 
 - `services::session::temp_file_name(hash_key, doc_id, instance_id,
