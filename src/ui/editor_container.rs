@@ -1,5 +1,5 @@
+use crate::ui::color::fltk_rgb;
 use fltk::{
-    enums::Color,
     group::Flex,
     prelude::*,
     text::{TextBuffer, TextEditor},
@@ -16,8 +16,8 @@ impl EditorContainer {
 
         // Enable native line numbers
         editor.set_linenumber_width(super::line_numbers::MIN_WIDTH);
-        editor.set_linenumber_bgcolor(Color::from_rgb(240, 240, 240));
-        editor.set_linenumber_fgcolor(Color::from_rgb(100, 100, 100));
+        editor.set_linenumber_bgcolor(fltk_rgb(240, 240, 240));
+        editor.set_linenumber_fgcolor(fltk_rgb(100, 100, 100));
 
         Self { editor }
     }
