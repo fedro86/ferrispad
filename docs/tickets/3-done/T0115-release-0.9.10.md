@@ -79,7 +79,7 @@ that describes the final state.
       `build-releases.sh`.
 - [x] The `[0.9.10]` section extracts with the `awk` above, and the rc
       sections are unchanged.
-- [ ] After the tag: a normal (non-pre-release) release with all assets
+- [x] After the tag: a normal (non-pre-release) release with all assets
       signed; `/releases/latest`, the website and the stable updater on
       0.9.10; the `flatpark` job result recorded.
 
@@ -167,3 +167,16 @@ the Known Issue note. The user was told that the case can trigger within
 seconds and also affects named files and tabs. The user chose to release
 with the note rather than land T0101 in an rc.4. The post-tag items stay
 open until the tag run is checked.
+
+## After the tag (2026-11-27)
+
+Tag `0.9.10` (annotated, on `22dbab2`), release run 46051026099: every job
+succeeded, `flatpark` included.
+- The GitHub Release (published 18:48:28 UTC) is a normal release, not a
+  pre-release, with Linux amd64/arm64 (raw + `.deb`), Windows (`.exe` +
+  `.zip`) and macOS (raw + `.dmg`), plus `.sig` files for the four updater
+  binaries.
+- FlatPark accepted the notification at 18:48:36 UTC:
+  `{"ok":true,"app_id":"com.ferrispad.FerrisPad","tag":"0.9.10"}`.
+- `GET /releases/latest` returns `0.9.10`, so the stable updater offers it;
+  www.ferrispad.com and `/download` show 0.9.10.
