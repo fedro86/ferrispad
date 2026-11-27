@@ -17,9 +17,11 @@ scenario() {
   shot start-page
   menu File
   shot file-menu
-  # New, Open..., Open Recent, then into the submenu.
-  key Down Down Down
-  key Right
+  # Hover the third File item (rows are 24 px from y=40): Open Recent opens
+  # its submenu; on a build without it (master) the menu stays on File, with
+  # Save highlighted, instead of the keyboard sliding into the Edit menu.
+  point 60 88
+  wait_idle
   shot open-recent
   key Escape Escape
 }
