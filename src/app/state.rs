@@ -867,6 +867,19 @@ impl AppState {
         }
     }
 
+    /// A document's text changed (`BufferModified`): drop its cached tree,
+    /// recount its lines, and resize the gutter if the active document's
+    /// largest line number gained or lost a digit (T0107).
+    pub fn on_buffer_modified(&mut self, id: DocumentId) {
+        if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+            doc.cached_tree = None;
+            doc.cached_line_count = doc.buffer.count_lines(0, doc.buffer.length()) as usize;
+        }
+        if self.tab_manager.active_id() == Some(id) {
+            self.view.line_count_changed(&self.tab_manager);
+        }
+    }
+
     /// The main loop took `msg` off the queue, before dispatch (T0096,
     /// T0093). Every message that owns a "pending" flag clears it here, the
     /// one hook for all of them, so the reset does not depend on its handler
