@@ -250,8 +250,7 @@ impl FileController {
             if let Some(doc) = tab_manager.active_doc_mut() {
                 doc.buffer.set_text("");
                 doc.has_unsaved_changes.set(false);
-                doc.file_path = None;
-                doc.display_name = "Untitled".to_string();
+                doc.set_untitled(1);
                 doc.syntax_name = None;
                 doc.checkpoints.clear();
                 doc.set_style_text("");

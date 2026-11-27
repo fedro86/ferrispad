@@ -184,6 +184,10 @@ pub struct Document {
     pub partial_info: PartialFileInfo,
     /// Current-line twin state (T0081), shared with the modify callback.
     pub current_line: Rc<Cell<CurrentLineTwin>>,
+    /// The `n` of "Untitled n" this document was created with (T0091). It
+    /// only counts while the document has no path: see
+    /// [`Document::untitled_number`].
+    untitled_number: Option<u32>,
     /// Pointer to the heap-allocated closure passed to FLTK's modify callback.
     /// Must be freed in cleanup() after removing the callback.
     modify_cb_data: *mut c_void,
@@ -214,12 +218,38 @@ impl Document {
         self.current_line.set(twin);
     }
 
-    pub fn new_untitled(id: DocumentId, counter: u32, sender: Sender<Message>) -> Self {
-        let display_name = if counter == 1 {
+    /// The display name of untitled document number `n`: "Untitled" for 1,
+    /// "Untitled n" from 2 on.
+    pub fn untitled_name(n: u32) -> String {
+        if n <= 1 {
             "Untitled".to_string()
         } else {
-            format!("Untitled {}", counter)
-        };
+            format!("Untitled {n}")
+        }
+    }
+
+    /// The untitled number this document holds: its creation number while
+    /// it has no path, `None` once it has one (saved or opened) — a saved
+    /// document frees its number.
+    pub fn untitled_number(&self) -> Option<u32> {
+        if self.file_path.is_none() {
+            self.untitled_number
+        } else {
+            None
+        }
+    }
+
+    /// Turn this document back into untitled document number `n` (the
+    /// tabs-off "New", which reuses the single document).
+    pub fn set_untitled(&mut self, n: u32) {
+        self.file_path = None;
+        self.untitled_number = Some(n);
+        self.display_name = Self::untitled_name(n);
+        self.disambiguated_name = None;
+    }
+
+    pub fn new_untitled(id: DocumentId, number: u32, sender: Sender<Message>) -> Self {
+        let display_name = Self::untitled_name(number);
 
         let buffer = TextBuffer::default();
         let style_buffer = TextBuffer::default();
@@ -254,6 +284,7 @@ impl Document {
             disambiguated_name: None,
             partial_info: PartialFileInfo::Full,
             current_line,
+            untitled_number: Some(number),
             modify_cb_data,
         }
     }
@@ -305,6 +336,7 @@ impl Document {
             disambiguated_name: None,
             partial_info: PartialFileInfo::Full,
             current_line,
+            untitled_number: None,
             modify_cb_data,
         }
     }
@@ -368,6 +400,7 @@ impl Document {
             disambiguated_name: None,
             partial_info: PartialFileInfo::Full,
             current_line,
+            untitled_number: None,
             modify_cb_data,
         }
     }
