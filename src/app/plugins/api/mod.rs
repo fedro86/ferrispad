@@ -944,6 +944,138 @@ mod tests {
         assert!(!root.join("plain").exists());
     }
 
+    // ── T0094: where a non-bare run_command program may live ──────────
+
+    #[cfg(unix)]
+    fn api_running(root: Option<&std::path::Path>, allowed: &[&str]) -> EditorApi {
+        EditorApi {
+            project_root: root.map(|r| r.to_path_buf()),
+            allowed_commands: allowed.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    /// Ok(success) when the command ran, Err(message) when it was refused.
+    #[cfg(unix)]
+    fn run_cmd(api: EditorApi, cmd: &str) -> Result<bool, String> {
+        let lua = mlua::Lua::new();
+        lua.scope(|scope| {
+            let ud = scope.create_userdata(api).unwrap();
+            let f: mlua::Function = ud.get("run_command").unwrap();
+            Ok(match f.call::<mlua::Value>((&ud, cmd.to_string())) {
+                Ok(mlua::Value::Table(t)) => Ok(t.get::<bool>("success").unwrap_or(false)),
+                Ok(other) => Err(format!("{other:?}")),
+                Err(e) => Err(e.to_string()),
+            })
+        })
+        .unwrap()
+    }
+
+    /// The "outside" tests need a temp dir outside the user's home; skip them
+    /// (with a note) on a machine whose TMPDIR lies inside it.
+    #[cfg(unix)]
+    fn temp_is_outside_home(dir: &std::path::Path) -> bool {
+        let canonical = std::fs::canonicalize(dir).unwrap();
+        let outside = crate::app::plugins::security::trusted_home_from_env()
+            .is_none_or(|home| !canonical.starts_with(home));
+        if !outside {
+            eprintln!("skipped: the temp dir is inside $HOME");
+        }
+        outside
+    }
+
+    /// An executable script that leaves `marker` behind when it runs.
+    #[cfg(unix)]
+    fn marker_script(path: &std::path::Path, marker: &std::path::Path) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        make_executable(path, &format!("#!/bin/sh\ntouch '{}'\n", marker.display()));
+    }
+
+    /// A binary named like an approved command but dropped in a shared
+    /// directory (here: outside the root and outside $HOME) must not run.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_run_refuses_program_outside_root_and_home() {
+        let (d, root, outside) = root_and_outside();
+        if !temp_is_outside_home(d.path()) {
+            return;
+        }
+        let marker = d.path().join("ran");
+        let evil = outside.join("bin/ruff");
+        marker_script(&evil, &marker);
+        let res = run_cmd(api_running(Some(&root), &["ruff"]), evil.to_str().unwrap());
+        assert!(
+            !marker.exists(),
+            "an out-of-root, out-of-home 'ruff' ran: {res:?}"
+        );
+        assert!(res.is_err(), "{res:?}");
+    }
+
+    /// The parent directory is judged physically: a symlinked directory in
+    /// the root that points to a shared directory does not make it trusted.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_run_refuses_program_behind_symlinked_dir() {
+        let (d, root, outside) = root_and_outside();
+        if !temp_is_outside_home(d.path()) {
+            return;
+        }
+        let marker = d.path().join("ran");
+        marker_script(&outside.join("bin/ruff"), &marker);
+        std::os::unix::fs::symlink(outside.join("bin"), root.join("venvbin")).unwrap();
+        let res = run_cmd(api_running(Some(&root), &["ruff"]), "venvbin/ruff");
+        assert!(!marker.exists(), "ran through a symlinked dir: {res:?}");
+        assert!(res.is_err(), "{res:?}");
+    }
+
+    /// A relative program is anchored at the root and run by that absolute
+    /// path; without a project root it is refused.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_run_relative_program_is_anchored_at_the_root() {
+        let (d, root, _outside) = root_and_outside();
+        let marker = d.path().join("ran");
+        marker_script(&root.join(".venv/bin/ruff"), &marker);
+        let res = run_cmd(api_running(Some(&root), &["ruff"]), ".venv/bin/ruff");
+        assert_eq!(res, Ok(true));
+        assert!(marker.exists());
+        std::fs::remove_file(&marker).unwrap();
+        let res = run_cmd(api_running(None, &["ruff"]), ".venv/bin/ruff");
+        assert!(res.is_err() && !marker.exists(), "no root: {res:?}");
+    }
+
+    /// The python-lint layout: `<root>/.venv/bin/<tool>` may be a symlink to
+    /// a binary anywhere (`/usr/bin/…`), because only its directory has to be
+    /// trusted.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_run_accepts_venv_symlink_to_system_binary() {
+        let (_d, root, _outside) = root_and_outside();
+        let target = ["/usr/bin/true", "/bin/true"]
+            .into_iter()
+            .map(std::path::Path::new)
+            .find(|p| p.exists())
+            .expect("a system `true`");
+        std::fs::create_dir_all(root.join(".venv/bin")).unwrap();
+        std::os::unix::fs::symlink(target, root.join(".venv/bin/ruff")).unwrap();
+        let abs = root.join(".venv/bin/ruff");
+        assert_eq!(
+            run_cmd(api_running(Some(&root), &["ruff"]), abs.to_str().unwrap()),
+            Ok(true)
+        );
+    }
+
+    /// A non-executable file is never run.
+    #[cfg(unix)]
+    #[test]
+    fn plugin_run_refuses_non_executable_program() {
+        let (_d, root, _outside) = root_and_outside();
+        std::fs::create_dir_all(root.join("tools")).unwrap();
+        std::fs::write(root.join("tools/ruff"), "#!/bin/sh\n").unwrap();
+        let res = run_cmd(api_running(Some(&root), &["ruff"]), "tools/ruff");
+        assert!(res.is_err(), "{res:?}");
+    }
+
     // ── S4: file_exists / is_file without project root ────────────────
 
     #[test]

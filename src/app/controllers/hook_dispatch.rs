@@ -257,8 +257,17 @@ fn validate_terminal_request(
     // The command name must be free of shell metacharacters...
     validate_command_arg(cmd).map_err(|e| format!("command '{}' rejected: {}", cmd, e))?;
 
-    // ...and on the plugin's user-approved list (compared by basename so
-    // "/path/to/venv/bin/ruff" still matches an approved "ruff").
+    // ...and a bare program name, looked up on PATH (T0094). A terminal
+    // request has no project root to anchor or confine a path to, and no
+    // official plugin needs one.
+    if !crate::app::plugins::security::is_bare_program(cmd) {
+        return Err(format!(
+            "command '{}' must be a bare program name (looked up on PATH)",
+            cmd
+        ));
+    }
+
+    // ...and on the plugin's user-approved list.
     let cmd_basename = std::path::Path::new(cmd)
         .file_name()
         .and_then(|n| n.to_str())
@@ -289,6 +298,18 @@ fn validate_terminal_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── T0094: terminal_view programs are bare names only ────────────
+
+    #[test]
+    fn terminal_request_program_must_be_a_bare_name() {
+        let approved = vec!["ruff".to_string()];
+        for path in ["/tmp/x/ruff", "tools/ruff", "./ruff", "C:/x/ruff"] {
+            let r = validate_terminal_request(&req(Some(path), &[], None), &approved);
+            assert!(r.is_err(), "{path} must be refused: {r:?}");
+        }
+        assert!(validate_terminal_request(&req(Some("ruff"), &[], None), &approved).is_ok());
+    }
 
     // ── T0090: plugin open_file requests ─────────────────────────────
 
