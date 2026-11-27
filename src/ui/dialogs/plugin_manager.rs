@@ -6,6 +6,7 @@
 //! - Compact row layout with truncated descriptions
 //! - Three tabs: Installed, Official, Community
 
+use crate::ui::color::fltk_rgb;
 use fltk::{
     button::Button,
     enums::{Align, CallbackTrigger, Color, Font, FrameType},
@@ -173,7 +174,7 @@ fn icon_color_for_letter(letter: char, is_dark: bool) -> Color {
     } else {
         palette_light[idx]
     };
-    Color::from_rgb(r, g, b)
+    fltk_rgb(r, g, b)
 }
 
 /// An installed plugin as the Installed tab lists it.
@@ -1153,7 +1154,7 @@ impl TrustBadge {
             (TrustBadge::Unverified, true) => (200, 160, 80),
             (TrustBadge::Unverified, false) => (160, 120, 40),
         };
-        Color::from_rgb(r, g, b)
+        fltk_rgb(r, g, b)
     }
 }
 
@@ -1441,6 +1442,17 @@ fn add_details_button(url: Option<&str>, btn_x: i32, theme: &DialogTheme) {
     let url = url.to_string();
     let theme_bg = theme.theme_bg();
     details_btn.set_callback(move |_| {
+        if !details_link_opens(&url) {
+            show_themed_message(
+                theme_bg,
+                "Details",
+                &format!(
+                    "This link is not a web address, so it was not opened:\n\n{}",
+                    url
+                ),
+            );
+            return;
+        }
         let choice = show_themed_choice(
             theme_bg,
             "Open in Browser",
@@ -1453,6 +1465,12 @@ fn add_details_button(url: Option<&str>, btn_x: i32, theme: &DialogTheme) {
             let _ = open::that(&url);
         }
     });
+}
+
+/// Whether a registry-supplied "Details" link may be handed to `open::that`,
+/// which opens or even runs a local path: only web links (T0092).
+fn details_link_opens(url: &str) -> bool {
+    crate::app::plugins::security::is_web_url(url)
 }
 
 /// Install/Update button (right side, vertically centred) in its initial state.
@@ -1675,6 +1693,27 @@ fn add_community_install_button(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The registry's `readme_url` / community `repo` ends up in `open::that`,
+    /// which opens or runs local paths: only web links may be opened.
+    #[test]
+    fn details_link_opens_only_web_urls() {
+        for bad in [
+            "file:///tmp/x.desktop",
+            r"C:\x\run.bat",
+            "/home/u/evil.command",
+            "javascript:alert(1)",
+            "",
+        ] {
+            assert!(!details_link_opens(bad), "{bad:?} must not be opened");
+        }
+        for good in [
+            "https://github.com/fedro86/ferrispad-plugins/tree/main/python-lint",
+            "https://github.com/someone/community-plugin",
+        ] {
+            assert!(details_link_opens(good), "{good:?}");
+        }
+    }
 
     #[test]
     fn row_text_layout_is_centred_and_non_overlapping() {

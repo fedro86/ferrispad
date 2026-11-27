@@ -3,6 +3,7 @@
 //! Shows brief messages at the top of the editor that auto-hide after a few seconds.
 //! Used for plugin status, errors, and other transient feedback.
 
+use crate::ui::color::fltk_rgb;
 use fltk::{
     app::Sender,
     enums::{Align, Color, Font, FrameType},
@@ -30,20 +31,20 @@ impl ToastLevel {
     /// Get background color for this level (dark mode)
     fn bg_color_dark(&self) -> Color {
         match self {
-            ToastLevel::Success => Color::from_rgb(46, 125, 50), // Green
-            ToastLevel::Info => Color::from_rgb(25, 118, 210),   // Blue
-            ToastLevel::Warning => Color::from_rgb(245, 124, 0), // Orange
-            ToastLevel::Error => Color::from_rgb(198, 40, 40),   // Red
+            ToastLevel::Success => fltk_rgb(46, 125, 50), // Green
+            ToastLevel::Info => fltk_rgb(25, 118, 210),   // Blue
+            ToastLevel::Warning => fltk_rgb(245, 124, 0), // Orange
+            ToastLevel::Error => fltk_rgb(198, 40, 40),   // Red
         }
     }
 
     /// Get background color for this level (light mode)
     fn bg_color_light(&self) -> Color {
         match self {
-            ToastLevel::Success => Color::from_rgb(200, 230, 201), // Light green
-            ToastLevel::Info => Color::from_rgb(187, 222, 251),    // Light blue
-            ToastLevel::Warning => Color::from_rgb(255, 224, 178), // Light orange
-            ToastLevel::Error => Color::from_rgb(255, 205, 210),   // Light red
+            ToastLevel::Success => fltk_rgb(200, 230, 201), // Light green
+            ToastLevel::Info => fltk_rgb(187, 222, 251),    // Light blue
+            ToastLevel::Warning => fltk_rgb(255, 224, 178), // Light orange
+            ToastLevel::Error => fltk_rgb(255, 205, 210),   // Light red
         }
     }
 
@@ -53,10 +54,10 @@ impl ToastLevel {
             Color::White
         } else {
             match self {
-                ToastLevel::Success => Color::from_rgb(27, 94, 32),
-                ToastLevel::Info => Color::from_rgb(13, 71, 161),
-                ToastLevel::Warning => Color::from_rgb(230, 81, 0),
-                ToastLevel::Error => Color::from_rgb(183, 28, 28),
+                ToastLevel::Success => fltk_rgb(27, 94, 32),
+                ToastLevel::Info => fltk_rgb(13, 71, 161),
+                ToastLevel::Warning => fltk_rgb(230, 81, 0),
+                ToastLevel::Error => fltk_rgb(183, 28, 28),
             }
         }
     }

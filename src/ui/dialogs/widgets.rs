@@ -29,7 +29,7 @@ use std::sync::Once;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use super::DialogTheme;
-use crate::ui::color::{ThemeRgb, push_to_contrast};
+use crate::ui::color::{ThemeRgb, fltk_rgb, push_to_contrast};
 
 /// FLTK box type of every themed text field, text view and list (T0105): a
 /// flat fill in the widget's color with a 1 px border in its theme's
@@ -82,7 +82,7 @@ pub fn input_border_for(fill: Color) -> Option<Color> {
         let entry = slot.load(Ordering::Relaxed);
         (entry & PRESENT != 0 && (entry >> 24) & 0xFF_FFFF == fill).then(|| {
             let (r, g, b) = unpack_rgb(entry & 0xFF_FFFF);
-            Color::from_rgb(r, g, b)
+            fltk_rgb(r, g, b)
         })
     })
 }
@@ -346,18 +346,18 @@ impl DialogTheme {
     /// dark and light themes.
     pub fn success_text(&self) -> Color {
         if self.is_dark() {
-            Color::from_rgb(100, 200, 100)
+            fltk_rgb(100, 200, 100)
         } else {
-            Color::from_rgb(40, 140, 40)
+            fltk_rgb(40, 140, 40)
         }
     }
 
     /// Warning text color, readable on the dialog in dark and light themes.
     pub fn warning_text(&self) -> Color {
         if self.is_dark() {
-            Color::from_rgb(220, 180, 80)
+            fltk_rgb(220, 180, 80)
         } else {
-            Color::from_rgb(180, 120, 20)
+            fltk_rgb(180, 120, 20)
         }
     }
 
