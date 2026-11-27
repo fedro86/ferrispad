@@ -119,8 +119,10 @@ explorer, and select a file, in a light and a dark theme. Expected:
   themes is T0109.
 - **Custom themes.** On mid-gray backgrounds (the sweep's 75–255 grays and
   tints) some git colors are within 10 L* of the band and FLTK draws them
-  black or white: 50 label/background pairs at 1.5:1, 43 with master's
-  band. Those colors are already barely distinguishable on such a tree.
+  black or white: 47 label/background pairs with this branch's bands (17 on
+  the dark half), 43 with master's (13 on the dark half; the light half is
+  master's band, so the same 30). (With 1.5:1 on both halves it was 50.)
+  Those colors are already barely distinguishable on such a tree.
 - **The diagnostic panel stays as it was (user decision, 2026-11-26).**
   T0104 first also made the diagnostic panel theme-relative: the editor
   background, readable level colors, the shared selected row, and a
