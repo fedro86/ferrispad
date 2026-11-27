@@ -46,8 +46,8 @@
 # second Xvfb then fails to start and that run aborts (it fails safe).
 # It also never reads or writes the user's settings, sessions, recent
 # files or documents: fresh XDG_CONFIG_HOME, XDG_DATA_HOME, XDG_CACHE_HOME,
-# the app started from $HOME, and only fixture files copied into the run's
-# own folder.
+# HOME=<run>/home, the app started in <run>/files (its cwd and MCP project
+# root), and only fixture files copied into that folder.
 #
 # Helpers for the scenario (coordinates are relative to the main window):
 #   click X Y          left click

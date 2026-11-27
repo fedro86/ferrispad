@@ -103,8 +103,8 @@
     <li><code>work-sequence.md</code> (steps 2–3) and <code>.claude/CLAUDE.md</code> point to the skill.</li>
   </ul>
   <div class="meta">
-    <span class="chip"><strong>T0117</strong> in <code>2-review/</code></span>
-    <span class="chip"><strong>15</strong> files · +1984 / −7</span>
+    <span class="chip"><strong>T0117</strong> in <code>3-done/</code></span>
+    <span class="chip"><strong>15</strong> files · +1997 / −7</span>
     <span class="chip green">no Rust change · gates green</span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/235">PR #235 on GitHub</a></span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/issues/234">issue #234</a></span>
@@ -149,8 +149,10 @@
           <li><code>shoot.sh</code> runs the app under an <code>env -i</code> allowlist with its own HOME, cwd and TMPDIR;</li>
           <li>a per-run marker catches processes that leave the group.</li>
         </ul></td></tr>
-    <tr><td><code class="sha">this commit</code></td>
+    <tr><td><code class="sha">7f3d1e6</code></td>
       <td>The ticket's record of round 3, and this page.</td></tr>
+    <tr><td><code class="sha">this commit</code></td>
+      <td>The user verified the PR: T0117 moves to <code>3-done/</code>. Also a3's last nit (the <code>shoot.sh</code> header now says where the app starts).</td></tr>
   </table>
   </div>
   <p>The size chip counts everything except this page: <code>git diff --shortstat origin/master...HEAD -- . ':(exclude)docs/pr/PR-*.html'</code>. Master gets one squash commit.</p>
@@ -183,7 +185,7 @@
     <div><strong>Before</strong> · No written procedure for a PR's presentation. Screenshots were taken per ticket, when someone remembered, and never shown next to the master build.</div>
     <div><strong>After</strong> · One command shows any UI change side by side with the release it replaces. One procedure, one template and one place to read: a reviewer and the user see the change before they run it.</div>
   </div>
-  <p>The orchestrator made the adaptation decisions (2026-11-27). The user verifies the result before the ticket moves to <code>3-done/</code>.</p>
+  <p>The orchestrator made the adaptation decisions (2026-11-27). The user verified the result and approved the merge on 2026-11-27.</p>
   <ul>
     <li><strong>Kept from <code>new-mr</code>:</strong>
       <ul>
@@ -310,7 +312,7 @@
 
 <footer>
   Presentation of PR #235 · branch <code>ticket/T0117</code> · commits <code>b5d2e1a</code> → this page ·
-  ticket <code>docs/tickets/2-review/T0117-new-pr-skill.md</code> · issue #234.
+  ticket <code>docs/tickets/3-done/T0117-new-pr-skill.md</code> · issue #234.
 </footer>
 </div>
 </body>

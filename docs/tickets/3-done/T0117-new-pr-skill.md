@@ -1,7 +1,7 @@
 ---
 id: T0117
 title: new-pr skill — every PR ships with an HTML presentation
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-27
 severity: ~
 area: process
@@ -97,7 +97,8 @@ ticket per PR.
 
 ## Acceptance criteria
 
-- [ ] The user approved the skill, the template and this PR's page.
+- [x] The user approved the skill, the template and this PR's page
+      (2026-11-27).
 - [x] `SKILL.md`, `_template.html` and `README.md` exist, and are adapted to
       GitHub and FerrisPad (How to test 1).
 - [x] This PR's page has no placeholder and the template's style block
@@ -383,3 +384,15 @@ none left.
     host clean;
   - the T0114 compare against 0.9.10-rc.2: 4× ok, 2 montages, worktree
     removed, host clean.
+
+## User verification
+
+2026-11-27: the user approved T0117 and its merge ("mergia 235"). The
+approval covers the round-3 state, a3-approved at 7f3d1e6:
+- `shoot.sh` and `compare.sh` with their isolation barriers;
+- the T0114 montages;
+- the page.
+
+This commit also fixes a3's last nit: the header of `shoot.sh` said the app
+starts from `$HOME`. It starts in the run's `files/` folder with
+`HOME=<run>/home`.
