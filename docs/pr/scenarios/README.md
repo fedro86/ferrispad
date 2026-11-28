@@ -83,6 +83,8 @@ Coordinates are relative to the main window.
 | `dialogs-large-file.sh` | the large-file warning, on a generated 1.5 MB fixture | a generated, gitignored fixture (`gen_fixture`) |
 | `dialogs-too-large.sh` | "File Too Large", then the read-only viewer | a click inside a dialog |
 | `tab-labels.sh` | the file `fixtures/Untitled` next to a new untitled tab (T0112) | the tab bar after a shortcut |
+| `file-tree.sh` | the file tree with every git-status color, unselected then with a row selected, with the fixture plugin `plugins/tree-demo` (T0104, T0109) | a fixture plugin copied at source time |
+| `file-tree-solarized.sh`, `file-tree-github-eighties.sh`, `file-tree-github-mocha.sh` | `file-tree.sh` on the other built-in themes (T0109) | a scenario that reuses another with different settings |
 
 Commit a ticket's scenario with its PR. The next change to that UI can
 then be compared against it.

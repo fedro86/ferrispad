@@ -704,7 +704,7 @@ mod tests {
     fn panel_selection_band_keeps_the_label_colors() {
         use crate::ui::color::wcag_contrast;
         use crate::ui::contrast::{EditorSelectionBgs, ferrispad_contrast};
-        use crate::ui::tree_panel::git_label_rgb;
+        use crate::ui::tree_panel::readable_git_label_rgb;
         let builtin: Vec<String> = crate::app::domain::settings::SyntaxTheme::all()
             .iter()
             .map(|t| format!("{t:?}"))
@@ -728,7 +728,7 @@ mod tests {
                     .to_rgb(),
             )];
             for name in ["modified", "added", "conflict", "ignored"] {
-                labels.push((name, git_label_rgb(name, is_dark).unwrap()));
+                labels.push((name, readable_git_label_rgb(name, is_dark, bg).unwrap()));
             }
             let rgb = |(r, g, b): (u8, u8, u8)| fltk_rgb(r, g, b);
             for (name, fg) in labels {
