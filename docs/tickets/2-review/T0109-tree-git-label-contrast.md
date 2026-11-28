@@ -59,6 +59,8 @@ nix develop -c cargo test git_labels_read_on_the_tree
 - `src/ui/tree_panel.rs`: `readable_git_label_rgb`, used by
   `resolve_label_color`; test.
 - `src/ui/theme.rs`: the T0104 selected-row test uses the drawn colors.
+- `docs/pr/scenarios/file-tree-{solarized,github-eighties,github-mocha}.sh`:
+  `file-tree.sh` on the other built-in themes, for compare.sh.
 
 ## Notes
 
@@ -113,3 +115,41 @@ tree with no row selected, before (T0104 build) | after, on the 7 themes.
   "modified" and "added" are unchanged.
 - The rest of the window is pixel-identical (editor area AE = 0 on all 7
   themes).
+
+## Merges and the compare.sh montage (2026-11-28, Implementer A)
+
+- **35ee258, master 6d70289.** The branch was stacked on the in-review
+  T0097, T0104 and T0105; all three landed since, T0104 in a different
+  shape (the user's "Colore git, banda tenue": the selected row draws the
+  git color on a soft band). Every conflict is resolved to master's version
+  of the file, then T0109's own change (ae9c198) is reapplied with master's
+  `fltk_rgb`. The stale `2-review/` copies of the three landed tickets are
+  dropped. The diff against master is T0109's alone.
+- **eae36db, master 9941c6e** (T0106) and **84a1458, master 32fe29f**
+  (T0110): clean.
+
+### Red, again, on master's colors
+
+`readable_git_label_rgb`'s body replaced by `git_label_rgb` (a throwaway
+probe, not committed): `git_labels_read_on_the_tree` FAILED with 19 pairs on
+the built-in themes, from `Base16OceanLight: ignored (160, 160, 160) on
+(239, 241, 245) = 2.31:1` to `Base16EightiesDark: conflict (224, 108, 117)
+on (45, 45, 45) = 4.31:1`. With the fix, the test and T0104's two band
+tests pass.
+
+### Montage
+
+compare.sh, before = master 32fe29f, after = 84a1458, on `file-tree.sh`
+and the three theme variants: 16 pairs (no row selected and "modified.rs"
+selected, light and dark, seven built-in themes). Outside the tree panel
+the window is pixel-identical in 15 pairs. In the 16th, 8 px differ in the
+editor's right border; two master runs of the same theme differ by 14 px
+there, so this is run noise. Every run used its own display (:90), with no
+panic or assert in the logs. The page shows the tree crops at 200%.
+
+**The selected row (for the user's decision).** Since T0104 the selected
+row draws the same git color on its soft band, so T0109 changes it too:
+on the band the labels read at 3.02-5.75:1 (master: 1.84-5.75:1). That is
+better everywhere, but not 4.5:1 for every status. The band is the user's
+T0104 choice and stays. 4.5:1 on the band too would be a separate ticket.
+
