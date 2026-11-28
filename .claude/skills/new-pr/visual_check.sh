@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Technical visual check of a PR page (new-pr skill, §7 condition 1).
 #
-#   .claude/skills/new-pr/visual_check.sh docs/pr/PR-<n>-<slug>.html <out-dir>
+#   .claude/skills/new-pr/visual_check.sh docs/pr/<release>/PR-<n>-<slug>.html <out-dir>
 #
 # Renders the page in headless Chromium four times (1280 and 390 px wide,
 # prefers-color-scheme light and dark). For each render it prints
