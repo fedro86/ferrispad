@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Concurrent screenshot runs</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --ink: #1c2430; --muted: #5b6675;
+    --accent: #0b6e4f; --accent-soft: #e3f2ec; --line: #dde3ea;
+    --warn: #8a5a00; --warn-soft: #fdf3dd; --code-bg: #f0f2f5;
+    --chip: #eef1f4; --bad: #8a2020; --bad-soft: #fbeaea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181f; --surface: #1c222b; --ink: #e8ecf1; --muted: #9aa6b4;
+      --accent: #4cc39a; --accent-soft: #10352a; --line: #2c3541;
+      --warn: #e2b45a; --warn-soft: #33290f; --code-bg: #232a34;
+      --chip: #262e39; --bad: #e88; --bad-soft: #3a1c1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 "Open Sans", "Segoe UI", system-ui, sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  header.top { border-bottom: 3px solid var(--accent); padding-bottom: 1.2rem; margin-bottom: 2rem; }
+  .kicker { text-transform: uppercase; letter-spacing: .12em; font-size: .78rem; color: var(--accent); font-weight: 700; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: .3rem 0 .6rem; }
+  h2 { font-size: 1.35rem; margin: 0 0 .2rem; }
+  h3 { font-size: 1.02rem; margin: 1.3rem 0 .4rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem .6rem; margin-top: .8rem; }
+  .chip { background: var(--chip); border: 1px solid var(--line); border-radius: 999px;
+    padding: .15rem .7rem; font-size: .82rem; color: var(--muted); white-space: nowrap; }
+  .chip strong { color: var(--ink); font-weight: 600; }
+  .chip.green { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .chip.warn { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+  a { color: var(--accent); }
+  section.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.5rem 1.75rem; margin-bottom: 1.75rem; }
+  p { margin: .55rem 0; }
+  ul, ol { margin: .4rem 0 .6rem; padding-left: 1.3rem; }
+  li { margin: .25rem 0; }
+  code { font: .86em/1.5 "JetBrains Mono", "Fira Mono", monospace;
+    background: var(--code-bg); border-radius: 4px; padding: .08em .35em; word-break: break-word; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: .85rem 1rem; overflow-x: auto; font-size: .85rem; line-height: 1.55; }
+  pre code { background: none; padding: 0; }
+  .why { border-left: 4px solid var(--accent); background: var(--accent-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup { border-left: 4px solid var(--warn); background: var(--warn-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup strong.tag { color: var(--warn); }
+  .bad { border-left: 4px solid var(--bad); background: var(--bad-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .bad strong.tag { color: var(--bad); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; font-size: .9rem; }
+  th, td { text-align: left; border-bottom: 1px solid var(--line); padding: .45rem .6rem; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; font-family: "JetBrains Mono", "Fira Mono", monospace; white-space: nowrap; }
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li { counter-increment: step; position: relative; padding-left: 2.2rem; margin: .55rem 0; }
+  .steps li::before { content: counter(step); position: absolute; left: 0; top: .1rem;
+    width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--accent-soft);
+    color: var(--accent); font-weight: 700; font-size: .82rem; display: grid; place-items: center; }
+  .expect { display: block; margin-top: .2rem; color: var(--muted); font-size: .9em; }
+  .expect::before { content: "expected → "; color: var(--accent); font-weight: 600; }
+  .flow { display: grid; gap: .35rem; margin: .8rem 0; }
+  .flow div { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: .45rem .8rem; font-size: .9rem; }
+  .flow div strong { color: var(--accent); }
+  footer { color: var(--muted); font-size: .86rem; border-top: 1px solid var(--line);
+    margin-top: 2rem; padding-top: 1rem; }
+  img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
+  figure { margin: .9rem 0; }
+  figcaption { color: var(--muted); font-size: .88rem; font-style: italic; margin-top: .35rem; }
+  code.sha { white-space: nowrap; word-break: normal; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <div class="kicker">Pull request #248 · ticket/T0120 → master · process</div>
+  <h1>compare.sh and shoot.sh runs are safe to run concurrently</h1>
+  <div class="flow">
+    <div><strong>Before</strong> · Two sessions taking screenshots at the same time could break each other. One <code>compare.sh</code> run deleted the "before" build another run was using. Two <code>shoot.sh</code> runs could share one virtual display, and one run then typed into the other run's FerrisPad.</div>
+    <div><strong>After</strong> · Each <code>compare.sh</code> run builds "before" in a worktree of its own. Each <code>shoot.sh</code> run reserves its display atomically and refuses any X server it did not start. Parallel sessions can open PRs with screenshots at once.</div>
+  </div>
+  <p>The reviewer (ferrispad-90) hit the <code>compare.sh</code> race on 2026-11-27 while reviewing PR #215 next to another session's run. ferrispad-3b found the display race the same day: two runs got <code>:91</code>. The orchestrator (ferrispad-03) put both in one ticket, since they are the same class of bug: tool runs that are not safe concurrently.</p>
+  <ul>
+    <li><code>compare.sh</code>: a <code>mktemp</code> worktree per run, removed only by that run; a shared cargo target under <code>flock</code>.</li>
+    <li><code>shoot.sh</code>: the display is reserved with <code>flock</code>, and the X server must be the run's own Xvfb.</li>
+    <li>The selftest has three new checks; the new-pr skill says concurrent runs are safe.</li>
+  </ul>
+  <div class="meta">
+    <span class="chip"><strong>T0120</strong> in <code>3-done/</code></span>
+    <span class="chip"><strong>4</strong> files · +332 / −23</span>
+    <span class="chip green">three red cases, all green now</span>
+    <span class="chip green">gates green at every commit</span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/248">PR #248 on GitHub</a></span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/issues/242">issue #242</a></span>
+  </div>
+</header>
+
+<section class="card">
+  <h2>The branch's commits</h2>
+  <div class="scroll">
+  <table>
+    <tr><th>Commit</th><th>What changes</th></tr>
+    <tr><td><code class="sha">28ede57</code></td>
+      <td>Both fixes, the selftest checks, the skill paragraph and the ticket with the red and green runs of the three cases.</td></tr>
+    <tr><td><code class="sha">6186cb7</code></td>
+      <td>Docs only: this page.</td></tr>
+    <tr><td>the <code>3-done/</code> move</td>
+      <td>Merges master (T0122 #246, T0121 #247; no conflict). The ticket moves to <code>3-done/</code> after the user's OK (2026-11-28) and the reviewer's APPROVE, with <code>release: 0.9.11</code>; this page moves to <code>docs/pr/0.9.11/</code>.</td></tr>
+  </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>How a run keeps to itself, now</h2>
+  <div class="flow">
+    <div><strong>compare.sh</strong> · "before" is built in <code>ferrispad-wt/compare-&lt;sha&gt;.XXXXXX</code>, never an existing directory. Under <code>flock compare-target.lock</code> it builds with the shared <code>CARGO_TARGET_DIR=ferrispad-wt/compare-target</code>, copies the binary into its own worktree, and cleans the FerrisPad crate. Its trap removes only its own worktree.</div>
+    <div><strong>shoot.sh, outer half</strong> · Takes <code>:N</code> only with <code>flock -n /tmp/ferrispad-shoot-display-N.lock</code>, and only if <code>:N</code> has no X lock or socket. <code>xvfb-run</code> and Xvfb keep the lock, so the kernel frees it when the run ends, even on kill -9.</div>
+    <div><strong>shoot.sh, inner half</strong> · Refuses to run unless the X server on <code>DISPLAY</code> (the pid in <code>/tmp/.X&lt;n&gt;-lock</code>) is a child of its own <code>xvfb-run</code>.</div>
+  </div>
+</section>
+
+<section class="card ticket">
+  <h2>T0120: concurrent screenshot runs</h2>
+  <div class="flow">
+    <div><strong>Before</strong> · <code>compare.sh</code> used one fixed path per base sha, <code>compare-&lt;sha&gt;</code>, and reused it if it existed. <code>shoot.sh</code> checked that <code>:N</code> was free and only then started Xvfb on it.</div>
+    <div><strong>After</strong> · No path and no display is shared between two runs, and a run that would land on someone else's X server stops instead.</div>
+  </div>
+  <p><strong>No visible change:</strong> the screenshot tools only. FerrisPad and its tests are untouched. The montages these tools make look the same; what changes is that two of them can be made at once.</p>
+  <div class="bad"><strong class="tag">The defects, red first.</strong> Run on master's tools, with <code>--before 0.9.10-rc.1</code> and displays from <code>:150</code>, so no other session's runs were touched.
+<pre>case 1 (leftover compare-c0e189e/ with only target/):
+  error: could not find a flake.nix file
+  compare.sh: the build failed in .../compare-c0e189e         exit 1
+case 2 (B starts when A has taken its last shot):
+  B: realpath: .../compare-c0e189e/target/debug/FerrisPad: No such file or directory
+  B exit=1                                                    (A's trap removed it)
+case 3 (two shoot.sh at once):
+  A: display: :150 ... X I/O error ... the app exited during the scenario
+  B: display: :150 ... no window matching 'Find'             both exit 1</pre>
+  In case 3, B's Xvfb never started. <code>xvfb-run</code> still ran B's scenario on A's server, so B's Ctrl+F opened the Find dialog in A's app.</div>
+  <div class="why"><strong>Why a lock plus an ownership check.</strong> The <code>flock</code> makes two <code>shoot.sh</code> runs pick different displays. Other X servers (CI's <code>xvfb-run -a</code>, a stray Xvfb) do not take that lock. The ownership check covers them: whatever happens, a run never drives a server it did not start. The check walks the process tree only up to the run's own outer shell. A first version walked to pid 1 and accepted a stranger's Xvfb, because <code>systemd --user</code> is everyone's ancestor. The new selftest check caught that.</div>
+  <div class="followup"><strong class="tag">The shared target.</strong> <code>ferrispad-wt/compare-target/</code> stays between runs (890 MB of dependencies), so a run does not rebuild them all. It holds no FerrisPad artifacts after a run, so it does not grow with each run. Old <code>compare-&lt;sha&gt;</code> directories that earlier runs left behind are not cleaned up here.</div>
+  <h3>How to test T0120</h3>
+  <ol class="steps">
+    <li><code>.claude/skills/new-pr/shoot.sh --selftest ~/Code/personal/ferrispad-wt/uitest-T0120/selftest</code>
+      <span class="expect">every line <code>ok</code>, including "the X server on DISPLAY is this run's own Xvfb", "the server check refuses another server" and "this run holds its display reservation".</span></li>
+    <li>Two <code>shoot.sh</code> runs at once: <code>for x in a b; do .claude/skills/new-pr/shoot.sh target/debug/FerrisPad ~/Code/personal/ferrispad-wt/uitest-T0120/$x docs/pr/scenarios/editor.sh &amp; done; wait</code>
+      <span class="expect">both succeed. <code>grep -h display: ~/Code/personal/ferrispad-wt/uitest-T0120/{a,b}/editor-light.log</code> shows two different displays, and each folder has its own <code>find-dialog-light.png</code>.</span></li>
+    <li>Two <code>compare.sh</code> runs at once: <code>for x in a b; do .claude/skills/new-pr/compare.sh docs/pr/scenarios/start-page.sh ~/Code/personal/ferrispad-wt/uitest-T0120-$x --before 0.9.10-rc.1 &amp; done; wait</code>
+      <span class="expect">both succeed; their logs name two different <code>compare-c0e189e.XXXXXX</code> worktrees; afterwards <code>git worktree list | grep compare-</code> prints nothing.</span></li>
+  </ol>
+</section>
+
+<section class="card">
+  <h2>Release notes and compatibility</h2>
+  <ul>
+    <li><strong>CHANGELOG:</strong> none: process only.</li>
+    <li>Scenarios, their helpers and the montage format are unchanged. <code>compare.sh</code> takes the same arguments.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>What remains open</h2>
+  <ul>
+    <li><strong>Leftovers from before this fix:</strong> any <code>ferrispad-wt/compare-&lt;sha&gt;</code> directory an earlier run left is now ignored. Remove it by hand if one exists.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>End-to-end verification</h2>
+  <p>Two sessions make before/after montages against the same base at the same moment, and both get correct pictures. Run it from this branch's worktree in the VSCode terminal. Everything runs in isolated Xvfbs, and nothing opens on your screen.</p>
+  <h3>Starting state</h3>
+  <ol class="steps">
+    <li><code>git worktree list | grep compare- ; ls -d ../compare-* 2&gt;/dev/null</code>
+      <span class="expect">no <code>compare-</code> worktree, and at most <code>compare-target</code> and its lock.</span></li>
+  </ol>
+  <h3>The scenario</h3>
+  <ol class="steps">
+    <li><code>for x in a b; do .claude/skills/new-pr/compare.sh docs/pr/scenarios/editor.sh ~/Code/personal/ferrispad-wt/uitest-T0120-e2e-$x --before 0.9.10-rc.1 &amp; done; wait; echo done</code>
+      <span class="expect">both runs print their montages. The first run builds the base for a few minutes, then the second one reuses its dependencies.</span></li>
+    <li>Open <code>~/Code/personal/ferrispad-wt/uitest-T0120-e2e-a/find-dialog-light-compare.png</code> and the same file under <code>-e2e-b</code>
+      <span class="expect">each shows its own Find dialog, before and after, and the two montages show the same thing.</span></li>
+    <li><code>git worktree list | grep compare- ; flatpak-spawn --host bash -c 'pgrep -af "Xvfb|FerrisPad" | grep -v pgrep'</code>
+      <span class="expect">no <code>compare-</code> worktree and no Xvfb or FerrisPad from these runs.</span></li>
+  </ol>
+  <h3>The gates</h3>
+  <ol class="steps">
+    <li><code>flatpak-spawn --host bash -lc "cd $PWD &amp;&amp; R=\$(mktemp -d) &amp;&amp; env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET -u DISPLAY -u DBUS_SESSION_BUS_ADDRESS FLTK_BACKEND=x11 XDG_RUNTIME_DIR=\$R nix shell nixpkgs#xvfb-run -c xvfb-run -a nix develop -c cargo test; rm -rf \$R"</code>, plus clippy <code>-D warnings</code> and <code>cargo fmt --check</code> (or <code>scripts/gates.sh</code> once T0122 has landed)
+      <span class="expect">all green, zero warnings.</span></li>
+  </ol>
+</section>
+
+<footer>
+  Presentation of PR #248 · branch <code>ticket/T0120</code> · commits <code>28ede57</code> → the <code>3-done/</code> move ·
+  ticket <code>docs/tickets/3-done/T0120-concurrent-screenshot-runs.md</code> · issue #242.
+</footer>
+</div>
+</body>
+</html>

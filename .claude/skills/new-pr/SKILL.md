@@ -112,6 +112,11 @@ It does the following:
 The single shots and each run's log stay in `before/` and `after/`. Run it
 again with `--font 18`: the larger font is the one that catches clipping.
 
+Runs from parallel sessions are safe together (T0120). Each `compare.sh`
+run builds `<ref>` in a worktree of its own and removes only that one.
+Each `shoot.sh` run reserves its Xvfb display atomically, and refuses a
+display whose X server is not its own.
+
 **`shoot.sh` runs one scenario on one binary:**
 
 ```bash
