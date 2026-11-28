@@ -1,6 +1,8 @@
 use fltk::{
+    button::{Button, CheckButton},
     enums::{Align, CallbackTrigger},
     frame::Frame,
+    input::Input,
     prelude::*,
     text::{TextBuffer, TextEditor},
     window::Window,
@@ -219,10 +221,23 @@ fn regex_case_folding_hint(x: i32, y: i32, theme: &DialogTheme) -> Frame {
     hint
 }
 
-/// Show Find & Replace dialog
-pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: (u8, u8, u8)) {
-    let theme = DialogTheme::from_theme_bg(theme_bg);
+/// The Find & Replace dialog's window and widgets, built but not shown (a
+/// seam for the layout tests).
+pub struct ReplaceUi {
+    pub dialog_win: Window,
+    pub find_input: Input,
+    pub replace_input: Input,
+    pub case_check: CheckButton,
+    pub regex_check: CheckButton,
+    pub find_prev_btn: Button,
+    pub find_btn: Button,
+    pub replace_btn: Button,
+    pub replace_all_btn: Button,
+    pub close_btn: Button,
+}
 
+/// Build the Find & Replace dialog.
+pub fn build_replace_dialog(theme: &DialogTheme) -> ReplaceUi {
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
     let mut dialog_win = Window::default()
@@ -256,29 +271,29 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
         .with_pos(110, 125)
         .with_size(REGEX_CHECK_W, 25)
         .with_label("Use regex");
-    regex_case_folding_hint(110 + REGEX_CHECK_W, 125, &theme);
+    regex_case_folding_hint(110 + REGEX_CHECK_W, 125, theme);
 
-    let mut find_prev_btn = theme
+    let find_prev_btn = theme
         .button()
         .with_pos(20, 160)
         .with_size(90, 30)
         .with_label("Find Prev");
-    let mut find_btn = theme
+    let find_btn = theme
         .button()
         .with_pos(120, 160)
         .with_size(90, 30)
         .with_label("Find Next");
-    let mut replace_btn = theme
+    let replace_btn = theme
         .button()
         .with_pos(220, 160)
         .with_size(90, 30)
         .with_label("Replace");
-    let mut replace_all_btn = theme
+    let replace_all_btn = theme
         .button()
         .with_pos(20, 205)
         .with_size(100, 30)
         .with_label("Replace All");
-    let mut close_btn = theme
+    let close_btn = theme
         .button()
         .with_pos(300, 205)
         .with_size(90, 30)
@@ -286,6 +301,36 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
 
     dialog_win.end();
     drop(top_level);
+    ReplaceUi {
+        dialog_win,
+        find_input,
+        replace_input,
+        case_check,
+        regex_check,
+        find_prev_btn,
+        find_btn,
+        replace_btn,
+        replace_all_btn,
+        close_btn,
+    }
+}
+
+/// Show Find & Replace dialog
+pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: (u8, u8, u8)) {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
+    let ReplaceUi {
+        mut dialog_win,
+        find_input,
+        replace_input,
+        case_check,
+        regex_check,
+        mut find_prev_btn,
+        mut find_btn,
+        mut replace_btn,
+        mut replace_all_btn,
+        mut close_btn,
+    } = build_replace_dialog(&theme);
     dialog_win.make_resizable(false);
     dialog_win.show();
     theme.apply_titlebar(&dialog_win);
@@ -485,10 +530,20 @@ pub fn show_replace_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_b
     super::run_dialog(&dialog_win);
 }
 
-/// Show Find dialog
-pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: (u8, u8, u8)) {
-    let theme = DialogTheme::from_theme_bg(theme_bg);
+/// The Find dialog's window and widgets, built but not shown (a seam for
+/// the layout tests).
+pub struct FindUi {
+    pub dialog_win: Window,
+    pub find_input: Input,
+    pub case_check: CheckButton,
+    pub regex_check: CheckButton,
+    pub find_prev_btn: Button,
+    pub find_btn: Button,
+    pub close_btn: Button,
+}
 
+/// Build the Find dialog.
+pub fn build_find_dialog(theme: &DialogTheme) -> FindUi {
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
     let mut dialog_win = Window::default()
@@ -515,19 +570,19 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: 
         .with_pos(110, 87)
         .with_size(REGEX_CHECK_W, 25)
         .with_label("Use regex");
-    regex_case_folding_hint(110 + REGEX_CHECK_W, 87, &theme);
+    regex_case_folding_hint(110 + REGEX_CHECK_W, 87, theme);
 
-    let mut find_prev_btn2 = theme
+    let find_prev_btn = theme
         .button()
         .with_pos(110, 125)
         .with_size(90, 30)
         .with_label("Find Prev");
-    let mut find_btn = theme
+    let find_btn = theme
         .button()
         .with_pos(210, 125)
         .with_size(90, 30)
         .with_label("Find Next");
-    let mut close_btn = theme
+    let close_btn = theme
         .button()
         .with_pos(310, 125)
         .with_size(80, 30)
@@ -535,6 +590,30 @@ pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: 
 
     dialog_win.end();
     drop(top_level);
+    FindUi {
+        dialog_win,
+        find_input,
+        case_check,
+        regex_check,
+        find_prev_btn,
+        find_btn,
+        close_btn,
+    }
+}
+
+/// Show Find dialog
+pub fn show_find_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: (u8, u8, u8)) {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
+    let FindUi {
+        mut dialog_win,
+        find_input,
+        case_check,
+        regex_check,
+        find_prev_btn: mut find_prev_btn2,
+        mut find_btn,
+        mut close_btn,
+    } = build_find_dialog(&theme);
     dialog_win.make_resizable(false);
     dialog_win.show();
     theme.apply_titlebar(&dialog_win);

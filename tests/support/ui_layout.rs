@@ -122,10 +122,18 @@ fn walk(
     } else {
         Rect::new(group.x(), group.y(), group.w(), group.h())
     };
-    siblings.push((path.to_string(), parent, kids.clone()));
+    // A Tabs' children are alternative pages: they share one rectangle by
+    // design, and their labels are the tab captions, not outside labels.
+    if fltk::group::Tabs::from_dyn_widget(group).is_none() {
+        siblings.push((path.to_string(), parent, kids.clone()));
+    }
     for (i, kid) in kids.into_iter().enumerate() {
         let name = format!("{path}/{i}:{:?}", kid.label());
-        let composite = fltk::group::ColorChooser::from_dyn_widget(&kid).is_some();
+        // Composite widgets are checked as one: their internal children
+        // (a text display's scrollbars sit at 0,0 1x1 until first drawn)
+        // are FLTK's, not the dialog's.
+        let composite = fltk::group::ColorChooser::from_dyn_widget(&kid).is_some()
+            || fltk::text::TextDisplay::from_dyn_widget(&kid).is_some();
         if let Some(sub) = kid.as_group().filter(|_| !composite) {
             walk(&sub, &name, widgets, siblings);
         }
@@ -146,8 +154,12 @@ pub fn count_matching(window: &Window, only: impl Fn(&Widget) -> bool) -> usize 
     widgets.iter().filter(|(_, w)| only(w)).count()
 }
 
-/// Lay out `window` as it would be shown: Flex groups place their children
-/// only when laid out.
+/// FLTK draws widget labels with symbols on (`Fl_Label` passes
+/// `draw_symbols = 1`): "@<" is an arrow, not two characters.
+const LABEL_SYMBOLS: bool = true;
+
+/// Lay out `window` as it would be shown: Pack and Flex groups place their
+/// children only when drawn / laid out.
 pub fn lay_out(window: &Window) {
     let mut widgets = Vec::new();
     walk(
@@ -156,9 +168,43 @@ pub fn lay_out(window: &Window) {
         &mut widgets,
         &mut Vec::new(),
     );
+    // Outer packs first (the walk lists children before their parent).
+    for (_, w) in widgets.iter().rev() {
+        if let Some(pack) = fltk::group::Pack::from_dyn_widget(w) {
+            lay_out_pack(&pack);
+        }
+    }
     for (_, w) in widgets {
         if let Some(flex) = fltk::group::Flex::from_dyn_widget(&w) {
             flex.layout();
+        }
+    }
+}
+
+/// Place `pack`'s visible children as `Fl_Pack::draw` does: one after the
+/// other along the pack, `spacing` apart, filling the other direction.
+fn lay_out_pack(pack: &fltk::group::Pack) {
+    use fltk::group::PackType;
+    let frame = pack.frame();
+    let (tx, ty) = (pack.x() + frame.dx(), pack.y() + frame.dy());
+    let (tw, th) = (pack.w() - frame.dw(), pack.h() - frame.dh());
+    let horizontal = pack.get_type::<PackType>() == PackType::Horizontal;
+    let mut pos = if horizontal { tx } else { ty };
+    for i in 0..pack.children() {
+        let Some(mut kid) = pack.child(i) else {
+            continue;
+        };
+        if !kid.visible() {
+            continue;
+        }
+        if horizontal {
+            let w = kid.w();
+            kid.resize(pos, ty, w, th);
+            pos += w + pack.spacing();
+        } else {
+            let h = kid.h();
+            kid.resize(tx, pos, tw, h);
+            pos += h + pack.spacing();
         }
     }
 }
@@ -191,7 +237,7 @@ pub fn label_overflows(
             continue;
         }
         fltk::draw::set_font(w.label_font(), w.label_size() + bump_pt);
-        let (text_w, _) = fltk::draw::measure(&label, false);
+        let (text_w, _) = fltk::draw::measure(&label, LABEL_SYMBOLS);
         // Check and radio buttons draw their box left of the label.
         let box_w = if LightButton::from_dyn_widget(&w).is_some() {
             w.label_size() + 8
@@ -367,7 +413,7 @@ pub fn outside_label_failures(
                     return None;
                 }
                 fltk::draw::set_font(w.label_font(), w.label_size() + bump_pt);
-                let text = fltk::draw::measure(&label, false);
+                let text = fltk::draw::measure(&label, LABEL_SYMBOLS);
                 outside_label_rect(Rect::of(w), parent, w.align().bits(), text).map(|r| (i, r))
             })
             .collect();
@@ -462,13 +508,32 @@ pub fn layout_failures(
     failures
 }
 
-/// Text inputs of `window` not styled with `theme`'s input colors (T0105):
-/// background, text, cursor and the shared selection color, so selected text
-/// reads like a selected list row in every dialog.
+/// Widgets of `window` not built through `theme`'s components:
+/// - text inputs (T0105): input frame and border, background, text, cursor
+///   and the shared selection color, so selected text reads like a selected
+///   list row in every dialog;
+/// - lists: the input frame and the shared selection;
+/// - buttons (T0106): a push button looks like `button()`,
+///   `secondary_button()` or `warning_button()` (flat, with that color and
+///   label color); a check or radio button sits on the dialog background
+///   with the text color.
+///
+/// `exempt` names widgets that are deliberately not components (e.g. color
+/// swatches, which show the color they stand for).
 pub fn unthemed_inputs(
     window: &Window,
     title: &str,
     theme: &ferris_pad::ui::dialogs::DialogTheme,
+) -> Vec<String> {
+    unthemed_widgets(window, title, theme, |_| false)
+}
+
+/// [`unthemed_inputs`] with an explicit exemption filter.
+pub fn unthemed_widgets(
+    window: &Window,
+    title: &str,
+    theme: &ferris_pad::ui::dialogs::DialogTheme,
+    exempt: impl Fn(&Widget) -> bool,
 ) -> Vec<String> {
     use fltk::prelude::InputExt;
     let mut widgets = Vec::new();
@@ -480,6 +545,13 @@ pub fn unthemed_inputs(
     );
     let mut failures = Vec::new();
     for (path, w) in widgets {
+        if exempt(&w) {
+            continue;
+        }
+        if let Some(failure) = unthemed_button(&path, &w, theme) {
+            failures.push(failure);
+            continue;
+        }
         if let Some(list) = fltk::browser::HoldBrowser::from_dyn_widget(&w) {
             use ferris_pad::ui::dialogs::widgets::INPUT_FRAME;
             if list.frame() != INPUT_FRAME || list.selection_color() != theme.list_selection_bg {
@@ -506,7 +578,16 @@ pub fn unthemed_inputs(
         }
         let checks = [
             ("background", input.color(), theme.input_bg),
-            ("text", input.text_color(), theme.text),
+            // A dimmed text is a placeholder shown in the field.
+            (
+                "text",
+                input.text_color(),
+                if input.text_color() == theme.text_dim {
+                    theme.text_dim
+                } else {
+                    theme.text
+                },
+            ),
             // A read-only field draws no caret (cursor in the field color).
             (
                 "cursor",
@@ -534,6 +615,52 @@ pub fn unthemed_inputs(
         }
     }
     failures
+}
+
+/// Why `w` is not a themed button, or `None` when it is one (or is no
+/// button at all).
+fn unthemed_button(
+    path: &str,
+    w: &Widget,
+    theme: &ferris_pad::ui::dialogs::DialogTheme,
+) -> Option<String> {
+    use fltk::enums::FrameType;
+    // Check and radio buttons first: they are FLTK buttons too.
+    let toggle = fltk::button::CheckButton::from_dyn_widget(w).is_some()
+        || fltk::button::RadioRoundButton::from_dyn_widget(w).is_some()
+        || fltk::button::RoundButton::from_dyn_widget(w).is_some();
+    if toggle {
+        // A dimmed label marks a deliberate state (e.g. a disabled plugin).
+        let label_ok = w.label_color() == theme.text || w.label_color() == theme.text_dim;
+        return (w.color() != theme.bg || !label_ok).then(|| {
+            format!(
+                "{path}: check/radio button color {:?} / label {:?} != dialog bg {:?} / text {:?}",
+                w.color().to_rgb(),
+                w.label_color().to_rgb(),
+                theme.bg.to_rgb(),
+                theme.text.to_rgb()
+            )
+        });
+    }
+    fltk::button::Button::from_dyn_widget(w)?;
+    let looks = [
+        ("button()", theme.button_bg, theme.text),
+        ("secondary_button()", theme.secondary_button_bg, theme.text),
+        ("warning_button()", theme.button_bg, theme.warning_text()),
+        ("success_button()", theme.button_bg, theme.success_text()),
+    ];
+    let matches = w.frame() == FrameType::RFlatBox
+        && looks
+            .iter()
+            .any(|(_, bg, label)| w.color() == *bg && w.label_color() == *label);
+    (!matches).then(|| {
+        format!(
+            "{path}: button frame {:?}, color {:?}, label {:?} is not a themed button",
+            w.frame(),
+            w.color().to_rgb(),
+            w.label_color().to_rgb()
+        )
+    })
 }
 
 #[cfg(test)]

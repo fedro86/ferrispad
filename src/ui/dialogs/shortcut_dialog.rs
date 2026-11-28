@@ -23,6 +23,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::app::plugins::PluginManager;
+use crate::app::plugins::loader::PluginMenuItem;
 use crate::app::services::shortcut_registry::{ShortcutRegistry, normalize_shortcut};
 use crate::ui::menu::{builtin_shortcut_defaults, is_valid_shortcut, plugin_command_id};
 
@@ -47,22 +48,40 @@ pub struct ShortcutDialogResult {
 }
 
 /// A single shortcut entry tracked during editing
-struct ShortcutEntry {
-    id: String,
-    default: String,
-    input: Input,
+pub struct ShortcutEntry {
+    /// Command ID (`"File/Save"` or `"plugin:<name>:<action>"`)
+    pub id: String,
+    /// The shortcut the Reset button restores
+    pub default: String,
+    /// The row's shortcut field
+    pub input: Input,
 }
 
-/// Show the Key Shortcuts dialog.
-///
-/// Returns Some(result) if user clicked Save, None if cancelled.
-pub fn show_shortcut_dialog(
+/// One plugin's name and menu items, as the Plugins tab lists them.
+pub struct PluginShortcuts<'a> {
+    pub name: &'a str,
+    pub menu_items: &'a [PluginMenuItem],
+}
+
+/// The Key Shortcuts dialog's window and widgets, built but not shown (a
+/// seam for the layout tests).
+pub struct ShortcutDialogUi {
+    pub dialog: Window,
+    pub save_btn: fltk::button::Button,
+    pub cancel_btn: fltk::button::Button,
+    pub error_label: Frame,
+    /// Every shortcut row, for validation and the Save result
+    pub entries: Rc<RefCell<Vec<ShortcutEntry>>>,
+}
+
+/// Build the Key Shortcuts dialog: the built-in rows (`tabs_enabled` as in
+/// the menu), then `plugin_list`'s rows, each showing its `registry` value.
+pub fn build_shortcut_dialog(
+    theme: &DialogTheme,
     registry: &ShortcutRegistry,
-    plugins: &PluginManager,
-    theme_bg: (u8, u8, u8),
+    plugin_list: &[PluginShortcuts],
     tabs_enabled: bool,
-) -> Option<ShortcutDialogResult> {
-    let theme = DialogTheme::from_theme_bg(theme_bg);
+) -> ShortcutDialogUi {
     let error_color = theme.error_color();
 
     // Built top-level even if another group is current (T0058).
@@ -71,10 +90,7 @@ pub fn show_shortcut_dialog(
         .with_size(DIALOG_WIDTH, DIALOG_HEIGHT)
         .with_label("Key Shortcuts")
         .center_screen();
-    dialog.make_modal(true);
     dialog.set_color(theme.bg);
-
-    let result: Rc<RefCell<Option<ShortcutDialogResult>>> = Rc::new(RefCell::new(None));
 
     // Track all entries for conflict detection and value retrieval
     let all_entries: Rc<RefCell<Vec<ShortcutEntry>>> = Rc::new(RefCell::new(Vec::new()));
@@ -153,7 +169,7 @@ pub fn show_shortcut_dialog(
             id,
             actual_default,
             effective,
-            &theme,
+            theme,
             row_w_builtin,
             all_entries.clone(),
         );
@@ -166,7 +182,6 @@ pub fn show_shortcut_dialog(
 
     // ============ PLUGINS TAB ============
     // Dynamic row width for plugins tab
-    let plugin_list = plugins.list_plugins();
     let has_plugin_shortcuts = plugin_list.iter().any(|p| !p.menu_items.is_empty());
     let plugins_row_count = if has_plugin_shortcuts {
         plugin_list
@@ -222,7 +237,7 @@ pub fn show_shortcut_dialog(
             let mut section_label = Frame::default()
                 .with_pos(PADDING, 4)
                 .with_size(row_w_plugins - PADDING * 2, 20)
-                .with_label(&plugin.name);
+                .with_label(plugin.name);
             section_label.set_label_color(theme.text);
             section_label.set_align(Align::Left | Align::Inside);
             section_label.set_label_size(12);
@@ -231,8 +246,8 @@ pub fn show_shortcut_dialog(
             pack_plugins.add(&section);
 
             // Add each action
-            for item in &plugin.menu_items {
-                let cmd_id = plugin_command_id(&plugin.name, &item.action);
+            for item in plugin.menu_items {
+                let cmd_id = plugin_command_id(plugin.name, &item.action);
                 let manifest_default = item.shortcut.as_deref().unwrap_or("");
                 let effective = registry.effective_shortcut(&cmd_id, manifest_default);
 
@@ -240,7 +255,7 @@ pub fn show_shortcut_dialog(
                     &cmd_id,
                     manifest_default,
                     effective,
-                    &theme,
+                    theme,
                     row_w_plugins,
                     all_entries.clone(),
                 );
@@ -269,13 +284,13 @@ pub fn show_shortcut_dialog(
 
     let btn_y = DIALOG_HEIGHT - PADDING - BUTTON_HEIGHT;
 
-    let mut save_btn = theme
+    let save_btn = theme
         .button()
         .with_pos(DIALOG_WIDTH - PADDING - 165, btn_y)
         .with_size(75, BUTTON_HEIGHT)
         .with_label("Save");
 
-    let mut cancel_btn = theme
+    let cancel_btn = theme
         .button()
         .with_pos(DIALOG_WIDTH - PADDING - 80, btn_y)
         .with_size(75, BUTTON_HEIGHT)
@@ -283,6 +298,44 @@ pub fn show_shortcut_dialog(
 
     dialog.end();
     drop(top_level);
+    ShortcutDialogUi {
+        dialog,
+        save_btn,
+        cancel_btn,
+        error_label,
+        entries: all_entries,
+    }
+}
+
+/// Show the Key Shortcuts dialog.
+///
+/// Returns Some(result) if user clicked Save, None if cancelled.
+pub fn show_shortcut_dialog(
+    registry: &ShortcutRegistry,
+    plugins: &PluginManager,
+    theme_bg: (u8, u8, u8),
+    tabs_enabled: bool,
+) -> Option<ShortcutDialogResult> {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
+    let plugin_list: Vec<PluginShortcuts> = plugins
+        .list_plugins()
+        .iter()
+        .map(|p| PluginShortcuts {
+            name: &p.name,
+            menu_items: &p.menu_items,
+        })
+        .collect();
+    let ShortcutDialogUi {
+        mut dialog,
+        mut save_btn,
+        mut cancel_btn,
+        error_label,
+        entries: all_entries,
+    } = build_shortcut_dialog(&theme, registry, &plugin_list, tabs_enabled);
+    dialog.make_modal(true);
+
+    let result: Rc<RefCell<Option<ShortcutDialogResult>>> = Rc::new(RefCell::new(None));
 
     // Save callback
     let entries_save = all_entries.clone();

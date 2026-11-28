@@ -38,10 +38,19 @@ pub struct CommunityInstallReview {
     pub scan_warnings: Vec<String>,
 }
 
-/// Show the community install review dialog.
-///
-/// Returns `true` if the user clicks "Install Anyway", `false` if cancelled.
-pub fn show_community_install_dialog(review: &CommunityInstallReview, theme: &DialogTheme) -> bool {
+/// The community install review dialog's window and widgets, built but not
+/// shown (a seam for the layout tests).
+pub struct CommunityInstallDialogUi {
+    pub dialog: Window,
+    pub cancel_btn: fltk::button::Button,
+    pub install_btn: fltk::button::Button,
+}
+
+/// Build the community install review dialog for `review`.
+pub fn build_community_install_dialog(
+    theme: &DialogTheme,
+    review: &CommunityInstallReview,
+) -> CommunityInstallDialogUi {
     // ── Calculate dynamic height based on content ──
     let mut content_height = 0i32;
 
@@ -83,15 +92,12 @@ pub fn show_community_install_dialog(review: &CommunityInstallReview, theme: &Di
 
     let dialog_height = (content_height + PADDING * 2 + 50).clamp(300, 550);
 
-    let result = Rc::new(RefCell::new(false));
-
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
     let mut dialog = Window::default()
         .with_size(DIALOG_WIDTH, dialog_height)
         .with_label("Install Plugin")
         .center_screen();
-    dialog.make_modal(true);
     dialog.set_color(theme.bg);
 
     let mut scroll = Scroll::default()
@@ -264,13 +270,13 @@ pub fn show_community_install_dialog(review: &CommunityInstallReview, theme: &Di
     // ── Buttons ──
     let btn_y = dialog_height - 42;
 
-    let mut cancel_btn = theme
+    let cancel_btn = theme
         .button()
         .with_pos(PADDING, btn_y)
         .with_size(100, 30)
         .with_label("Cancel");
 
-    let mut install_btn = theme
+    let install_btn = theme
         .warning_button()
         .with_pos(DIALOG_WIDTH - PADDING - 120, btn_y)
         .with_size(120, 30)
@@ -278,6 +284,25 @@ pub fn show_community_install_dialog(review: &CommunityInstallReview, theme: &Di
 
     dialog.end();
     drop(top_level);
+    CommunityInstallDialogUi {
+        dialog,
+        cancel_btn,
+        install_btn,
+    }
+}
+
+/// Show the community install review dialog.
+///
+/// Returns `true` if the user clicks "Install Anyway", `false` if cancelled.
+pub fn show_community_install_dialog(review: &CommunityInstallReview, theme: &DialogTheme) -> bool {
+    let result = Rc::new(RefCell::new(false));
+
+    let CommunityInstallDialogUi {
+        mut dialog,
+        mut cancel_btn,
+        mut install_btn,
+    } = build_community_install_dialog(theme, review);
+    dialog.make_modal(true);
 
     // ── Callbacks ──
     let mut dialog_cancel = dialog.clone();
