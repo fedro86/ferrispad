@@ -75,7 +75,7 @@ including one that starts after a session reset.
     all fixes on `master` before the tag and before anything public, and a
     GitHub advisory record as the user's call per release;
   - the "never" list.
-- It describes the flow the sessions used for the 0.9.11 findings. It names
+- It describes the procedure used so far. It names
   none of them and gives no exploit detail: the examples are generic
   categories, and the sample areas are unrelated ones.
 - `S` numbers: plain `S<N>` (S1, S2, …), as used, rather than the four-digit
@@ -124,7 +124,7 @@ Documentation and rules only: no Rust changes, so no new cargo test.
 ## Notes
 
 - Origin: the user's rule "fix riservato, poi pubblico" (fix privately, then
-  disclose), applied by hand to the 0.9.11 plugin-label findings. The user
+  disclose), applied by hand so far. The user
   asked on 2026-11-28 to standardise it.
 - It depends on T0122 because commits made before T0122 lands run the UI
   tests on the user's display.

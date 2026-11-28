@@ -85,7 +85,7 @@
     <div><strong>Before</strong> · "Fix privately, disclose with the release" lived only in the user's instructions to the sessions. Each session had to be told again what private means, and a session that started after a reset did not know it.</div>
     <div><strong>After</strong> · The rule <code>.claude/rules/security-fixes.md</code> loads in every session. It says where a finding goes, what may be pushed (nothing, until the release), and how it becomes public.</div>
   </div>
-  <p>The user asked on 2026-11-28 to standardise the procedure the sessions used for the 0.9.11 findings. They chose the local-only flow: GitHub Security Advisories with a temporary private fork were rejected, because status checks do not run there. The rule is generic process text: it names no finding and gives no exploit detail.</p>
+  <p>The user asked on 2026-11-28 to standardise the procedure used so far. They chose the local-only flow: GitHub Security Advisories with a temporary private fork were rejected, because status checks do not run there. The rule is generic process text: it names no finding and gives no exploit detail.</p>
   <ul>
     <li><strong>Triage:</strong> input someone else can shape that crosses a trust boundary is a security defect; an ordinary local crash stays a public bugfix.</li>
     <li><strong>Private workspace:</strong> gitignored <code>docs/internal/security/S&lt;N&gt;-*.md</code> tickets, local <code>sec/</code> branches with no upstream, append-only merge notes, wording that names the area and not the exploit.</li>
