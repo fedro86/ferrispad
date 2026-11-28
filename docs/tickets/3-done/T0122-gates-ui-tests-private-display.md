@@ -1,7 +1,7 @@
 ---
 id: T0122
 title: The gates run the UI tests on a private display, never on the user's screen
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-28
 severity: moderate
 area: process
@@ -181,15 +181,24 @@ is known and not ours.
 
 ## Acceptance criteria
 
-- [ ] The hook's `cargo test` never sees the caller's `DISPLAY`,
+- [x] The hook's `cargo test` never sees the caller's `DISPLAY`,
       `WAYLAND_DISPLAY` or `WAYLAND_SOCKET`; the UI tests run on a private
       Xvfb and are required.
-- [ ] One gate script, called by the hook and named by every doc that lists
+- [x] One gate script, called by the hook and named by every doc that lists
       the gates.
-- [ ] The hook test pins it; it failed before the fix.
-- [ ] `cargo test`, `cargo clippy --all-targets --all-features`, and
+- [x] The hook test pins it; it failed before the fix.
+- [x] `cargo test`, `cargo clippy --all-targets --all-features`, and
       `cargo fmt --check` all pass with zero warnings.
-- [ ] Pending user verification.
+- [x] User verified (2026-11-28).
+
+## User verification
+
+The user approved the PR on 2026-11-28, relayed by the orchestrator
+(ferrispad-03), after reading the presentation
+`docs/pr/PR-246-gates-ui-tests-private-display.html`. The reviewer
+(ferrispad-90) approved 55cbd7b, after the Wayland-path fix and the shared
+private-display assertion. This commit only moves the ticket and updates
+the page.
 
 ## Affected files
 
