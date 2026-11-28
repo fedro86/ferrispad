@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gates on a private display</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --ink: #1c2430; --muted: #5b6675;
+    --accent: #0b6e4f; --accent-soft: #e3f2ec; --line: #dde3ea;
+    --warn: #8a5a00; --warn-soft: #fdf3dd; --code-bg: #f0f2f5;
+    --chip: #eef1f4; --bad: #8a2020; --bad-soft: #fbeaea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181f; --surface: #1c222b; --ink: #e8ecf1; --muted: #9aa6b4;
+      --accent: #4cc39a; --accent-soft: #10352a; --line: #2c3541;
+      --warn: #e2b45a; --warn-soft: #33290f; --code-bg: #232a34;
+      --chip: #262e39; --bad: #e88; --bad-soft: #3a1c1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 "Open Sans", "Segoe UI", system-ui, sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  header.top { border-bottom: 3px solid var(--accent); padding-bottom: 1.2rem; margin-bottom: 2rem; }
+  .kicker { text-transform: uppercase; letter-spacing: .12em; font-size: .78rem; color: var(--accent); font-weight: 700; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: .3rem 0 .6rem; }
+  h2 { font-size: 1.35rem; margin: 0 0 .2rem; }
+  h3 { font-size: 1.02rem; margin: 1.3rem 0 .4rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem .6rem; margin-top: .8rem; }
+  .chip { background: var(--chip); border: 1px solid var(--line); border-radius: 999px;
+    padding: .15rem .7rem; font-size: .82rem; color: var(--muted); white-space: nowrap; }
+  .chip strong { color: var(--ink); font-weight: 600; }
+  .chip.green { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .chip.warn { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+  a { color: var(--accent); }
+  section.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.5rem 1.75rem; margin-bottom: 1.75rem; }
+  p { margin: .55rem 0; }
+  ul, ol { margin: .4rem 0 .6rem; padding-left: 1.3rem; }
+  li { margin: .25rem 0; }
+  code { font: .86em/1.5 "JetBrains Mono", "Fira Mono", monospace;
+    background: var(--code-bg); border-radius: 4px; padding: .08em .35em; word-break: break-word; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: .85rem 1rem; overflow-x: auto; font-size: .85rem; line-height: 1.55; }
+  pre code { background: none; padding: 0; }
+  .why { border-left: 4px solid var(--accent); background: var(--accent-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup { border-left: 4px solid var(--warn); background: var(--warn-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup strong.tag { color: var(--warn); }
+  .bad { border-left: 4px solid var(--bad); background: var(--bad-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .bad strong.tag { color: var(--bad); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; font-size: .9rem; }
+  th, td { text-align: left; border-bottom: 1px solid var(--line); padding: .45rem .6rem; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; font-family: "JetBrains Mono", "Fira Mono", monospace; white-space: nowrap; }
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li { counter-increment: step; position: relative; padding-left: 2.2rem; margin: .55rem 0; }
+  .steps li::before { content: counter(step); position: absolute; left: 0; top: .1rem;
+    width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--accent-soft);
+    color: var(--accent); font-weight: 700; font-size: .82rem; display: grid; place-items: center; }
+  .expect { display: block; margin-top: .2rem; color: var(--muted); font-size: .9em; }
+  .expect::before { content: "expected → "; color: var(--accent); font-weight: 600; }
+  .flow { display: grid; gap: .35rem; margin: .8rem 0; }
+  .flow div { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: .45rem .8rem; font-size: .9rem; }
+  .flow div strong { color: var(--accent); }
+  footer { color: var(--muted); font-size: .86rem; border-top: 1px solid var(--line);
+    margin-top: 2rem; padding-top: 1rem; }
+  img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
+  figure { margin: .9rem 0; }
+  figcaption { color: var(--muted); font-size: .88rem; font-style: italic; margin-top: .35rem; }
+  code.sha { white-space: nowrap; word-break: normal; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <div class="kicker">Pull request #246 · ticket/T0122 → master · process</div>
+  <h1>The gates run the UI tests on a private display, never on your screen</h1>
+  <div class="flow">
+    <div><strong>Before</strong> · At every commit, from any session, the pre-commit hook ran <code>cargo test</code> with your desktop's display. The UI tests build real FerrisPad windows and dialogs, and they could flash on your screen.</div>
+    <div><strong>After</strong> · One script, <code>scripts/gates.sh</code>, runs the gates. The tests get an Xvfb of their own, as in CI. Your <code>DISPLAY</code>, your Wayland socket and your session bus never reach them, and the tests check that FLTK really opened that private display. The hook and every doc that lists the gates use it.</div>
+  </div>
+  <p>ferrispad-39 found this on 2026-11-27, while preparing T0108's UI tests. From the VSCode Flatpak sandbox, the gates go through <code>flatpak-spawn --host</code>. That host shell has <code>DISPLAY=:0</code> and <code>WAYLAND_DISPLAY=wayland-0</code>, so <code>display_available()</code> saw a display and ran the UI tests on it. This is the same class of leak as the file dialogs that reached your GNOME session on 2026-11-27. The orchestrator (ferrispad-03) set the scope.</p>
+  <ul>
+    <li><code>scripts/gates.sh</code>: fmt, clippy <code>-D warnings</code>, then <code>cargo test</code> under <code>xvfb-run -a</code>, without your <code>DISPLAY</code>, <code>WAYLAND_*</code> or session bus, with <code>FLTK_BACKEND=x11</code>, a private <code>XDG_RUNTIME_DIR</code> and <code>FERRISPAD_REQUIRE_UI_TESTS=1</code>.</li>
+    <li>Under that variable the UI tests assert that the X display FLTK opened is the private one, never <code>:0</code> or <code>:1</code>.</li>
+    <li>The pre-commit hook calls it, and a new hook test pins the environment the tests get.</li>
+    <li><code>.claude/CLAUDE.md</code>, the two rules files and the new-pr skill name it as the one gate command.</li>
+  </ul>
+  <div class="meta">
+    <span class="chip"><strong>T0122</strong> in <code>3-done/</code></span>
+    <span class="chip"><strong>10</strong> files · +447 / −26</span>
+    <span class="chip green">UI tests still run, on Xvfb</span>
+    <span class="chip green">gates green at every commit</span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/246">PR #246 on GitHub</a></span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/issues/244">issue #244</a></span>
+  </div>
+</header>
+
+<section class="card">
+  <h2>The branch's commits</h2>
+  <div class="scroll">
+  <table>
+    <tr><th>Commit</th><th>What changes</th></tr>
+    <tr><td><code class="sha">cc2a069</code></td>
+      <td>The gate script, the hook calling it, hook test case 15 (red on master's hook first), the docs and the ticket.</td></tr>
+    <tr><td><code class="sha">e86b8c0</code></td>
+      <td>Docs only: this page.</td></tr>
+    <tr><td><code class="sha">75ca187</code></td>
+      <td>Review fix (ferrispad-90): the Wayland path (<code>FLTK_BACKEND=x11</code>, a private <code>XDG_RUNTIME_DIR</code>, no session bus), case 15 extended (red on <code class="sha">e86b8c0</code>), and the real-display assertion in the UI tests.</td></tr>
+    <tr><td><code class="sha">01dedcd</code></td>
+      <td>Docs only: this page after the review fix.</td></tr>
+    <tr><td><code class="sha">e2d4fc8</code></td>
+      <td>Review nit: <code>tests/fltk_main_thread.rs</code> shares the private-display assertion through <code>mod support;</code> instead of a copy.</td></tr>
+    <tr><td><code class="sha">55cbd7b</code></td>
+      <td>Docs only: this page after the review nit.</td></tr>
+    <tr><td>the <code>3-done/</code> move</td>
+      <td>Docs only: the ticket moves to <code>3-done/</code> after the user's OK (2026-11-28) and the reviewer's APPROVE; this page follows.</td></tr>
+  </table>
+  </div>
+</section>
+
+<section class="card">
+  <h2>How a gate run works, now</h2>
+  <div class="flow">
+    <div><strong>Hook</strong> · On <code>git commit</code>, <code>.claude/hooks/pre-commit-gates.sh</code> finds the checkout and runs the gate script that ships next to it: through <code>flatpak-spawn --host</code> from the sandbox, or directly on the host.</div>
+    <div><strong>Lint</strong> · <code>nix develop --command</code>: <code>cargo fmt --check</code>, then <code>cargo clippy --all-targets --all-features -- -D warnings</code>.</div>
+    <div><strong>Tests</strong> · <code>env -u DISPLAY -u WAYLAND_DISPLAY -u WAYLAND_SOCKET -u DBUS_SESSION_BUS_ADDRESS FLTK_BACKEND=x11 XDG_RUNTIME_DIR=&lt;private&gt; FERRISPAD_REQUIRE_UI_TESTS=1 xvfb-run -a nix develop --command bash -c 'cargo test'</code>. A missing display fails the gate instead of skipping the UI tests.</div>
+    <div><strong>Proof</strong> · Each UI test binary, once the display is open, asserts that FLTK is not on Wayland and that the X display it opened (<code>XDisplayString(fltk::app::display())</code>) is <code>$DISPLAY</code>, not <code>:0</code> or <code>:1</code>. It prints that display, for example <code>FLTK on the private X display :99</code>.</div>
+  </div>
+</section>
+
+<section class="card ticket">
+  <h2>T0122: one gate script, tests on a private display</h2>
+  <div class="flow">
+    <div><strong>Before</strong> · The hook ran <code>nix develop --command bash -c 'cargo fmt --check &amp;&amp; cargo clippy … &amp;&amp; cargo test'</code> in the host's environment. The docs listed three bare <code>nix develop -c cargo …</code> commands, which, run from the host shell, behave the same way.</div>
+    <div><strong>After</strong> · <code>scripts/gates.sh [&lt;checkout&gt;]</code> is the gate. Its tests run like CI's <code>xvfb-run -a cargo test</code>, and the docs tell sessions not to run a bare <code>cargo test</code> from the host shell as a gate.</div>
+  </div>
+  <ul>
+    <li><strong>The hook uses its own copy of the script</strong> (the main checkout's), so a worktree on an older branch is gated the same way.</li>
+    <li><strong>Test seams:</strong> <code>FERRISPAD_GATES_CMD</code> stands in for the cargo gates, as before, but now runs inside the private-display environment. <code>FERRISPAD_GATES_XVFB</code> stands in for <code>xvfb-run -a</code>.</li>
+    <li><strong>Not changed, by the orchestrator's decision:</strong> <code>display_available()</code>. If you run <code>cargo test</code> on your own desktop on purpose, the UI tests still run there.</li>
+  </ul>
+  <p><strong>No visible change:</strong> a process change (a script, the commit hook, docs). FerrisPad itself is untouched. What changes is what you no longer see: no test window on your screen when a session commits.</p>
+  <div class="bad"><strong class="tag">The defect, red first.</strong> Hook test case 15 gives the caller <code>DISPLAY=:0</code>, <code>WAYLAND_DISPLAY=wayland-0</code> and <code>WAYLAND_SOCKET=3</code>, and the stand-in gate records its environment. On master's hook (<code class="sha">4f482a1</code>):
+<pre>FAIL 15. the gate does not see the caller's DISPLAY: '^DISPLAY=:0$' is present in the gate's environment
+FAIL 15. the gate does not see WAYLAND_DISPLAY: '^WAYLAND_DISPLAY=' is present in the gate's environment
+FAIL 15. the gate does not see WAYLAND_SOCKET: '^WAYLAND_SOCKET=' is present in the gate's environment
+FAIL 15. the gate runs on the private display: '^DISPLAY=:99$' is absent in the gate's environment
+FAIL 15. the UI tests are required: '^FERRISPAD_REQUIRE_UI_TESTS=1$' is absent in the gate's environment
+18 passed, 5 failed</pre>
+  After the fix: 23 passed, 0 failed.</div>
+  <div class="bad"><strong class="tag">The review's catch, red first.</strong> ferrispad-90 found that removing <code>WAYLAND_DISPLAY</code> is not enough. fltk is built with <code>use-wayland</code>. Where that backend is compiled in, FLTK calls <code>wl_display_connect(NULL)</code> first when <code>FLTK_BACKEND</code> is unset, and libwayland then falls back to <code>wayland-0</code> in <code>XDG_RUNTIME_DIR</code>: your compositor. Case 15 now also checks <code>FLTK_BACKEND=x11</code>, an <code>XDG_RUNTIME_DIR</code> that is not the caller's, and no session bus. On <code class="sha">e86b8c0</code>:
+<pre>FAIL 15. FLTK is forced onto X11: '^FLTK_BACKEND=x11$' is absent in the gate's environment
+FAIL 15. the gate does not see the caller's XDG_RUNTIME_DIR: '^XDG_RUNTIME_DIR=/run/user/4242$' is present in the gate's environment
+FAIL 15. the gate does not see the caller's session bus: '^DBUS_SESSION_BUS_ADDRESS=' is present in the gate's environment
+24 passed, 3 failed</pre>
+  After the fix: 27 passed, 0 failed.</div>
+  <div class="why"><strong>Why keep the tests and pin the display.</strong> Skipping the UI tests locally would hide a layout regression until CI. Running them on a private Xvfb keeps them. The assertion on the display FLTK really opened turns "the environment looks right" into "FLTK used it". It has no safe red run: its failure case is opening your <code>:0</code> or <code>:1</code>, and both belong to your session here.</div>
+  <div class="followup"><strong class="tag">Open question: no Wayland in the local build.</strong> <code>Cargo.toml</code> asks for <code>use-wayland</code>, and cargo enables it on <code>fltk-sys</code>. Yet the local FLTK has <code>/* #undef FLTK_USE_WAYLAND */</code> in <code>fl_config.h</code>, the CMake cache has no <code>FLTK_BACKEND_WAYLAND</code>, and <code>ldd</code> shows no <code>libwayland-client</code> (ferrispad-90). So here the leak went only through <code>DISPLAY=:0</code> (XWayland). Whether release builds get Wayland, and should, may be a packaging question for its own ticket.</div>
+  <div class="followup"><strong class="tag">Until this lands.</strong> Master's hook still runs the UI tests on your display at every commit of every session. Sessions cannot avoid it without bypassing the hook, which the rules forbid. For manual gate runs they already use the safe form. Also, <code>xvfb-run -a</code> picks its display by testing lock files, so it can collide with a concurrent Xvfb. That makes the gate fail, never leak; a rerun fixes it.</div>
+  <h3>How to test T0122</h3>
+  <ol class="steps">
+    <li><code>bash .claude/hooks/test-pre-commit-gates.sh</code>
+      <span class="expect">23 passed, 0 failed. On master's hook, case 15 failed as above.</span></li>
+    <li>From the VSCode terminal in the worktree: <code>flatpak-spawn --host bash -lc "$PWD/scripts/gates.sh $PWD"</code>
+      <span class="expect">exit 0, every test binary green, no "skipping UI construction tests" line, a line <code>FLTK on the private X display :99</code> (or another number, never <code>:0</code>/<code>:1</code>), and no window on your screen. On 2026-11-28 it gave 784 passed.</span></li>
+    <li>The same, with a stand-in test step that prints what it sees: <code>flatpak-spawn --host bash -lc "FERRISPAD_GATES_CMD='echo \$DISPLAY \${WAYLAND_DISPLAY:-unset} \$FERRISPAD_REQUIRE_UI_TESTS' $PWD/scripts/gates.sh $PWD"</code>
+      <span class="expect">something like <code>:99 unset 1</code>, a display of its own, never <code>:0</code>.</span></li>
+    <li><code>flatpak-spawn --host bash -lc "FERRISPAD_GATES_CMD='echo \$FLTK_BACKEND \$XDG_RUNTIME_DIR \${DBUS_SESSION_BUS_ADDRESS:-nobus}' $PWD/scripts/gates.sh $PWD"</code>
+      <span class="expect"><code>x11 /tmp/ferrispad-gates-runtime.XXXXXX nobus</code>: not your <code>/run/user/…</code>.</span></li>
+  </ol>
+</section>
+
+<section class="card">
+  <h2>Release notes and compatibility</h2>
+  <ul>
+    <li><strong>CHANGELOG:</strong> none: process only.</li>
+    <li>Settings, sessions, plugins and themes are untouched. A gate run needs <code>nixpkgs#xvfb-run</code>, which nix fetches on first use. <code>shoot.sh</code> already uses it.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>What remains open</h2>
+  <ul>
+    <li><strong>T0120:</strong> <code>compare.sh</code> and <code>shoot.sh</code> runs that are not safe concurrently (a shared worktree, a check-then-start display pick). Same family, separate ticket.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>End-to-end verification</h2>
+  <p>A session commits from a worktree while you watch your screen: the gates run, the UI tests pass, and no FerrisPad window appears. Run it from this branch's worktree in the VSCode terminal. The hook only runs the gates; nothing is committed.</p>
+  <h3>Starting state</h3>
+  <ol class="steps">
+    <li><code>git status --short; echo "DISPLAY=$DISPLAY"</code>
+      <span class="expect">a clean worktree on <code>ticket/T0122</code>; your session's display is set.</span></li>
+  </ol>
+  <h3>The scenario</h3>
+  <ol class="steps">
+    <li>Run the hook the way Claude Code does: <code>printf '{"tool_input":{"command":"git commit -m x"},"cwd":"%s"}' "$PWD" | CLAUDE_PROJECT_DIR=$PWD bash .claude/hooks/pre-commit-gates.sh; echo exit=$?</code>, and watch your screen while it runs (a few minutes)
+      <span class="expect">no FerrisPad window or dialog appears; <code>exit=0</code>.</span></li>
+    <li><code>grep -c 'test result: ok' /tmp/ferrispad-precommit-gates-T0122-*.log; grep -c skipping /tmp/ferrispad-precommit-gates-T0122-*.log</code>
+      <span class="expect">a count of green test binaries, then <code>0</code>: no UI test was skipped.</span></li>
+  </ol>
+  <h3>The gates</h3>
+  <ol class="steps">
+    <li><code>flatpak-spawn --host bash -lc "$PWD/scripts/gates.sh $PWD"</code>
+      <span class="expect">all green, zero warnings.</span></li>
+  </ol>
+</section>
+
+<footer>
+  Presentation of PR #246 · branch <code>ticket/T0122</code> · commits <code>cc2a069</code> → the <code>3-done/</code> move ·
+  ticket <code>docs/tickets/3-done/T0122-gates-ui-tests-private-display.md</code> · issue #244.
+</footer>
+</div>
+</body>
+</html>

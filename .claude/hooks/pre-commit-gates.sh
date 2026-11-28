@@ -8,9 +8,11 @@
 # worktree) adjusted by any `cd <dir>` / `git -C <dir>` in the command. If it
 # can't be determined, the main checkout is gated instead (fail closed).
 #
-# Env quirk: cargo is not on PATH in the VSCode Flatpak terminal; it lives in
-# the project's Nix dev shell on the host. We run each gate via `nix develop`.
-# Wired in .claude/settings.json. Tests: .claude/hooks/test-pre-commit-gates.sh.
+# The gates themselves are scripts/gates.sh (T0122): fmt, clippy, then the
+# tests on a private Xvfb, never on the user's display. cargo is not on PATH
+# in the VSCode Flatpak terminal; nix is on the host, reached through
+# flatpak-spawn. Wired in .claude/settings.json.
+# Tests: .claude/hooks/test-pre-commit-gates.sh.
 set -uo pipefail
 
 # Claude Code sets CLAUDE_PROJECT_DIR for hooks (always the main checkout);
@@ -158,18 +160,20 @@ fi
 LOG="/tmp/ferrispad-precommit-gates-$(basename -- "$TARGET")-$(printf '%s' "$TARGET" | cksum | cut -d' ' -f1).log"
 q_target="$(printf '%q' "$TARGET")"
 
-gates='cargo fmt --check && cargo clippy --all-targets --all-features -- -D warnings && cargo test'
+# The gate script ships with this hook (the main checkout's copy), so a
+# worktree on an older branch is gated the same way.
+GATES="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/gates.sh"
+q_gates="$(printf '%q' "$GATES")"
 
-# Three ways to run the gates:
-#  - FERRISPAD_GATES_CMD set: tests only, a stand-in for the cargo gates.
+# Two ways to run the gates:
 #  - VSCode Flatpak terminal: nix lives on the host, reached via flatpak-spawn.
+#    FERRISPAD_GATES_CMD (tests only) keeps the run local: its stand-ins live
+#    in the sandbox.
 #  - Host session (Claude Code CLI): nix is already on PATH, run directly.
-if [[ -n "${FERRISPAD_GATES_CMD:-}" ]]; then
-  run_gate() { bash -c "cd $q_target && $FERRISPAD_GATES_CMD"; }
-elif command -v flatpak-spawn >/dev/null 2>&1; then
-  run_gate() { flatpak-spawn --host bash -lc "cd $q_target && nix develop --command bash -c '$gates'"; }
+if [[ -z "${FERRISPAD_GATES_CMD:-}" ]] && command -v flatpak-spawn >/dev/null 2>&1; then
+  run_gate() { flatpak-spawn --host bash -lc "bash $q_gates $q_target"; }
 else
-  run_gate() { bash -c "cd $q_target && nix develop --command bash -c '$gates'"; }
+  run_gate() { bash "$GATES" "$TARGET"; }
 fi
 
 {
