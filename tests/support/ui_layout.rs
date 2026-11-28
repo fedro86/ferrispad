@@ -40,8 +40,55 @@ pub fn display_available() -> bool {
     } else {
         // Opens the display, which measuring text needs.
         let _ = fltk::app::screen_size();
+        assert_private_display_when_required("UI tests");
     }
     has_display
+}
+
+/// Under the gates and CI (`FERRISPAD_REQUIRE_UI_TESTS=1`) the UI tests must
+/// run on the private X display they were given, never on the user's screen
+/// (T0122): FLTK must not be on Wayland (fltk is built with `use-wayland`,
+/// and where that backend is compiled in it tries `wayland-0` before
+/// `DISPLAY`), and the X display FLTK opened must be `$DISPLAY`, not `:0` or
+/// `:1`. Call after the display is open; `what` names the caller in messages.
+pub fn assert_private_display_when_required(what: &str) {
+    if std::env::var("FERRISPAD_REQUIRE_UI_TESTS").as_deref() != Ok("1") {
+        return;
+    }
+    // SAFETY: a read of FLTK's global backend state; no pointer involved.
+    let wayland = unsafe { fltk_sys::fl::Fl_using_wayland() } != 0;
+    assert!(
+        !wayland,
+        "{what} are on a Wayland compositor, not the gate's private X display \
+         (DISPLAY={:?}, FLTK_BACKEND={:?}): run them through scripts/gates.sh",
+        std::env::var("DISPLAY").ok(),
+        std::env::var("FLTK_BACKEND").ok()
+    );
+    #[cfg(target_os = "linux")]
+    {
+        // The X connection FLTK really opened, by name.
+        unsafe extern "C" {
+            fn XDisplayString(display: *mut std::ffi::c_void) -> *const std::ffi::c_char;
+        }
+        let display = fltk::app::display();
+        // SAFETY: `display` is FLTK's open X connection (fltk asserts it is
+        // not null); XDisplayString returns a C string owned by it.
+        let opened = unsafe {
+            let name = XDisplayString(display);
+            assert!(!name.is_null(), "XDisplayString returned null");
+            std::ffi::CStr::from_ptr(name)
+                .to_string_lossy()
+                .into_owned()
+        };
+        let screen_less = |d: &str| d.split('.').next().unwrap_or_default().to_string();
+        let wanted = std::env::var("DISPLAY").unwrap_or_default();
+        assert!(
+            screen_less(&opened) == screen_less(&wanted)
+                && !matches!(screen_less(&opened).as_str(), ":0" | ":1" | ""),
+            "{what} opened X display {opened:?}, not the gate's private one ({wanted:?})"
+        );
+        eprintln!("{what}: FLTK on the private X display {opened}");
+    }
 }
 
 /// Select every widget (for the `only` filters).

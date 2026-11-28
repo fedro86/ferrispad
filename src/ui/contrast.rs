@@ -9,24 +9,11 @@
 //! blue selection and is barely readable (1.55:1 on Ocean Light).
 //!
 //! So FerrisPad installs its own contrast function ([`install`]):
-//! - on the registered selection backgrounds (the editor's, focused and
-//!   FLTK's unfocused blend; the dialog lists' (T0097); the file tree's
-//!   (T0104)) the text keeps its color only if it is WCAG-readable
-//!   (>= 4.5:1), otherwise it becomes black or white, whichever reads better;
+//! - on the editor's selection backgrounds (focused, and FLTK's unfocused
+//!   blend) the text keeps its color only if it is WCAG-readable (>= 4.5:1),
+//!   otherwise it becomes black or white, whichever reads better;
 //! - everywhere else it is an exact port of FLTK's own CIELAB rule at
 //!   [`FLTK_CONTRAST_LEVEL`], so every other widget draws as before.
-//!
-//! Since T0104 the file tree's selected row is a registered background, so
-//! its git-status labels no longer depend on level 10 (on that row
-//! readability now wins over the status color, which stays on every other
-//! row). Level 10 is kept on purpose: it still decides the text color of
-//! every *unregistered* background (buttons, menus, other widgets), and
-//! changing it would be a separate, app-wide visual change.
-//!
-//! One edge, unused today: an *inactive* tree draws its selected row in
-//! `fl_inactive(selection_color)`, which is not registered, while the text is
-//! still chosen against the active selection color. FerrisPad never
-//! deactivates the tree; a change that does should register that blend too.
 
 use std::ffi::{c_int, c_uint};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -100,8 +87,6 @@ pub struct EditorSelectionBgs {
     pub unfocused_on_line: Option<(u8, u8, u8)>,
     /// The selected-row color of dialog lists (T0097).
     pub list_selection: Option<(u8, u8, u8)>,
-    /// The selected-row color of the file tree (T0104).
-    pub panel_selection: Option<(u8, u8, u8)>,
 }
 
 impl EditorSelectionBgs {
@@ -115,7 +100,6 @@ impl EditorSelectionBgs {
             )),
             unfocused_on_line: None,
             list_selection: None,
-            panel_selection: None,
         }
     }
 
@@ -136,19 +120,11 @@ impl EditorSelectionBgs {
         self
     }
 
-    /// Also treat the file tree's selected-row color as a selection
-    /// background (T0104).
-    pub fn with_panel_selection(mut self, panel_selection: (u8, u8, u8)) -> Self {
-        self.panel_selection = Some(panel_selection);
-        self
-    }
-
     fn contains(&self, rgb: (u8, u8, u8)) -> bool {
         self.focused == Some(rgb)
             || self.unfocused == Some(rgb)
             || self.unfocused_on_line == Some(rgb)
             || self.list_selection == Some(rgb)
-            || self.panel_selection == Some(rgb)
     }
 }
 
@@ -185,7 +161,6 @@ static FOCUSED_BG: AtomicU32 = AtomicU32::new(0);
 static UNFOCUSED_BG: AtomicU32 = AtomicU32::new(0);
 static UNFOCUSED_LINE_BG: AtomicU32 = AtomicU32::new(0);
 static LIST_SELECTION_BG: AtomicU32 = AtomicU32::new(0);
-static PANEL_SELECTION_BG: AtomicU32 = AtomicU32::new(0);
 const PRESENT: u32 = 1 << 24;
 
 fn pack(rgb: Option<(u8, u8, u8)>) -> u32 {
@@ -228,18 +203,12 @@ pub(crate) fn registered_list_selection() -> Option<(u8, u8, u8)> {
     unpack(LIST_SELECTION_BG.load(Ordering::Relaxed))
 }
 
-/// Record the selected-row color of the file tree (T0104).
-pub fn register_panel_selection(selection: (u8, u8, u8)) {
-    PANEL_SELECTION_BG.store(pack(Some(selection)), Ordering::Relaxed);
-}
-
 fn registered_editor_selection() -> EditorSelectionBgs {
     EditorSelectionBgs {
         focused: unpack(FOCUSED_BG.load(Ordering::Relaxed)),
         unfocused: unpack(UNFOCUSED_BG.load(Ordering::Relaxed)),
         unfocused_on_line: unpack(UNFOCUSED_LINE_BG.load(Ordering::Relaxed)),
         list_selection: unpack(LIST_SELECTION_BG.load(Ordering::Relaxed)),
-        panel_selection: unpack(PANEL_SELECTION_BG.load(Ordering::Relaxed)),
     }
 }
 
@@ -274,7 +243,7 @@ mod tests {
     use super::*;
 
     fn rgb((r, g, b): (u8, u8, u8)) -> Color {
-        Color::from_rgb(r, g, b)
+        crate::ui::color::fltk_rgb(r, g, b)
     }
 
     /// Hand-checked reference pairs for the CIELAB port at level 10, from

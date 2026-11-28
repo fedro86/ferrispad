@@ -35,7 +35,7 @@ impl ThemeRgb {
     }
 
     pub fn to_fltk(self) -> Color {
-        Color::from_rgb(self.r, self.g, self.b)
+        fltk_rgb(self.r, self.g, self.b)
     }
 
     /// Calculate brightness (0-255)
@@ -73,6 +73,22 @@ impl ThemeRgb {
     }
 }
 
+/// The FLTK color for an sRGB triple. Use this instead of
+/// `Color::from_rgb` everywhere (T0098).
+///
+/// FLTK packs an RGB color as `0xRRGGBB00` and reads `0x00000000` as palette
+/// index 0, `FL_FOREGROUND_COLOR`, which FerrisPad sets light in dark mode:
+/// `Color::from_rgb(0, 0, 0)` therefore drew pure black as light gray. Black
+/// is returned as `Color::Black` (`FL_BLACK`, index 56) instead; every other
+/// color keeps its RGB encoding.
+pub const fn fltk_rgb(r: u8, g: u8, b: u8) -> Color {
+    if r == 0 && g == 0 && b == 0 {
+        Color::Black
+    } else {
+        Color::from_rgb(r, g, b)
+    }
+}
+
 /// `base` stepped away from `bg` until it reaches `min` WCAG contrast on it:
 /// lighter first when `lighter` (toward white), darker otherwise (scaled
 /// toward black, which keeps the hue), and the other way when that direction
@@ -98,6 +114,37 @@ pub fn push_to_contrast(base: ThemeRgb, bg: ThemeRgb, min: f64, lighter: bool) -
         } else {
             ThemeRgb::new(0, 0, 0)
         })
+}
+
+/// The smallest shift of `bg` that reaches `min` WCAG contrast against `bg`
+/// itself: lightened toward white when `lighter`, otherwise darkened (scaled
+/// toward black, which keeps the hue). Unlike [`push_to_contrast`], whose
+/// fixed steps overshoot, the shift is found by bisection, so a *soft* band
+/// lands on its target (T0104). Falls back to white or black when even the
+/// full shift stays below `min`.
+pub fn shift_to_contrast(bg: ThemeRgb, min: f64, lighter: bool) -> ThemeRgb {
+    let rgb = |c: ThemeRgb| (c.r, c.g, c.b);
+    let at = |f: f32| {
+        if lighter {
+            bg.lighten(f)
+        } else {
+            bg.darken(1.0 - f)
+        }
+    };
+    let reaches = |f: f32| wcag_contrast(rgb(at(f)), rgb(bg)) >= min;
+    if !reaches(1.0) {
+        return at(1.0);
+    }
+    let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    for _ in 0..24 {
+        let mid = (lo + hi) / 2.0;
+        if reaches(mid) {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    at(hi)
 }
 
 /// WCAG 2 relative luminance of an sRGB color, from 0.0 (black) to 1.0
@@ -143,6 +190,58 @@ pub(crate) fn theme_test_backgrounds() -> Vec<(String, (u8, u8, u8))> {
 mod tests {
     use super::*;
 
+    /// T0098: FLTK packs RGB as 0xRRGGBB00 and reads 0x00000000 as palette
+    /// index 0, `FL_FOREGROUND_COLOR`, which the dark theme sets light: pure
+    /// black must never become that.
+    #[test]
+    fn fltk_rgb_black_is_not_the_foreground_index() {
+        let black = fltk_rgb(0, 0, 0);
+        assert_ne!(
+            black.bits(),
+            0,
+            "black packed as palette index 0 (foreground)"
+        );
+        assert_eq!(black, Color::Black);
+        assert_eq!(ThemeRgb::new(0, 0, 0).to_fltk(), Color::Black);
+        // Every other color keeps its plain RGB encoding.
+        assert_eq!(fltk_rgb(0, 0, 1), Color::from_rgb(0, 0, 1));
+        assert_eq!(fltk_rgb(255, 255, 255), Color::from_rgb(255, 255, 255));
+        assert_eq!(fltk_rgb(43, 48, 59).to_rgb(), (43, 48, 59));
+    }
+
+    /// Every RGB → FLTK color conversion goes through [`fltk_rgb`]: a direct
+    /// `Color::from_rgb` anywhere else could encode black as the foreground.
+    #[test]
+    fn no_direct_color_from_rgb_outside_fltk_rgb() {
+        fn walk(dir: &std::path::Path, hits: &mut Vec<String>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, hits);
+                } else if path.extension().is_some_and(|e| e == "rs")
+                    && !path.ends_with("ui/color.rs")
+                {
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    for (n, line) in text.lines().enumerate() {
+                        if line.contains("Color::from_rgb(") {
+                            hits.push(format!("{}:{}", path.display(), n + 1));
+                        }
+                    }
+                }
+            }
+        }
+        let mut hits = Vec::new();
+        walk(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut hits,
+        );
+        assert!(
+            hits.is_empty(),
+            "use ui::color::fltk_rgb:\n{}",
+            hits.join("\n")
+        );
+    }
+
     #[test]
     fn wcag_contrast_extremes_and_symmetry() {
         let (black, white) = ((0, 0, 0), (255, 255, 255));
@@ -151,6 +250,26 @@ mod tests {
         assert!((wcag_contrast((10, 20, 30), (10, 20, 30)) - 1.0).abs() < 1e-9);
         assert_eq!(wcag_luminance(black), 0.0);
         assert!((wcag_luminance(white) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn shift_to_contrast_lands_on_its_target() {
+        for (bg, lighter) in [
+            (ThemeRgb::new(43, 48, 59), true),
+            (ThemeRgb::new(0, 0, 0), true),
+            (ThemeRgb::new(239, 241, 245), false),
+            (ThemeRgb::WHITE, false),
+        ] {
+            let c = shift_to_contrast(bg, 1.5, lighter);
+            let ratio = wcag_contrast((c.r, c.g, c.b), (bg.r, bg.g, bg.b));
+            assert!((1.5..1.53).contains(&ratio), "{bg:?} -> {c:?} = {ratio:.3}");
+            assert_eq!(lighter, c.brightness() > bg.brightness(), "{bg:?} -> {c:?}");
+        }
+        // Out of reach: white cannot get lighter, so the full shift is returned.
+        assert_eq!(
+            shift_to_contrast(ThemeRgb::WHITE, 1.5, true),
+            ThemeRgb::WHITE
+        );
     }
 
     #[test]

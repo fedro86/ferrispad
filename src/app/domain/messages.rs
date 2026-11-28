@@ -17,6 +17,10 @@ pub enum Message {
     FileOpen,
     FileSave,
     FileSaveAs,
+    /// File → Open Recent, or the start page's Recent Files card (T0116).
+    OpenRecentFile(String),
+    /// File → Open Recent → Clear Recent (T0116).
+    ClearRecentFiles,
     FileReload,
     FileReloadAll,
     FileQuit,
@@ -79,6 +83,12 @@ pub enum Message {
     /// Sent when FLTK's key and the typed text disagree because a non-first
     /// keyboard layout is active (T0057).
     RunShortcut(String),
+
+    /// A clean document was just edited (its dirty state flipped): refresh
+    /// the window title and the tab bar (T0093). Not sent per keystroke, and
+    /// coalesced: flips while one is queued send nothing more (the id is the
+    /// first flipped document's).
+    DirtyChanged(DocumentId),
 
     // Syntax highlighting
     BufferModified {

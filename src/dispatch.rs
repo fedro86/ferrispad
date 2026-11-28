@@ -7,6 +7,7 @@ use fltk::prelude::*;
 
 use ferris_pad::split_parent;
 
+use crate::app::controllers::highlight::ClearAnnotations;
 use crate::app::controllers::plugin::PluginController;
 use crate::app::controllers::update::BannerWidgets;
 use crate::app::domain::messages::Message;
@@ -82,6 +83,11 @@ pub fn handle_file(msg: Message, state: &mut AppState) -> DispatchResult {
             state.dispatch_file_actions(actions);
             state.session.mark_dirty();
         }
+        Message::OpenRecentFile(path) => {
+            state.open_recent(path);
+            state.session.mark_dirty();
+        }
+        Message::ClearRecentFiles => state.clear_recent(),
         Message::FileQuit | Message::WindowClose => {
             // Snapshot the window before the prompt; saved only on a confirmed
             // quit. A title-bar close arrives here as WindowClose with the
@@ -386,6 +392,13 @@ pub fn handle_settings(msg: Message, state: &mut AppState, lw: &mut LayoutWidget
 // Syntax Highlighting
 // ---------------------------------------------------------------------------
 
+/// `DirtyChanged`: refresh the window title and the tab bar (T0093). One
+/// message stands for every flip since the last one was dequeued.
+pub fn refresh_dirty_markers(state: &mut AppState) {
+    state.update_window_title();
+    state.rebuild_tab_bar();
+}
+
 pub fn handle_highlight(msg: Message, state: &mut AppState) {
     match msg {
         Message::BufferModified {
@@ -394,10 +407,7 @@ pub fn handle_highlight(msg: Message, state: &mut AppState) {
             inserted,
             deleted,
         } => {
-            if let Some(doc) = state.tab_manager.doc_by_id_mut(id) {
-                doc.cached_tree = None;
-                doc.cached_line_count = doc.buffer.count_lines(0, doc.buffer.length()) as usize;
-            }
+            state.on_buffer_modified(id);
             state.schedule_rehighlight(id, pos);
             state.schedule_text_change_hook(id, pos, inserted, deleted);
             state.session.mark_dirty();
@@ -635,9 +645,13 @@ pub fn handle_annotation(msg: Message, state: &mut AppState) {
                 .update_annotations(annotations, &state.tab_manager, &mut state.editor);
         }
         Message::AnnotationsClear => {
-            state
-                .highlight
-                .clear_annotations(&mut state.tab_manager, &mut state.editor);
+            match state.highlight.clear_annotations(&mut state.tab_manager) {
+                ClearAnnotations::Nothing | ClearAnnotations::Restarted => {}
+                ClearAnnotations::Restyled => state
+                    .highlight
+                    .bind_active_styles(&state.tab_manager, &mut state.editor),
+                ClearAnnotations::Chunked(id) => state.highlight.queue_chunked(id, &state.sender),
+            }
         }
         Message::ManualHighlight => {
             state.request_manual_highlight();
@@ -711,6 +725,8 @@ pub fn handle_deferred(
             {
                 let id = doc.id;
                 state.tab_manager.remove(id);
+                // No document now: the title drops "Untitled" (T0093).
+                state.update_window_title();
             }
 
             if tabs_enabled {
@@ -1360,9 +1376,14 @@ pub fn sync_start_page(state: &mut AppState, lw: &mut LayoutWidgets) {
     } else if !has_tabs && start_visible {
         // Start page visible — check if theme changed and re-render
         let theme_bg = state.highlight.highlighter().theme_background();
-        if lw.start_page.last_theme_bg() != Some(theme_bg) {
+        // Re-render on a theme change, or when the recent-files list changed
+        // (Clear Recent, or an entry dropped) while the page is shown (T0116).
+        if lw.start_page.last_theme_bg() != Some(theme_bg)
+            || lw.start_page.last_recent() != state.recent_files.as_slice()
+        {
             let session_name = state.session.current_session_name().to_string();
-            lw.start_page.show(state.sender, theme_bg, &session_name);
+            lw.start_page
+                .show(state.sender, theme_bg, &session_name, &state.recent_files);
             let parent = lw.editor_col.as_mut().unwrap_or(&mut lw.content_row);
             parent.layout();
             lw.wind.redraw();
@@ -1377,7 +1398,8 @@ pub fn sync_start_page(state: &mut AppState, lw: &mut LayoutWidgets) {
         }
         let theme_bg = state.highlight.highlighter().theme_background();
         let session_name = state.session.current_session_name().to_string();
-        lw.start_page.show(state.sender, theme_bg, &session_name);
+        lw.start_page
+            .show(state.sender, theme_bg, &session_name, &state.recent_files);
         let parent = lw.editor_col.as_mut().unwrap_or(&mut lw.content_row);
         parent.layout();
         state.update_window_title();

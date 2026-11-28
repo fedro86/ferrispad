@@ -4,7 +4,7 @@
 //! - Left: 2x2 button grid + stacked session/files cards
 //! - Right: donate button + changelog/sponsor card (aligned with left cards)
 
-use std::collections::HashSet;
+use crate::ui::color::fltk_rgb;
 use std::path::Path;
 
 use fltk::{
@@ -18,7 +18,8 @@ use fltk::{
 };
 
 use crate::app::domain::messages::Message;
-use crate::app::services::session::{self, SessionRestore};
+use crate::app::services::recent_files;
+use crate::app::services::session;
 use crate::ui::dialogs::DialogTheme;
 
 const WIKI_FERRISPAD: &str = "https://github.com/fedro86/ferrispad/wiki";
@@ -27,12 +28,12 @@ const CHANGELOG_URL: &str = "https://github.com/fedro86/ferrispad/blob/master/CH
 
 /// Recent changelog entries: (description, version_tag).
 const CHANGELOG_ENTRIES: &[&str] = &[
+    "Plugin sandbox hardening",
+    "No stalls on long lines",
     "Custom themes & theme manager",
     "Current-line highlight",
     "Window size remembered",
     "Blue, readable selection",
-    "Save prompt on title-bar close",
-    "Updated dependencies, smaller binary",
 ];
 
 const BTN_W: i32 = 150;
@@ -48,6 +49,8 @@ pub struct StartPage {
     flex: Flex,
     is_visible: bool,
     last_theme_bg: Option<(u8, u8, u8)>,
+    /// The recent-files list the page was last drawn with (T0116).
+    last_recent: Vec<String>,
 }
 
 impl Default for StartPage {
@@ -65,6 +68,7 @@ impl StartPage {
             flex,
             is_visible: false,
             last_theme_bg: None,
+            last_recent: Vec::new(),
         }
     }
 
@@ -80,15 +84,26 @@ impl StartPage {
         self.last_theme_bg
     }
 
+    /// The recent-files list the page was last drawn with.
+    pub fn last_recent(&self) -> &[String] {
+        &self.last_recent
+    }
+
     pub fn hide(&mut self) {
         self.is_visible = false;
         self.flex.hide();
         self.flex.clear();
     }
 
-    pub fn show(&mut self, sender: Sender<Message>, theme_bg: (u8, u8, u8), active_session: &str) {
+    pub fn show(
+        &mut self,
+        sender: Sender<Message>,
+        theme_bg: (u8, u8, u8),
+        active_session: &str,
+        recent_list: &[String],
+    ) {
         let theme = DialogTheme::from_theme_bg(theme_bg);
-        let bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
+        let bg = fltk_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
         let card_bg = theme.row_bg;
         let border_color = theme.text_dim;
 
@@ -124,9 +139,11 @@ impl StartPage {
         // Gather data
         let all_sessions = session::list_sessions();
         let sessions: Vec<&String> = all_sessions.iter().take(MAX_RECENT).collect();
-        let recent = gather_recent_files();
+        // The same list as File → Open Recent (T0116).
+        let recent = recent_files::start_page_entries(recent_list);
+        self.last_recent = recent_list.to_vec();
         let max_card_items = sessions.len().max(recent.len()).max(1) as i32;
-        let card_items_h = 30 + 1 + max_card_items * 28 + (2 + max_card_items - 1) * 2 + 20;
+        let card_items_h = left_card_h(max_card_items, CHANGELOG_ENTRIES.len());
 
         let mut body = Flex::default().row();
         body.set_pad(20);
@@ -202,18 +219,22 @@ impl StartPage {
         files_box.fixed(&h, 30);
         let sep = separator(border_color);
         files_box.fixed(&sep, 1);
+        // A row must fit the card even in bold (the hover font): the folder
+        // is elided in the middle when it would be cut at the edge (T0116).
+        let row_w = LEFT_W - 2 * 8 - 8;
+        fltk::draw::set_font(Font::HelveticaBold, 14);
         for (display, path) in &recent {
             let short = shorten(path);
-            let label = format!("{} {}", display, short);
-            let mut btn = hoverable_item(&label, path, &theme, card_bg, false);
+            let label = fit_row_label(display, &short, row_w, |t| fltk::draw::measure(t, false).0);
+            // Measured as plain text above, shown escaped: '@' and '&' are
+            // FLTK specials in a label ("notes@home.md" drew as "notes").
+            let shown = crate::ui::menu::escape_label_text(&label);
+            let mut btn = hoverable_item(&shown, path, &theme, card_bg, false);
             files_box.fixed(&btn, 28);
             let s = sender;
             let p = path.clone();
-            btn.set_callback(move |_| {
-                if Path::new(&p).exists() {
-                    s.send(Message::DeferredOpenFile(p.clone()));
-                }
-            });
+            // Like File → Open Recent: a missing file is reported and dropped.
+            btn.set_callback(move |_| s.send(Message::OpenRecentFile(p.clone())));
         }
         spacer(card_bg);
         files_box.end();
@@ -281,10 +302,7 @@ impl StartPage {
 
         sponsor_box.end();
         add_rounded_border(&mut sponsor_box, card_bg, border_color);
-        // Match from top of sessions card to bottom of files card:
-        // sess_card + pad + fspacer(4) + pad + files_card
-        let changelog_h = card_items_h * 2 + BTN_GAP + 4 + BTN_GAP;
-        right.fixed(&sponsor_box, changelog_h);
+        right.fixed(&sponsor_box, changelog_card_h(card_items_h));
 
         right.end();
 
@@ -321,6 +339,35 @@ impl StartPage {
 }
 
 // ── Widget helpers ──
+
+/// Height of a recent-sessions / recent-files card listing `items` rows.
+fn recent_card_h(items: i32) -> i32 {
+    30 + 1 + items * 28 + (2 + items - 1) * 2 + 20
+}
+
+/// Height the changelog card needs to show `entries` rows: the card margins,
+/// the header, the separator, one 22-px row per entry, the "more..." link,
+/// and the pad between those children and the flexible spacer.
+fn changelog_content_h(entries: usize) -> i32 {
+    let rows = i32::try_from(entries).unwrap_or(i32::MAX / 64);
+    let children = 2 + rows + 2;
+    2 * 8 + 30 + 1 + rows * 22 + 25 + (children - 1) * 2
+}
+
+/// The changelog card spans both left cards, from the top of the sessions
+/// card to the bottom of the files card: sess_card + pad + fspacer(4) + pad
+/// + files_card.
+fn changelog_card_h(left_card_h: i32) -> i32 {
+    left_card_h * 2 + BTN_GAP + 4 + BTN_GAP
+}
+
+/// Height of each left card for `items` recent rows. With few rows the cards
+/// grow, so the changelog card, which spans both, shows every one of its
+/// `changelog_entries` and the columns stay aligned.
+fn left_card_h(items: i32, changelog_entries: usize) -> i32 {
+    let spanned = changelog_content_h(changelog_entries) - (BTN_GAP + 4 + BTN_GAP);
+    recent_card_h(items).max((spanned + 1) / 2)
+}
 
 fn card(_theme: &DialogTheme, card_bg: Color, _border: Color) -> Flex {
     let mut f = Flex::default().column();
@@ -396,7 +443,7 @@ fn accent_button(label: &str, theme: &DialogTheme) -> Button {
     btn.set_frame(FrameType::RFlatBox);
     btn.set_color(theme.accent);
     // White text on accent for readability
-    btn.set_label_color(Color::from_rgb(255, 255, 255));
+    btn.set_label_color(fltk_rgb(255, 255, 255));
     btn.set_label_size(15);
     let normal = theme.accent;
     let hover = theme.accent_hover;
@@ -478,6 +525,42 @@ fn hoverable_item(
     btn
 }
 
+/// "<name> <folder>", with the folder (and, if still needed, the name)
+/// elided in the middle with "…" until `measure` says it fits `max_w`.
+fn fit_row_label(name: &str, folder: &str, max_w: i32, measure: impl Fn(&str) -> i32) -> String {
+    let full = format!("{name} {folder}");
+    if measure(&full) <= max_w {
+        return full;
+    }
+    let middle = |s: &str, keep: usize| -> String {
+        let chars: Vec<char> = s.chars().collect();
+        if keep >= chars.len() {
+            return s.to_string();
+        }
+        let head = keep / 2;
+        let tail = keep - head;
+        let mut out: String = chars[..head].iter().collect();
+        out.push('…');
+        out.extend(&chars[chars.len() - tail..]);
+        out
+    };
+    let folder_len = folder.chars().count();
+    for keep in (0..folder_len).rev() {
+        let label = format!("{name} {}", middle(folder, keep));
+        if measure(&label) <= max_w {
+            return label;
+        }
+    }
+    let name_len = name.chars().count();
+    for keep in (1..name_len).rev() {
+        let label = middle(name, keep);
+        if measure(&label) <= max_w {
+            return label;
+        }
+    }
+    "…".to_string()
+}
+
 fn shorten(path: &str) -> String {
     Path::new(path)
         .parent()
@@ -494,24 +577,49 @@ fn shorten(path: &str) -> String {
         .unwrap_or_default()
 }
 
-fn gather_recent_files() -> Vec<(String, String)> {
-    let mut files = Vec::new();
-    let mut seen = HashSet::new();
-    for name in session::list_sessions() {
-        if let Some(data) = session::load_session(SessionRestore::SavedFiles, &name) {
-            for doc in &data.documents {
-                if let Some(ref p) = doc.file_path
-                    && seen.insert(p.clone())
-                {
-                    let display = Path::new(p)
-                        .file_name()
-                        .map(|f| f.to_string_lossy().to_string())
-                        .unwrap_or_else(|| p.clone());
-                    files.push((display, p.clone()));
-                }
-            }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// T0114: with few recent items (a fresh install), the changelog card,
+    /// which is as tall as the two left cards, clipped its last entry.
+    #[test]
+    fn changelog_card_shows_every_entry() {
+        let needed = changelog_content_h(CHANGELOG_ENTRIES.len());
+        for items in 1..=MAX_RECENT as i32 {
+            let card = changelog_card_h(left_card_h(items, CHANGELOG_ENTRIES.len()));
+            assert!(
+                card >= needed,
+                "{items} recent item(s): changelog card {card} px < {needed} px needed"
+            );
         }
     }
-    files.truncate(MAX_RECENT);
-    files
+
+    /// T0116: a Recent Files row never runs past the card: the folder is
+    /// elided first, then the name.
+    #[test]
+    fn recent_files_row_label_fits_the_card() {
+        let measure = |t: &str| t.chars().count() as i32 * 7;
+        assert_eq!(
+            fit_row_label("a.txt", "~/docs", 200, measure),
+            "a.txt ~/docs"
+        );
+        let long = "/tmp/ferrispad-shoot.abcdef/files/and/a/very/long/folder";
+        let fitted = fit_row_label("notes.txt", long, 280, measure);
+        assert!(measure(&fitted) <= 280, "{fitted}");
+        assert!(fitted.starts_with("notes.txt /tmp"), "{fitted}");
+        assert!(
+            fitted.contains('…') && fitted.ends_with("folder"),
+            "{fitted}"
+        );
+        let tiny = fit_row_label(&"n".repeat(80), "/x", 140, measure);
+        assert!(measure(&tiny) <= 140, "{tiny}");
+    }
+
+    #[test]
+    fn left_cards_keep_their_recent_rows() {
+        for items in 1..=MAX_RECENT as i32 {
+            assert!(left_card_h(items, CHANGELOG_ENTRIES.len()) >= recent_card_h(items));
+        }
+    }
 }

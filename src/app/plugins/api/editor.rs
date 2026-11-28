@@ -159,11 +159,34 @@ pub fn setup_mcp_config(
         Err(e) => return Ok((false, format!("Cannot determine binary path: {}", e))),
     };
 
-    let mcp_path = resolved_root.join(".mcp.json");
+    match write_mcp_files(&resolved_root, project_root, &binary) {
+        Ok(()) => Ok((true, String::new())),
+        Err(e) => Ok((false, e)),
+    }
+}
+
+/// Write `<root>/.mcp.json` (unless it exists) and make sure `.gitignore`
+/// lists it. Each file is resolved through the sandbox rule itself (T0090),
+/// so neither can be written through a symlink that leaves `project_root`.
+pub(super) fn write_mcp_files(
+    root: &std::path::Path,
+    project_root: &std::path::Path,
+    binary: &str,
+) -> Result<(), String> {
+    let in_root = |name: &str| -> Result<std::path::PathBuf, String> {
+        let path = root.join(name);
+        super::sandbox::resolve_for_write(
+            &path.to_string_lossy(),
+            project_root,
+            super::sandbox::WriteKind::Create,
+        )
+        .map_err(|e| format!("{}: {}", name, e))
+    };
+    let mcp_path = in_root(".mcp.json")?;
 
     // Don't overwrite existing .mcp.json (user may have customized it)
     if mcp_path.exists() {
-        return Ok((true, String::new()));
+        return Ok(());
     }
 
     // Escape backslashes and quotes for JSON string value
@@ -173,12 +196,10 @@ pub fn setup_mcp_config(
         escaped
     );
 
-    if let Err(e) = std::fs::write(&mcp_path, &config) {
-        return Ok((false, format!("Failed to write .mcp.json: {}", e)));
-    }
+    std::fs::write(&mcp_path, &config).map_err(|e| format!("Failed to write .mcp.json: {}", e))?;
 
     // Ensure .mcp.json is in .gitignore
-    let gitignore_path = resolved_root.join(".gitignore");
+    let gitignore_path = in_root(".gitignore")?;
     let content = std::fs::read_to_string(&gitignore_path).unwrap_or_default();
     if !content.contains(".mcp.json") {
         let prefix = if !content.is_empty() && !content.ends_with('\n') {
@@ -187,10 +208,8 @@ pub fn setup_mcp_config(
             ""
         };
         let new_content = format!("{}{}.mcp.json\n", content, prefix);
-        if let Err(e) = std::fs::write(&gitignore_path, &new_content) {
-            return Ok((false, format!("Failed to update .gitignore: {}", e)));
-        }
+        std::fs::write(&gitignore_path, &new_content)
+            .map_err(|e| format!("Failed to update .gitignore: {}", e))?;
     }
-
-    Ok((true, String::new()))
+    Ok(())
 }

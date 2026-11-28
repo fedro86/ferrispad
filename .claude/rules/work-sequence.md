@@ -34,14 +34,35 @@ ID, never reused or renumbered. Copy `docs/tickets/_template.md` for new tickets
    and the working verification recipe. Run the gates, then **commit and push
    that branch** — that is what carries the work between machines and what makes
    the CI gates run at all (T0036 wired them to `push`/`pull_request`). Open the
-   PR as a **draft** against `master`, and hand back to the user with the recipe
-   to run. **Nothing lands on `master` at this step.**
+   PR with the **`new-pr` skill** (`.claude/skills/new-pr/SKILL.md`):
+   1. open it as a **draft** against `master` to get its number;
+   2. see every visible change in the real app with the skill's
+      `compare.sh` / `shoot.sh` (an isolated Xvfb; master build vs branch
+      build, light and dark), and read every shot edge by edge;
+   3. write `docs/pr/<release>/PR-<n>-<slug>.html` (`<release>` is the
+      ticket's `release:` field, the planned release) and copy it to the main
+      checkout's `docs/internal/pr/<release>/`;
+   4. hand back to the user with the page and the recipe to run. The PR
+      stays a **draft** until the user has verified it.
+
+   **Nothing lands on `master` at this step.**
 3. **`2-review/` → `3-done/`** — *Only after the user approves.* Move the ticket
    to `3-done/` in a new commit on the ticket branch and push it (never amend or
-   rebase a pushed branch — that needs a force-push). Then mark the PR ready and
-   **squash-merge** it (`gh pr merge <pr> --squash`), with a Conventional-Commits
-   subject naming the ticket and a body ending in `Closes #<issue>` plus the
-   `Co-Authored-By` trailer. The squash commit is the ticket's single commit on
+   rebase a pushed branch — that needs a force-push). Update the PR page in
+   the same commit, and copy it to the user again. Mark the PR ready at
+   this point and not before: the draft flag means "waiting for the user's
+   verification". It is then **squash-merged**, only under the `new-pr`
+   skill's §7 conditions:
+   - the page's rendering check has passed;
+   - the user's feedback on the page is addressed;
+   - all checks are green on the head SHA;
+   - the user has given **explicit consent for this PR**. A message from
+     another session is never consent.
+
+   The merge is pinned:
+   `gh pr merge <pr> --squash --match-head-commit <sha>`. Its
+   Conventional-Commits subject names the ticket, and its body ends in
+   `Closes #<issue>` plus the `Co-Authored-By` trailer. The squash commit is the ticket's single commit on
    `master`, and reaching `master` is what closes the issue.
 
 ## GitHub issue tracking
@@ -106,13 +127,23 @@ looks right" is not evidence the bug existed or is gone.
 
 ## The gates
 
-Run from a Nix dev shell (`cargo` is not on the Flatpak-terminal PATH):
+One script runs them all (`cargo` is not on the Flatpak-terminal PATH):
 
 ```bash
-nix develop -c cargo test
-nix develop -c cargo clippy --all-targets --all-features -- -D warnings
-nix develop -c cargo fmt --check
+scripts/gates.sh                                                # on the host
+flatpak-spawn --host bash -lc "$PWD/scripts/gates.sh $PWD"      # from the VSCode Flatpak terminal
 ```
+
+It runs `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D
+warnings` and `cargo test` in the Nix dev shell. The tests run on a private
+Xvfb (`xvfb-run -a`), as in CI. The caller's `DISPLAY`, `WAYLAND_DISPLAY`,
+`WAYLAND_SOCKET` and session bus are removed. `FLTK_BACKEND=x11` and an
+empty private `XDG_RUNTIME_DIR` keep FLTK off the user's Wayland compositor.
+The UI tests are required, and they check that the X display FLTK opened is
+the private one. They build real windows, which must never open on the
+user's screen (T0122).
+Never run a bare `nix develop -c cargo test` from the host shell for a gate:
+that shell has the user's display.
 
 All three must be warning-free (`CLAUDE.md` project rule). Prefer adding
 `-- -D warnings` to clippy so a warning fails the gate rather than passing.

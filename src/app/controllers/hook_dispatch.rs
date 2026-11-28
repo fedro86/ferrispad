@@ -50,7 +50,7 @@ pub fn dispatch_hook_result(result: HookResult, plugin_name: &str, ctx: &mut Hoo
 
     // Handle open_file request with security validation
     if let Some(ref file_path) = result.open_file {
-        use crate::app::plugins::security::{PathValidation, find_project_root, validate_path};
+        use crate::app::plugins::security::find_project_root;
 
         // Determine project root from current document
         let project_root = ctx
@@ -59,28 +59,17 @@ pub fn dispatch_hook_result(result: HookResult, plugin_name: &str, ctx: &mut Hoo
             .and_then(|d| d.file_path.as_ref())
             .and_then(|p| find_project_root(std::path::Path::new(p)));
 
-        if let Some(ref root) = project_root {
-            match validate_path(file_path, root) {
-                PathValidation::Valid(_) => {
-                    eprintln!("[plugin:{}] open_file approved: {}", plugin_name, file_path);
-                    ctx.sender
-                        .send(Message::DeferredOpenFile(file_path.clone()));
-                }
-                other => {
-                    eprintln!(
-                        "[plugin:security] open_file BLOCKED for '{}': '{}' - {:?}",
-                        plugin_name, file_path, other
-                    );
-                }
+        match approve_open_file(file_path, project_root.as_deref()) {
+            Some(path) => {
+                eprintln!("[plugin:{}] open_file approved: {}", plugin_name, path);
+                ctx.sender.send(Message::DeferredOpenFile(path));
             }
-        } else {
-            // No project root - allow (same as file_exists behavior for untitled docs)
-            eprintln!(
-                "[plugin:{}] open_file (no project root): {}",
-                plugin_name, file_path
-            );
-            ctx.sender
-                .send(Message::DeferredOpenFile(file_path.clone()));
+            None => {
+                eprintln!(
+                    "[plugin:security] open_file BLOCKED for '{}': '{}'",
+                    plugin_name, file_path
+                );
+            }
         }
     }
 
@@ -95,6 +84,44 @@ pub fn dispatch_hook_result(result: HookResult, plugin_name: &str, ctx: &mut Hoo
     {
         let buf = doc.buffer.clone();
         ctx.view.goto_line(&buf, line);
+    }
+}
+
+/// What a plugin's `open_file` request may open (T0090): a path to an
+/// existing file inside the active document's project root, or `None` to
+/// block it.
+///
+/// The check is the sandbox's physical rule (`validate_path`, plus "is an
+/// existing file"). What is opened is the request anchored at the root as
+/// given: `root/raw` for a relative request, the absolute request itself.
+/// Never the raw relative string (it would resolve against the process cwd)
+/// and never the canonical path: `root` comes from the active document's
+/// path as the user opened it, so the opened path has the same form as the
+/// user's other tabs (no `\\?\` prefix on Windows, no `/real/…` for a
+/// symlinked `/home/u/link/…` on Unix) and tab de-duplication keeps working.
+/// The kernel resolves it to the file that was checked; only a swap between
+/// check and open (TOCTOU, out of scope) could differ.
+///
+/// Without a project root (untitled document, file outside any project) the
+/// request is refused: there is nothing to confine it to, like every other
+/// plugin filesystem API.
+pub(crate) fn approve_open_file(
+    file_path: &str,
+    project_root: Option<&std::path::Path>,
+) -> Option<String> {
+    use crate::app::plugins::security::{PathValidation, validate_path};
+    let root = project_root?;
+    match validate_path(file_path, root) {
+        PathValidation::Valid(physical) if physical.is_file() => {
+            let requested = std::path::Path::new(file_path);
+            let anchored = if requested.is_absolute() {
+                requested.to_path_buf()
+            } else {
+                root.join(requested)
+            };
+            Some(anchored.to_string_lossy().into_owned())
+        }
+        _ => None,
     }
 }
 
@@ -230,8 +257,17 @@ fn validate_terminal_request(
     // The command name must be free of shell metacharacters...
     validate_command_arg(cmd).map_err(|e| format!("command '{}' rejected: {}", cmd, e))?;
 
-    // ...and on the plugin's user-approved list (compared by basename so
-    // "/path/to/venv/bin/ruff" still matches an approved "ruff").
+    // ...and a bare program name, looked up on PATH (T0094). A terminal
+    // request has no project root to anchor or confine a path to, and no
+    // official plugin needs one.
+    if !crate::app::plugins::security::is_bare_program(cmd) {
+        return Err(format!(
+            "command '{}' must be a bare program name (looked up on PATH)",
+            cmd
+        ));
+    }
+
+    // ...and on the plugin's user-approved list.
     let cmd_basename = std::path::Path::new(cmd)
         .file_name()
         .and_then(|n| n.to_str())
@@ -262,6 +298,82 @@ fn validate_terminal_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── T0094: terminal_view programs are bare names only ────────────
+
+    #[test]
+    fn terminal_request_program_must_be_a_bare_name() {
+        let approved = vec!["ruff".to_string()];
+        for path in ["/tmp/x/ruff", "tools/ruff", "./ruff", "C:/x/ruff"] {
+            let r = validate_terminal_request(&req(Some(path), &[], None), &approved);
+            assert!(r.is_err(), "{path} must be refused: {r:?}");
+        }
+        assert!(validate_terminal_request(&req(Some("ruff"), &[], None), &approved).is_ok());
+    }
+
+    // ── T0090: plugin open_file requests ─────────────────────────────
+
+    #[test]
+    fn hook_open_file_opens_the_validated_path_not_the_raw_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir(root.join("src")).unwrap();
+        std::fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
+        // A relative path must not reach the opener as-is: it would resolve
+        // against the process cwd, not the project root. It is anchored at
+        // the root as given, never canonicalized (no `\\?\` on Windows).
+        let anchored = root.join("src/main.rs").to_string_lossy().into_owned();
+        let opened = approve_open_file("src/main.rs", Some(root));
+        assert_eq!(opened.as_deref(), Some(anchored.as_str()));
+        assert!(!anchored.starts_with(r"\\?\"));
+        // An absolute request inside the root is passed on unchanged.
+        assert_eq!(approve_open_file(&anchored, Some(root)), Some(anchored));
+    }
+
+    /// The project reached through a symlinked directory: the opened path keeps
+    /// the alias form the user's tabs use, so `TabManager::find_by_path` (an
+    /// exact string compare) finds the already-open tab instead of opening a
+    /// duplicate. (Asserted on the string: building a `TabManager` would touch
+    /// FLTK, which unit tests avoid.)
+    #[cfg(unix)]
+    #[test]
+    fn hook_open_file_keeps_the_root_alias_form() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir_all(real.join("src")).unwrap();
+        std::fs::write(real.join("src/main.rs"), "fn main() {}").unwrap();
+        let alias = dir.path().join("alias");
+        std::os::unix::fs::symlink(&real, &alias).unwrap();
+        // The path of the tab the user opened (File → Open through the alias).
+        let open_tab = alias.join("src/main.rs").to_string_lossy().into_owned();
+        assert_eq!(
+            approve_open_file("src/main.rs", Some(&alias)).as_deref(),
+            Some(open_tab.as_str())
+        );
+        assert_eq!(
+            approve_open_file(&open_tab, Some(&alias)).as_deref(),
+            Some(open_tab.as_str())
+        );
+    }
+
+    #[test]
+    fn hook_open_file_refuses_paths_that_are_not_existing_files_in_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        // `.ssh/id_rsa` does not exist under the root: with FerrisPad started
+        // from $HOME the raw string would open ~/.ssh/id_rsa.
+        assert_eq!(approve_open_file(".ssh/id_rsa", Some(root)), None);
+        assert_eq!(approve_open_file(".bashrc", Some(root)), None);
+        std::fs::create_dir(root.join("dir")).unwrap();
+        assert_eq!(approve_open_file("dir", Some(root)), None, "not a file");
+        assert_eq!(approve_open_file("/etc/hostname", Some(root)), None);
+    }
+
+    #[test]
+    fn hook_open_file_without_project_root_is_refused() {
+        assert_eq!(approve_open_file("/etc/hostname", None), None);
+        assert_eq!(approve_open_file(".ssh/id_rsa", None), None);
+    }
 
     fn req(command: Option<&str>, args: &[&str], working_dir: Option<&str>) -> TerminalViewRequest {
         TerminalViewRequest {

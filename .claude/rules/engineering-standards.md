@@ -53,10 +53,20 @@ Check any change against these before implementing.
 ## Gates (all green before a commit)
 
 ```bash
-nix develop -c cargo test
-nix develop -c cargo clippy --all-targets --all-features -- -D warnings
-nix develop -c cargo fmt --check
+scripts/gates.sh                                                # on the host
+flatpak-spawn --host bash -lc "$PWD/scripts/gates.sh $PWD"      # from the VSCode Flatpak terminal
 ```
+
+It runs `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D
+warnings` and `cargo test` in the Nix dev shell. The tests run on a private
+Xvfb (`xvfb-run -a`), as in CI. The caller's `DISPLAY`, `WAYLAND_DISPLAY`,
+`WAYLAND_SOCKET` and session bus are removed. `FLTK_BACKEND=x11` and an
+empty private `XDG_RUNTIME_DIR` keep FLTK off the user's Wayland compositor.
+The UI tests are required, and they check that the X display FLTK opened is
+the private one. They build real windows, which must never open on the
+user's screen (T0122).
+Never run a bare `nix develop -c cargo test` from the host shell for a gate:
+that shell has the user's display.
 
 There is currently **no CI job** running these on push/PR (only `release.yml`
 and `build-deps-check.yml`). Ticket T0036 adds one; until then the pre-commit

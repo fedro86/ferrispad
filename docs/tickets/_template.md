@@ -5,6 +5,7 @@ status: todo            # todo | review | done
 created: 2026-08-24
 severity: ~             # severe | moderate | minor   (for audit-derived tickets)
 area: ~                 # security | robustness | ui | process
+release: ~              # the planned release, X.Y.Z (e.g. 0.9.11); new-pr's page folder
 depends-on: []          # other ticket IDs that must land first
 issue: ~                # GitHub issue number, filled when work starts
 ---
