@@ -252,6 +252,22 @@ element. The rules:
 Before going on, run the page's rendering check (§7 condition 1) on the
 page. It runs again on the committed page before the merge.
 
+### The release folder
+
+A page moves only when its PR's planned release changes. Then the
+ticket's `release:` and the page move together, with `git mv`, and the
+copy in `docs/internal/pr/` moves too.
+
+**Before tagging `X.Y.Z`** (the release-prep ticket checks it):
+
+- every page in `docs/pr/X.Y.Z/` is a PR merged into that release:
+  ```bash
+  for f in docs/pr/X.Y.Z/PR-*.html; do n=${f##*/PR-}; n=${n%%-*}; gh pr view "$n" --json number,state --jq '"\(.number) \(.state)"'; done
+  ```
+  every line says `MERGED`;
+- a planned PR that slipped, still open, moves to the next release's
+  folder, with its ticket's `release:`, in its own branch.
+
 ## 4. Deliver it to the user: a copy in the main checkout
 
 The user reads PR pages in `docs/internal/pr/<release>/` of the **main
@@ -402,22 +418,6 @@ reports as `MERGED` or `CLOSED`.
 Nothing else follows at the merge. Whether the PR is open or merged is
 GitHub's state, not the file's. FerrisPad is one crate, so there are no app
 folders: the only level under `docs/pr/` is the release.
-
-### The release folder
-
-A page moves only when its PR's planned release changes. Then the
-ticket's `release:` and the page move together, with `git mv`, and the
-copy in `docs/internal/pr/` moves too.
-
-**Before tagging `X.Y.Z`** (the release-prep ticket checks it):
-
-- every page in `docs/pr/X.Y.Z/` is a PR merged into that release:
-  ```bash
-  for f in docs/pr/X.Y.Z/PR-*.html; do n=${f##*/PR-}; n=${n%%-*}; gh pr view "$n" --json number,state --jq '"\(.number) \(.state)"'; done
-  ```
-  every line says `MERGED`;
-- a planned PR that slipped, still open, moves to the next release's
-  folder, with its ticket's `release:`, in its own branch.
 
 **The one PR without a presentation.** A PR whose diff only modifies
 tickets already in `3-done/` and/or adds new tickets to `1-todo/` gets no

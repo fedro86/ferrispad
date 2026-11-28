@@ -46,4 +46,9 @@ expect_fail no-frontmatter "$tmp/nofront.md"                               "no f
 { echo '---'; echo 'id: T9999'; echo '---'; echo 'release: 0.9.11'; } > "$tmp/body.md"
 expect_fail body-only      "$tmp/body.md"                                  "no release: field"
 
-[ "$fails" -eq 0 ] && echo "all ok" || { echo "$fails failed"; exit 1; }
+if [ "$fails" -eq 0 ]; then
+  echo "all ok"
+else
+  echo "$fails failed"
+  exit 1
+fi

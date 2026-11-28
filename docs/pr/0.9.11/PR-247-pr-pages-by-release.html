@@ -88,12 +88,12 @@
   <p>The user's rule, relayed by the orchestrator on 2026-11-27: "dentro pr metti una sottocartella per la release prevista tipo 0.9.11 e metti le pr lì dentro come regola". Every open PR depends on it, so it goes first. FerrisPad's code does not change.</p>
   <ul>
     <li>Tickets get a <code>release:</code> field, the planned release <code>X.Y.Z</code>. The new helper <code>page_dir.sh</code> turns it into the page's folder and refuses a ticket without it.</li>
-    <li>The seven pages of 0.9.11 already on <code>master</code> move to <code>docs/pr/0.9.11/</code>.</li>
+    <li>The eight pages of 0.9.11 already on <code>master</code> move to <code>docs/pr/0.9.11/</code>.</li>
     <li>The new-pr skill, <code>docs/pr/README.md</code>, the work-sequence rule and <code>CLAUDE.md</code> describe the layout, the user's copy in <code>docs/internal/pr/&lt;release&gt;/</code> and the pre-tag check.</li>
   </ul>
   <div class="meta">
-    <span class="chip"><strong>T0121</strong> in <code>2-review/</code></span>
-    <span class="chip"><strong>16</strong> files · +300 / −39</span>
+    <span class="chip"><strong>T0121</strong> in <code>3-done/</code></span>
+    <span class="chip"><strong>17</strong> files · +318 / −40</span>
     <span class="chip warn">new ticket field: release:</span>
     <span class="chip green">gates green at every commit</span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/247">PR #247 on GitHub</a></span>
@@ -107,7 +107,7 @@
   <table>
     <tr><th>Commit</th><th>What changes</th></tr>
     <tr><td><code class="sha">67365ae</code></td>
-      <td>The <code>release:</code> field, <code>page_dir.sh</code> and its test, the seven pages moved with their references, and the docs.</td></tr>
+      <td>The <code>release:</code> field, <code>page_dir.sh</code> and its test, the eight pages moved with their references, and the docs.</td></tr>
     <tr><td><code class="sha">this commit</code></td>
       <td>This page, and a fix to the size chip's exclude pattern in the skill (it missed the old flat path of a moved page).</td></tr>
   </table>
@@ -128,13 +128,13 @@
 <section class="card ticket">
   <h2>T0121: PR pages by planned release</h2>
   <div class="flow">
-    <div><strong>Before</strong> · <code>docs/pr/</code> held seven 0.9.11 pages next to the template, with nothing marking their release.</div>
+    <div><strong>Before</strong> · <code>docs/pr/</code> held eight 0.9.11 pages next to the template, with nothing marking their release.</div>
     <div><strong>After</strong> · They live in <code>docs/pr/0.9.11/</code>, and every new page lands in its release's folder.</div>
   </div>
   <p>The rule is the user's (2026-11-27). The orchestrator (ferrispad-03) specified it: the <code>release:</code> field, a loud failure without it, the mirrored copy, the moves, and the pre-tag rule.</p>
   <ul>
     <li><strong>Moved, with <code>git mv</code>:</strong> #201, #206, #209, #213, #215, #235 and #240. #201 landed while this ticket was open, so it moved too.</li>
-    <li><strong>References fixed:</strong> the seven <code>3-done/</code> tickets that name a page (T0073, T0095, T0104, T0111, T0112, T0116, T0117), and #235's page (its recipe and the copy's path). T0117's own test recipe keeps its <code>docs/pr/PR-*.html</code> globs: it records how T0117 was verified on the layout of that time.</li>
+    <li><strong>References fixed:</strong> the eight <code>3-done/</code> tickets that name a page (T0073, T0095, T0104, T0111, T0112, T0116, T0117, T0122), and #235's page (its recipe and the copy's path). T0117's own test recipe keeps its <code>docs/pr/PR-*.html</code> globs: it records how T0117 was verified on the layout of that time.</li>
     <li><strong>Unchanged:</strong> <code>README.md</code>, <code>_template.html</code>, <code>examples/</code> and <code>scenarios/</code> stay in <code>docs/pr/</code>. <code>visual_check.sh</code> takes the page's path as an argument, so only its usage comment changed.</li>
   </ul>
   <p><strong>No visible change:</strong> a process and documentation change. FerrisPad's code is untouched.</p>
@@ -144,7 +144,7 @@
   <ol class="steps">
     <li><code>.claude/skills/new-pr/test-page-dir.sh</code>
       <span class="expect">ten <code>ok</code> lines and <code>all ok</code>: a valid release, a trailing comment, two digits; and a refusal for no field, <code>~</code>, a word, <code>0.9.11-rc.1</code>, a missing file, no frontmatter, and a <code>release:</code> line in the body only.</span></li>
-    <li><code>.claude/skills/new-pr/page_dir.sh docs/tickets/2-review/T0121-pr-pages-by-release.md</code>
+    <li><code>.claude/skills/new-pr/page_dir.sh docs/tickets/3-done/T0121-pr-pages-by-release.md</code>
       <span class="expect"><code>docs/pr/0.9.11</code>.</span></li>
     <li><code>git ls-files docs/pr | grep -E '^docs/pr/[^/]+\.html$'</code>, then <code>git grep -nE 'docs/pr/PR-[0-9]' -- . ':(exclude)docs/pr/0.9.11'</code>
       <span class="expect">only <code>docs/pr/_template.html</code>; then nothing.</span></li>
@@ -181,8 +181,8 @@
       <span class="expect"><code>docs/pr/0.9.12</code>.</span></li>
     <li><code>.claude/skills/new-pr/page_dir.sh docs/tickets/_template.md; echo "exit $?"</code>
       <span class="expect">"page_dir.sh: docs/tickets/_template.md: release: '~' is not a final release X.Y.Z", then <code>exit 1</code>.</span></li>
-    <li>The pre-tag check of the skill's §8 on 0.9.11 (with <code>GH_CONFIG_DIR</code> set in the Flatpak sandbox): <code>for f in docs/pr/0.9.11/PR-*.html; do n=${f##*/PR-}; n=${n%%-*}; gh pr view "$n" --json number,state --jq '"\(.number) \(.state)"'; done</code>
-      <span class="expect">seven lines, 201 to 240, each <code>MERGED</code>.</span></li>
+    <li>The pre-tag check of the skill's "The release folder" (§3) on 0.9.11 (with <code>GH_CONFIG_DIR</code> set in the Flatpak sandbox): <code>for f in docs/pr/0.9.11/PR-*.html; do n=${f##*/PR-}; n=${n%%-*}; gh pr view "$n" --json number,state --jq '"\(.number) \(.state)"'; done</code>
+      <span class="expect">nine lines, 201 to 247, each <code>MERGED</code> once #247 has landed.</span></li>
   </ol>
   <h3>The gates</h3>
   <ol class="steps">
@@ -193,7 +193,7 @@
 
 <footer>
   Presentation of PR #247 · branch <code>ticket/T0121</code> · commits <code>67365ae</code> → this page ·
-  ticket <code>docs/tickets/2-review/T0121-pr-pages-by-release.md</code> · issue #245.
+  ticket <code>docs/tickets/3-done/T0121-pr-pages-by-release.md</code> · issue #245.
 </footer>
 </div>
 </body>

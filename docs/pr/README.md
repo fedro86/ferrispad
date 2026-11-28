@@ -30,8 +30,8 @@ symlinks. Whether a PR is open or merged is GitHub's state, not the file's.
 A page moves, with `git mv`, only when its PR's planned release changes,
 together with the ticket's `release:`. **Before tagging `X.Y.Z`**, every
 page in `docs/pr/X.Y.Z/` must be a PR merged into that release; a planned
-PR that slipped moves to the next release's folder (the skill's §8 has
-the check).
+PR that slipped moves to the next release's folder (the skill's "The
+release folder", in §3, has the check).
 
 ## Naming
 

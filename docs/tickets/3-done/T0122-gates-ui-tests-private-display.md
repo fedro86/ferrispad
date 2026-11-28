@@ -195,7 +195,7 @@ is known and not ours.
 
 The user approved the PR on 2026-11-28, relayed by the orchestrator
 (ferrispad-03), after reading the presentation
-`docs/pr/PR-246-gates-ui-tests-private-display.html`. The reviewer
+`docs/pr/0.9.11/PR-246-gates-ui-tests-private-display.html`. The reviewer
 (ferrispad-90) approved 55cbd7b, after the Wayland-path fix and the shared
 private-display assertion. This commit only moves the ticket and updates
 the page.

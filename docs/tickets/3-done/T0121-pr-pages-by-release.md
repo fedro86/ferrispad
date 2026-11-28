@@ -1,7 +1,7 @@
 ---
 id: T0121
 title: PR pages live in a folder per planned release (docs/pr/<release>/)
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-28
 severity: ~
 area: process
@@ -60,7 +60,7 @@ checking one folder.
 No visible change in FerrisPad: a process and documentation change.
 
 ```bash
-.claude/skills/new-pr/page_dir.sh docs/tickets/2-review/T0121-pr-pages-by-release.md
+.claude/skills/new-pr/page_dir.sh docs/tickets/3-done/T0121-pr-pages-by-release.md
 ```
 
 - prints `docs/pr/0.9.11`, exit 0.
@@ -76,20 +76,20 @@ No visible change in FerrisPad: a process and documentation change.
 
 ```bash
 git ls-files docs/pr | grep -E '^docs/pr/[^/]+\.html$'   # only docs/pr/_template.html
-git ls-files 'docs/pr/0.9.11/'             # the seven moved pages
+git ls-files 'docs/pr/0.9.11/'             # the eight moved pages, and #247's
 git grep -nE 'docs/pr/PR-[0-9]' -- . ':(exclude)docs/pr/0.9.11'   # nothing
 ```
 
 ## Acceptance criteria
 
-- [ ] `page_dir.sh` prints the folder for a ticket with `release:`, and
+- [x] `page_dir.sh` prints the folder for a ticket with `release:`, and
       fails loudly without it; `test-page-dir.sh` passes.
-- [ ] `docs/tickets/_template.md` has `release:`.
-- [ ] The seven pages live in `docs/pr/0.9.11/`; no flat page is left, and no
+- [x] `docs/tickets/_template.md` has `release:`.
+- [x] The eight pages live in `docs/pr/0.9.11/`; no flat page is left, and no
       reference points to a flat path.
-- [ ] SKILL.md and README describe the layout, the copy path, the §8
+- [x] SKILL.md and README describe the layout, the copy path, the §8
       deletion path, and the release-prep rule.
-- [ ] Gates green (no Rust change); the page's rendering check passes.
+- [x] Gates green (no Rust change); the page's rendering check passes.
 
 ## Affected files
 
@@ -121,9 +121,10 @@ git grep -nE 'docs/pr/PR-[0-9]' -- . ':(exclude)docs/pr/0.9.11'   # nothing
   `missing-file`, `no-frontmatter`, `body-only`).
 - **`docs/tickets/_template.md`** has `release: ~` with its comment.
 - **Pages moved** with `git mv` to `docs/pr/0.9.11/`: #206, #209, #213,
-  #215, #235, #240, and #201 (landed during this ticket). The paths that
-  name them were rewritten in the seven `3-done/` tickets (T0073, T0095,
-  T0104, T0111, T0112, T0116, T0117) and inside
+  #215, #235, #240, #201 (landed during this ticket) and #246 (landed
+  before the move to `3-done/`, moved in that commit). The paths that
+  name them were rewritten in the eight `3-done/` tickets (T0073, T0095,
+  T0104, T0111, T0112, T0116, T0117, T0122) and inside
   #235's page (its recipe and the user's copy). T0117's own recipe keeps
   its `docs/pr/PR-*.html` globs: it records how T0117 was verified, on the
   flat layout of that time.
@@ -133,7 +134,11 @@ git grep -nE 'docs/pr/PR-[0-9]' -- . ':(exclude)docs/pr/0.9.11'   # nothing
   exclude `':(exclude)docs/pr/*PR-*.html'`), §4 (the copy into
   `docs/internal/pr/<release>/`), §7 (`visual_check.sh $D/…`), §8 (the
   deletion `docs/internal/pr/*/PR-<n>-*.html`) and a new "The release
-  folder" section with the pre-tag check. `docs/pr/README.md` (layout,
+  folder" section at the end of §3, with the pre-tag check.
+- **Review (ferrispad-90, APPROVE bd8848c), two nits folded in:** "The
+  release folder" moved from inside §8 to the end of §3, so §8's "The one
+  PR without a presentation" reads on its own again; `test-page-dir.sh`'s
+  closing `&& … ||` became an `if`/`else` (shellcheck SC2015). `docs/pr/README.md` (layout,
   rule, lifecycle), `.claude/rules/work-sequence.md` and
   `.claude/CLAUDE.md` follow. `visual_check.sh` takes the page path as an
   argument, so only its usage comment changed.
@@ -147,3 +152,10 @@ to their ticket, moves their page with
 `git mv docs/pr/PR-<n>-*.html docs/pr/0.9.11/`, fixes the paths in their
 ticket and page, and moves the user's copy to `docs/internal/pr/0.9.11/`.
 The flat copies already in `docs/internal/pr/` move the same way.
+
+## User verification
+
+The user approved the PR on 2026-11-28, relayed by the orchestrator
+(ferrispad-03), after the reviewer's approval (ferrispad-90) at head bd8848c.
+The reviewer's two nits are folded into the commit that moves this ticket to
+`3-done/` (see *What was done*).
