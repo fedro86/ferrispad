@@ -1,12 +1,12 @@
 ---
 id: T0106
 title: Build seams so the structural theme test covers every dialog
-status: review           # todo | review | done
+status: done             # todo | review | done
 created: 2026-11-26
 severity: minor
 area: ui
 release: 0.9.11         # the planned release
-depends-on: [T0105]     # stacked on ticket/T0105 (components, unthemed_inputs)
+depends-on: [T0105]     # landed on master before this ticket
 issue: 205
 ---
 
@@ -60,12 +60,12 @@ nix shell nixpkgs#xvfb-run -c xvfb-run -a env FERRISPAD_REQUIRE_UI_TESTS=1 \
 
 ## Acceptance criteria
 
-- [ ] Every listed dialog has a `build_*` seam, and the structural test
+- [x] Every listed dialog has a `build_*` seam, and the structural test
       walks it in dark and light.
-- [ ] `unthemed_inputs` checks buttons, and fails on a mutated component
+- [x] `unthemed_inputs` checks buttons, and fails on a mutated component
       for each newly covered dialog.
-- [ ] Pixel diff: 0 differing pixels per dialog, before vs after.
-- [ ] Full gates green.
+- [x] Pixel diff: 0 differing pixels per dialog, before vs after.
+- [x] Full gates green.
 
 ## Affected files
 
@@ -257,6 +257,11 @@ fit any font.
   diff (c6edf1b..3f53937) line for line, except master's
   `Color::from_rgb` → `fltk_rgb`.
 - **6f8e505, master 818970b** (T0111): clean.
+- **49f8fc3, master 6d70289** (T0104, T0116, T0112, T0073, T0095, T0122,
+  T0121): one conflict, in `docs/pr/scenarios/README.md`; both tables'
+  new rows kept. The page moved to `docs/pr/0.9.11/` (T0121).
+- **f691881, master 62669e9** (T0120, the screenshot scripts only): clean.
+  No app code changed, so the compare.sh proof against 6d70289 holds.
 
 ### Pixel proof with compare.sh
 
@@ -279,11 +284,13 @@ a dialog the keyboard with `xdotool windowfocus` (there is no window
 manager). The large fixtures are generated at source time and gitignored.
 
 ```bash
-.claude/skills/new-pr/compare.sh docs/pr/scenarios/<scenario>.sh <outdir> --before 818970b
+.claude/skills/new-pr/compare.sh docs/pr/scenarios/<scenario>.sh <outdir> --before 6d70289
 ```
 
-`--before 818970b` is the master this branch was last merged with, so the
-pair isolates T0106. Result: **16 dialogs × 2 themes, all 32 pairs AE 0**
+`--before 6d70289` is the master this branch was last merged with, so the
+pair isolates T0106. Result: **16 dialogs × 2 themes, all 32 pairs AE 0**,
+both against 818970b (after 6f8e505) and again against 6d70289 (after
+49f8fc3)
 (`magick compare -metric AE`). No panic or assert in any log; every run on
 its own display (:90), one at a time. Every after shot was read edge by
 edge on a contact sheet.
@@ -296,3 +303,14 @@ builds the dialog with a short description. Reported to T0110
 
 Still not reachable offline: the update dialog and the community-install
 review (network). The guard builds both in each variant.
+
+## User verification
+
+The user approved the PR on 2026-11-28, relayed by the orchestrator
+(ferrispad-03), after reading the presentation
+`docs/pr/0.9.11/PR-208-dialog-build-seams.html`. The reviewer
+(ferrispad-90) approved 79f7f6b: gates 790 passed, CI 4/4 green, the merged
+code diff identical to the reviewed one except master's `fltk_rgb`, and
+their own compare.sh run against 62669e9 at AE 0 on 32 of 33 pairs (the
+33rd, too-large-light at AE 38, is the text cursor caught in another blink
+phase). This commit only moves the ticket and updates the page.
