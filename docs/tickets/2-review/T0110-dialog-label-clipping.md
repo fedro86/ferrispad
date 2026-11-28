@@ -5,6 +5,7 @@ status: review           # todo | review | done
 created: 2026-11-26
 severity: minor
 area: ui
+release: 0.9.11         # the planned release, X.Y.Z (e.g. 0.9.11); new-pr's page folder
 depends-on: [T0106]     # stacked on ticket/T0106 (KNOWN_LAYOUT_DEFECTS)
 issue: 210
 ---
@@ -195,16 +196,40 @@ after #208.
 Gates on the result, with the UI tests on a private Xvfb (T0122's
 environment): 790 passed, clippy `-D warnings` and fmt clean.
 
+### The commits after the rebuild
+
+- **afe13dd:** the rebuilt merge of master f12fd3c above. It also holds
+  the Permissions description fix (see *Found by ferrispad-3b* below).
+  `fit_text` and `truncate_text` moved to `dialogs/mod.rs`.
+- **330c9d4:** merge of master 918471d (T0122), no conflict.
+- **e0b907e:** merge of master 62669e9 (T0121, T0120), no conflict.
+- **b9fe3d4:** merge of `origin/ticket/T0106` 49f8fc3 (its master merge and
+  the #208 page). The six conflicts came only from the old merge base, so
+  they were resolved to this branch's side. The check: every file that
+  differs from T0106's head is either newer on master or touched by this
+  ticket. The diff against T0106 in `src/` and `tests/` is this ticket's
+  delta plus the Permissions fix (14 files, +405 / −215). ferrispad-3b's
+  scenario files now come from T0106; the stale untracked copies in this
+  worktree were set aside.
+- **bb51140:** restores `docs/pr/scenarios/plugins/tree-demo/` (T0104, on
+  master), which afe13dd had dropped. After it, no file of master is
+  missing (`git diff --diff-filter=D origin/master HEAD` is empty).
+
+Every commit was gated by the pre-commit hook through `scripts/gates.sh`
+(T0122): tests on a private Xvfb, clippy `-D warnings`, fmt.
+
 ### Screens for the page (compare.sh, before = origin/ticket/T0106)
 
 The scenarios are ferrispad-3b's (`docs/pr/scenarios/dialogs*.sh`), copied
 byte-identical. Runs used T0120's fixed `compare.sh` / `shoot.sh`, with
 fonts 16 and 18, light and dark.
 - **Changed** (geometry only): Find, Replace, Go To Line, Font picker, New
-  Session, Key Shortcuts, the read-only viewer.
+  Session, Key Shortcuts, the read-only viewer; and Permissions, see
+  below.
 - **Pixel-identical** before and after: About, the Go To Line message,
   Plugin Config, Plugin Manager (Installed and Official), Plugin Settings,
-  Permissions, Large File Warning, File Too Large.
+  Large File Warning, File Too Large. They were also inspected edge by
+  edge after the find below: identical does not mean clean.
 - **Font 18 = font 16** for every dialog except the Font picker, which
   shows the chosen size. The app's font setting is the editor's. Dialogs
   use FLTK's default size (`app::set_font_size` is never called).
@@ -229,3 +254,25 @@ CI's fonts are wider still. The alternative is shorter labels, a wording
 change this ticket keeps out of scope. The page shows each dialog before
 and after, for the user to decide.
 
+### Found by ferrispad-3b: Permissions clips a long plugin description
+
+`dialogs-permission.sh` showed the fixture's description cut at the
+window's right edge: "…settings and a command p", in light and dark. It
+was the same on master and on T0106, so it is pre-existing. The layout test
+missed it because it built the dialog with a short description. A plugin's
+description is free text of any length.
+
+- **Red:** `tests/ui_dialogs.rs` also builds the dialog with a long
+  description (`permissions, long description`). Before the fix:
+  ```text
+  permissions, long description dark/…: "Screenshot fixture: a plugin with a menu item, settings and a command permission": label needs 440px at +0pt, widget is 370px
+  (and at +2 pt, and in light)
+  test new_dialog_windows_build ... FAILED
+  ```
+- **Fix:** the description is cut with "..." to its frame (`fit_text`),
+  with the full text as a tooltip.
+- **One helper:** `truncate_text` and `fit_text` moved from the Plugin
+  Manager to `dialogs/mod.rs`. The Plugin Manager rows use them as before.
+- After: `ui_dialogs` passes. In the app (`dialogs-permission.sh`), the
+  description ends in "settings and..." inside the window, in light and
+  dark. Gates: 790 passed.
