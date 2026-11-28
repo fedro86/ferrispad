@@ -49,6 +49,21 @@ and pushes "Ln X, Col Y" off its place.
   "Ln X, Col Y" counts characters too.
 - Guard: `shortened_path_starts_at_a_slash` (the `…/` form, a short path
   unchanged, too narrow gives nothing).
+- **Found in the real app, then red first:** counting characters was not
+  enough. A CJK glyph is drawn about two ASCII characters wide, so with a
+  Japanese file name "Ln X, Col Y" was pushed past the bar's right edge
+  (compare.sh, `docs/pr/scenarios/status-bar-path.sh`). Before, counting
+  bytes had overestimated by chance. The label composition is extracted as
+  `compose_label(path, pos, total)`. `ln_col_stays_inside_the_bar_with_a_cjk_path`
+  FAILED: `42 columns in a 36-column bar: "  …/日本語のメモ/notes.txt Ln 2,
+  Col 1    "`.
+- Fix: measure in display columns (`char_columns`: 2 for East Asian wide
+  and fullwidth characters and wide emoji, else 1). The path is cut from the
+  right end by columns, and the padding before "Ln X, Col Y" is in columns.
+- In the app (compare.sh, master vs this branch, light and dark): master
+  panics at 760 px, `start byte index 5 is not a char boundary; it is
+  inside 'モ'`. This branch shows the path and "Ln 2, Col 1" at 900, 820,
+  760, 700, 640 and 580 px; at 580 the path is shortened with "…".
 
 ## Out of scope
 
@@ -83,13 +98,16 @@ nix develop -c cargo test --lib status_bar   # just this module (pure, no window
 
 - [ ] No path, at any window width, makes the status bar panic.
 - [ ] A shortened path fits the space left of "Ln X, Col Y", counted in
-      characters.
+      display columns (a CJK glyph is two).
 - [ ] The regression test failed before the fix.
 - [ ] Gates green (`scripts/gates.sh`).
 
 ## Affected files
 
-- `src/ui/status_bar.rs`: the path shortening and its tests.
+- `src/ui/status_bar.rs`: the path shortening, the label composition and
+  their tests.
+- `docs/pr/scenarios/status-bar-path.sh` and its fixture (a Japanese file
+  name): the screenshot scenario.
 
 ## Notes
 

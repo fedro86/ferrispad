@@ -1,0 +1,1 @@
+Notes for the status-bar path test (T0124).
