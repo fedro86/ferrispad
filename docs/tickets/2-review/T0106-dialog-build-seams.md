@@ -5,6 +5,7 @@ status: review           # todo | review | done
 created: 2026-11-26
 severity: minor
 area: ui
+release: 0.9.11         # the planned release
 depends-on: [T0105]     # stacked on ticket/T0105 (components, unthemed_inputs)
 issue: 205
 ---
@@ -242,3 +243,56 @@ Fix (orchestrator's option (a)):
 
 **Lesson for T0110:** frame widths must be measured at build time, so they
 fit any font.
+
+## The merges and the compare.sh pixel proof (2026-11-28, Implementer A)
+
+### Merges of master
+
+- **1d9a6e7, master c3672fe** (T0097 and T0105 as squash commits, T0098's
+  `fltk_rgb`). The previous session had left this merge staged with all 20
+  conflicts marked resolved, but it **did not compile**: `find.rs` had lost
+  its `Button`/`CheckButton`/`Input` imports, and `about.rs`/`update.rs`
+  kept a `Color` import that T0098 made unused (a `-D warnings` failure).
+  After the fix, the merged diff against c3672fe equals this ticket's own
+  diff (c6edf1b..3f53937) line for line, except master's
+  `Color::from_rgb` → `fltk_rgb`.
+- **6f8e505, master 818970b** (T0111): clean.
+
+### Pixel proof with compare.sh
+
+The 2026-11-26 pixel diff ran from a hand-written Xvfb script, which the
+new-pr skill no longer allows. It is redone with `compare.sh` and four
+scenarios committed with this ticket (they serve T0110 too):
+
+- `dialogs.sh`: Find, Replace, Go To Line and its message popup (line 99
+  of a 6-line file), New Session, Key Shortcuts, Choose Font, About, Plugin
+  Manager (Installed and Official), Plugin Settings ("Run All Checks
+  Configuration"), the fixture plugin's settings;
+- `dialogs-permission.sh`: the permission request at startup;
+- `dialogs-large-file.sh`: the large-file warning (generated 1.5 MB);
+- `dialogs-too-large.sh`: "File Too Large", then the read-only viewer
+  (generated 3 MB).
+
+The fixture plugin is `docs/pr/scenarios/plugins/dialogs-demo`, and a
+registry cache keeps the Official tab offline. `_dialog-helpers.sh` gives
+a dialog the keyboard with `xdotool windowfocus` (there is no window
+manager). The large fixtures are generated at source time and gitignored.
+
+```bash
+.claude/skills/new-pr/compare.sh docs/pr/scenarios/<scenario>.sh <outdir> --before 818970b
+```
+
+`--before 818970b` is the master this branch was last merged with, so the
+pair isolates T0106. Result: **16 dialogs × 2 themes, all 32 pairs AE 0**
+(`magick compare -metric AE`). No panic or assert in any log; every run on
+its own display (:90), one at a time. Every after shot was read edge by
+edge on a contact sheet.
+
+**Pre-existing defect seen (not T0106's):** the permission request clips
+a long plugin description at its right edge ("…settings and a command
+p"), identical on master. The guard doesn't list it because the test
+builds the dialog with a short description. Reported to T0110
+(ferrispad-39).
+
+Still not reachable offline: the update dialog and the community-install
+review (network). The guard builds both in each variant.
