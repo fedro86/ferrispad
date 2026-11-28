@@ -1,10 +1,11 @@
 ---
 id: T0120
 title: compare.sh and shoot.sh runs are safe to run concurrently
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-27
 severity: minor
 area: process
+release: 0.9.11         # the planned release, X.Y.Z (e.g. 0.9.11); new-pr's page folder
 depends-on: []
 issue: 242
 ---
@@ -201,16 +202,25 @@ The exact failing output of every case is recorded here before the fix.
 
 ## Acceptance criteria
 
-- [ ] Two concurrent `compare.sh` runs against the same base both succeed.
-- [ ] A leftover `compare-<sha>` directory is never reused as a worktree.
-- [ ] Each run removes only its own worktree.
-- [ ] Two concurrent `shoot.sh` runs never share a display, and a run never
+- [x] Two concurrent `compare.sh` runs against the same base both succeed.
+- [x] A leftover `compare-<sha>` directory is never reused as a worktree.
+- [x] Each run removes only its own worktree.
+- [x] Two concurrent `shoot.sh` runs never share a display, and a run never
       shoots or types into a window that is not its own app's.
-- [ ] Red repro recorded: both cases fail on master, for the reasons in the
+- [x] Red repro recorded: both cases fail on master, for the reasons in the
       Goal.
-- [ ] `cargo test`, `cargo clippy --all-targets --all-features`, and
+- [x] `cargo test`, `cargo clippy --all-targets --all-features`, and
       `cargo fmt --check` all pass with zero warnings.
-- [ ] Pending user verification.
+- [x] User verified (2026-11-28).
+
+## User verification
+
+The user approved the PR on 2026-11-28, relayed by the orchestrator
+(ferrispad-03), after reading the presentation
+`docs/pr/0.9.11/PR-248-concurrent-screenshot-runs.html`. The reviewer
+(ferrispad-90) approved 6186cb7. Before the move, master was merged
+(T0122 #246, T0121 #247) with no conflict. This commit also moves the page
+to `docs/pr/0.9.11/` (T0121's rule).
 
 ## Affected files
 
