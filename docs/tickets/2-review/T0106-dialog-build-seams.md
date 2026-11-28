@@ -257,6 +257,11 @@ fit any font.
   diff (c6edf1b..3f53937) line for line, except master's
   `Color::from_rgb` → `fltk_rgb`.
 - **6f8e505, master 818970b** (T0111): clean.
+- **49f8fc3, master 6d70289** (T0104, T0116, T0112, T0073, T0095, T0122,
+  T0121): one conflict, in `docs/pr/scenarios/README.md`; both tables'
+  new rows kept. The page moved to `docs/pr/0.9.11/` (T0121).
+- **f691881, master 62669e9** (T0120, the screenshot scripts only): clean.
+  No app code changed, so the compare.sh proof against 6d70289 holds.
 
 ### Pixel proof with compare.sh
 
@@ -279,11 +284,13 @@ a dialog the keyboard with `xdotool windowfocus` (there is no window
 manager). The large fixtures are generated at source time and gitignored.
 
 ```bash
-.claude/skills/new-pr/compare.sh docs/pr/scenarios/<scenario>.sh <outdir> --before 818970b
+.claude/skills/new-pr/compare.sh docs/pr/scenarios/<scenario>.sh <outdir> --before 6d70289
 ```
 
-`--before 818970b` is the master this branch was last merged with, so the
-pair isolates T0106. Result: **16 dialogs × 2 themes, all 32 pairs AE 0**
+`--before 6d70289` is the master this branch was last merged with, so the
+pair isolates T0106. Result: **16 dialogs × 2 themes, all 32 pairs AE 0**,
+both against 818970b (after 6f8e505) and again against 6d70289 (after
+49f8fc3)
 (`magick compare -metric AE`). No panic or assert in any log; every run on
 its own display (:90), one at a time. Every after shot was read edge by
 edge on a contact sheet.
