@@ -42,8 +42,14 @@
 #      cwd, TMPDIR and SHELL=/bin/sh, and a per-run SHOOT_RUN_ID marker: a
 #      process carrying it after the run (even one that left the group with
 #      setsid) is killed and fails the run.
-# Two runs started at the same moment may pick the same :9N display; the
-# second Xvfb then fails to start and that run aborts (it fails safe).
+# Concurrent runs never share a display (T0120). A run reserves :N with
+# flock on /tmp/ferrispad-shoot-display-N.lock, which xvfb-run and Xvfb keep
+# open, so the kernel releases it when the run ends, even on kill -9. Only
+# then does it check that :N is free and start Xvfb on it. The inner half
+# also refuses a display whose X server is not the Xvfb its own xvfb-run
+# started: if that Xvfb failed to start, xvfb-run would run the scenario on
+# whatever server holds :N, as happened on 2026-11-27 when two runs shared
+# :91 and typed into each other's app.
 # It also never reads or writes the user's settings, sessions, recent
 # files or documents: fresh XDG_CONFIG_HOME, XDG_DATA_HOME, XDG_CACHE_HOME,
 # HOME=<run>/home, the app started in <run>/files (its cwd and MCP project
@@ -82,8 +88,14 @@ if [ -z "${SHOOT_INNER:-}" ]; then
   # auto-started on the private bus.
   host_cmd="set -e
 export SHOOT_INNER=1 SHOOT_OUTER_BUS=\"\${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/\$(id -u)/bus}\"
-export SHOOT_OUTER_DISPLAY=\"\${DISPLAY:-}\"
-n=90; while [ -e /tmp/.X\$n-lock ] || [ -e /tmp/.X11-unix/X\$n ]; do n=\$((n + 1)); done
+export SHOOT_OUTER_DISPLAY=\"\${DISPLAY:-}\" SHOOT_OUTER_PID=\$\$
+n=90
+while :; do
+  exec 9>>/tmp/ferrispad-shoot-display-\$n.lock
+  if flock -n 9 && [ ! -e /tmp/.X\$n-lock ] && [ ! -e /tmp/.X11-unix/X\$n ]; then break; fi
+  exec 9>&-
+  n=\$((n + 1))
+done
 export SHOOT_DISPLAY=:\$n
 export NOTO_FONTS=\$(nix build --no-link --print-out-paths nixpkgs#noto-fonts)
 bus_conf=\$(mktemp \"\${TMPDIR:-/tmp}/ferrispad-shoot-bus.XXXXXX\")
@@ -101,6 +113,8 @@ nix shell nixpkgs#xvfb-run nixpkgs#xdotool nixpkgs#imagemagick nixpkgs#dbus -c \
 fi
 
 # ---- Inner half: on the host, inside Xvfb and a private D-Bus session. ------
+# The display reservation stays with xvfb-run and Xvfb; the app needs none.
+exec 9>&- 2>/dev/null || true
 usage() {
   echo "usage: shoot.sh <binary> <outdir> <scenario.sh> [--theme light|dark] [--font N] [--size WxH]" >&2
   echo "       shoot.sh --selftest <outdir>" >&2
@@ -155,6 +169,26 @@ display_ok() {
   [ "${DISPLAY}" = "${SHOOT_DISPLAY:-}" ] && [ "${DISPLAY}" != "${SHOOT_OUTER_DISPLAY:-}" ]
 }
 display_ok || refuse "DISPLAY '${DISPLAY:-}' is not this run's Xvfb ('${SHOOT_DISPLAY:-}'); user display '${SHOOT_OUTER_DISPLAY:-}'"
+# The X server on DISPLAY must be the Xvfb this run's xvfb-run started: the
+# pid in /tmp/.X<n>-lock has as its parent one of this shell's ancestors
+# below the outer half's shell (SHOOT_OUTER_PID). Higher ancestors, such as
+# systemd --user, are shared with every other process of the session.
+server_is_ours() {
+  local n=${DISPLAY#:} spid sparent p
+  n=${n%%.*}
+  spid=$(tr -d ' \n' < "/tmp/.X$n-lock" 2>/dev/null) || return 1
+  [ -n "$spid" ] || return 1
+  sparent=$(ps -o ppid= -p "$spid" 2>/dev/null | tr -d ' ') || return 1
+  [ -n "$sparent" ] || return 1
+  [ -n "${SHOOT_OUTER_PID:-}" ] || return 1
+  p=$$
+  while [ -n "$p" ] && [ "$p" -gt 1 ] && [ "$p" != "$SHOOT_OUTER_PID" ]; do
+    [ "$p" = "$sparent" ] && return 0
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+  done
+  return 1
+}
+server_is_ours || refuse "the X server on $DISPLAY is not the Xvfb this run started (another run's, or a foreign one)"
 
 # 3. Shims for everything that opens a dialog, a browser or a notification.
 shims=$work/shims; shim_log=$work/shim.log
@@ -238,6 +272,9 @@ if [ -n "$selftest" ]; then
     check "runtime dir is empty and private" '[ -z "$(ls -A "$XDG_RUNTIME_DIR")" ] && [ "$(stat -c %a "$XDG_RUNTIME_DIR")" = 700 ]'
     check "no WAYLAND_DISPLAY" '[ -z "${WAYLAND_DISPLAY:-}" ]'
     check "DISPLAY is this run's Xvfb, not the user's" 'display_ok && [ "$DISPLAY" != "${SHOOT_OUTER_DISPLAY:-}" ]'
+    check "the X server on DISPLAY is this run's own Xvfb" 'server_is_ours'
+    check "the server check refuses another server" '! (DISPLAY=:98; server_is_ours) && ! (DISPLAY=:0; server_is_ours)'
+    check "this run holds its display reservation" '! flock -n "/tmp/ferrispad-shoot-display-${DISPLAY#:}.lock" true'
     check "the display guard refuses :0 and :1" '! (DISPLAY=:0; display_ok) && ! (DISPLAY=:1; display_ok) && ! (SHOOT_DISPLAY=:0 DISPLAY=:0; display_ok)'
     check "zenity is the shim and fails" '[ "$(command -v zenity)" = "$shims/zenity" ] && ! zenity --info --text=selftest'
     check "xdg-open is the shim and fails" '[ "$(command -v xdg-open)" = "$shims/xdg-open" ] && ! xdg-open https://example.invalid'
