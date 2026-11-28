@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PR #253 · A written procedure for fixing security defects privately</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --ink: #1c2430; --muted: #5b6675;
+    --accent: #0b6e4f; --accent-soft: #e3f2ec; --line: #dde3ea;
+    --warn: #8a5a00; --warn-soft: #fdf3dd; --code-bg: #f0f2f5;
+    --chip: #eef1f4; --bad: #8a2020; --bad-soft: #fbeaea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181f; --surface: #1c222b; --ink: #e8ecf1; --muted: #9aa6b4;
+      --accent: #4cc39a; --accent-soft: #10352a; --line: #2c3541;
+      --warn: #e2b45a; --warn-soft: #33290f; --code-bg: #232a34;
+      --chip: #262e39; --bad: #e88; --bad-soft: #3a1c1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.6 "Open Sans", "Segoe UI", system-ui, sans-serif; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+  header.top { border-bottom: 3px solid var(--accent); padding-bottom: 1.2rem; margin-bottom: 2rem; }
+  .kicker { text-transform: uppercase; letter-spacing: .12em; font-size: .78rem; color: var(--accent); font-weight: 700; }
+  h1 { font-size: 1.9rem; line-height: 1.25; margin: .3rem 0 .6rem; }
+  h2 { font-size: 1.35rem; margin: 0 0 .2rem; }
+  h3 { font-size: 1.02rem; margin: 1.3rem 0 .4rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .meta { display: flex; flex-wrap: wrap; gap: .5rem .6rem; margin-top: .8rem; }
+  .chip { background: var(--chip); border: 1px solid var(--line); border-radius: 999px;
+    padding: .15rem .7rem; font-size: .82rem; color: var(--muted); white-space: nowrap; }
+  .chip strong { color: var(--ink); font-weight: 600; }
+  .chip.green { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .chip.warn { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+  a { color: var(--accent); }
+  section.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.5rem 1.75rem; margin-bottom: 1.75rem; }
+  p { margin: .55rem 0; }
+  ul, ol { margin: .4rem 0 .6rem; padding-left: 1.3rem; }
+  li { margin: .25rem 0; }
+  code { font: .86em/1.5 "JetBrains Mono", "Fira Mono", monospace;
+    background: var(--code-bg); border-radius: 4px; padding: .08em .35em; word-break: break-word; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: .85rem 1rem; overflow-x: auto; font-size: .85rem; line-height: 1.55; }
+  pre code { background: none; padding: 0; }
+  .why { border-left: 4px solid var(--accent); background: var(--accent-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup { border-left: 4px solid var(--warn); background: var(--warn-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .followup strong.tag { color: var(--warn); }
+  .bad { border-left: 4px solid var(--bad); background: var(--bad-soft);
+    border-radius: 0 8px 8px 0; padding: .7rem 1rem; margin: .8rem 0; }
+  .bad strong.tag { color: var(--bad); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; font-size: .9rem; }
+  th, td { text-align: left; border-bottom: 1px solid var(--line); padding: .45rem .6rem; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; font-family: "JetBrains Mono", "Fira Mono", monospace; white-space: nowrap; }
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li { counter-increment: step; position: relative; padding-left: 2.2rem; margin: .55rem 0; }
+  .steps li::before { content: counter(step); position: absolute; left: 0; top: .1rem;
+    width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--accent-soft);
+    color: var(--accent); font-weight: 700; font-size: .82rem; display: grid; place-items: center; }
+  .expect { display: block; margin-top: .2rem; color: var(--muted); font-size: .9em; }
+  .expect::before { content: "expected → "; color: var(--accent); font-weight: 600; }
+  .flow { display: grid; gap: .35rem; margin: .8rem 0; }
+  .flow div { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: .45rem .8rem; font-size: .9rem; }
+  .flow div strong { color: var(--accent); }
+  footer { color: var(--muted); font-size: .86rem; border-top: 1px solid var(--line);
+    margin-top: 2rem; padding-top: 1rem; }
+  img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
+  figure { margin: .9rem 0; }
+  figcaption { color: var(--muted); font-size: .88rem; font-style: italic; margin-top: .35rem; }
+  code.sha { white-space: nowrap; word-break: normal; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <div class="kicker">Pull request #253 · ticket/T0123 → master · process</div>
+  <h1>A written procedure for fixing security defects privately</h1>
+  <div class="flow">
+    <div><strong>Before</strong> · "Fix privately, disclose with the release" lived only in the user's instructions to the sessions. Each session had to be told again what private means, and a session that started after a reset did not know it.</div>
+    <div><strong>After</strong> · The rule <code>.claude/rules/security-fixes.md</code> loads in every session. It says where a finding goes, what may be pushed (nothing, until the release), and how it becomes public.</div>
+  </div>
+  <p>The user asked on 2026-11-28 to standardise the procedure used so far. They chose the local-only flow: GitHub Security Advisories with a temporary private fork were rejected, because status checks do not run there. The rule is generic process text: it names no finding and gives no exploit detail.</p>
+  <ul>
+    <li><strong>Triage:</strong> input someone else can shape that crosses a trust boundary is a security defect; an ordinary local crash stays a public bugfix.</li>
+    <li><strong>Private workspace:</strong> gitignored <code>docs/internal/security/S&lt;N&gt;-*.md</code> tickets, local <code>sec/</code> branches with no upstream, append-only merge notes, wording that names the area and not the exploit.</li>
+    <li><strong>Work loop:</strong> red test first, <code>scripts/gates.sh</code>, private compare.sh scenarios, review by message, a blind recipe with throwaway XDG directories, and an integration dry run before the release.</li>
+    <li><strong>Disclosure with the release:</strong> the first push of a fix starts the disclosure, so it happens in the release window, in one sitting: each fix as one commit on a fresh <code>ticket/</code> branch, its issue and PR, CI, merge; then the CHANGELOG <code>### Security</code> section and the <code>SECURITY.md</code> row on <code>master</code>; then the tag.</li>
+    <li>One pointer each in <code>CLAUDE.md</code> and <code>work-sequence.md</code>.</li>
+  </ul>
+  <div class="meta">
+    <span class="chip"><strong>T0123</strong> in <code>2-review/</code></span>
+    <span class="chip"><strong>4</strong> files · +267 / −0</span>
+    <span class="chip">No visible change</span>
+    <span class="chip green">gates green at every commit</span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/253">PR #253 on GitHub</a></span>
+    <span class="chip"><a href="https://github.com/fedro86/ferrispad/issues/252">issue #252</a></span>
+  </div>
+</header>
+
+<section class="card">
+  <h2>The branch's commits</h2>
+  <div class="scroll">
+  <table>
+    <tr><th>Commit</th><th>What changes</th></tr>
+    <tr><td><code class="sha">aa6dad4</code></td>
+      <td>The rule, the two pointers and the ticket.</td></tr>
+    <tr><td><code class="sha">d3e77ab</code></td>
+      <td>Docs only: this page.</td></tr>
+    <tr><td><code class="sha">41a1eea</code></td>
+      <td>Docs only: the ticket's notes in general terms.</td></tr>
+    <tr><td>this commit</td>
+      <td>Review fix (ferrispad-90): the disclosure steps in one order (the first push starts the disclosure), where the saved outputs go, and who may receive peer messages.</td></tr>
+  </table>
+  </div>
+  <p>The branch starts from <code>master</code> 4dc245e (fast-forwarded from f12fd3c, where the ticket was first written).</p>
+</section>
+
+<section class="card">
+  <h2>How a security finding travels, now</h2>
+  <div class="flow">
+    <div><strong>Found</strong> · Triage says private: an S ticket in <code>docs/internal/security/</code>, gitignored, with the next <code>S</code> number.</div>
+    <div><strong>Fixed</strong> · A local <code>sec/&lt;slug&gt;</code> branch, red test first, the gates, a local review by message, the user's blind check.</div>
+    <div><strong>Released</strong> · In the release window, in one sitting: a T ticket, one commit, an issue and a PR for each fix, merged in the dry run's order; the CHANGELOG Security section on <code>master</code>; then the tag.</div>
+  </div>
+</section>
+
+<section class="card ticket">
+  <h2>T0123: the security-fix procedure</h2>
+  <div class="flow">
+    <div><strong>Before</strong> · The procedure existed only as instructions repeated to each session.</div>
+    <div><strong>After</strong> · It is a binding rule in <code>.claude/rules/</code>, next to <code>work-sequence.md</code> and <code>engineering-standards.md</code>.</div>
+  </div>
+  <p>The rule records the flow as it was actually used. It also writes down the lessons that came with it: merge notes are appended, never rewritten; a red test that must be committed before its fix is marked <code>#[ignore]</code>, because the pre-commit hook refuses a failing test; and two fixes must not escape the same text twice.</p>
+  <p><strong>No visible change:</strong> process text only. FerrisPad's code is untouched.</p>
+  <div class="why"><strong>Why the S tickets live outside git.</strong> <code>docs/internal/</code> is gitignored, so a private ticket cannot reach a commit by accident: <code>git check-ignore</code> proves it. The T ID is taken only at disclosure, so no public number is reserved where other sessions cannot see it.</div>
+  <div class="followup"><strong class="tag">The user's call, not changed here.</strong> <code>SECURITY.md</code> "Reporting Vulnerabilities" still has <code>[security contact to be added]</code>, and GitHub private vulnerability reporting is off. Turning it on would give reporters a private channel.</div>
+  <h3>How to test T0123</h3>
+  <ol class="steps">
+    <li><code>git diff --stat origin/master...HEAD</code>
+      <span class="expect">the rule, <code>work-sequence.md</code>, <code>CLAUDE.md</code>, the ticket, and this page.</span></li>
+    <li><code>git check-ignore -v docs/internal/security/S1-x.md</code>
+      <span class="expect"><code>.gitignore:12:/docs/internal/*</code>: an S ticket cannot be committed.</span></li>
+    <li>Read <code>.claude/rules/security-fixes.md</code> with no other context.
+      <span class="expect">It answers where a new finding goes, what may be pushed, and when it becomes public; it names no finding.</span></li>
+  </ol>
+</section>
+
+<section class="card">
+  <h2>Release notes and compatibility</h2>
+  <ul>
+    <li><strong>CHANGELOG:</strong> none: process only.</li>
+    <li>No user file is affected.</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>What remains open</h2>
+  <ul>
+    <li><strong><code>SECURITY.md</code> contact and private reporting:</strong> the user's decision (see above).</li>
+  </ul>
+</section>
+
+<section class="card">
+  <h2>End-to-end verification</h2>
+  <p>A new session meets a finding: it reads the rule and knows what to do, without being told. From the branch's worktree; nothing is written.</p>
+  <h3>Starting state</h3>
+  <ol class="steps">
+    <li><code>ls .claude/rules/</code>
+      <span class="expect"><code>engineering-standards.md</code>, <code>security-fixes.md</code>, <code>work-sequence.md</code>.</span></li>
+  </ol>
+  <h3>The scenario</h3>
+  <ol class="steps">
+    <li><code>grep -n "security-fixes.md" .claude/CLAUDE.md .claude/rules/work-sequence.md</code>
+      <span class="expect">one line in each: the binding-rules list, and the GitHub issue section.</span></li>
+    <li><code>grep -n "^## " .claude/rules/security-fixes.md</code>
+      <span class="expect">Triage, The private workspace, The work loop, Disclosure with the release, Never.</span></li>
+  </ol>
+  <h3>The gates</h3>
+  <ol class="steps">
+    <li><code>flatpak-spawn --host bash -lc "$PWD/scripts/gates.sh $PWD"</code>
+      <span class="expect">all green, zero warnings (no Rust change).</span></li>
+  </ol>
+</section>
+
+<footer>
+  Presentation of PR #253 · branch <code>ticket/T0123</code> · commits <code>aa6dad4</code> → this page ·
+  ticket <code>docs/tickets/2-review/T0123-security-fix-procedure.md</code> · issue #252.
+</footer>
+</div>
+</body>
+</html>

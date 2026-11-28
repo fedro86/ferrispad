@@ -18,6 +18,8 @@ verified the in-review ticket.** The binding rules load from `.claude/rules/`:
   the `master` gate.
 - `engineering-standards.md` — the design constraints (below) and the cargo
   quality gates.
+- `security-fixes.md` — security defects are fixed in private and disclosed
+  with the release that ships them.
 
 Open new tickets with the `new-ticket` skill (`.claude/skills/new-ticket/`).
 Open every PR with the `new-pr` skill (`.claude/skills/new-pr/`). It writes
