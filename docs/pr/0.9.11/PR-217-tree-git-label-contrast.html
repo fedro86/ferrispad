@@ -93,7 +93,7 @@
   </ul>
   <div class="meta">
     <span class="chip"><strong>T0109</strong> in <code>2-review/</code></span>
-    <span class="chip"><strong>7</strong> files · +265 / −3</span>
+    <span class="chip"><strong>7</strong> files · +270 / −3</span>
     <span class="chip warn">tree git colors change</span>
     <span class="chip green">gates green at every commit</span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/217">PR #217 on GitHub</a></span>
@@ -118,8 +118,10 @@
       <td>Merge of <code>master</code> 9941c6e (T0106). No conflict.</td></tr>
     <tr><td><code class="sha">84a1458</code></td>
       <td>Merge of <code>master</code> 32fe29f (T0110). No conflict.</td></tr>
-    <tr><td><code class="sha">this commit</code></td>
+    <tr><td><code class="sha">592d415</code></td>
       <td>Docs only: the ticket's record and this page.</td></tr>
+    <tr><td><code class="sha">this commit</code></td>
+      <td>Docs only, review nit: the test recipe uses the private-display environment of <code>scripts/gates.sh</code>.</td></tr>
   </table>
   </div>
   <p>The older commits listed by <code>git log</code> (T0097, T0104, T0105) reached <code>master</code> as their own squash commits, so they add nothing here. After the merges, the diff against <code>master</code> is T0109's alone: <code>src/ui/tree_panel.rs</code>, <code>src/ui/theme.rs</code>, the scenarios, the ticket and this page. Master gets one squash commit.</p>
@@ -163,7 +165,7 @@
   <div class="followup"><strong class="tag">Custom themes.</strong> On a mid-tone custom background, 4.5:1 can need a near-white or near-black label. There the hue may drift up to 12° or fade toward gray. Readability wins, as for T0104's selected row. The test sweeps T0097's 54 backgrounds and allows this only off the built-in themes.</div>
   <h3>How to test T0109</h3>
   <ol class="steps">
-    <li><code>nix develop -c cargo test --lib -- git_labels_read_on_the_tree panel_selection light_tree_selection</code> (under <code>xvfb-run -a</code>, with <code>DISPLAY</code> and <code>WAYLAND_DISPLAY</code> unset)
+    <li><code>env -u DISPLAY -u WAYLAND_DISPLAY -u WAYLAND_SOCKET -u DBUS_SESSION_BUS_ADDRESS FLTK_BACKEND=x11 XDG_RUNTIME_DIR=$(mktemp -d) nix shell nixpkgs#xvfb-run -c xvfb-run -a nix develop -c cargo test --lib -- git_labels_read_on_the_tree panel_selection light_tree_selection</code> (the private-display environment of <code>scripts/gates.sh</code>, which runs the whole suite the same way)
       <span class="expect">3 passed. <code>git_labels_read_on_the_tree</code> checks every status on the 7 built-in themes and the 54-background sweep: at least 4.5:1, hue kept, unchanged where it already read. T0104's two band tests pass unchanged; <code>panel_selection_band_keeps_the_label_colors</code> now checks the colors the tree draws.</span></li>
     <li>For each pair below, run <code>.claude/skills/new-pr/compare.sh docs/pr/scenarios/&lt;scenario&gt;.sh &lt;outdir&gt;</code>: <code>file-tree.sh</code>, <code>file-tree-solarized.sh</code>, <code>file-tree-github-eighties.sh</code>, <code>file-tree-github-mocha.sh</code>
       <span class="expect">for each, four montages (no row selected and "modified.rs" selected, light and dark), as in the figures above.</span></li>

@@ -39,8 +39,13 @@ dark/light mode. Several of them are hard to read on the tree's background
 ## How to test
 
 ```bash
-nix develop -c cargo test git_labels_read_on_the_tree
+env -u DISPLAY -u WAYLAND_DISPLAY -u WAYLAND_SOCKET -u DBUS_SESSION_BUS_ADDRESS \
+  FLTK_BACKEND=x11 XDG_RUNTIME_DIR=$(mktemp -d) \
+  nix shell nixpkgs#xvfb-run -c xvfb-run -a \
+  nix develop -c cargo test --lib -- git_labels_read_on_the_tree panel_selection light_tree_selection
 ```
+
+(The private-display environment of `scripts/gates.sh`; expected: 3 passed.)
 
 - Red: on T0104 the test fails, listing each status / theme below 4.5:1.
 - Montage (Xvfb, Claude): the tree with every status, before / after, on
