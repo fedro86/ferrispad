@@ -1,7 +1,7 @@
 ---
 id: T0124
 title: A long file path with non-ASCII characters never crashes the status bar
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-28
 severity: moderate      # a panic loses unsaved work
 area: robustness
@@ -96,11 +96,20 @@ nix develop -c cargo test --lib status_bar   # just this module (pure, no window
 
 ## Acceptance criteria
 
-- [ ] No path, at any window width, makes the status bar panic.
-- [ ] A shortened path fits the space left of "Ln X, Col Y", counted in
+- [x] No path, at any window width, makes the status bar panic.
+- [x] A shortened path fits the space left of "Ln X, Col Y", counted in
       display columns (a CJK glyph is two).
-- [ ] The regression test failed before the fix.
-- [ ] Gates green (`scripts/gates.sh`).
+- [x] The regression test failed before the fix.
+- [x] Gates green (`scripts/gates.sh`).
+
+## User verification
+
+The user approved the PR on 2026-11-28 ("ok 250"), relayed by the
+orchestrator (ferrispad-03), after reading the presentation
+`docs/pr/0.9.11/PR-250-status-bar-non-ascii-path.html`. The reviewer
+(ferrispad-90) approved dcb8f99; b18c472 added the remaining wide ranges
+(its non-blocking nit). Before the move, master was merged (T0106 #208,
+T0110 #212; 1ad46b7) with no conflict.
 
 ## Affected files
 
