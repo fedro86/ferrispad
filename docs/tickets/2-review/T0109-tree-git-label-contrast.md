@@ -5,7 +5,8 @@ status: review           # todo | review | done
 created: 2026-11-26
 severity: minor
 area: ui
-depends-on: [T0104]     # stacked on ticket/T0104 (the tree's theme plumbing)
+release: 0.9.11         # the planned release
+depends-on: []          # T0104 landed on master (f12fd3c)
 issue: 216
 ---
 
