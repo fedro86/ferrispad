@@ -255,9 +255,9 @@
   <ol class="steps">
     <li>Read <code>.claude/skills/new-pr/SKILL.md</code> and <code>docs/pr/README.md</code>.
       <span class="expect">every command is a FerrisPad one (<code>gh</code>, <code>nix develop -c cargo …</code>, <code>flatpak-spawn --host</code>, Xvfb); nothing refers to GitLab, <code>glab</code>, Django, app folders or <code>docs/4.0.0</code>.</span></li>
-    <li><code>grep -n '&#123;&#123;' docs/pr/PR-235-new-pr-skill.html</code>
+    <li><code>grep -n '&#123;&#123;' docs/pr/0.9.11/PR-235-new-pr-skill.html</code>
       <span class="expect">no output: no placeholder is left.</span></li>
-    <li><code>diff &lt;(sed -n '/&lt;style&gt;/,/&lt;\/style&gt;/p' docs/pr/_template.html) &lt;(sed -n '/&lt;style&gt;/,/&lt;\/style&gt;/p' docs/pr/PR-235-new-pr-skill.html)</code>
+    <li><code>diff &lt;(sed -n '/&lt;style&gt;/,/&lt;\/style&gt;/p' docs/pr/_template.html) &lt;(sed -n '/&lt;style&gt;/,/&lt;\/style&gt;/p' docs/pr/0.9.11/PR-235-new-pr-skill.html)</code>
       <span class="expect">no output: the style block is the template's.</span></li>
     <li><code>.claude/skills/new-pr/shoot.sh --selftest ~/Code/personal/ferrispad-wt/uitest-T0117/selftest</code>
       <span class="expect">eighteen <code>ok</code> lines, exit 0, and no FerrisPad window: every isolation barrier holds.</span></li>
@@ -265,9 +265,9 @@
       <span class="expect">four <code>ok:</code> lines and two montages, <code>start-page-{light,dark}-compare.png</code>, like the two above. Then <code>pgrep -af "zenity|Xvfb|dbus-daemon --config-file"</code> on the host prints nothing, and no dialog appeared on your desktop.</span></li>
     <li><code>.claude/skills/new-pr/shoot.sh target/debug/FerrisPad ~/Code/personal/ferrispad-wt/uitest-T0117/editor docs/pr/scenarios/editor.sh --theme dark</code> (after <code>nix develop -c cargo build</code>)
       <span class="expect"><code>editor-dark.png</code> (hello.rs highlighted), <code>view-menu-dark.png</code> (the View menu open) and <code>find-dialog-dark.png</code> (the Find dialog alone).</span></li>
-    <li><code>.claude/skills/new-pr/visual_check.sh docs/pr/PR-235-new-pr-skill.html /tmp/vc-235</code>
+    <li><code>.claude/skills/new-pr/visual_check.sh docs/pr/0.9.11/PR-235-new-pr-skill.html /tmp/vc-235</code>
       <span class="expect">four lines ending <code>-&gt; ok</code>: scrollWidth ≤ innerWidth at 1280 and 390 px, light and dark, no long chip; the four PNGs show nothing overflowing.</span></li>
-    <li>Open <code>docs/internal/pr/PR-235-new-pr-skill.html</code> of the main checkout in a browser.
+    <li>Open <code>docs/internal/pr/0.9.11/PR-235-new-pr-skill.html</code> of the main checkout in a browser.
       <span class="expect">the same page as on the branch, in your system's light or dark scheme.</span></li>
   </ol>
 </section>

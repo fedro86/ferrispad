@@ -148,7 +148,7 @@ still byte-identical to the plugin repo: `rust-lint` to PR #1's head
 
 The user approved on 2026-11-27 ("ok pubblica rust lint 1.5.1 e poi 209"),
 relayed by the orchestrator (ferrispad-03), after reading the presentation
-`docs/pr/PR-209-rust-lint-shortcut-conflict.html`. The reviewer
+`docs/pr/0.9.11/PR-209-rust-lint-shortcut-conflict.html`. The reviewer
 (ferrispad-90) approved 81943be. Its mutation probes made both tests fail
 as expected: Ctrl+Shift+R put back, and `ctrl+w` dropped from
 `RESERVED_SHORTCUTS`.

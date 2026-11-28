@@ -39,8 +39,9 @@ ID, never reused or renumbered. Copy `docs/tickets/_template.md` for new tickets
    2. see every visible change in the real app with the skill's
       `compare.sh` / `shoot.sh` (an isolated Xvfb; master build vs branch
       build, light and dark), and read every shot edge by edge;
-   3. write `docs/pr/PR-<n>-<slug>.html` and copy it to the main checkout's
-      `docs/internal/pr/`;
+   3. write `docs/pr/<release>/PR-<n>-<slug>.html` (`<release>` is the
+      ticket's `release:` field, the planned release) and copy it to the main
+      checkout's `docs/internal/pr/<release>/`;
    4. hand back to the user with the page and the recipe to run. The PR
       stays a **draft** until the user has verified it.
 
