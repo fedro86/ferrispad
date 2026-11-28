@@ -930,7 +930,7 @@ mod tests {
     fn input_border_stands_out_on_every_theme() {
         use crate::ui::color::wcag_contrast;
         let mut failures = Vec::new();
-        for (name, bg) in dialog_list_test_backgrounds() {
+        for (name, bg) in crate::ui::color::theme_test_backgrounds() {
             let theme = DialogTheme::from_theme_bg(bg);
             let ratio = wcag_contrast(theme.input_border.to_rgb(), theme.bg.to_rgb());
             if ratio < 3.0 {
@@ -968,22 +968,6 @@ mod tests {
         }
     }
 
-    /// Theme backgrounds to check: every built-in syntax theme plus a sweep
-    /// of grays and tinted colors, standing in for custom themes.
-    fn dialog_list_test_backgrounds() -> Vec<(String, (u8, u8, u8))> {
-        use crate::app::domain::settings::SyntaxTheme;
-        let mut bgs: Vec<(String, (u8, u8, u8))> = SyntaxTheme::all()
-            .iter()
-            .map(|t| (format!("{t:?}"), t.background()))
-            .collect();
-        for v in (0..=255u8).step_by(15) {
-            bgs.push((format!("gray {v}"), (v, v, v)));
-            bgs.push((format!("blue-ish {v}"), (v / 2, v / 2, v)));
-            bgs.push((format!("warm {v}"), (v, v.saturating_sub(20), v / 2)));
-        }
-        bgs
-    }
-
     /// T0097: the selected row of a dialog list must stand out from the list
     /// background (>= 3:1) and the text FLTK draws on it must be readable
     /// (>= 4.5:1), in light and dark themes. Measured 1.39:1 in the theme
@@ -993,7 +977,7 @@ mod tests {
         use crate::ui::color::wcag_contrast;
         use crate::ui::contrast::{EditorSelectionBgs, ferrispad_contrast};
         let mut failures = Vec::new();
-        for (name, bg) in dialog_list_test_backgrounds() {
+        for (name, bg) in crate::ui::color::theme_test_backgrounds() {
             let theme = DialogTheme::from_theme_bg(bg);
             let (sel, text) = theme.list_selection();
             let list_bg = theme.input_bg.to_rgb();

@@ -17,6 +17,8 @@
 //! they are skipped with a note, unless `FERRISPAD_REQUIRE_UI_TESTS=1`, which
 //! turns a missing display into a failure.
 
+mod support;
+
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::ExitCode;
 
@@ -25,6 +27,7 @@ use ferris_pad::app::controllers::session::main_thread_checks as session;
 use ferris_pad::app::controllers::tabs::main_thread_checks as tabs;
 use ferris_pad::app::domain::document::main_thread_checks as document;
 use ferris_pad::ui::dialogs::main_thread_checks as dialogs;
+use ferris_pad::ui::menu::main_thread_checks as menu;
 use ferris_pad::ui::scrollbar::main_thread_checks as scrollbar;
 
 const CHECKS: &[(&str, fn())] = &[
@@ -54,8 +57,20 @@ const CHECKS: &[(&str, fn())] = &[
         tabs::untitled_saved_doc_frees_its_number,
     ),
     (
+        "tab_label_follows_paths_and_closes",
+        tabs::tab_label_follows_paths_and_closes,
+    ),
+    (
         "untitled_full_restore_numbers_from_one",
         session::untitled_full_restore_numbers_from_one,
+    ),
+    (
+        "recent_files_open_recent_sits_under_open",
+        menu::recent_files_open_recent_sits_under_open,
+    ),
+    (
+        "recent_files_open_recent_labels_are_whole",
+        menu::recent_files_open_recent_labels_are_whole,
     ),
 ];
 
@@ -132,6 +147,11 @@ fn display_available() -> bool {
             "UI tests required but no display (set DISPLAY, e.g. run under xvfb-run)"
         );
         eprintln!("skipping FLTK main-thread checks: no DISPLAY or WAYLAND_DISPLAY");
+    } else if std::env::var("FERRISPAD_REQUIRE_UI_TESTS").as_deref() == Ok("1") {
+        // T0122: under the gates and CI, the checks run on the private X
+        // display they were given, never on the user's screen.
+        let _ = fltk::app::screen_size();
+        support::ui_layout::assert_private_display_when_required("FLTK main-thread checks");
     }
     has_display
 }

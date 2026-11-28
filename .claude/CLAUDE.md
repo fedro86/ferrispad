@@ -21,11 +21,13 @@ verified the in-review ticket.** The binding rules load from `.claude/rules/`:
 
 Open new tickets with the `new-ticket` skill (`.claude/skills/new-ticket/`).
 Open every PR with the `new-pr` skill (`.claude/skills/new-pr/`). It writes
-the PR's English HTML presentation, `docs/pr/PR-<n>-<slug>.html`. Its
+the PR's English HTML presentation, `docs/pr/<release>/PR-<n>-<slug>.html`,
+in the folder of the release the ticket is planned for (its `release:`
+field). Its
 `shoot.sh` and `compare.sh` launch, drive and screenshot FerrisPad in an
 isolated Xvfb, with before|after montages. Never hand-write an Xvfb script:
 on 2026-11-27 one opened file dialogs on the user's real desktop. The skill
-copies the page to the main checkout's `docs/internal/pr/` for the user. It also holds the merge
+copies the page to the main checkout's `docs/internal/pr/<release>/` for the user. It also holds the merge
 conditions: the ticket in `3-done/`, all checks green on the head SHA, and
 the user's explicit consent for that PR, merged with `--match-head-commit`.
 The ticket workspace (`docs/tickets/`) and this `.claude/` overlay are **tracked
@@ -35,17 +37,27 @@ root `CLAUDE.md`, and `.mcp.json`. Each worked ticket also gets a GitHub issue
 (see `.claude/rules/work-sequence.md` → *GitHub issue tracking*).
 
 The gates (must be green before a commit; `cargo` is reached via the Nix dev
-shell since it is not on the VSCode Flatpak-terminal PATH):
+shell since it is not on the VSCode Flatpak-terminal PATH) are one script:
 
 ```bash
-nix develop -c cargo test
-nix develop -c cargo clippy --all-targets --all-features -- -D warnings
-nix develop -c cargo fmt --check
+scripts/gates.sh                                                # on the host
+flatpak-spawn --host bash -lc "$PWD/scripts/gates.sh $PWD"      # from the VSCode Flatpak terminal
 ```
 
+It runs `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D
+warnings` and `cargo test` in the Nix dev shell. The tests run on a private
+Xvfb (`xvfb-run -a`), as in CI. The caller's `DISPLAY`, `WAYLAND_DISPLAY`,
+`WAYLAND_SOCKET` and session bus are removed. `FLTK_BACKEND=x11` and an
+empty private `XDG_RUNTIME_DIR` keep FLTK off the user's Wayland compositor.
+The UI tests are required, and they check that the X display FLTK opened is
+the private one. They build real windows, which must never open on the
+user's screen (T0122).
+Never run a bare `nix develop -c cargo test` from the host shell for a gate:
+that shell has the user's display.
+
 The pre-commit hook (`.claude/hooks/pre-commit-gates.sh`, wired in
-`.claude/settings.json`) runs these automatically and blocks the commit on any
-failure.
+`.claude/settings.json`) runs this script automatically and blocks the commit
+on any failure.
 
 ## Commands
 

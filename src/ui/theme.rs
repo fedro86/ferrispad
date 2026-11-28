@@ -35,6 +35,45 @@ pub struct PanelTheme {
     pub bg: (u8, u8, u8),
 }
 
+/// How far the file tree's selected row stands out from the tree on a
+/// *dark* theme (WCAG ratio, T0104). Master's band measured 1.34–1.37:1 there
+/// and was hard to see; the dialog lists' 3:1 (T0097) would hide the
+/// git-status colors. 1.5:1 is the user's "soft band": clearly visible, and
+/// every label of the built-in dark themes keeps its own color on it.
+pub const PANEL_SELECTION_CONTRAST: f64 = 1.5;
+
+/// The selected-row color of the main-window file tree for a theme whose
+/// editor background, which the tree uses, is `theme_bg` (T0104). (The
+/// diagnostic list keeps its own pre-T0104 colors, by the user's choice.)
+///
+/// Dark or light is the rule the tree always used (`DialogTheme::is_dark`):
+/// the background's mean channel (`ThemeRgb::brightness`) below 128.
+/// - **Dark:** the background lightened by the least amount that reaches
+///   [`PANEL_SELECTION_CONTRAST`].
+/// - **Light:** master's band, unchanged: the background darkened to 90 %
+///   (1.26:1 on the built-in light themes). The user preferred it there
+///   ("il light era meglio prima").
+///
+/// The color is deliberately *not* registered with the contrast rule: a
+/// selected file's name keeps its git color (the user's decision "Colore
+/// git, banda tenue"), and FLTK's level-[`FLTK_CONTRAST_LEVEL`] rule keeps it
+/// on both bands for every label of the built-in themes.
+pub fn panel_selection_color(theme_bg: (u8, u8, u8)) -> (u8, u8, u8) {
+    let bg = ThemeRgb::from_tuple(theme_bg);
+    let row = if bg.brightness() < 128 {
+        super::color::shift_to_contrast(bg, PANEL_SELECTION_CONTRAST, true)
+    } else {
+        bg.darken(0.90)
+    };
+    (row.r, row.g, row.b)
+}
+
+/// Apply [`panel_selection_color`] to a panel widget.
+pub fn style_panel_selection<W: WidgetExt>(widget: &mut W, theme_bg: (u8, u8, u8)) {
+    let (r, g, b) = panel_selection_color(theme_bg);
+    widget.set_selection_color(fltk_rgb(r, g, b));
+}
+
 /// A panel whose colors follow the app theme. One signature for every panel,
 /// so a theme change can iterate them all (see `LayoutWidgets::themeable_panels`).
 pub trait Themeable {
@@ -651,6 +690,82 @@ pub fn set_windows_titlebar_theme(window: &Window, theme_bg: (u8, u8, u8), theme
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T0104, the user's decisions "Colore git, banda tenue" and "per il
+    /// selected mi sembra che scuro vada meglio dopo e il light era meglio
+    /// prima": on a dark background the file tree's selected row is a soft
+    /// band, >= [`PANEL_SELECTION_CONTRAST`] and less than 0.1 above it,
+    /// against the tree; on the built-in themes every label drawn on the
+    /// selected row (the theme text, the git-status colors), dark or light,
+    /// keeps its own color: the contrast rule never swaps it for black or
+    /// white. (The light band is pinned by
+    /// `light_tree_selection_is_masters_band`.)
+    #[test]
+    fn panel_selection_band_keeps_the_label_colors() {
+        use crate::ui::color::wcag_contrast;
+        use crate::ui::contrast::{EditorSelectionBgs, ferrispad_contrast};
+        use crate::ui::tree_panel::git_label_rgb;
+        let builtin: Vec<String> = crate::app::domain::settings::SyntaxTheme::all()
+            .iter()
+            .map(|t| format!("{t:?}"))
+            .collect();
+        let soft = PANEL_SELECTION_CONTRAST..PANEL_SELECTION_CONTRAST + 0.1;
+        let mut failures = Vec::new();
+        for (theme, bg) in crate::ui::color::theme_test_backgrounds() {
+            let is_dark = ThemeRgb::from_tuple(bg).brightness() < 128;
+            let sel = panel_selection_color(bg);
+            let row = wcag_contrast(sel, bg);
+            if is_dark && !soft.contains(&row) {
+                failures.push(format!("{theme}: row {sel:?} on {bg:?} = {row:.2}:1"));
+            }
+            if !builtin.contains(&theme) {
+                continue;
+            }
+            let mut labels = vec![(
+                "text",
+                crate::ui::dialogs::DialogTheme::from_theme_bg(bg)
+                    .text
+                    .to_rgb(),
+            )];
+            for name in ["modified", "added", "conflict", "ignored"] {
+                labels.push((name, git_label_rgb(name, is_dark).unwrap()));
+            }
+            let rgb = |(r, g, b): (u8, u8, u8)| fltk_rgb(r, g, b);
+            for (name, fg) in labels {
+                // The tree's band is not registered (contrast.rs has no slot
+                // for it), so FLTK's level-10 rule draws its labels.
+                let drawn = ferrispad_contrast(rgb(fg), rgb(sel), EditorSelectionBgs::default());
+                if drawn.to_rgb() != fg {
+                    failures.push(format!(
+                        "{theme}: {name} {fg:?} drawn as {:?} on the selected row {sel:?}",
+                        drawn.to_rgb()
+                    ));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+    }
+
+    /// T0104: on light themes the tree's selected row is master's band,
+    /// exactly (the user: "il light era meglio prima"). The values are the
+    /// ones master c3672fe computes (`editor.darken(0.90)`), written out so a
+    /// change to the rule turns this red.
+    #[test]
+    fn light_tree_selection_is_masters_band() {
+        use crate::app::domain::settings::SyntaxTheme;
+        for (theme, band) in [
+            (SyntaxTheme::Base16OceanLight, (215, 216, 220)),
+            (SyntaxTheme::SolarizedLight, (227, 221, 204)),
+            (SyntaxTheme::InspiredGitHub, (229, 229, 229)),
+        ] {
+            assert_eq!(panel_selection_color(theme.background()), band, "{theme:?}");
+        }
+        let light = SyntaxTheme::all()
+            .iter()
+            .filter(|t| ThemeRgb::from_tuple(t.background()).brightness() >= 128)
+            .count();
+        assert_eq!(light, 3, "a new light theme needs its band pinned here");
+    }
 
     #[test]
     fn divider_matches_tab_bar_background() {
