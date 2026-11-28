@@ -1073,6 +1073,71 @@ mod tests {
 
     use super::*;
 
+    /// T0073: every shortcut an official plugin declares binds without a
+    /// clash against the core shortcuts, the way the Plugins menu binds it
+    /// (`PluginShortcutBinder`: reserved core keys, then earlier items). The
+    /// manifests are copies from the plugin repo
+    /// (`tests/fixtures/official_plugins`); a clash there means the plugin
+    /// ships a shortcut that never works and a warning on every start.
+    #[test]
+    fn plugin_shortcut_conflicts() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/official_plugins");
+        let mut dirs: Vec<_> = std::fs::read_dir(&root)
+            .expect("fixtures dir")
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.join("plugin.toml").is_file())
+            .collect();
+        dirs.sort();
+        assert!(dirs.len() >= 5, "official manifests missing: {dirs:?}");
+
+        // Who holds a key: the core command, else an earlier plugin item.
+        let mut holders: std::collections::HashMap<String, String> =
+            builtin_shortcut_defaults(true)
+                .chain(builtin_shortcut_defaults(false))
+                .map(|(id, sc)| (normalize_shortcut(sc), id.to_string()))
+                .collect();
+        let registry = ShortcutRegistry::default();
+        let mut binder = PluginShortcutBinder::new();
+        let mut failures = Vec::new();
+        for dir in &dirs {
+            let content = std::fs::read_to_string(dir.join("plugin.toml")).unwrap();
+            let meta = crate::app::plugins::loader::parse_plugin_toml_content(&content)
+                .unwrap_or_else(|| panic!("{dir:?}: unparsable plugin.toml"));
+            for item in &meta.menu_items {
+                let path = format!("{}/{}", meta.name, item.label);
+                match binder.bind(&registry, &meta.name, item) {
+                    PluginItemShortcut::Unbound => {}
+                    PluginItemShortcut::Bound(_, normalized) => {
+                        holders.insert(normalized, path);
+                    }
+                    PluginItemShortcut::Conflict(sc) => {
+                        let holder = holders
+                            .get(&normalize_shortcut(&sc))
+                            .map_or("a reserved core shortcut", String::as_str);
+                        failures.push(format!("{path} ({sc}) clashes with {holder}"));
+                    }
+                    PluginItemShortcut::Invalid(sc) => {
+                        failures.push(format!("{path}: invalid shortcut '{sc}'"));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+    }
+
+    /// T0073: the plugin binder keeps plugins off the core keys through
+    /// `RESERVED_SHORTCUTS`, a list kept by hand next to `BUILTIN_SHORTCUTS`.
+    /// A core default missing there would let a plugin take it silently.
+    #[test]
+    fn builtin_shortcuts_are_reserved() {
+        let missing: Vec<_> = builtin_shortcut_defaults(true)
+            .chain(builtin_shortcut_defaults(false))
+            .filter(|(_, sc)| !RESERVED_SHORTCUTS.contains(&normalize_shortcut(sc).as_str()))
+            .collect();
+        assert!(missing.is_empty(), "not reserved: {missing:?}");
+    }
+
     #[test]
     fn test_parse_shortcut_ctrl_key() {
         let sc = parse_shortcut("Ctrl+P").unwrap();

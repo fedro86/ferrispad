@@ -1,0 +1,68 @@
+name = "Rust Lint"
+version = "1.5.1"
+description = "Run clippy and cargo build on Rust files"
+
+[permissions]
+execute = ["cargo"]
+
+[[menu_items]]
+label = "Run All Checks"
+action = "lint"
+
+[[menu_items]]
+label = "Run Clippy Only"
+action = "run_clippy"
+
+[[menu_items]]
+label = "Run Build Only"
+action = "run_build"
+
+# Configurable parameters (accessible via api:get_config())
+[config]
+[[config.params]]
+key = "lint_on_save"
+label = "Lint on Save"
+type = "boolean"
+default = "true"
+
+[[config.params]]
+key = "clippy_enabled"
+label = "Run Clippy"
+type = "boolean"
+default = "true"
+
+[[config.params]]
+key = "build_enabled"
+label = "Run Cargo Build"
+type = "boolean"
+default = "true"
+
+[[config.params]]
+key = "clippy_level"
+label = "Clippy Warning Level"
+type = "choice"
+options = ["default|Default", "pedantic|Pedantic (-W clippy::pedantic)", "all|All Warnings (-W clippy::all)", "nursery|Nursery (-W clippy::nursery)"]
+default = "default"
+
+[[config.params]]
+key = "clippy_args"
+label = "Extra Clippy Arguments"
+type = "string"
+default = ""
+placeholder = "-A clippy::too_many_arguments"
+validate = "cli_args"
+
+[[config.params]]
+key = "build_profile"
+label = "Build Profile"
+type = "choice"
+options = ["debug|Debug (default)", "release|Release (--release)"]
+default = "debug"
+
+[[config.params]]
+key = "build_args"
+label = "Extra Build Arguments"
+type = "string"
+default = ""
+placeholder = "--features=full"
+validate = "cli_args"

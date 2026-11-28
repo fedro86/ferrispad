@@ -1,0 +1,22 @@
+name = "yaml-json-viewer"
+version = "1.0.1"
+description = "Tree viewer for YAML and JSON files with collapsible nodes, search, and copy actions"
+
+[[menu_items]]
+label = "View as Tree"
+action = "view_tree"
+shortcut = "Ctrl+Shift+Y"
+
+[config]
+[[config.params]]
+key = "expand_depth"
+label = "Default Expand Depth"
+type = "choice"
+default = "2"
+options = ["1|1 Level", "2|2 Levels", "3|3 Levels", "-1|Expand All"]
+
+[[config.params]]
+key = "auto_open"
+label = "Auto-open on File Open"
+type = "boolean"
+default = "true"
