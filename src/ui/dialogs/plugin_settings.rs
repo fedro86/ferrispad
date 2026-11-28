@@ -9,8 +9,17 @@ use crate::app::domain::settings::AppSettings;
 
 use super::DialogTheme;
 
+/// Smallest width of the dialog; it widens when the measured shortcut hint
+/// needs more room.
 const DIALOG_WIDTH: i32 = 400;
 const DIALOG_HEIGHT: i32 = 350;
+/// The shortcut hint: its x, label size and old fixed width, and the right
+/// margin it keeps (T0110).
+const HINT_X: i32 = 275;
+const HINT_LABEL_SIZE: i32 = 10;
+const HINT_MIN_W: i32 = 110;
+const HINT_RIGHT_MARGIN: i32 = 15;
+const HINT_TEXT: &str = "e.g. Ctrl+Shift+L";
 
 /// Result from the plugin settings dialog
 pub struct PluginSettingsResult {
@@ -47,17 +56,22 @@ pub fn build_plugin_settings_dialog(
     let text_color = theme.text;
     let text_dim = theme.text_dim;
 
+    // The hint measured with the installed fonts (T0110); the dialog widens
+    // to keep its old right margin, never narrower than DIALOG_WIDTH.
+    let hint_w = super::label_width(HINT_TEXT, HINT_LABEL_SIZE).max(HINT_MIN_W);
+    let dialog_w = (HINT_X + hint_w + HINT_RIGHT_MARGIN).max(DIALOG_WIDTH);
+
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
     let mut dialog = window::Window::default()
-        .with_size(DIALOG_WIDTH, DIALOG_HEIGHT)
+        .with_size(dialog_w, DIALOG_HEIGHT)
         .with_label("Plugin Settings");
     dialog.set_color(bg_color);
 
     // Title
     let mut title = frame::Frame::default()
         .with_pos(20, 15)
-        .with_size(DIALOG_WIDTH - 40, 25)
+        .with_size(dialog_w - 40, 25)
         .with_label("Run All Checks Configuration");
     title.set_label_size(14);
     title.set_label_color(text_color);
@@ -65,7 +79,7 @@ pub fn build_plugin_settings_dialog(
     // Description
     let mut desc = frame::Frame::default()
         .with_pos(20, 40)
-        .with_size(DIALOG_WIDTH - 40, 40)
+        .with_size(dialog_w - 40, 40)
         .with_label("Select which plugins run when you press the\nRun All Checks shortcut:");
     desc.set_label_size(12);
     desc.set_label_color(text_dim);
@@ -74,13 +88,13 @@ pub fn build_plugin_settings_dialog(
     // Plugin checkboxes scroll area
     let mut scroll = group::Scroll::default()
         .with_pos(20, 90)
-        .with_size(DIALOG_WIDTH - 40, 150);
+        .with_size(dialog_w - 40, 150);
     scroll.set_color(bg_color);
     theme.style_scroll(&mut scroll);
 
     let mut pack = group::Pack::default()
         .with_pos(20, 90)
-        .with_size(DIALOG_WIDTH - 60, 150);
+        .with_size(dialog_w - 60, 150);
     pack.set_spacing(5);
 
     // Determine which plugins are currently selected
@@ -92,14 +106,14 @@ pub fn build_plugin_settings_dialog(
 
     if available_plugins.is_empty() {
         let mut empty_label = frame::Frame::default()
-            .with_size(DIALOG_WIDTH - 80, 30)
+            .with_size(dialog_w - 80, 30)
             .with_label("No plugins installed");
         empty_label.set_label_color(text_dim);
     } else {
         for (name, enabled) in available_plugins {
             let mut cb = theme
                 .check_button()
-                .with_size(DIALOG_WIDTH - 80, 22)
+                .with_size(dialog_w - 80, 22)
                 .with_label(&format!(
                     "{}{}",
                     name,
@@ -134,23 +148,23 @@ pub fn build_plugin_settings_dialog(
     shortcut_input.set_value(run_all_checks_shortcut);
 
     let mut shortcut_hint = frame::Frame::default()
-        .with_pos(275, 250)
-        .with_size(110, 25)
-        .with_label("e.g. Ctrl+Shift+L");
-    shortcut_hint.set_label_size(10);
+        .with_pos(HINT_X, 250)
+        .with_size(hint_w, 25)
+        .with_label(HINT_TEXT);
+    shortcut_hint.set_label_size(HINT_LABEL_SIZE);
     shortcut_hint.set_label_color(text_dim);
     shortcut_hint.set_align(enums::Align::Left | enums::Align::Inside);
 
     // Buttons
     let save_btn = theme
         .button()
-        .with_pos(DIALOG_WIDTH - 180, DIALOG_HEIGHT - 45)
+        .with_pos(dialog_w - 180, DIALOG_HEIGHT - 45)
         .with_size(75, 30)
         .with_label("Save");
 
     let cancel_btn = theme
         .button()
-        .with_pos(DIALOG_WIDTH - 95, DIALOG_HEIGHT - 45)
+        .with_pos(dialog_w - 95, DIALOG_HEIGHT - 45)
         .with_size(75, 30)
         .with_label("Cancel");
 
