@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use fltk::{
     browser::HoldBrowser,
-    button::CheckButton,
+    button::{Button, CheckButton},
     enums::{CallbackTrigger, Event, Key},
     frame::Frame,
     input::{Input, IntInput},
@@ -20,32 +20,37 @@ use fltk::{
 use crate::app::domain::settings;
 use crate::app::services::font_catalog::{self, FontEntry};
 
-use super::DialogTheme;
+use super::{DialogTheme, label_width};
 
 const PREVIEW_SAMPLE: &str =
     "fn main() {\n    let x = 42;\n    // 0Oo 1lI iIl\n    println!(\"Hello, {}!\", x);\n}";
 
 const DW: i32 = 640;
 const DH: i32 = 460;
+/// FLTK's default label size, which the "Search:" label uses.
+const LABEL_SIZE: i32 = 14;
 
-/// Show the font picker dialog. Returns `Some((name, size))` if the user
-/// confirmed a selection, `None` otherwise.
-pub fn show_font_picker(
-    parent: &Window,
+/// The font picker's window and widgets, built but not shown (a seam for
+/// the layout tests). The font list starts empty: `show_font_picker` fills
+/// it after `show()`.
+pub struct FontPickerUi {
+    pub dialog_win: Window,
+    pub search_input: Input,
+    pub monospace_toggle: CheckButton,
+    pub browser: HoldBrowser,
+    pub size_input: IntInput,
+    pub preview: TextDisplay,
+    pub ok_btn: Button,
+    pub cancel_btn: Button,
+}
+
+/// Build the font picker with `current_size` in the size field and the
+/// preview set in `current_name` at `current_size`.
+pub fn build_font_picker(
+    theme: &DialogTheme,
     current_name: &str,
     current_size: u32,
-    theme_bg: (u8, u8, u8),
-) -> Option<(String, u32)> {
-    let theme = DialogTheme::from_theme_bg(theme_bg);
-
-    let entries = font_catalog::list();
-    if entries.is_empty() {
-        return None;
-    }
-
-    let result: Rc<RefCell<Option<(String, u32)>>> = Rc::new(RefCell::new(None));
-    let entries = Rc::new(entries);
-
+) -> FontPickerUi {
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
     let mut dialog_win = Window::default()
@@ -54,20 +59,23 @@ pub fn show_font_picker(
         .center_screen();
     dialog_win.set_color(theme.bg);
 
-    // Top row: search input + monospace toggle
+    // Top row: search input + monospace toggle. The label fits its text
+    // (also 2 pt larger); the input and the toggle move right by as much.
+    let search_label_w = label_width("Search:", LABEL_SIZE).max(60);
+    let shift = search_label_w - 60;
     let mut search_label = Frame::default()
         .with_pos(20, 15)
-        .with_size(60, 25)
+        .with_size(search_label_w, 25)
         .with_label("Search:")
         .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
     search_label.set_label_color(theme.text);
 
-    let mut search_input = theme.input().with_pos(85, 15).with_size(220, 25);
+    let mut search_input = theme.input().with_pos(85 + shift, 15).with_size(220, 25);
     search_input.set_trigger(CallbackTrigger::Changed);
 
     let mut monospace_toggle = theme
         .check_button()
-        .with_pos(320, 15)
+        .with_pos(320 + shift, 15)
         .with_size(180, 25)
         .with_label("Monospace only");
     monospace_toggle.set_value(true);
@@ -77,7 +85,7 @@ pub fn show_font_picker(
     let list_y = 55;
     let list_w = 280;
     let list_h = 320;
-    let mut browser = theme
+    let browser = theme
         .list()
         .with_pos(list_x, list_y)
         .with_size(list_w, list_h);
@@ -130,13 +138,13 @@ pub fn show_font_picker(
     let btn_w = 90;
     let btn_h = 30;
 
-    let mut ok_btn = theme
+    let ok_btn = theme
         .button()
         .with_pos(DW - 2 * btn_w - 30, btn_y)
         .with_size(btn_w, btn_h)
         .with_label("OK");
 
-    let mut cancel_btn = theme
+    let cancel_btn = theme
         .button()
         .with_pos(DW - btn_w - 20, btn_y)
         .with_size(btn_w, btn_h)
@@ -144,6 +152,46 @@ pub fn show_font_picker(
 
     dialog_win.end();
     drop(top_level);
+    FontPickerUi {
+        dialog_win,
+        search_input,
+        monospace_toggle,
+        browser,
+        size_input,
+        preview,
+        ok_btn,
+        cancel_btn,
+    }
+}
+
+/// Show the font picker dialog. Returns `Some((name, size))` if the user
+/// confirmed a selection, `None` otherwise.
+pub fn show_font_picker(
+    parent: &Window,
+    current_name: &str,
+    current_size: u32,
+    theme_bg: (u8, u8, u8),
+) -> Option<(String, u32)> {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
+    let entries = font_catalog::list();
+    if entries.is_empty() {
+        return None;
+    }
+
+    let result: Rc<RefCell<Option<(String, u32)>>> = Rc::new(RefCell::new(None));
+    let entries = Rc::new(entries);
+
+    let FontPickerUi {
+        mut dialog_win,
+        search_input,
+        monospace_toggle,
+        mut browser,
+        mut size_input,
+        preview,
+        mut ok_btn,
+        mut cancel_btn,
+    } = build_font_picker(&theme, current_name, current_size);
     dialog_win.make_resizable(false);
     // Modal so FLTK manages the focus grab/release relative to the parent
     // (the settings dialog, itself modal). Without this, on Wayland the parent

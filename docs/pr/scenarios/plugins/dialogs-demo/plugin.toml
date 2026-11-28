@@ -1,0 +1,33 @@
+name = "dialogs-demo"
+version = "0.1.0"
+description = "Screenshot fixture: a plugin with a menu item, settings and a command permission"
+
+[permissions]
+execute = ["ruff"]
+
+[[menu_items]]
+label = "Demo Action"
+action = "demo"
+
+[[config.params]]
+key = "len"
+label = "Max length"
+type = "number"
+default = "80"
+
+[[config.params]]
+key = "on"
+label = "Strict"
+type = "boolean"
+
+[[config.params]]
+key = "mode"
+label = "Mode"
+type = "choice"
+options = ["a|Alpha", "b"]
+
+[[config.params]]
+key = "args"
+label = "Args"
+type = "string"
+placeholder = "--flag"

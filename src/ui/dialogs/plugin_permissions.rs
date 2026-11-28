@@ -40,14 +40,20 @@ const BUTTON_WIDTH: i32 = 80;
 const BUTTON_HEIGHT: i32 = 28;
 const SECTION_GAP: i32 = 15;
 
-/// Show a modal dialog asking the user to approve plugin permissions.
-/// Returns which commands were approved (if any).
-pub fn show_permission_dialog(
-    request: &PermissionRequest,
-    theme_bg: (u8, u8, u8),
-) -> ApprovalResult {
-    let theme = DialogTheme::from_theme_bg(theme_bg);
+/// The permission request dialog's window and widgets, built but not shown
+/// (a seam for the layout tests).
+pub struct PermissionDialogUi {
+    pub dialog: Window,
+    pub checkboxes: Vec<CheckButton>,
+    pub deny_btn: fltk::button::Button,
+    pub allow_btn: fltk::button::Button,
+}
 
+/// Build the permission request dialog for `request`.
+pub fn build_permission_dialog(
+    theme: &DialogTheme,
+    request: &PermissionRequest,
+) -> PermissionDialogUi {
     // Calculate dialog height based on content
     let has_description = !request.description.is_empty();
     let desc_height = if has_description { LABEL_HEIGHT + 5 } else { 0 };
@@ -70,14 +76,16 @@ pub fn show_permission_dialog(
         .with_size(DIALOG_WIDTH, dialog_height.max(200))
         .with_label("Plugin Permission Request")
         .center_screen();
-    dialog.make_modal(true);
     dialog.set_color(theme.bg);
 
-    let result = Rc::new(RefCell::new(ApprovalResult::Cancelled));
+    // Buttons row, right aligned at the bottom like settings_dialog.
+    let btn_y = dialog_height - MARGIN - BUTTON_HEIGHT;
 
-    // Main content group - exactly like settings_dialog
+    // Main content group - exactly like settings_dialog. It ends where the
+    // warning line ends, SECTION_GAP above the buttons, so it does not run
+    // under them (T0110).
     let mut _vpack = Group::default()
-        .with_size(DIALOG_WIDTH - 20, dialog_height - 50)
+        .with_size(DIALOG_WIDTH - 20, btn_y - SECTION_GAP - 10)
         .with_pos(10, 10);
     _vpack.set_color(theme.bg);
 
@@ -98,8 +106,15 @@ pub fn show_permission_dialog(
         let mut desc = Frame::default()
             .with_pos(MARGIN, y)
             .with_size(col_width, LABEL_HEIGHT);
-        desc.set_label(&request.description);
         desc.set_label_size(11);
+        // A plugin's description is free text of any length: it is cut with
+        // "..." to the frame, and the full text is in the tooltip (T0110).
+        desc.set_label(&super::fit_text(
+            &request.description,
+            col_width,
+            desc.label_size(),
+        ));
+        desc.set_tooltip(&request.description);
         desc.set_label_color(theme.text_dim);
         desc.set_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
         y += LABEL_HEIGHT + 5;
@@ -136,17 +151,16 @@ pub fn show_permission_dialog(
     _vpack.end();
 
     // Buttons - outside vpack, right aligned like settings_dialog
-    let btn_y = dialog_height - MARGIN - BUTTON_HEIGHT;
     let allow_x = DIALOG_WIDTH - MARGIN - BUTTON_WIDTH;
     let deny_x = allow_x - BUTTON_WIDTH - 10;
 
-    let mut deny_btn = theme
+    let deny_btn = theme
         .button()
         .with_pos(deny_x, btn_y)
         .with_size(BUTTON_WIDTH, BUTTON_HEIGHT)
         .with_label("Deny");
 
-    let mut allow_btn = theme
+    let allow_btn = theme
         .button()
         .with_pos(allow_x, btn_y)
         .with_size(BUTTON_WIDTH, BUTTON_HEIGHT)
@@ -154,6 +168,32 @@ pub fn show_permission_dialog(
 
     dialog.end();
     drop(top_level);
+    PermissionDialogUi {
+        dialog,
+        checkboxes,
+        deny_btn,
+        allow_btn,
+    }
+}
+
+/// Show a modal dialog asking the user to approve plugin permissions.
+/// Returns which commands were approved (if any).
+pub fn show_permission_dialog(
+    request: &PermissionRequest,
+    theme_bg: (u8, u8, u8),
+) -> ApprovalResult {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
+    let PermissionDialogUi {
+        mut dialog,
+        checkboxes,
+        mut deny_btn,
+        mut allow_btn,
+    } = build_permission_dialog(&theme, request);
+    dialog.make_modal(true);
+
+    let result = Rc::new(RefCell::new(ApprovalResult::Cancelled));
+
     dialog.show();
     theme.apply_titlebar(&dialog);
 

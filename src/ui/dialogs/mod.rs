@@ -603,6 +603,31 @@ pub(crate) fn label_width(label: &str, size: i32) -> i32 {
     width + 2 * LABEL_PAD
 }
 
+/// Truncate text to max_chars, adding "..." if truncated
+pub(crate) fn truncate_text(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        text.to_string()
+    } else {
+        let truncated: String = text.chars().take(max_chars.saturating_sub(3)).collect();
+        format!("{}...", truncated.trim_end())
+    }
+}
+
+/// `text` cut by [`truncate_text`] until it fits a `width`-wide frame at
+/// label size `size`, measured like the other dialog labels
+/// ([`label_width`], with its +2 pt slack and padding). For free text, such
+/// as a plugin's name or description in a list row (T0110).
+pub(crate) fn fit_text(text: &str, width: i32, size: i32) -> String {
+    let mut max_chars = text.chars().count();
+    loop {
+        let fitted = truncate_text(text, max_chars);
+        if max_chars <= 3 || label_width(&fitted, size) <= width {
+            return fitted;
+        }
+        max_chars -= 1;
+    }
+}
+
 /// The widest [`label_width`] of `labels`.
 pub(crate) fn max_label_width(labels: &[&str], size: i32) -> i32 {
     labels
@@ -748,6 +773,34 @@ pub fn build_themed_input(
         &choice_layout("Cancel", "OK", ""),
     )
     .dialog
+}
+
+/// Build, without showing, the themed notice [`show_themed_message`] shows.
+/// For the UI construction tests (`tests/ui_dialogs.rs`).
+pub fn build_themed_message(theme_bg: (u8, u8, u8), title: &str, message: &str) -> Window {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+    build_themed_popup(
+        &theme,
+        title,
+        message,
+        None,
+        &choice_layout("Close", "", ""),
+    )
+    .dialog
+}
+
+/// Build, without showing, the themed question [`show_themed_choice`] shows
+/// (e.g. the large-file warning). For the UI construction tests.
+pub fn build_themed_choice(
+    theme_bg: (u8, u8, u8),
+    title: &str,
+    message: &str,
+    b0: &str,
+    b1: &str,
+    b2: &str,
+) -> Window {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+    build_themed_popup(&theme, title, message, None, &choice_layout(b0, b1, b2)).dialog
 }
 
 /// Show the themed popup (see [`build_themed_popup`]) and run it with

@@ -73,35 +73,76 @@ pub fn check_for_updates_ui(
     let _ = settings_mut.save();
 }
 
-/// Show update available dialog with options.
-/// `parent` is the main window used to center the dialog (reliable on Wayland).
-pub fn show_update_available_dialog(
-    parent: &Window,
-    release: updater::ReleaseInfo,
-    settings: &Rc<RefCell<AppSettings>>,
+/// Smallest size of the Update Available dialog; it widens when the
+/// measured button row needs more room.
+const DW: i32 = 500;
+const DH: i32 = 480;
+/// Margin around the dialog's content column, and spacing between buttons.
+const MARGIN: i32 = 10;
+const BUTTON_SPACING: i32 = 10;
+/// Width (rounded up) each of the four buttons had when they shared the 480px row
+/// equally; a measured width never goes below it.
+const OLD_BUTTON_W: i32 = 113;
+
+/// Widths of the Install, View on GitHub, Skip and Remind Later buttons,
+/// measured from every label each can show (T0110), at label size `size`.
+fn button_widths(size: i32) -> [i32; 4] {
+    let width = |labels: &[&str]| super::max_label_width(labels, size).max(OLD_BUTTON_W);
+    [
+        width(&["Install Now", "Manual Update Only"]),
+        width(&["View on GitHub"]),
+        width(&["Skip This Version"]),
+        width(&["Remind Later"]),
+    ]
+}
+
+/// The dialog width that fits the measured button row: at least [`DW`].
+fn dialog_width(widths: &[i32; 4]) -> i32 {
+    let row: i32 = widths.iter().sum::<i32>() + 3 * BUTTON_SPACING;
+    (row + 2 * MARGIN).max(DW)
+}
+
+/// The Update Available dialog's window and widgets, built but not shown (a
+/// seam for the layout tests).
+pub struct UpdateAvailableUi {
+    pub dialog: Window,
+    pub progress: fltk::misc::Progress,
+    pub status_frame: Frame,
+    pub button_row: Flex,
+    pub install_btn: fltk::button::Button,
+    pub download_btn: fltk::button::Button,
+    pub skip_btn: fltk::button::Button,
+    pub later_btn: fltk::button::Button,
+}
+
+/// Build the Update Available dialog for `release`. Without
+/// `install_available` (no asset for this platform) the install button is
+/// disabled and reads "Manual Update Only".
+pub fn build_update_available_dialog(
+    theme: &DialogTheme,
     theme_bg: (u8, u8, u8),
-) {
-    let theme = DialogTheme::from_theme_bg(theme_bg);
+    release: &updater::ReleaseInfo,
+    install_available: bool,
+) -> UpdateAvailableUi {
     let dialog_bg = fltk_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
     let current_version = env!("CARGO_PKG_VERSION");
-    let direct_asset = updater::get_platform_asset_name()
-        .and_then(|name| release.assets.iter().find(|a| a.name.ends_with(name)));
 
-    const DW: i32 = 500;
-    const DH: i32 = 480;
     // Regular xdg_toplevel (not modal) — on Wayland/GNOME, make_modal(true) on the
     // first invocation maps the surface before the decoration + modal-hint round-trip
     // completes, yielding an undecorated, ungrabbed window with no input (and the
     // parent window also stops receiving input). See session_picker.rs for the same fix.
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
+    // Buttons use FLTK's default label size.
+    let widths = button_widths(app::font_size());
+    let dialog_w = dialog_width(&widths);
     let mut dialog = Window::default()
-        .with_size(DW, DH)
+        .with_size(dialog_w, DH)
         .with_label("Update Available")
         .center_screen();
     dialog.set_color(dialog_bg);
 
-    let mut flex = Flex::new(10, 10, 480, 460, None);
+    let mut flex = Flex::new(MARGIN, MARGIN, dialog_w - 2 * MARGIN, DH - 2 * MARGIN, None);
     flex.set_type(fltk::group::FlexType::Column);
     flex.set_spacing(10);
     flex.set_color(dialog_bg);
@@ -161,21 +202,28 @@ pub fn show_update_available_dialog(
     // Buttons row
     let mut button_row = Flex::default();
     button_row.set_type(fltk::group::FlexType::Row);
-    button_row.set_spacing(10);
+    button_row.set_spacing(BUTTON_SPACING);
     button_row.set_color(dialog_bg);
 
     let mut install_btn = theme.button().with_label("Install Now");
 
-    let mut download_btn = theme.button().with_label("View on GitHub");
+    let download_btn = theme.button().with_label("View on GitHub");
 
-    let mut skip_btn = theme.button().with_label("Skip This Version");
+    let skip_btn = theme.button().with_label("Skip This Version");
 
-    let mut later_btn = theme.button().with_label("Remind Later");
+    let later_btn = theme.button().with_label("Remind Later");
 
-    if direct_asset.is_none() {
+    if !install_available {
         install_btn.deactivate();
         install_btn.set_label("Manual Update Only");
     }
+
+    // Every button at its measured width (T0110); `dialog_width` made the
+    // row exactly as wide as the four plus their spacing.
+    button_row.fixed(&install_btn, widths[0]);
+    button_row.fixed(&download_btn, widths[1]);
+    button_row.fixed(&skip_btn, widths[2]);
+    button_row.fixed(&later_btn, widths[3]);
 
     button_row.end();
     flex.fixed(&button_row, 35);
@@ -183,6 +231,43 @@ pub fn show_update_available_dialog(
     flex.end();
     dialog.end();
     drop(top_level);
+    UpdateAvailableUi {
+        dialog,
+        progress,
+        status_frame,
+        button_row,
+        install_btn,
+        download_btn,
+        skip_btn,
+        later_btn,
+    }
+}
+
+/// Show update available dialog with options.
+/// `parent` is the main window used to center the dialog (reliable on Wayland).
+pub fn show_update_available_dialog(
+    parent: &Window,
+    release: updater::ReleaseInfo,
+    settings: &Rc<RefCell<AppSettings>>,
+    theme_bg: (u8, u8, u8),
+) {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+    let direct_asset = updater::get_platform_asset_name()
+        .and_then(|name| release.assets.iter().find(|a| a.name.ends_with(name)));
+
+    let UpdateAvailableUi {
+        mut dialog,
+        progress,
+        status_frame,
+        button_row,
+        mut install_btn,
+        mut download_btn,
+        mut skip_btn,
+        mut later_btn,
+    } = build_update_available_dialog(&theme, theme_bg, &release, direct_asset.is_some());
+    // The built size (widened to fit the measured buttons), kept for the
+    // re-centring after show().
+    let (dialog_w, dialog_h) = (dialog.w(), dialog.h());
 
     // Install Now button
     if direct_asset.is_some() {
@@ -300,10 +385,10 @@ pub fn show_update_available_dialog(
     theme.apply_titlebar(&dialog);
     // Reposition to center on the parent AFTER show().
     dialog.resize(
-        parent.x() + (parent.w() - DW) / 2,
-        parent.y() + (parent.h() - DH) / 2,
-        DW,
-        DH,
+        parent.x() + (parent.w() - dialog_w) / 2,
+        parent.y() + (parent.h() - dialog_h) / 2,
+        dialog_w,
+        dialog_h,
     );
     super::run_dialog(&dialog);
 }

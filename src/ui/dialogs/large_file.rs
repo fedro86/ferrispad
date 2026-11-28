@@ -54,28 +54,29 @@ pub enum TooLargeAction {
     OpenChunk(usize, usize),
 }
 
-/// Show dialog for file that exceeds the configured max editable size, offering view and tail options
-pub fn show_file_too_large_dialog(
-    path: &Path,
+/// The "File Too Large" dialog's window and widgets, built but not shown (a
+/// seam for the layout tests).
+pub struct FileTooLargeUi {
+    pub dialog: Window,
+    pub view_btn: fltk::button::Button,
+    pub tail_btn: fltk::button::Button,
+    pub lines_btn: fltk::button::Button,
+    pub start_input: fltk::input::Input,
+    pub end_input: fltk::input::Input,
+    pub cancel_btn: fltk::button::Button,
+}
+
+/// Build the "File Too Large" dialog for `filename` of `size` bytes, over the
+/// `max_editable_mb` limit.
+pub fn build_file_too_large_dialog(
+    theme: &DialogTheme,
+    filename: &str,
     size: u64,
-    theme_bg: (u8, u8, u8),
     max_editable_mb: u32,
-) -> TooLargeAction {
-    let filename = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("file")
-        .to_string();
-
-    let theme = DialogTheme::from_theme_bg(theme_bg);
-
-    // Use Rc<RefCell> to store the result from button callbacks
-    let result = Rc::new(RefCell::new(TooLargeAction::Cancel));
-
+) -> FileTooLargeUi {
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
     let mut dialog = Window::new(100, 100, 450, 280, "File Too Large");
-    dialog.make_modal(true);
     dialog.set_color(theme.bg);
 
     let mut main_flex = Flex::new(15, 15, 420, 250, None);
@@ -99,13 +100,13 @@ pub fn show_file_too_large_dialog(
     main_flex.fixed(&msg_frame, 80);
 
     // View Read-Only button
-    let mut view_btn = theme
+    let view_btn = theme
         .button()
         .with_label("View Read-Only (browse entire file, no editing)");
     main_flex.fixed(&view_btn, 30);
 
     // Open Tail button
-    let mut tail_btn = theme
+    let tail_btn = theme
         .button()
         .with_label("Open Tail (last 10,000 lines, editable)");
     main_flex.fixed(&tail_btn, 30);
@@ -115,8 +116,11 @@ pub fn show_file_too_large_dialog(
     lines_row.set_type(fltk::group::FlexType::Row);
     lines_row.set_spacing(5);
 
-    let mut lines_btn = theme.button().with_label("Open Lines:");
-    lines_row.fixed(&lines_btn, 100);
+    let lines_btn = theme.button().with_label("Open Lines:");
+    // Measured from the label (T0110), never below the old 100px; the row's
+    // spacer gives up the difference. Buttons use FLTK's default label size.
+    let lines_btn_w = super::label_width("Open Lines:", app::font_size()).max(100);
+    lines_row.fixed(&lines_btn, lines_btn_w);
 
     let mut start_input = theme.input();
     start_input.set_value("1");
@@ -140,12 +144,51 @@ pub fn show_file_too_large_dialog(
     Frame::default(); // Spacer
 
     // Cancel button — visually distinct (secondary)
-    let mut cancel_btn = theme.secondary_button().with_label("Cancel");
+    let cancel_btn = theme.secondary_button().with_label("Cancel");
     main_flex.fixed(&cancel_btn, 30);
 
     main_flex.end();
     dialog.end();
     drop(top_level);
+    FileTooLargeUi {
+        dialog,
+        view_btn,
+        tail_btn,
+        lines_btn,
+        start_input,
+        end_input,
+        cancel_btn,
+    }
+}
+
+/// Show dialog for file that exceeds the configured max editable size, offering view and tail options
+pub fn show_file_too_large_dialog(
+    path: &Path,
+    size: u64,
+    theme_bg: (u8, u8, u8),
+    max_editable_mb: u32,
+) -> TooLargeAction {
+    let filename = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("file")
+        .to_string();
+
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
+    // Use Rc<RefCell> to store the result from button callbacks
+    let result = Rc::new(RefCell::new(TooLargeAction::Cancel));
+
+    let FileTooLargeUi {
+        mut dialog,
+        mut view_btn,
+        mut tail_btn,
+        mut lines_btn,
+        start_input,
+        end_input,
+        mut cancel_btn,
+    } = build_file_too_large_dialog(&theme, &filename, size, max_editable_mb);
+    dialog.make_modal(true);
     dialog.show();
     theme.apply_titlebar(&dialog);
 

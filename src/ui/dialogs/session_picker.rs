@@ -337,6 +337,74 @@ pub fn show_session_picker(
     result.borrow().clone()
 }
 
+/// Size of the New Session dialog; it widens to fit the measured label.
+const NEW_SESSION_DW: i32 = 300;
+const NEW_SESSION_DH: i32 = 120;
+
+/// The New Session dialog's window and widgets, built but not shown (a seam
+/// for the layout tests).
+pub struct NewSessionUi {
+    pub dialog_win: Window,
+    pub name_input: fltk::input::Input,
+    pub status: Frame,
+    pub ok_btn: fltk::button::Button,
+    pub cancel_btn: fltk::button::Button,
+}
+
+/// Build the New Session dialog.
+pub fn build_new_session_dialog(theme: &DialogTheme) -> NewSessionUi {
+    const DW: i32 = NEW_SESSION_DW;
+    const DH: i32 = NEW_SESSION_DH;
+    // Regular xdg_toplevel (not modal) — see show_session_picker for rationale.
+    // Built top-level even if another group is current (T0058).
+    let top_level = super::TopLevelScope::new();
+    // The label fits its text (also 2 pt larger); the input and the button
+    // row move right by as much, the status line and the dialog widen by it.
+    let label_w = label_width("Session name:", LABEL_SIZE).max(100);
+    let shift = label_w - 100;
+    let mut dialog_win = Window::default()
+        .with_size(DW + shift, DH)
+        .with_label("New Session")
+        .center_screen();
+    dialog_win.set_color(theme.bg);
+
+    let mut label = Frame::default()
+        .with_pos(20, 15)
+        .with_size(label_w, 30)
+        .with_label("Session name:");
+    label.set_label_color(theme.text);
+
+    let name_input = theme.input().with_pos(130 + shift, 15).with_size(150, 30);
+
+    let mut status = Frame::default()
+        .with_pos(20, 50)
+        .with_size(260 + shift, 20)
+        .with_label("");
+    status.set_label_color(theme.error_color());
+
+    let ok_btn = theme
+        .button()
+        .with_pos(100 + shift, 75)
+        .with_size(80, 30)
+        .with_label("Create");
+
+    let cancel_btn = theme
+        .button()
+        .with_pos(190 + shift, 75)
+        .with_size(80, 30)
+        .with_label("Cancel");
+
+    dialog_win.end();
+    drop(top_level);
+    NewSessionUi {
+        dialog_win,
+        name_input,
+        status,
+        ok_btn,
+        cancel_btn,
+    }
+}
+
 /// Show a small dialog that asks for a session name.
 /// `parent` is the main window used to center the dialog (reliable on Wayland).
 /// Returns `Some(sanitized_name)` or `None` if cancelled.
@@ -344,54 +412,23 @@ pub fn show_new_session_dialog(parent: &Window, theme_bg: (u8, u8, u8)) -> Optio
     let theme = DialogTheme::from_theme_bg(theme_bg);
     let result: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
 
-    const DW: i32 = 300;
-    const DH: i32 = 120;
-    // Regular xdg_toplevel (not modal) — see show_session_picker for rationale.
-    // Built top-level even if another group is current (T0058).
-    let top_level = super::TopLevelScope::new();
-    let mut dialog_win = Window::default()
-        .with_size(DW, DH)
-        .with_label("New Session")
-        .center_screen();
-    dialog_win.set_color(theme.bg);
-
-    let mut label = Frame::default()
-        .with_pos(20, 15)
-        .with_size(100, 30)
-        .with_label("Session name:");
-    label.set_label_color(theme.text);
-
-    let mut name_input = theme.input().with_pos(130, 15).with_size(150, 30);
-
-    let mut status = Frame::default()
-        .with_pos(20, 50)
-        .with_size(260, 20)
-        .with_label("");
-    status.set_label_color(theme.error_color());
-
-    let mut ok_btn = theme
-        .button()
-        .with_pos(100, 75)
-        .with_size(80, 30)
-        .with_label("Create");
-
-    let mut cancel_btn = theme
-        .button()
-        .with_pos(190, 75)
-        .with_size(80, 30)
-        .with_label("Cancel");
-
-    dialog_win.end();
-    drop(top_level);
+    let NewSessionUi {
+        mut dialog_win,
+        mut name_input,
+        status,
+        mut ok_btn,
+        mut cancel_btn,
+    } = build_new_session_dialog(&theme);
     dialog_win.make_resizable(false);
     dialog_win.show();
     theme.apply_titlebar(&dialog_win);
-    // Reposition to center on the parent AFTER show().
+    // Reposition to center on the parent AFTER show(), at the built width
+    // (it follows the measured label).
     dialog_win.resize(
-        parent.x() + (parent.w() - DW) / 2,
-        parent.y() + (parent.h() - DH) / 2,
-        DW,
-        DH,
+        parent.x() + (parent.w() - dialog_win.w()) / 2,
+        parent.y() + (parent.h() - NEW_SESSION_DH) / 2,
+        dialog_win.w(),
+        NEW_SESSION_DH,
     );
 
     // OK button

@@ -9,39 +9,74 @@ use fltk::{
 use crate::app::buffer_text_no_leak;
 use crate::app::services::text_ops::line_number_to_byte_position;
 
-use super::DialogTheme;
+use super::{DialogTheme, label_width};
 
-/// Show Go To Line dialog
-pub fn show_goto_line_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: (u8, u8, u8)) {
-    let theme = DialogTheme::from_theme_bg(theme_bg);
+/// FLTK's default label size, which the label uses.
+const LABEL_SIZE: i32 = 14;
 
+/// The Go To Line dialog's window and widgets, built but not shown (a seam
+/// for the layout tests).
+pub struct GotoLineUi {
+    pub dialog_win: Window,
+    pub line_input: fltk::input::IntInput,
+    pub go_btn: fltk::button::Button,
+    pub cancel_btn: fltk::button::Button,
+}
+
+/// Build the Go To Line dialog.
+pub fn build_goto_line_dialog(theme: &DialogTheme) -> GotoLineUi {
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
+    // The label fits its text (also 2 pt larger); the input and the right
+    // aligned button row move right by as much, the dialog widens by it.
+    let label_w = label_width("Line number:", LABEL_SIZE).max(100);
+    let shift = label_w - 100;
     let mut dialog_win = Window::default()
-        .with_size(250, 120)
+        .with_size(250 + shift, 120)
         .with_label("Go To Line")
         .center_screen();
     dialog_win.set_color(theme.bg);
     let mut label = Frame::default()
         .with_pos(20, 20)
-        .with_size(100, 30)
+        .with_size(label_w, 30)
         .with_label("Line number:");
     label.set_label_color(theme.text);
-    let mut line_input = theme.int_input().with_pos(130, 20).with_size(100, 30);
+    let line_input = theme
+        .int_input()
+        .with_pos(130 + shift, 20)
+        .with_size(100, 30);
 
-    let mut go_btn = theme
+    let go_btn = theme
         .button()
-        .with_pos(60, 70)
+        .with_pos(60 + shift, 70)
         .with_size(80, 30)
         .with_label("Go");
-    let mut cancel_btn = theme
+    let cancel_btn = theme
         .button()
-        .with_pos(150, 70)
+        .with_pos(150 + shift, 70)
         .with_size(80, 30)
         .with_label("Cancel");
 
     dialog_win.end();
     drop(top_level);
+    GotoLineUi {
+        dialog_win,
+        line_input,
+        go_btn,
+        cancel_btn,
+    }
+}
+
+/// Show Go To Line dialog
+pub fn show_goto_line_dialog(buffer: &TextBuffer, editor: &mut TextEditor, theme_bg: (u8, u8, u8)) {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
+    let GotoLineUi {
+        mut dialog_win,
+        mut line_input,
+        mut go_btn,
+        mut cancel_btn,
+    } = build_goto_line_dialog(&theme);
     dialog_win.make_resizable(false);
     dialog_win.show();
     theme.apply_titlebar(&dialog_win);

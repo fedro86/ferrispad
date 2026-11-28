@@ -325,82 +325,51 @@ pub struct ViewerOpenRequest {
     pub end_byte: u64,
 }
 
-/// Open a read-only viewer for a large file.
-///
-/// This creates a modal window with:
-/// - Memory-mapped file access (no full load into RAM)
-/// - Page-based navigation
-/// - Go to line number
-/// - Search functionality
-/// - Display of current position/total size
-///
-/// Returns a `ViewerOpenRequest` if the user clicked "Open" to edit the
-/// currently displayed lines, or `None` if the viewer was simply closed.
-pub fn show_readonly_viewer(
-    path: &Path,
-    theme_bg: (u8, u8, u8),
+/// The read-only viewer's window and widgets, built but not shown (a seam
+/// for the layout tests). The text and the position label stay empty until
+/// a page is loaded.
+pub struct ReadonlyViewerUi {
+    pub window: Window,
+    pub buffer: TextBuffer,
+    pub display: TextDisplay,
+    pub page_input: fltk::input::Input,
+    pub page_btn: fltk::button::Button,
+    pub goto_input: fltk::input::Input,
+    pub goto_btn: fltk::button::Button,
+    pub search_input: fltk::input::Input,
+    pub search_btn: fltk::button::Button,
+    pub search_prev_btn: fltk::button::Button,
+    pub search_next_btn: fltk::button::Button,
+    pub position_label: Frame,
+    pub prev_btn: fltk::button::Button,
+    pub next_btn: fltk::button::Button,
+    pub open_btn: fltk::button::Button,
+    pub close_btn: fltk::button::Button,
+}
+
+/// Build the read-only viewer for `filename` of `file_size` bytes, its text
+/// in `code_font` at `code_font_size`.
+pub fn build_readonly_viewer(
+    theme: &DialogTheme,
+    filename: &str,
+    file_size: usize,
     code_font: Font,
     code_font_size: i32,
-) -> Option<ViewerOpenRequest> {
-    let file = match File::open(path) {
-        Ok(f) => f,
-        Err(e) => {
-            show_themed_message(
-                theme_bg,
-                "Read-Only Viewer",
-                &format!("Failed to open file: {}", e),
-            );
-            return None;
-        }
-    };
-
-    let metadata = match file.metadata() {
-        Ok(m) => m,
-        Err(e) => {
-            show_themed_message(
-                theme_bg,
-                "Read-Only Viewer",
-                &format!("Failed to read file metadata: {}", e),
-            );
-            return None;
-        }
-    };
-
-    let file_size = metadata.len() as usize;
-    if file_size == 0 {
-        show_themed_message(theme_bg, "Read-Only Viewer", "File is empty.");
-        return None;
-    }
-
-    // Memory-map the file
-    // SAFETY: We open the file read-only and don't modify it while mapped.
-    // The file remains open for the duration of the viewer window.
-    let mmap = match unsafe { Mmap::map(&file) } {
-        Ok(m) => m,
-        Err(e) => {
-            show_themed_message(
-                theme_bg,
-                "Read-Only Viewer",
-                &format!("Failed to memory-map file: {}", e),
-            );
-            return None;
-        }
-    };
-
-    let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
-
-    // Create shared state
-    let state = Rc::new(RefCell::new(ViewerState::new(mmap, file_size)));
-
-    // Create viewer window
-    let theme = DialogTheme::from_theme_bg(theme_bg);
-
+) -> ReadonlyViewerUi {
     let title = format!("{} (Read-Only Viewer)", filename);
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
+    // Button widths measured from their labels (T0110), never below the old
+    // fixed widths; the spacers in each row give up the difference. Buttons
+    // use FLTK's default label size.
+    let button_w =
+        |labels: &[&str], old: i32| super::max_label_width(labels, app::font_size()).max(old);
+    let page_btn_w = button_w(&["Go to Page"], 90);
+    let goto_btn_w = button_w(&["Go to Line"], 80);
+    let page_nav_w = button_w(&["@<  Prev Page", "Next Page  @>"], 110);
+
     let mut window = Window::new(100, 100, 900, 700, None);
     window.set_label(&title);
-    window.make_modal(true);
     window.set_color(theme.bg);
 
     let mut main_flex = Flex::new(5, 5, 890, 690, None);
@@ -416,8 +385,8 @@ pub fn show_readonly_viewer(
     page_input.set_tooltip("Page number (e.g., 5)");
     toolbar.fixed(&page_input, 60);
 
-    let mut page_btn = theme.button().with_label("Go to Page");
-    toolbar.fixed(&page_btn, 90);
+    let page_btn = theme.button().with_label("Go to Page");
+    toolbar.fixed(&page_btn, page_btn_w);
 
     let mut spacer_page = Frame::default();
     spacer_page.set_frame(FrameType::FlatBox);
@@ -427,8 +396,8 @@ pub fn show_readonly_viewer(
     goto_input.set_tooltip("Line number or range (e.g., 100 or 100-200)");
     toolbar.fixed(&goto_input, 100);
 
-    let mut goto_btn = theme.button().with_label("Go to Line");
-    toolbar.fixed(&goto_btn, 80);
+    let goto_btn = theme.button().with_label("Go to Line");
+    toolbar.fixed(&goto_btn, goto_btn_w);
 
     let mut spacer2 = Frame::default();
     spacer2.set_frame(FrameType::FlatBox);
@@ -501,11 +470,11 @@ pub fn show_readonly_viewer(
 
     let mut prev_btn = theme.button().with_label("@<  Prev Page");
     prev_btn.set_tooltip("Previous page (Page Up)");
-    btn_row.fixed(&prev_btn, 110);
+    btn_row.fixed(&prev_btn, page_nav_w);
 
     let mut next_btn = theme.button().with_label("Next Page  @>");
     next_btn.set_tooltip("Next page (Page Down)");
-    btn_row.fixed(&next_btn, 110);
+    btn_row.fixed(&next_btn, page_nav_w);
 
     let mut spacer_left = Frame::default();
     spacer_left.set_frame(FrameType::FlatBox);
@@ -519,18 +488,128 @@ pub fn show_readonly_viewer(
     spacer_right.set_frame(FrameType::FlatBox);
     spacer_right.set_color(theme.bg);
 
-    let mut close_btn = theme.secondary_button().with_label("Close");
+    let close_btn = theme.secondary_button().with_label("Close");
     btn_row.fixed(&close_btn, 100);
 
     btn_row.end();
     main_flex.fixed(&btn_row, 35);
 
-    // Track the open request (set by the Open button)
-    let open_request: Rc<RefCell<Option<ViewerOpenRequest>>> = Rc::new(RefCell::new(None));
-
     main_flex.end();
     window.end();
     drop(top_level);
+    ReadonlyViewerUi {
+        window,
+        buffer,
+        display,
+        page_input,
+        page_btn,
+        goto_input,
+        goto_btn,
+        search_input,
+        search_btn,
+        search_prev_btn,
+        search_next_btn,
+        position_label,
+        prev_btn,
+        next_btn,
+        open_btn,
+        close_btn,
+    }
+}
+
+/// Open a read-only viewer for a large file.
+///
+/// This creates a modal window with:
+/// - Memory-mapped file access (no full load into RAM)
+/// - Page-based navigation
+/// - Go to line number
+/// - Search functionality
+/// - Display of current position/total size
+///
+/// Returns a `ViewerOpenRequest` if the user clicked "Open" to edit the
+/// currently displayed lines, or `None` if the viewer was simply closed.
+pub fn show_readonly_viewer(
+    path: &Path,
+    theme_bg: (u8, u8, u8),
+    code_font: Font,
+    code_font_size: i32,
+) -> Option<ViewerOpenRequest> {
+    let file = match File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            show_themed_message(
+                theme_bg,
+                "Read-Only Viewer",
+                &format!("Failed to open file: {}", e),
+            );
+            return None;
+        }
+    };
+
+    let metadata = match file.metadata() {
+        Ok(m) => m,
+        Err(e) => {
+            show_themed_message(
+                theme_bg,
+                "Read-Only Viewer",
+                &format!("Failed to read file metadata: {}", e),
+            );
+            return None;
+        }
+    };
+
+    let file_size = metadata.len() as usize;
+    if file_size == 0 {
+        show_themed_message(theme_bg, "Read-Only Viewer", "File is empty.");
+        return None;
+    }
+
+    // Memory-map the file
+    // SAFETY: We open the file read-only and don't modify it while mapped.
+    // The file remains open for the duration of the viewer window.
+    let mmap = match unsafe { Mmap::map(&file) } {
+        Ok(m) => m,
+        Err(e) => {
+            show_themed_message(
+                theme_bg,
+                "Read-Only Viewer",
+                &format!("Failed to memory-map file: {}", e),
+            );
+            return None;
+        }
+    };
+
+    let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+
+    // Create shared state
+    let state = Rc::new(RefCell::new(ViewerState::new(mmap, file_size)));
+
+    // Create viewer window
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
+    let ReadonlyViewerUi {
+        mut window,
+        buffer,
+        display,
+        page_input,
+        mut page_btn,
+        goto_input,
+        mut goto_btn,
+        search_input,
+        mut search_btn,
+        mut search_prev_btn,
+        mut search_next_btn,
+        position_label,
+        mut prev_btn,
+        mut next_btn,
+        mut open_btn,
+        mut close_btn,
+    } = build_readonly_viewer(&theme, filename, file_size, code_font, code_font_size);
+    window.make_modal(true);
+
+    // Track the open request (set by the Open button)
+    let open_request: Rc<RefCell<Option<ViewerOpenRequest>>> = Rc::new(RefCell::new(None));
+
     window.show();
     theme.apply_titlebar(&window);
 

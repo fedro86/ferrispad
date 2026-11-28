@@ -139,15 +139,7 @@ fn create_placeholder_input(
     input
 }
 
-/// Truncate text to max_chars, adding "..." if truncated
-fn truncate_text(text: &str, max_chars: usize) -> String {
-    if text.chars().count() <= max_chars {
-        text.to_string()
-    } else {
-        let truncated: String = text.chars().take(max_chars.saturating_sub(3)).collect();
-        format!("{}...", truncated.trim_end())
-    }
-}
+use super::{fit_text, truncate_text};
 
 /// Get a color for the icon background based on the first letter
 fn icon_color_for_letter(letter: char, is_dark: bool) -> Color {
@@ -177,14 +169,57 @@ fn icon_color_for_letter(letter: char, is_dark: bool) -> Color {
     fltk_rgb(r, g, b)
 }
 
-/// Show the plugin manager dialog
+/// An installed plugin as the Installed tab lists it.
+pub struct InstalledPluginEntry {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub enabled: bool,
+    /// Trust tier, from the plugin's `.source` file.
+    pub tier: PluginTier,
+}
+
+/// An official registry plugin and its local install state, as the Official
+/// tab lists it.
+pub struct OfficialPluginEntry {
+    pub info: AvailablePluginInfo,
+    pub already_installed: bool,
+    pub update_available: bool,
+}
+
+/// The Plugin Manager's window and widgets, built but not shown (a seam for
+/// the layout tests).
 ///
-/// Returns the result indicating what actions were taken
-pub fn show_plugin_manager_dialog(
-    plugins: &PluginManager,
-    theme_bg: (u8, u8, u8),
-) -> PluginManagerResult {
-    let theme = DialogTheme::from_theme_bg(theme_bg);
+/// The Installed and Official tabs hold their rows; the Community tab holds
+/// only its loading label, since its rows are fetched when the tab is first
+/// opened.
+pub struct PluginManagerDialogUi {
+    pub dialog: Window,
+    pub tabs: Tabs,
+    pub search_installed_input: Input,
+    pub search_official_input: Input,
+    /// The Community tab's search field.
+    pub search_input: Input,
+    pub url_input: Input,
+    pub url_install_btn: Button,
+    /// The Community tab's row container (empty but for `loading_label`).
+    pub pack_community: Pack,
+    pub loading_label: Frame,
+    pub reload_btn: Button,
+    pub close_btn: Button,
+    /// State shared by the rows, which `show_plugin_manager_dialog` reads back.
+    row_ctx: PluginRowContext,
+}
+
+/// Build the Plugin Manager with `installed_plugins` on the Installed tab and
+/// the `official` registry listing (or the error fetching it) on the Official
+/// tab.
+pub fn build_plugin_manager_dialog(
+    theme: &DialogTheme,
+    installed_plugins: &[InstalledPluginEntry],
+    official: Result<&[OfficialPluginEntry], &str>,
+) -> PluginManagerDialogUi {
+    let theme = *theme;
 
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
@@ -192,12 +227,7 @@ pub fn show_plugin_manager_dialog(
         .with_size(DIALOG_WIDTH, DIALOG_HEIGHT)
         .with_label("Plugin Manager")
         .center_screen();
-    dialog.make_modal(true);
     dialog.set_color(theme.bg);
-
-    // Track result
-    let result: Rc<RefCell<PluginManagerResult>> =
-        Rc::new(RefCell::new(PluginManagerResult::Cancelled));
 
     // Track toggled plugins
     let toggles: Rc<RefCell<Vec<(String, bool)>>> = Rc::new(RefCell::new(Vec::new()));
@@ -268,17 +298,14 @@ pub fn show_plugin_manager_dialog(
     pack_installed_inner.set_type(PackType::Vertical);
     pack_installed_inner.set_spacing(5);
 
-    // Add installed plugins
-    let plugin_list = plugins.list_plugins();
-
     // State shared by the rows of all three tabs. The empty label is tracked so
     // it can be hidden when a plugin is installed from another tab.
     let row_ctx = PluginRowContext {
         theme,
         row_width,
-        toggles: toggles.clone(),
-        installed: installed.clone(),
-        uninstalled: uninstalled.clone(),
+        toggles,
+        installed,
+        uninstalled,
         available_buttons,
         community_buttons,
         installed_rows,
@@ -290,23 +317,21 @@ pub fn show_plugin_manager_dialog(
     type InstalledRow = (Group, String, String);
     let installed_search_data: Rc<RefCell<Vec<InstalledRow>>> = Rc::new(RefCell::new(Vec::new()));
 
-    if plugin_list.is_empty() {
+    if installed_plugins.is_empty() {
         let mut empty_label = Frame::default()
             .with_size(row_width, 40)
             .with_label("No plugins installed");
         empty_label.set_label_color(theme.text_dim);
         *row_ctx.empty_installed_label.borrow_mut() = Some(empty_label);
     } else {
-        for plugin in plugin_list {
-            let dir_name = plugin.name.to_lowercase().replace(' ', "-");
-            let tier = determine_plugin_tier(&dir_name);
+        for plugin in installed_plugins {
             let row = create_plugin_row(
                 RowKind::Installed(InstalledPlugin {
                     name: &plugin.name,
                     version: &plugin.version,
                     description: &plugin.description,
                     enabled: plugin.enabled,
-                    tier,
+                    tier: plugin.tier.clone(),
                 }),
                 &row_ctx,
             );
@@ -394,40 +419,21 @@ pub fn show_plugin_manager_dialog(
     type OfficialRow = (Group, String, String, Vec<String>);
     let official_search_data: Rc<RefCell<Vec<OfficialRow>>> = Rc::new(RefCell::new(Vec::new()));
 
-    // Fetch available plugins
-    let fetch_result = fetch_plugin_registry_cached();
-
-    match fetch_result {
-        Ok(registry) => {
-            if registry.plugins.is_empty() {
+    match official {
+        Ok(entries) => {
+            if entries.is_empty() {
                 let mut empty_label = Frame::default()
                     .with_size(row_width, 40)
                     .with_label("No plugins available in registry");
                 empty_label.set_label_color(theme.text_dim);
             } else {
-                // Get installed plugin versions for update detection
-                let installed_versions: Vec<(String, String)> = plugin_list
-                    .iter()
-                    .map(|p| (p.name.to_lowercase().replace(' ', "-"), p.version.clone()))
-                    .collect();
-
-                for plugin_info in &registry.plugins {
-                    let dir_name = plugin_info.path.trim_end_matches('/');
-                    let already_installed = is_plugin_installed(dir_name);
-
-                    // Check if update available
-                    let update_available = installed_versions
-                        .iter()
-                        .find(|(name, _)| name == dir_name)
-                        .is_some_and(|(_, installed_ver)| {
-                            is_update_available(installed_ver, &plugin_info.version)
-                        });
-
+                for entry in entries {
+                    let plugin_info = &entry.info;
                     let row = create_plugin_row(
                         RowKind::Official {
                             info: plugin_info,
-                            already_installed,
-                            update_available,
+                            already_installed: entry.already_installed,
+                            update_available: entry.update_available,
                         },
                         &row_ctx,
                     );
@@ -494,7 +500,7 @@ pub fn show_plugin_manager_dialog(
     let header_width = DIALOG_WIDTH - PADDING * 2 - 10;
 
     // Search input
-    let mut search_input = create_placeholder_input(
+    let search_input = create_placeholder_input(
         PADDING + 5,
         header_y,
         header_width,
@@ -571,14 +577,134 @@ pub fn show_plugin_manager_dialog(
 
     community_group.end();
 
+    tabs.end();
+    tabs.auto_layout();
+
+    // ============ BUTTONS ============
+    let btn_y = DIALOG_HEIGHT - PADDING - BUTTON_HEIGHT;
+
+    let reload_btn = theme
+        .button()
+        .with_pos(PADDING, btn_y)
+        .with_size(100, BUTTON_HEIGHT)
+        .with_label("Reload All");
+
+    let close_btn = theme
+        .button()
+        .with_pos(DIALOG_WIDTH - PADDING - 80, btn_y)
+        .with_size(80, BUTTON_HEIGHT)
+        .with_label("Close");
+
+    dialog.end();
+    drop(top_level);
+    PluginManagerDialogUi {
+        dialog,
+        tabs,
+        search_installed_input,
+        search_official_input,
+        search_input,
+        url_input,
+        url_install_btn,
+        pack_community: pack_community_inner,
+        loading_label,
+        reload_btn,
+        close_btn,
+        row_ctx,
+    }
+}
+
+/// Show the plugin manager dialog
+///
+/// Returns the result indicating what actions were taken
+pub fn show_plugin_manager_dialog(
+    plugins: &PluginManager,
+    theme_bg: (u8, u8, u8),
+) -> PluginManagerResult {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
+    // Installed plugins, with the trust tier recorded at install time
+    let plugin_list = plugins.list_plugins();
+    let installed_plugins: Vec<InstalledPluginEntry> = plugin_list
+        .iter()
+        .map(|plugin| {
+            let dir_name = plugin.name.to_lowercase().replace(' ', "-");
+            InstalledPluginEntry {
+                name: plugin.name.clone(),
+                version: plugin.version.clone(),
+                description: plugin.description.clone(),
+                enabled: plugin.enabled,
+                tier: determine_plugin_tier(&dir_name),
+            }
+        })
+        .collect();
+
+    // Fetch available plugins
+    let official: Result<Vec<OfficialPluginEntry>, String> = match fetch_plugin_registry_cached() {
+        Ok(registry) => {
+            // Get installed plugin versions for update detection
+            let installed_versions: Vec<(String, String)> = plugin_list
+                .iter()
+                .map(|p| (p.name.to_lowercase().replace(' ', "-"), p.version.clone()))
+                .collect();
+
+            Ok(registry
+                .plugins
+                .into_iter()
+                .map(|plugin_info| {
+                    let dir_name = plugin_info.path.trim_end_matches('/');
+                    let already_installed = is_plugin_installed(dir_name);
+
+                    // Check if update available
+                    let update_available = installed_versions
+                        .iter()
+                        .find(|(name, _)| name == dir_name)
+                        .is_some_and(|(_, installed_ver)| {
+                            is_update_available(installed_ver, &plugin_info.version)
+                        });
+
+                    OfficialPluginEntry {
+                        info: plugin_info,
+                        already_installed,
+                        update_available,
+                    }
+                })
+                .collect())
+        }
+        Err(e) => Err(e.to_string()),
+    };
+
+    let PluginManagerDialogUi {
+        mut dialog,
+        mut tabs,
+        mut search_input,
+        url_input,
+        mut url_install_btn,
+        pack_community: pack_community_inner,
+        loading_label,
+        mut reload_btn,
+        mut close_btn,
+        row_ctx,
+        ..
+    } = build_plugin_manager_dialog(
+        &theme,
+        &installed_plugins,
+        official.as_deref().map_err(String::as_str),
+    );
+    dialog.make_modal(true);
+
+    // Track result
+    let result: Rc<RefCell<PluginManagerResult>> =
+        Rc::new(RefCell::new(PluginManagerResult::Cancelled));
+    let toggles = row_ctx.toggles.clone();
+    let installed = row_ctx.installed.clone();
+    let uninstalled = row_ctx.uninstalled.clone();
+    let row_width = row_ctx.row_width;
+
     // Set up lazy loading state for Community tab
     let community_loaded = Rc::new(RefCell::new(false));
     let pack_community = Rc::new(RefCell::new(pack_community_inner));
     type CommunityRow = (Group, String, String, Vec<String>);
     let community_data: Rc<RefCell<Vec<CommunityRow>>> = Rc::new(RefCell::new(Vec::new()));
-
-    tabs.end();
-    tabs.auto_layout();
 
     // ============ COMMUNITY TAB LAZY LOADING ============
     {
@@ -793,24 +919,6 @@ pub fn show_plugin_manager_dialog(
         });
     }
 
-    // ============ BUTTONS ============
-    let btn_y = DIALOG_HEIGHT - PADDING - BUTTON_HEIGHT;
-
-    let mut reload_btn = theme
-        .button()
-        .with_pos(PADDING, btn_y)
-        .with_size(100, BUTTON_HEIGHT)
-        .with_label("Reload All");
-
-    let mut close_btn = theme
-        .button()
-        .with_pos(DIALOG_WIDTH - PADDING - 80, btn_y)
-        .with_size(80, BUTTON_HEIGHT)
-        .with_label("Close");
-
-    dialog.end();
-    drop(top_level);
-
     // Set up callbacks
     let result_reload = result.clone();
     let dialog_reload = dialog.clone();
@@ -967,6 +1075,15 @@ struct RowHeader<'a> {
 }
 
 impl<'a> RowKind<'a> {
+    /// The link behind the row's Details button, if it has one.
+    fn details_url(&self) -> Option<&'a str> {
+        match self {
+            RowKind::Installed(_) => None,
+            RowKind::Official { info, .. } => info.readme_url.as_deref(),
+            RowKind::Community { info, .. } => Some(info.repo.as_str()).filter(|r| !r.is_empty()),
+        }
+    }
+
     fn header(&self) -> RowHeader<'a> {
         match self {
             RowKind::Installed(p) => {
@@ -1107,6 +1224,29 @@ struct RowTextLayout {
     meta_y: i32,
 }
 
+/// X of a row's install / toggle button column (relative to the row).
+fn row_btn_x(row_width: i32) -> i32 {
+    row_width - ROW_BTN_WIDTH - ICON_MARGIN
+}
+
+/// X of the Details button, left of the install button at `btn_x`.
+fn details_btn_x(btn_x: i32) -> i32 {
+    btn_x - DETAILS_BTN_WIDTH - ROW_BTN_GAP
+}
+
+/// Right edge (relative to the row) of the title and description lines,
+/// which sit beside the buttons: [`ICON_MARGIN`] left of the leftmost
+/// button, so they never run under the Details button (T0110).
+fn row_text_right(row_width: i32, has_details: bool) -> i32 {
+    let btn_x = row_btn_x(row_width);
+    let leftmost = if has_details {
+        details_btn_x(btn_x)
+    } else {
+        btn_x
+    };
+    leftmost - ICON_MARGIN
+}
+
 /// One layout for every tab: the three lines stacked and centred vertically.
 fn row_text_layout(row_height: i32) -> RowTextLayout {
     let block_h = TITLE_LINE_H + DESC_LINE_H + META_LINE_GAP + META_LINE_H;
@@ -1149,23 +1289,33 @@ fn create_plugin_row(kind: RowKind<'_>, ctx: &PluginRowContext) -> Group {
     let content_x = x + ICON_SIZE + ICON_MARGIN;
     let content_width = row_width - content_x - ACTION_BUTTON_WIDTH - ICON_MARGIN;
     let layout = row_text_layout(PLUGIN_ROW_HEIGHT);
+    let details_url = kind.details_url();
+    // Title and description sit beside the buttons and end left of them;
+    // the meta line is below the buttons and keeps the full content width.
+    let text_width = row_text_right(row_width, details_url.is_some()) - content_x;
 
-    // Title: name + version (line 1)
+    // Title: name + version (line 1), "..." where it would reach the buttons
     let mut title = Frame::default()
         .with_pos(content_x, layout.title_y)
-        .with_size(content_width, TITLE_LINE_H)
-        .with_label(&format!("{}  v{}", header.name, header.version));
+        .with_size(text_width, TITLE_LINE_H);
+    let title_text = format!("{}  v{}", header.name, header.version);
+    title.set_label(&fit_text(&title_text, text_width, title.label_size()));
     title.set_label_color(theme.text);
     title.set_align(Align::Left | Align::Inside);
 
     // Description (line 2) - truncated
+    const DESC_LABEL_SIZE: i32 = 11;
     let mut desc = Frame::default()
         .with_pos(content_x, layout.desc_y)
-        .with_size(content_width, DESC_LINE_H)
-        .with_label(&truncate_text(header.description, DESC_MAX_CHARS));
+        .with_size(text_width, DESC_LINE_H)
+        .with_label(&fit_text(
+            &truncate_text(header.description, DESC_MAX_CHARS),
+            text_width,
+            DESC_LABEL_SIZE,
+        ));
     desc.set_label_color(theme.text_dim);
     desc.set_align(Align::Left | Align::Inside);
-    desc.set_label_size(11);
+    desc.set_label_size(DESC_LABEL_SIZE);
 
     // Meta line (line 3) - status/author/tags + trust badge
     let mut meta = Frame::default()
@@ -1176,7 +1326,7 @@ fn create_plugin_row(kind: RowKind<'_>, ctx: &PluginRowContext) -> Group {
     meta.set_align(Align::Left | Align::Inside);
     meta.set_label_size(10);
 
-    let btn_x = row_width - ROW_BTN_WIDTH - ICON_MARGIN;
+    let btn_x = row_btn_x(row_width);
     match kind {
         RowKind::Installed(plugin) => {
             add_installed_actions(&row, meta, plugin.name, plugin.enabled, header.badge, ctx);
@@ -1186,7 +1336,7 @@ fn create_plugin_row(kind: RowKind<'_>, ctx: &PluginRowContext) -> Group {
             already_installed,
             update_available,
         } => {
-            add_details_button(info.readme_url.as_deref(), btn_x, theme);
+            add_details_button(details_url, btn_x, theme);
             let state = install_button_state(already_installed, update_available);
             add_official_install_button(info, state, btn_x, ctx);
         }
@@ -1194,8 +1344,7 @@ fn create_plugin_row(kind: RowKind<'_>, ctx: &PluginRowContext) -> Group {
             info,
             already_installed,
         } => {
-            let repo = Some(info.repo.as_str()).filter(|r| !r.is_empty());
-            add_details_button(repo, btn_x, theme);
+            add_details_button(details_url, btn_x, theme);
             let state = install_button_state(already_installed, false);
             add_community_install_button(info, state, btn_x, ctx);
         }
@@ -1214,7 +1363,7 @@ fn add_installed_actions(
     badge: TrustBadge,
     ctx: &PluginRowContext,
 ) {
-    let btn_x = ctx.row_width - ROW_BTN_WIDTH - ICON_MARGIN;
+    let btn_x = row_btn_x(ctx.row_width);
 
     // Disable/Enable button (top)
     let mut toggle_btn = ctx
@@ -1316,7 +1465,7 @@ fn add_details_button(url: Option<&str>, btn_x: i32, theme: &DialogTheme) {
     let mut details_btn = theme
         .button()
         .with_pos(
-            btn_x - DETAILS_BTN_WIDTH - ROW_BTN_GAP,
+            details_btn_x(btn_x),
             (PLUGIN_ROW_HEIGHT - ROW_BTN_HEIGHT) / 2,
         )
         .with_size(DETAILS_BTN_WIDTH, ROW_BTN_HEIGHT)
@@ -1371,12 +1520,8 @@ fn create_install_button(state: &InstallButtonState, btn_x: i32, theme: &DialogT
         }
         InstallButtonState::Update => {
             install_btn.set_label("Update");
-            // Green accent for update
-            install_btn.set_label_color(if theme.is_dark() {
-                fltk_rgb(100, 200, 100)
-            } else {
-                fltk_rgb(40, 140, 40)
-            });
+            // Green accent for update, as `success_button()` draws it.
+            install_btn.set_label_color(theme.success_text());
         }
         InstallButtonState::Install => install_btn.set_label("Install"),
     }
@@ -1619,6 +1764,25 @@ mod tests {
         assert!(layout.meta_y >= layout.desc_y + DESC_LINE_H);
         let bottom_margin = PLUGIN_ROW_HEIGHT - (layout.meta_y + META_LINE_H);
         assert_eq!(layout.title_y, bottom_margin);
+    }
+
+    #[test]
+    fn row_text_ends_left_of_the_row_buttons() {
+        let row_width = 520;
+        let btn_x = row_btn_x(row_width);
+        // Without Details the text column is the one it always was.
+        let content_x = ICON_MARGIN + ICON_SIZE + ICON_MARGIN;
+        assert_eq!(
+            row_text_right(row_width, false) - content_x,
+            row_width - content_x - ACTION_BUTTON_WIDTH - ICON_MARGIN
+        );
+        assert_eq!(row_text_right(row_width, false), btn_x - ICON_MARGIN);
+        // With Details it ends the same gap left of the Details button.
+        assert_eq!(
+            row_text_right(row_width, true),
+            details_btn_x(btn_x) - ICON_MARGIN
+        );
+        assert!(details_btn_x(btn_x) + DETAILS_BTN_WIDTH <= btn_x);
     }
 
     #[test]
