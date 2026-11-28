@@ -20,13 +20,15 @@ use fltk::{
 use crate::app::domain::settings;
 use crate::app::services::font_catalog::{self, FontEntry};
 
-use super::DialogTheme;
+use super::{DialogTheme, label_width};
 
 const PREVIEW_SAMPLE: &str =
     "fn main() {\n    let x = 42;\n    // 0Oo 1lI iIl\n    println!(\"Hello, {}!\", x);\n}";
 
 const DW: i32 = 640;
 const DH: i32 = 460;
+/// FLTK's default label size, which the "Search:" label uses.
+const LABEL_SIZE: i32 = 14;
 
 /// The font picker's window and widgets, built but not shown (a seam for
 /// the layout tests). The font list starts empty: `show_font_picker` fills
@@ -57,20 +59,23 @@ pub fn build_font_picker(
         .center_screen();
     dialog_win.set_color(theme.bg);
 
-    // Top row: search input + monospace toggle
+    // Top row: search input + monospace toggle. The label fits its text
+    // (also 2 pt larger); the input and the toggle move right by as much.
+    let search_label_w = label_width("Search:", LABEL_SIZE).max(60);
+    let shift = search_label_w - 60;
     let mut search_label = Frame::default()
         .with_pos(20, 15)
-        .with_size(60, 25)
+        .with_size(search_label_w, 25)
         .with_label("Search:")
         .with_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
     search_label.set_label_color(theme.text);
 
-    let mut search_input = theme.input().with_pos(85, 15).with_size(220, 25);
+    let mut search_input = theme.input().with_pos(85 + shift, 15).with_size(220, 25);
     search_input.set_trigger(CallbackTrigger::Changed);
 
     let mut monospace_toggle = theme
         .check_button()
-        .with_pos(320, 15)
+        .with_pos(320 + shift, 15)
         .with_size(180, 25)
         .with_label("Monospace only");
     monospace_toggle.set_value(true);

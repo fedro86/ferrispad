@@ -603,6 +603,31 @@ pub(crate) fn label_width(label: &str, size: i32) -> i32 {
     width + 2 * LABEL_PAD
 }
 
+/// Truncate text to max_chars, adding "..." if truncated
+pub(crate) fn truncate_text(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        text.to_string()
+    } else {
+        let truncated: String = text.chars().take(max_chars.saturating_sub(3)).collect();
+        format!("{}...", truncated.trim_end())
+    }
+}
+
+/// `text` cut by [`truncate_text`] until it fits a `width`-wide frame at
+/// label size `size`, measured like the other dialog labels
+/// ([`label_width`], with its +2 pt slack and padding). For free text, such
+/// as a plugin's name or description in a list row (T0110).
+pub(crate) fn fit_text(text: &str, width: i32, size: i32) -> String {
+    let mut max_chars = text.chars().count();
+    loop {
+        let fitted = truncate_text(text, max_chars);
+        if max_chars <= 3 || label_width(&fitted, size) <= width {
+            return fitted;
+        }
+        max_chars -= 1;
+    }
+}
+
 /// The widest [`label_width`] of `labels`.
 pub(crate) fn max_label_width(labels: &[&str], size: i32) -> i32 {
     labels

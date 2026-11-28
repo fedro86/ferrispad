@@ -27,7 +27,7 @@ use crate::app::plugins::loader::PluginMenuItem;
 use crate::app::services::shortcut_registry::{ShortcutRegistry, normalize_shortcut};
 use crate::ui::menu::{builtin_shortcut_defaults, is_valid_shortcut, plugin_command_id};
 
-use super::{DialogTheme, SCROLLBAR_SIZE};
+use super::{DialogTheme, SCROLLBAR_SIZE, max_label_width};
 
 // Layout constants
 const DIALOG_WIDTH: i32 = 580;
@@ -36,7 +36,14 @@ const PADDING: i32 = 10;
 const TAB_HEIGHT: i32 = 30;
 const BUTTON_HEIGHT: i32 = 30;
 const ROW_HEIGHT: i32 = 32;
+/// Minimum width of the command column; it widens to fit the longest
+/// command listed (measured), up to [`MAX_LABEL_WIDTH`].
 const LABEL_WIDTH: i32 = 220;
+/// Cap on the measured command column, so one very long (plugin) command
+/// name cannot make the dialog arbitrarily wide.
+const MAX_LABEL_WIDTH: i32 = 2 * LABEL_WIDTH;
+/// Label size of the command names (and the column headers).
+const ROW_LABEL_SIZE: i32 = 12;
 const INPUT_WIDTH: i32 = 180;
 const RESET_BTN_WIDTH: i32 = 55;
 const SECTION_HEADER_HEIGHT: i32 = 28;
@@ -84,10 +91,27 @@ pub fn build_shortcut_dialog(
 ) -> ShortcutDialogUi {
     let error_color = theme.error_color();
 
+    // The command column fits every command listed (also 2 pt larger); the
+    // shortcut field and Reset button move right by as much. The dialog
+    // widens only if a row no longer fits beside a scrollbar.
+    let names: Vec<String> = builtin_shortcut_defaults(tabs_enabled)
+        .map(|(id, _)| display_name(id))
+        .chain(plugin_list.iter().flat_map(|p| {
+            p.menu_items
+                .iter()
+                .map(|item| display_name(&plugin_command_id(p.name, &item.action)))
+        }))
+        .collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let label_w = max_label_width(&names, ROW_LABEL_SIZE).clamp(LABEL_WIDTH, MAX_LABEL_WIDTH);
+    let row_needed = PADDING + label_w + INPUT_WIDTH + 8 + RESET_BTN_WIDTH + PADDING;
+    let row_room = DIALOG_WIDTH - PADDING * 2 - 10 - SCROLLBAR_SIZE;
+    let dialog_w = DIALOG_WIDTH + (row_needed - row_room).max(0);
+
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
     let mut dialog = Window::default()
-        .with_size(DIALOG_WIDTH, DIALOG_HEIGHT)
+        .with_size(dialog_w, DIALOG_HEIGHT)
         .with_label("Key Shortcuts")
         .center_screen();
     dialog.set_color(theme.bg);
@@ -100,12 +124,12 @@ pub fn build_shortcut_dialog(
     let tabs_height = DIALOG_HEIGHT - PADDING * 3 - BUTTON_HEIGHT - 10;
     let mut tabs = Tabs::default()
         .with_pos(PADDING, tabs_y)
-        .with_size(DIALOG_WIDTH - PADDING * 2, tabs_height);
+        .with_size(dialog_w - PADDING * 2, tabs_height);
     theme.style_tabs(&mut tabs);
 
     let content_y = tabs_y + TAB_HEIGHT;
     let content_h = tabs_height - TAB_HEIGHT;
-    let scroll_w = DIALOG_WIDTH - PADDING * 2 - 10;
+    let scroll_w = dialog_w - PADDING * 2 - 10;
 
     // Dynamic row width: count visible rows to decide if scrollbar will appear
     let builtin_count = builtin_shortcut_defaults(tabs_enabled).count() + 1; // +1 for header
@@ -119,7 +143,7 @@ pub fn build_shortcut_dialog(
     // ============ FERRISPAD TAB ============
     let mut builtin_group = Group::default()
         .with_pos(PADDING, content_y)
-        .with_size(DIALOG_WIDTH - PADDING * 2, content_h)
+        .with_size(dialog_w - PADDING * 2, content_h)
         .with_label("FerrisPad");
     builtin_group.set_label_color(theme.text);
     builtin_group.set_color(theme.tab_active_bg);
@@ -144,19 +168,19 @@ pub fn build_shortcut_dialog(
 
         let mut cmd_label = Frame::default()
             .with_pos(PADDING, 4)
-            .with_size(LABEL_WIDTH, 20)
+            .with_size(label_w, 20)
             .with_label("Command");
         cmd_label.set_label_color(theme.text);
         cmd_label.set_align(Align::Left | Align::Inside);
-        cmd_label.set_label_size(12);
+        cmd_label.set_label_size(ROW_LABEL_SIZE);
 
         let mut sc_label = Frame::default()
-            .with_pos(LABEL_WIDTH + PADDING, 4)
+            .with_pos(label_w + PADDING, 4)
             .with_size(INPUT_WIDTH, 20)
             .with_label("Shortcut");
         sc_label.set_label_color(theme.text);
         sc_label.set_align(Align::Left | Align::Inside);
-        sc_label.set_label_size(12);
+        sc_label.set_label_size(ROW_LABEL_SIZE);
 
         header.end();
     }
@@ -171,6 +195,7 @@ pub fn build_shortcut_dialog(
             effective,
             theme,
             row_w_builtin,
+            label_w,
             all_entries.clone(),
         );
         pack_builtin.add(&row);
@@ -201,7 +226,7 @@ pub fn build_shortcut_dialog(
 
     let mut plugins_group = Group::default()
         .with_pos(PADDING, content_y)
-        .with_size(DIALOG_WIDTH - PADDING * 2, content_h)
+        .with_size(dialog_w - PADDING * 2, content_h)
         .with_label("Plugins");
     plugins_group.set_label_color(theme.text);
     plugins_group.set_color(theme.tab_active_bg);
@@ -257,6 +282,7 @@ pub fn build_shortcut_dialog(
                     effective,
                     theme,
                     row_w_plugins,
+                    label_w,
                     all_entries.clone(),
                 );
                 pack_plugins.add(&row);
@@ -275,7 +301,7 @@ pub fn build_shortcut_dialog(
     let error_y = DIALOG_HEIGHT - PADDING - BUTTON_HEIGHT - 25;
     let mut error_label = Frame::default()
         .with_pos(PADDING, error_y)
-        .with_size(DIALOG_WIDTH - PADDING * 2, 18)
+        .with_size(dialog_w - PADDING * 2, 18)
         .with_label("");
     error_label.set_label_color(error_color);
     error_label.set_label_size(11);
@@ -286,13 +312,13 @@ pub fn build_shortcut_dialog(
 
     let save_btn = theme
         .button()
-        .with_pos(DIALOG_WIDTH - PADDING - 165, btn_y)
+        .with_pos(dialog_w - PADDING - 165, btn_y)
         .with_size(75, BUTTON_HEIGHT)
         .with_label("Save");
 
     let cancel_btn = theme
         .button()
-        .with_pos(DIALOG_WIDTH - PADDING - 80, btn_y)
+        .with_pos(dialog_w - PADDING - 80, btn_y)
         .with_size(75, BUTTON_HEIGHT)
         .with_label("Cancel");
 
@@ -532,13 +558,15 @@ fn shortcut_string_from_event() -> Option<String> {
     Some(parts.join("+"))
 }
 
-/// Create a single shortcut row: [Label] [Input] [Reset]
+/// Create a single shortcut row: [Label] [Input] [Reset], the label
+/// `label_w` wide.
 fn create_shortcut_row(
     id: &str,
     default: &str,
     effective: &str,
     theme: &DialogTheme,
     row_width: i32,
+    label_w: i32,
     entries: Rc<RefCell<Vec<ShortcutEntry>>>,
 ) -> Group {
     let mut row = Group::default().with_size(row_width, ROW_HEIGHT);
@@ -549,14 +577,14 @@ fn create_shortcut_row(
     let label_text = display_name(id);
     let mut label = Frame::default()
         .with_pos(PADDING, 6)
-        .with_size(LABEL_WIDTH, 20)
+        .with_size(label_w, 20)
         .with_label(&label_text);
     label.set_label_color(theme.text);
     label.set_align(Align::Left | Align::Inside);
-    label.set_label_size(12);
+    label.set_label_size(ROW_LABEL_SIZE);
 
     // Shortcut input
-    let input_x = LABEL_WIDTH + PADDING;
+    let input_x = label_w + PADDING;
     let mut input = theme
         .input()
         .with_pos(input_x, 4)

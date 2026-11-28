@@ -78,9 +78,14 @@ pub fn build_permission_dialog(
         .center_screen();
     dialog.set_color(theme.bg);
 
-    // Main content group - exactly like settings_dialog
+    // Buttons row, right aligned at the bottom like settings_dialog.
+    let btn_y = dialog_height - MARGIN - BUTTON_HEIGHT;
+
+    // Main content group - exactly like settings_dialog. It ends where the
+    // warning line ends, SECTION_GAP above the buttons, so it does not run
+    // under them (T0110).
     let mut _vpack = Group::default()
-        .with_size(DIALOG_WIDTH - 20, dialog_height - 50)
+        .with_size(DIALOG_WIDTH - 20, btn_y - SECTION_GAP - 10)
         .with_pos(10, 10);
     _vpack.set_color(theme.bg);
 
@@ -101,8 +106,15 @@ pub fn build_permission_dialog(
         let mut desc = Frame::default()
             .with_pos(MARGIN, y)
             .with_size(col_width, LABEL_HEIGHT);
-        desc.set_label(&request.description);
         desc.set_label_size(11);
+        // A plugin's description is free text of any length: it is cut with
+        // "..." to the frame, and the full text is in the tooltip (T0110).
+        desc.set_label(&super::fit_text(
+            &request.description,
+            col_width,
+            desc.label_size(),
+        ));
+        desc.set_tooltip(&request.description);
         desc.set_label_color(theme.text_dim);
         desc.set_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
         y += LABEL_HEIGHT + 5;
@@ -139,7 +151,6 @@ pub fn build_permission_dialog(
     _vpack.end();
 
     // Buttons - outside vpack, right aligned like settings_dialog
-    let btn_y = dialog_height - MARGIN - BUTTON_HEIGHT;
     let allow_x = DIALOG_WIDTH - MARGIN - BUTTON_WIDTH;
     let deny_x = allow_x - BUTTON_WIDTH - 10;
 

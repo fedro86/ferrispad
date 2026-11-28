@@ -359,6 +359,15 @@ pub fn build_readonly_viewer(
     let title = format!("{} (Read-Only Viewer)", filename);
     // Built top-level even if another group is current (T0058).
     let top_level = super::TopLevelScope::new();
+    // Button widths measured from their labels (T0110), never below the old
+    // fixed widths; the spacers in each row give up the difference. Buttons
+    // use FLTK's default label size.
+    let button_w =
+        |labels: &[&str], old: i32| super::max_label_width(labels, app::font_size()).max(old);
+    let page_btn_w = button_w(&["Go to Page"], 90);
+    let goto_btn_w = button_w(&["Go to Line"], 80);
+    let page_nav_w = button_w(&["@<  Prev Page", "Next Page  @>"], 110);
+
     let mut window = Window::new(100, 100, 900, 700, None);
     window.set_label(&title);
     window.set_color(theme.bg);
@@ -377,7 +386,7 @@ pub fn build_readonly_viewer(
     toolbar.fixed(&page_input, 60);
 
     let page_btn = theme.button().with_label("Go to Page");
-    toolbar.fixed(&page_btn, 90);
+    toolbar.fixed(&page_btn, page_btn_w);
 
     let mut spacer_page = Frame::default();
     spacer_page.set_frame(FrameType::FlatBox);
@@ -388,7 +397,7 @@ pub fn build_readonly_viewer(
     toolbar.fixed(&goto_input, 100);
 
     let goto_btn = theme.button().with_label("Go to Line");
-    toolbar.fixed(&goto_btn, 80);
+    toolbar.fixed(&goto_btn, goto_btn_w);
 
     let mut spacer2 = Frame::default();
     spacer2.set_frame(FrameType::FlatBox);
@@ -461,11 +470,11 @@ pub fn build_readonly_viewer(
 
     let mut prev_btn = theme.button().with_label("@<  Prev Page");
     prev_btn.set_tooltip("Previous page (Page Up)");
-    btn_row.fixed(&prev_btn, 110);
+    btn_row.fixed(&prev_btn, page_nav_w);
 
     let mut next_btn = theme.button().with_label("Next Page  @>");
     next_btn.set_tooltip("Next page (Page Down)");
-    btn_row.fixed(&next_btn, 110);
+    btn_row.fixed(&next_btn, page_nav_w);
 
     let mut spacer_left = Frame::default();
     spacer_left.set_frame(FrameType::FlatBox);
