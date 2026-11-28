@@ -17,6 +17,8 @@
 //! they are skipped with a note, unless `FERRISPAD_REQUIRE_UI_TESTS=1`, which
 //! turns a missing display into a failure.
 
+mod support;
+
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::ExitCode;
 
@@ -145,6 +147,11 @@ fn display_available() -> bool {
             "UI tests required but no display (set DISPLAY, e.g. run under xvfb-run)"
         );
         eprintln!("skipping FLTK main-thread checks: no DISPLAY or WAYLAND_DISPLAY");
+    } else if std::env::var("FERRISPAD_REQUIRE_UI_TESTS").as_deref() == Ok("1") {
+        // T0122: under the gates and CI, the checks run on the private X
+        // display they were given, never on the user's screen.
+        let _ = fltk::app::screen_size();
+        support::ui_layout::assert_private_display_when_required("FLTK main-thread checks");
     }
     has_display
 }
