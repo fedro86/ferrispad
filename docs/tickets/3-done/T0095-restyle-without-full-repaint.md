@@ -162,7 +162,7 @@ colours appear as before, with no stale colour left after a pause.
 
 The user approved the PR on 2026-11-27 ("ok 206, 240, 215"), relayed by
 the orchestrator (ferrispad-03), after reading the presentation
-`docs/pr/PR-206-restyle-without-full-repaint.html`. The reviewer approved
+`docs/pr/0.9.11/PR-206-restyle-without-full-repaint.html`. The reviewer approved
 6271c11, plus the page-only nit in ba5c604 (the wall-time caveat). Before
 the move, master was merged again (T0111, #213; 81c9ea6), with no conflict and no
 change to this ticket's files.

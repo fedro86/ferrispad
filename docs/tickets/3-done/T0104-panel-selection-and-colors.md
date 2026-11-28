@@ -87,7 +87,7 @@ explorer, and select a file, in a light and a dark theme. Expected:
 
 The user approved the PR on 2026-11-27 ("ok 201"), relayed by the
 orchestrator (ferrispad-03), at head 59b4f84, after two decisions on the
-presentation `docs/pr/PR-201-panel-selection-and-colors.html`:
+presentation `docs/pr/0.9.11/PR-201-panel-selection-and-colors.html`:
 
 1. On the 3:1 band with the name in black: **"Colore git, banda tenue"**.
 2. On the zooms of the 1.5:1 band in both themes: **"per il selected mi

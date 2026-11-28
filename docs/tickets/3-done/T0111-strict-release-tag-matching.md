@@ -155,7 +155,7 @@ All 38 tags now in the repo match the rule, including `0.9.10-rc.3` and
 
 The user approved the PR on 2026-11-27 ("mergia 213"), relayed by the
 orchestrator (ferrispad-03), after reading the presentation
-`docs/pr/PR-213-strict-release-tag-matching.html`. The reviewer
+`docs/pr/0.9.11/PR-213-strict-release-tag-matching.html`. The reviewer
 (ferrispad-90) approved head 347b4df. The reviewer reran the gates (756
 passed), actionlint, the bash cross-check of all 38 tags and two mutation
 probes: a loose `-*` glob and a diverging bump regex both make

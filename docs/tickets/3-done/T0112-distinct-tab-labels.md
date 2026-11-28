@@ -196,7 +196,7 @@ The labels fit their tabs; nothing is clipped.
 
 The user approved the PR on 2026-11-27 ("ok per 206, 240, 215"), relayed
 by the orchestrator (ferrispad-03), after reading the presentation
-`docs/pr/PR-215-distinct-tab-labels.html`. The reviewer (ferrispad-90)
+`docs/pr/0.9.11/PR-215-distinct-tab-labels.html`. The reviewer (ferrispad-90)
 approved cfa80d7, after the restored `GroupColor` tests and the fresh red
 runs. 450b0e3 then fixed only the page's size chip. Before the move,
 master was merged again (T0095 #206, T0116 #240; b303514) with no conflict:

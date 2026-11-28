@@ -1,13 +1,14 @@
 ---
 name: new-pr
-description: Open a FerrisPad pull request with its presentation. Open the PR as a draft on GitHub to get its number. See every visible change in the real app with shoot.sh and compare.sh, which launch, drive and screenshot FerrisPad in an isolated Xvfb (master or a ref vs the branch, light and dark, labelled before|after montages), then read every shot edge by edge; or state "No visible change". Write the English HTML page from docs/pr/_template.html as docs/pr/PR-<n>-<slug>.html, copy it to the main checkout's docs/internal/pr/ for the user (again after every fix), and commit and push it. The PR stays a draft until the user verifies. Merge only with the ticket in 3-done, all checks green on the head SHA and the user's explicit consent for that PR, then delete the copy. Use when a ticket's implementation is done and its PR is opened (work-sequence step 2), or when asked for a PR presentation.
+description: Open a FerrisPad pull request with its presentation. Open the PR as a draft on GitHub to get its number. See every visible change in the real app with shoot.sh and compare.sh, which launch, drive and screenshot FerrisPad in an isolated Xvfb (master or a ref vs the branch, light and dark, labelled before|after montages), then read every shot edge by edge; or state "No visible change". Write the English HTML page from docs/pr/_template.html as docs/pr/<release>/PR-<n>-<slug>.html, where <release> is the ticket's release: field (page_dir.sh), copy it to the main checkout's docs/internal/pr/<release>/ for the user (again after every fix), and commit and push it. The PR stays a draft until the user verifies. Merge only with the ticket in 3-done, all checks green on the head SHA and the user's explicit consent for that PR, then delete the copy. Use when a ticket's implementation is done and its PR is opened (work-sequence step 2), or when asked for a PR presentation.
 ---
 
 # Open a pull request (with its presentation)
 
 Layout and lifecycle: `docs/pr/README.md`. Every FerrisPad PR gets **one**
-presentation, `docs/pr/PR-<n>-<slug>.html`, written in **English** from
-`docs/pr/_template.html`. The GitHub body is not a second document. It is a
+presentation, `docs/pr/<release>/PR-<n>-<slug>.html`, written in **English**
+from `docs/pr/_template.html`. `<release>` is the release the ticket is
+planned for, its `release:` frontmatter field (e.g. `0.9.11`). The GitHub body is not a second document. It is a
 short paragraph, the page's path and `Closes #<issue>`. The one exemption,
 a PR that only annotates tickets, is at the end of §8.
 
@@ -29,10 +30,17 @@ Flatpak sandbox. `nix` and Xvfb are reached through `flatpak-spawn --host`.
 - The ticket is implemented on `ticket/T<NNNN>`, its file is in
   `docs/tickets/2-review/` with "What was done" filled in, and its GitHub
   issue exists (work-sequence step 2).
+- The ticket's frontmatter has `release:`, the final release it is planned
+  for (`X.Y.Z`). The page's folder comes from it, and the helper refuses a
+  ticket without it:
+  ```bash
+  D=$(.claude/skills/new-pr/page_dir.sh docs/tickets/2-review/T<NNNN>-<slug>.md)   # docs/pr/0.9.11
+  ```
 - `origin/master` is merged into the branch (merge, never rebase, once
   pushed), and the gates are green on the result:
-  `flatpak-spawn --host bash -lc "cd $PWD && nix develop -c cargo test"`,
-  plus clippy (`-- -D warnings`) and `cargo fmt --check`.
+  `flatpak-spawn --host bash -lc "$PWD/scripts/gates.sh $PWD"` (fmt,
+  clippy `-D warnings`, and the tests on a private Xvfb with
+  `FLTK_BACKEND=x11`, never on the user's X or Wayland display: T0122).
 - The branch is pushed.
 
 ## 1. Get the number: open the PR as a draft
@@ -43,7 +51,7 @@ they share one sequence.
 ```bash
 gh pr create --draft --base master --head ticket/T<NNNN> \
   --title "<type>(<scope>): <outcome> (T<NNNN>)" \
-  --body "Presentation: docs/pr/PR-<n>-<slug>.html (being written). Closes #<issue>"
+  --body "Presentation: docs/pr/<release>/PR-<n>-<slug>.html (being written). Closes #<issue>"
 gh pr view ticket/T<NNNN> --json number,url
 ```
 
@@ -183,7 +191,9 @@ file. The template's style keeps it inside the card.
 
 ## 3. Write the page
 
-Copy `docs/pr/_template.html` to `docs/pr/PR-<n>-<slug>.html`. `<slug>` is
+Copy `docs/pr/_template.html` to `$D/PR-<n>-<slug>.html` (`$D` from §0,
+e.g. `docs/pr/0.9.11/`; create the folder if it is the release's first
+page). `<slug>` is
 the ticket file's slug (`T0114-release-0.9.10-rc.3.md` →
 `release-0.9.10-rc.3`). Replace every `{{placeholder}}`, or delete its
 element. The rules:
@@ -194,7 +204,7 @@ element. The rules:
   `<code>`.
 - **No literal `{{` in a finished page.** When a page has to show the
   placeholder syntax itself, write it as `&#123;&#123;`. Then
-  `grep -n '{{' docs/pr/PR-<n>-*.html` finds only real placeholders and
+  `grep -n '{{' $D/PR-<n>-*.html` finds only real placeholders and
   prints nothing for a finished page.
 - **Facts only.** Take them from the sources below. A number that is not
   known yet stays a visible `{{placeholder}}`. Never estimate one.
@@ -203,7 +213,7 @@ element. The rules:
     the branch's commits for reference: master gets one squash commit.
   - **The size chip:** everything except the page itself, so the number
     stays right across the page's own commits:
-    `git diff --shortstat origin/master...HEAD -- . ':(exclude)docs/pr/PR-*.html'`
+    `git diff --shortstat origin/master...HEAD -- . ':(exclude)docs/pr/*PR-*.html'`
     (three dots: from the merge-base).
   - **The ticket:** its file in `docs/tickets/`, which holds the decisions,
     the red test and the recipe.
@@ -247,16 +257,33 @@ element. The rules:
 Before going on, run the page's rendering check (§7 condition 1) on the
 page. It runs again on the committed page before the merge.
 
+### The release folder
+
+A page moves only when its PR's planned release changes. Then the
+ticket's `release:` and the page move together, with `git mv`, and the
+copy in `docs/internal/pr/` moves too.
+
+**Before tagging `X.Y.Z`** (the release-prep ticket checks it):
+
+- every page in `docs/pr/X.Y.Z/` is a PR merged into that release:
+  ```bash
+  for f in docs/pr/X.Y.Z/PR-*.html; do n=${f##*/PR-}; n=${n%%-*}; gh pr view "$n" --json number,state --jq '"\(.number) \(.state)"'; done
+  ```
+  every line says `MERGED`;
+- a planned PR that slipped, still open, moves to the next release's
+  folder, with its ticket's `release:`, in its own branch.
+
 ## 4. Deliver it to the user: a copy in the main checkout
 
-The user reads PR pages in `docs/internal/pr/` of the **main checkout**,
+The user reads PR pages in `docs/internal/pr/<release>/` of the **main
+checkout**, the same folder layout as `docs/pr/`,
 not on the branch. The main checkout is the first entry of
 `git worktree list`, whatever branch it has checked out: never write its
 path by hand. `docs/internal/*` is gitignored there, so the copy is never
 committed. From the ticket's worktree:
 
 ```bash
-M=$(git worktree list --porcelain | sed -n '1s/^worktree //p') && mkdir -p "$M/docs/internal/pr" && cp docs/pr/PR-<n>-<slug>.html "$M/docs/internal/pr/"
+M=$(git worktree list --porcelain | sed -n '1s/^worktree //p') && mkdir -p "$M/docs/internal/${D#docs/}" && cp $D/PR-<n>-<slug>.html "$M/docs/internal/${D#docs/}/"
 ```
 
 `--porcelain` keeps a path with spaces whole.
@@ -279,7 +306,7 @@ means "waiting for the user's verification", and the landing refuses a
 draft. The body has four parts:
 
 - one paragraph: what the PR delivers;
-- `Presentation: docs/pr/PR-<n>-<slug>.html`;
+- `Presentation: docs/pr/<release>/PR-<n>-<slug>.html`;
 - `Closes #<issue>`;
 - the PR attribution line from the session's instructions.
 
@@ -317,7 +344,7 @@ Before a merge, all five hold:
    after the last fix. This is a minor check of the HTML page, not of
    FerrisPad (that is §2):
    ```bash
-   .claude/skills/new-pr/visual_check.sh docs/pr/PR-<n>-<slug>.html <scratchpad>/vc-<n>
+   .claude/skills/new-pr/visual_check.sh $D/PR-<n>-<slug>.html <scratchpad>/vc-<n>
    ```
    It renders the page in headless Chromium four times: 1280 px and
    390 px wide, each with `prefers-color-scheme` light and dark. It uses
@@ -385,18 +412,17 @@ merged, and the session that ran `/new-pr`, whenever it finds out. `rm -f`
 is idempotent, so two sessions doing it is harmless:
 
 ```bash
-M=$(git worktree list --porcelain | sed -n '1s/^worktree //p') && rm -f "$M"/docs/internal/pr/PR-<n>-*.html
+M=$(git worktree list --porcelain | sed -n '1s/^worktree //p') && rm -f "$M"/docs/internal/pr/*/PR-<n>-*.html
 ```
 
 The session that ran `/new-pr` may be gone by the time the PR merges. So
 any session running `/new-pr` also checks the other `PR-*.html` copies in
-`docs/internal/pr/`, and deletes those whose PR `gh pr view <n> --json state`
+`docs/internal/pr/*/`, and deletes those whose PR `gh pr view <n> --json state`
 reports as `MERGED` or `CLOSED`.
 
-Nothing else follows. The page in `docs/pr/` is written once and never
-moved: whether the PR is open or merged is GitHub's state, not the file's.
-`docs/pr/` stays flat. FerrisPad is one crate, so there are no app
-folders.
+Nothing else follows at the merge. Whether the PR is open or merged is
+GitHub's state, not the file's. FerrisPad is one crate, so there are no app
+folders: the only level under `docs/pr/` is the release.
 
 **The one PR without a presentation.** A PR whose diff only modifies
 tickets already in `3-done/` and/or adds new tickets to `1-todo/` gets no
