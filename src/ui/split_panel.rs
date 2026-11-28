@@ -3,6 +3,8 @@
 //! Used for showing diffs, AI suggestions, and file comparisons.
 //! Plugin-driven via the Widget API.
 
+use super::line_numbers;
+use crate::ui::color::fltk_rgb;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -118,33 +120,33 @@ impl SyntaxDiffMap {
         font_size: i32,
     ) -> Self {
         let (r, g, b) = theme_bg;
-        let fg = Color::from_rgb(theme_fg.0, theme_fg.1, theme_fg.2);
-        let bg = Color::from_rgb(r, g, b);
+        let fg = fltk_rgb(theme_fg.0, theme_fg.1, theme_fg.2);
+        let bg = fltk_rgb(r, g, b);
 
         let added_bg = if is_dark {
-            Color::from_rgb(20, 60, 20)
+            fltk_rgb(20, 60, 20)
         } else {
-            Color::from_rgb(200, 255, 200)
+            fltk_rgb(200, 255, 200)
         };
         let removed_bg = if is_dark {
-            Color::from_rgb(60, 20, 20)
+            fltk_rgb(60, 20, 20)
         } else {
-            Color::from_rgb(255, 200, 200)
+            fltk_rgb(255, 200, 200)
         };
         let modified_bg = if is_dark {
-            Color::from_rgb(60, 50, 10)
+            fltk_rgb(60, 50, 10)
         } else {
-            Color::from_rgb(255, 255, 200)
+            fltk_rgb(255, 255, 200)
         };
         let added_emphasis_bg = if is_dark {
-            Color::from_rgb(40, 100, 40)
+            fltk_rgb(40, 100, 40)
         } else {
-            Color::from_rgb(150, 255, 150)
+            fltk_rgb(150, 255, 150)
         };
         let removed_emphasis_bg = if is_dark {
-            Color::from_rgb(100, 40, 40)
+            fltk_rgb(100, 40, 40)
         } else {
-            Color::from_rgb(255, 150, 150)
+            fltk_rgb(255, 150, 150)
         };
 
         let base = |bgcolor: Color| StyleTableEntryExt {
@@ -404,9 +406,6 @@ impl DockedHeight {
     }
 }
 
-/// Width of a pane's line-number gutter when line numbers are shown
-const LINENUMBER_WIDTH: i32 = 40;
-
 /// Scrollbar marker data for one pane: (line, color) pairs, shared with the
 /// content row's draw callback.
 type Markers = Rc<RefCell<Vec<(u32, HighlightColor)>>>;
@@ -451,7 +450,7 @@ impl<D: DisplayExt> Pane<D> {
         display.set_frame(FrameType::FlatBox);
         display.set_text_font(Font::Courier);
         display.set_text_size(13);
-        display.set_linenumber_width(LINENUMBER_WIDTH);
+        display.set_linenumber_width(line_numbers::MIN_WIDTH);
 
         Self {
             display,
@@ -472,8 +471,14 @@ impl<D: DisplayExt> Pane<D> {
             side.label.as_str()
         };
         self.label.set_label(&format!("  {label}"));
+        // Sized for this side's largest line number, like the editor's gutter
+        // (T0107).
         self.display.set_linenumber_width(if side.line_numbers {
-            LINENUMBER_WIDTH
+            line_numbers::gutter_width(
+                self.buffer.count_lines(0, self.buffer.length()) as usize,
+                self.display.linenumber_font(),
+                self.display.linenumber_size(),
+            )
         } else {
             0
         });
@@ -895,26 +900,26 @@ impl SplitPanel {
             let c = match color {
                 HighlightColor::Added => {
                     if dark {
-                        Color::from_rgb(60, 180, 60)
+                        fltk_rgb(60, 180, 60)
                     } else {
-                        Color::from_rgb(40, 160, 40)
+                        fltk_rgb(40, 160, 40)
                     }
                 }
                 HighlightColor::Removed => {
                     if dark {
-                        Color::from_rgb(200, 60, 60)
+                        fltk_rgb(200, 60, 60)
                     } else {
-                        Color::from_rgb(180, 40, 40)
+                        fltk_rgb(180, 40, 40)
                     }
                 }
                 HighlightColor::Modified => {
                     if dark {
-                        Color::from_rgb(200, 180, 40)
+                        fltk_rgb(200, 180, 40)
                     } else {
-                        Color::from_rgb(180, 160, 20)
+                        fltk_rgb(180, 160, 20)
                     }
                 }
-                HighlightColor::Rgb(r, g, b) => Color::from_rgb(*r, *g, *b),
+                HighlightColor::Rgb(r, g, b) => fltk_rgb(*r, *g, *b),
             };
             draw::draw_rect_fill(marker_x, y, marker_w, marker_h, c);
         }
@@ -1076,13 +1081,13 @@ impl Themeable for SplitPanel {
         // Labels row uses the diff tab tint color with dark text
         let label_bg = super::theme::diff_tab_tint_from_bg(theme_bg, theme.is_dark());
         let label_text = if theme.is_dark() {
-            Color::from_rgb(200, 200, 210)
+            fltk_rgb(200, 200, 210)
         } else {
-            Color::from_rgb(30, 30, 30)
+            fltk_rgb(30, 30, 30)
         };
         self.labels_row.set_color(label_bg);
 
-        let editor_bg = Color::from_rgb(r, g, b);
+        let editor_bg = fltk_rgb(r, g, b);
         self.content_row.set_color(editor_bg);
 
         let editor_rgb = ThemeRgb::from_tuple(theme_bg);
@@ -1111,36 +1116,36 @@ impl Themeable for SplitPanel {
             let is_dark = theme.is_dark();
             let diff_bgs: [Color; 6] = [
                 // Normal
-                Color::from_rgb(r, g, b),
+                fltk_rgb(r, g, b),
                 // Added
                 if is_dark {
-                    Color::from_rgb(20, 60, 20)
+                    fltk_rgb(20, 60, 20)
                 } else {
-                    Color::from_rgb(200, 255, 200)
+                    fltk_rgb(200, 255, 200)
                 },
                 // Removed
                 if is_dark {
-                    Color::from_rgb(60, 20, 20)
+                    fltk_rgb(60, 20, 20)
                 } else {
-                    Color::from_rgb(255, 200, 200)
+                    fltk_rgb(255, 200, 200)
                 },
                 // Modified
                 if is_dark {
-                    Color::from_rgb(60, 50, 10)
+                    fltk_rgb(60, 50, 10)
                 } else {
-                    Color::from_rgb(255, 255, 200)
+                    fltk_rgb(255, 255, 200)
                 },
                 // AddedEmphasis
                 if is_dark {
-                    Color::from_rgb(40, 100, 40)
+                    fltk_rgb(40, 100, 40)
                 } else {
-                    Color::from_rgb(150, 255, 150)
+                    fltk_rgb(150, 255, 150)
                 },
                 // RemovedEmphasis
                 if is_dark {
-                    Color::from_rgb(100, 40, 40)
+                    fltk_rgb(100, 40, 40)
                 } else {
-                    Color::from_rgb(255, 150, 150)
+                    fltk_rgb(255, 150, 150)
                 },
             ];
 

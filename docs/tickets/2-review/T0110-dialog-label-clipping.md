@@ -174,3 +174,58 @@ layout check runs on every dialog with no exceptions.
   clipping or overlap remains.
 - Gates: lib 586 under Xvfb, every binary green; fmt and clippy
   `-D warnings` clean.
+
+## Merge of master, rebuilt on T0106 (2026-11-28, ferrispad-39)
+
+Master has T0105 as one squash commit (#194), while this branch carries
+T0105's original commits through T0106. A plain merge of master conflicted
+in 20 files. The tree was rebuilt in two clean steps instead:
+1. `origin/ticket/T0106` (6f8e505, which already holds ferrispad-3b's
+   resolution of master at 818970b) merged with master f12fd3c: no
+   conflict;
+2. this ticket's own delta (`git diff 3f53937 dadf622`) replayed on that
+   with `git apply -3`: no conflict.
+
+The check: the replayed delta (T0106+master → result) is **line-identical**
+to the original one (3f53937 → dadf622). Both are 14 files, +549 / −205,
+and `diff` of their +/− lines is empty. The result is this branch's merge
+of master. So T0110 depends on T0106 (`depends-on: [T0106]`): #212 lands
+after #208.
+
+Gates on the result, with the UI tests on a private Xvfb (T0122's
+environment): 790 passed, clippy `-D warnings` and fmt clean.
+
+### Screens for the page (compare.sh, before = origin/ticket/T0106)
+
+The scenarios are ferrispad-3b's (`docs/pr/scenarios/dialogs*.sh`), copied
+byte-identical. Runs used T0120's fixed `compare.sh` / `shoot.sh`, with
+fonts 16 and 18, light and dark.
+- **Changed** (geometry only): Find, Replace, Go To Line, Font picker, New
+  Session, Key Shortcuts, the read-only viewer.
+- **Pixel-identical** before and after: About, the Go To Line message,
+  Plugin Config, Plugin Manager (Installed and Official), Plugin Settings,
+  Permissions, Large File Warning, File Too Large.
+- **Font 18 = font 16** for every dialog except the Font picker, which
+  shows the chosen size. The app's font setting is the editor's. Dialogs
+  use FLTK's default size (`app::set_font_size` is never called).
+- **The Update dialog** only appears after a successful network check, and
+  the scenarios run without network. It is an **offscreen render of its
+  build seam** (`update::build_update_available_dialog`): before on T0106,
+  after on T0110, at FLTK's default label size and at +2 pt (the layout
+  test's stand-in for a wider desktop font), light and dark, under the
+  gates' isolation. The orchestrator approved this on 2026-11-28. The
+  render tool was a local test file, not committed and removed after use.
+  Width 500 → 588 px. At 500, "Manual Update Only" is cut, and at +2 pt
+  the buttons touch.
+- Found on the way: `_dialog-helpers.sh`'s `gen_fixture` (`yes | head`)
+  failed on its first run under `set -euo pipefail` (SIGPIPE). Reported to
+  ferrispad-3b, who fixed it in T0106's copy.
+
+### Open question for the user: the dialog widths
+
+The measured widths make some dialogs wider. Update grows 500 → 588 px
+here, New Session 300 → 317, Go To Line 250 → 258 and Find 400 → 406.
+CI's fonts are wider still. The alternative is shorter labels, a wording
+change this ticket keeps out of scope. The page shows each dialog before
+and after, for the user to decide.
+

@@ -25,7 +25,7 @@ use super::controllers::view::ViewController;
 use super::controllers::widget::WidgetController;
 use super::domain::document::DocumentId;
 use super::domain::messages::Message;
-use super::domain::settings::{self, AppSettings, ThemeMode, ThemeRef, default_syntax_theme};
+use super::domain::settings::{self, AppSettings, ThemeRef, default_syntax_theme};
 use super::infrastructure::buffer::{
     buffer_text_no_leak, text_range_bytes_no_leak, text_range_no_leak,
 };
@@ -49,6 +49,30 @@ use crate::ui::theme::set_windows_titlebar_theme;
 use crate::ui::theme::{PanelTheme, Themeable, apply_syntax_theme_colors, apply_theme};
 #[cfg(target_os = "macos")]
 use crate::ui::theme::{set_macos_titlebar_color, update_macos_title_label};
+
+/// The main window title: `[*]<tab label> - 🦀 FerrisPad [session]`, "*"
+/// when the active document has unsaved changes (T0093). `active` is the
+/// active document's tab label and dirty state; with no document open (the
+/// start page) the title is just the app name.
+pub fn window_title(active: Option<(&str, bool)>, session_name: &str) -> String {
+    let base_suffix = if cfg!(target_os = "windows") {
+        "FerrisPad"
+    } else {
+        "\u{1f980} FerrisPad"
+    };
+    let suffix = if session_name == session::DEFAULT_SESSION_NAME {
+        base_suffix.to_string()
+    } else {
+        format!("{} [{}]", base_suffix, session_name)
+    };
+    match active {
+        Some((label, dirty)) => {
+            let prefix = if dirty { "*" } else { "" };
+            format!("{prefix}{label} - {suffix}")
+        }
+        None => suffix,
+    }
+}
 
 pub struct AppState {
     pub tab_manager: TabManager,
@@ -85,6 +109,9 @@ pub struct AppState {
     /// Main-window geometry tracked for the close-time save (T0077). Shared
     /// with the window's resize callback and close handler in `main.rs`.
     pub window_geometry: Rc<RefCell<WindowGeometryTracker>>,
+    /// Recently opened files, most recent first (T0116). Read once at
+    /// startup, written on every change.
+    pub recent_files: Vec<String>,
 }
 
 impl AppState {
@@ -103,7 +130,7 @@ impl AppState {
     pub fn new(
         editor_container: EditorContainer,
         window: Window,
-        menu: MenuBar,
+        mut menu: MenuBar,
         flex: Flex,
         update_banner_frame: Frame,
         sender: Sender<Message>,
@@ -178,6 +205,8 @@ impl AppState {
         let session = SessionController::with_session_name(session_name);
         let plugin_coord = PluginController::new(menu.clone(), sender);
 
+        let recent_files = crate::app::services::recent_files::load_or_seed();
+        crate::ui::menu::rebuild_recent_menu(&mut menu, &sender, &recent_files);
         Self {
             tab_manager,
             tabs_enabled,
@@ -205,7 +234,69 @@ impl AppState {
             mcp_responses: Default::default(),
             pending_diff_reviews: HashMap::new(),
             window_geometry: Rc::new(RefCell::new(WindowGeometryTracker::default())),
+            recent_files,
         }
+    }
+
+    // ===== Recent files (T0116) =====
+
+    /// Put `path` at the top of the recent-files list, if it names an
+    /// existing file, and save the list.
+    pub fn remember_recent(&mut self, path: &str) {
+        let path = std::path::Path::new(path);
+        if !path.is_file() {
+            return;
+        }
+        let absolute = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            match std::env::current_dir() {
+                Ok(cwd) => cwd.join(path),
+                Err(_) => return,
+            }
+        };
+        crate::app::services::recent_files::push(
+            &mut self.recent_files,
+            &absolute.to_string_lossy(),
+        );
+        self.recent_files_changed();
+    }
+
+    /// File → Open Recent: open the entry, or switch to its tab. A file that
+    /// no longer exists is reported and dropped from the list.
+    pub fn open_recent(&mut self, path: String) {
+        let theme_bg = self.highlight.highlighter().theme_background();
+        if !std::path::Path::new(&path).is_file() {
+            crate::app::services::recent_files::remove(&mut self.recent_files, &path);
+            self.recent_files_changed();
+            show_themed_message(
+                theme_bg,
+                "Error",
+                &format!("{path} no longer exists. It was removed from the recent files."),
+            );
+            return;
+        }
+        let actions = self.file.open_file(
+            path,
+            &mut self.tab_manager,
+            &self.settings,
+            theme_bg,
+            self.tabs_enabled,
+        );
+        self.dispatch_file_actions(actions);
+    }
+
+    /// File → Open Recent → Clear Recent.
+    pub fn clear_recent(&mut self) {
+        self.recent_files.clear();
+        self.recent_files_changed();
+    }
+
+    fn recent_files_changed(&mut self) {
+        if let Err(e) = crate::app::services::recent_files::save(&self.recent_files) {
+            eprintln!("[recent-files] could not save the list: {e}");
+        }
+        crate::ui::menu::rebuild_recent_menu(&mut self.menu, &self.sender, &self.recent_files);
     }
 
     /// Get the active document's buffer
@@ -232,27 +323,29 @@ impl AppState {
             }
         }
         self.update_linenumber_width();
+        // The active document may have changed (session restore, new
+        // session, ...): the file-type menus follow it here, once, instead
+        // of in every caller (T0103).
+        self.update_menus_for_file_type();
     }
 
-    /// Update the window title based on active document
+    /// Update the window title based on active document. The label is only
+    /// set when the text changes.
     pub fn update_window_title(&mut self) {
-        let base_suffix = if cfg!(target_os = "windows") {
-            "FerrisPad"
-        } else {
-            "\u{1f980} FerrisPad"
-        };
-        let session_name = self.session.current_session_name();
-        let suffix = if session_name == session::DEFAULT_SESSION_NAME {
-            base_suffix.to_string()
-        } else {
-            format!("{} [{}]", base_suffix, session_name)
-        };
-        if let Some(doc) = self.tab_manager.active_doc() {
-            let prefix = if doc.is_dirty() { "*" } else { "" };
-            self.window
-                .set_label(&format!("{}{} - {}", prefix, doc.tab_label(), suffix));
-        } else {
-            self.window.set_label(&format!("Untitled - {}", suffix));
+        let active = self.tab_manager.active_doc().map(|doc| {
+            (
+                self.tab_manager.tab_label(doc.id).unwrap_or_default(),
+                doc.is_dirty(),
+            )
+        });
+        let title = window_title(
+            active
+                .as_ref()
+                .map(|(label, dirty)| (label.as_str(), *dirty)),
+            self.session.current_session_name(),
+        );
+        if self.window.label() != title {
+            self.window.set_label(&title);
         }
         #[cfg(target_os = "macos")]
         update_macos_title_label(&self.window);
@@ -421,6 +514,10 @@ impl AppState {
         self.tab_manager.remove(id);
 
         if self.tab_manager.count() == 0 {
+            // No document left: nothing to preview (T0103), and the title
+            // drops "Untitled" for the start page (T0093).
+            self.update_menus_for_file_type();
+            self.update_window_title();
             return true;
         }
 
@@ -509,6 +606,7 @@ impl AppState {
                     let theme_bg = self.highlight.highlighter().theme_background();
                     show_themed_message(theme_bg, "Error", &message);
                 }
+                FileAction::RememberRecent(path) => self.remember_recent(&path),
             }
         }
     }
@@ -844,6 +942,31 @@ impl AppState {
         }
     }
 
+    /// A document's text changed (`BufferModified`): drop its cached tree,
+    /// recount its lines, and resize the gutter if the active document's
+    /// largest line number gained or lost a digit (T0107).
+    pub fn on_buffer_modified(&mut self, id: DocumentId) {
+        if let Some(doc) = self.tab_manager.doc_by_id_mut(id) {
+            doc.cached_tree = None;
+            doc.cached_line_count = doc.buffer.count_lines(0, doc.buffer.length()) as usize;
+        }
+        if self.tab_manager.active_id() == Some(id) {
+            self.view.line_count_changed(&self.tab_manager);
+        }
+    }
+
+    /// The main loop took `msg` off the queue, before dispatch (T0096,
+    /// T0093). Every message that owns a "pending" flag clears it here, the
+    /// one hook for all of them, so the reset does not depend on its handler
+    /// running (the main loop skips some handlers when no tab is open).
+    pub fn note_dequeued(&mut self, msg: &Message) {
+        self.highlight.note_dequeued(msg);
+        crate::app::domain::document::note_dequeued(msg);
+        if matches!(msg, Message::DoTextChangeHook) {
+            self.text_change_timer_active = false;
+        }
+    }
+
     pub fn update_linenumber_width(&mut self) {
         self.view.update_linenumber_width(&self.tab_manager);
     }
@@ -984,7 +1107,10 @@ impl AppState {
                 );
                 return;
             }
-            self.apply_settings(new_settings);
+            let is_dark = new_settings
+                .theme_mode
+                .resolve_dark(detect_system_dark_mode);
+            self.apply_settings(new_settings, is_dark);
         }
     }
 
@@ -1159,14 +1285,11 @@ impl AppState {
         crate::ui::menu::apply_font_size_active(&mut self.menu, prev, size);
     }
 
-    pub fn apply_settings(&mut self, new_settings: AppSettings) {
+    /// Apply `new_settings`; `is_dark` is the already-resolved theme mode
+    /// (callers resolve it once, so the desktop query never runs twice).
+    pub fn apply_settings(&mut self, new_settings: AppSettings, is_dark: bool) {
         let prev_font_size = self.settings.borrow().font_size_clamped();
         let new_font_size = new_settings.font_size_clamped();
-        let is_dark = match new_settings.theme_mode {
-            ThemeMode::Light => false,
-            ThemeMode::Dark => true,
-            ThemeMode::SystemDefault => detect_system_dark_mode(),
-        };
         self.view.dark_mode = is_dark;
 
         let font = new_settings.current_font();
@@ -1561,5 +1684,37 @@ fn rewrite_styles(
             true
         }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// T0093: the title string (pinned; the bug was the missing refresh).
+    #[test]
+    fn dirty_window_title() {
+        let app = if cfg!(target_os = "windows") {
+            "FerrisPad"
+        } else {
+            "\u{1f980} FerrisPad"
+        };
+        let default = session::DEFAULT_SESSION_NAME;
+        assert_eq!(
+            window_title(Some(("notes.txt", true)), default),
+            format!("*notes.txt - {app}")
+        );
+        assert_eq!(
+            window_title(Some(("notes.txt", false)), default),
+            format!("notes.txt - {app}")
+        );
+        assert_eq!(
+            window_title(Some(("Untitled", true)), "work"),
+            format!("*Untitled - {app} [work]")
+        );
+        // No document open (the start page): just the app name, not a
+        // phantom "Untitled".
+        assert_eq!(window_title(None, default), app);
+        assert_eq!(window_title(None, "work"), format!("{app} [work]"));
     }
 }

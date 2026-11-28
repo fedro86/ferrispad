@@ -53,6 +53,9 @@ pub enum FileAction {
     },
     /// Tell the user a file operation failed (themed error popup).
     ShowError(String),
+    /// A named file was opened or saved as: put it at the top of the
+    /// recent-files list (T0116).
+    RememberRecent(String),
 }
 
 /// Kind of external change detected for an open document.
@@ -61,6 +64,20 @@ pub enum ExternalChange {
     Modified,
     /// File no longer exists on disk.
     Deleted,
+}
+
+/// True when `actions` show a file: a tab was switched to or the window
+/// title changed, and nothing failed. A cancelled open returns no action.
+fn opened(actions: &[FileAction]) -> bool {
+    !actions
+        .iter()
+        .any(|a| matches!(a, FileAction::ShowError(_)))
+        && actions.iter().any(|a| {
+            matches!(
+                a,
+                FileAction::SwitchToDocument(_) | FileAction::UpdateWindowTitle
+            )
+        })
 }
 
 /// Manages file I/O operations (open, save, new).
@@ -76,7 +93,35 @@ pub struct FileController {
 impl FileController {
     // ===== Public API =====
 
+    /// Open `path` (or switch to its tab). Every way of opening a file goes
+    /// through here, so this is where an open is remembered as recent
+    /// (T0116): when it shows the file, not when it was cancelled or failed.
     pub fn open_file(
+        &mut self,
+        path: String,
+        tab_manager: &mut TabManager,
+        settings: &Rc<RefCell<AppSettings>>,
+        theme_bg: (u8, u8, u8),
+        tabs_enabled: bool,
+    ) -> Vec<FileAction> {
+        let mut actions =
+            self.open_file_unrecorded(path.clone(), tab_manager, settings, theme_bg, tabs_enabled);
+        if opened(&actions) {
+            actions.push(FileAction::RememberRecent(path));
+        }
+        actions
+    }
+
+    /// `actions` without [`FileAction::RememberRecent`]: for opens that are
+    /// not the user's own, such as an MCP agent's (T0116).
+    pub fn without_recent(actions: Vec<FileAction>) -> Vec<FileAction> {
+        actions
+            .into_iter()
+            .filter(|a| !matches!(a, FileAction::RememberRecent(_)))
+            .collect()
+    }
+
+    fn open_file_unrecorded(
         &mut self,
         path: String,
         tab_manager: &mut TabManager,
@@ -250,8 +295,7 @@ impl FileController {
             if let Some(doc) = tab_manager.active_doc_mut() {
                 doc.buffer.set_text("");
                 doc.has_unsaved_changes.set(false);
-                doc.file_path = None;
-                doc.display_name = "Untitled".to_string();
+                doc.set_untitled(1);
                 doc.syntax_name = None;
                 doc.checkpoints.clear();
                 doc.set_style_text("");
@@ -402,7 +446,7 @@ impl FileController {
                         }
                     };
 
-                    let mut actions = Vec::new();
+                    let mut actions = vec![FileAction::RememberRecent(path.clone())];
                     if let Some(id) = id {
                         actions.push(FileAction::DetectAndHighlight(id, path.clone()));
                         actions.push(FileAction::BindHighlightData(id));
@@ -981,6 +1025,47 @@ mod tests {
             resolve_cli_open_target(&path_str(&target)),
             CliOpenTarget::Invalid(_)
         ));
+    }
+
+    /// T0116: an MCP agent's open leaves the recent-files list alone.
+    #[test]
+    fn recent_files_agent_opens_are_not_remembered() {
+        use crate::app::domain::document::DocumentId;
+        let actions = vec![
+            FileAction::SwitchToDocument(DocumentId(1)),
+            FileAction::RememberRecent("/work/a.txt".into()),
+            FileAction::RebuildTabBar,
+        ];
+        let kept = FileController::without_recent(actions);
+        assert_eq!(kept.len(), 2);
+        assert!(
+            !kept
+                .iter()
+                .any(|a| matches!(a, FileAction::RememberRecent(_)))
+        );
+    }
+
+    /// T0116: an open is remembered as recent only when it shows a file.
+    #[test]
+    fn recent_files_open_counts_only_when_a_file_is_shown() {
+        use crate::app::domain::document::DocumentId;
+        // Cancelled (no action) or failed: not remembered.
+        assert!(!opened(&[]));
+        assert!(!opened(&[FileAction::ShowError("no".into())]));
+        assert!(!opened(&[
+            FileAction::SwitchToDocument(DocumentId(1)),
+            FileAction::ShowError("no".into()),
+        ]));
+        // A new tab, or a switch to the tab already open (tabs on).
+        assert!(opened(&[
+            FileAction::SwitchToDocument(DocumentId(1)),
+            FileAction::RebuildTabBar,
+        ]));
+        // The single document replaced (tabs off).
+        assert!(opened(&[
+            FileAction::UpdateWindowTitle,
+            FileAction::UpdateMenusForFileType,
+        ]));
     }
 
     #[test]

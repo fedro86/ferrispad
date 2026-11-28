@@ -106,8 +106,15 @@ pub fn build_permission_dialog(
         let mut desc = Frame::default()
             .with_pos(MARGIN, y)
             .with_size(col_width, LABEL_HEIGHT);
-        desc.set_label(&request.description);
         desc.set_label_size(11);
+        // A plugin's description is free text of any length: it is cut with
+        // "..." to the frame, and the full text is in the tooltip (T0110).
+        desc.set_label(&super::fit_text(
+            &request.description,
+            col_width,
+            desc.label_size(),
+        ));
+        desc.set_tooltip(&request.description);
         desc.set_label_color(theme.text_dim);
         desc.set_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
         y += LABEL_HEIGHT + 5;

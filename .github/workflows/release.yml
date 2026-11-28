@@ -2,10 +2,14 @@ name: Build and Release
 
 on:
   push:
+    # Release tags are X.Y.Z or X.Y.Z-(alpha|beta|rc).N (T0111). These
+    # globs cannot rule out leading zeros; release-gate below is the exact
+    # rule. tests/release_tags.rs checks both.
     tags:
-      - 'v*'
       - '[0-9]+.[0-9]+.[0-9]+'
-      - '[0-9]+.[0-9]+.[0-9]+-*'
+      - '[0-9]+.[0-9]+.[0-9]+-alpha.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+-rc.[0-9]+'
   workflow_dispatch:
 
 env:
@@ -16,6 +20,32 @@ permissions:
   contents: write
 
 jobs:
+  # Only a version tag may sign with the release key, publish a release or
+  # notify FlatPark (T0086). A manual run on a branch (or on a tag that is not
+  # a version) builds every platform, uploads the unsigned binaries as
+  # workflow artifacts and ends green; sign-binaries, create-release and
+  # flatpark are skipped. A version is X.Y.Z or X.Y.Z-(alpha|beta|rc).N
+  # without leading zeros (T0111): the same regex as scripts/bump-version.sh,
+  # checked by tests/release_tags.rs.
+  release-gate:
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.gate.outputs.publish }}
+    steps:
+      - name: Decide whether this run may sign and publish
+        id: gate
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ "$REF_TYPE" == "tag" && "$REF_NAME" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$ ]]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "Version tag $REF_NAME: sign and publish."
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$REF_TYPE '$REF_NAME' is not a version tag: build only, no signing, no release, no FlatPark."
+          fi
+
   build-linux:
     strategy:
       fail-fast: false
@@ -33,9 +63,15 @@ jobs:
       - name: Get version from tag
         id: get_version
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          VERSION=${VERSION#v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            VERSION=${VERSION#v}
+          else
+            # Manual run on a branch (T0086): the ref has slashes, so name the
+            # artifacts <Cargo.toml version>-dev.<short sha> instead.
+            VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)-dev.${GITHUB_SHA::7}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -87,9 +123,15 @@ jobs:
         id: get_version
         shell: bash
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          VERSION=${VERSION#v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            VERSION=${VERSION#v}
+          else
+            # Manual run on a branch (T0086): the ref has slashes, so name the
+            # artifacts <Cargo.toml version>-dev.<short sha> instead.
+            VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)-dev.${GITHUB_SHA::7}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -128,9 +170,15 @@ jobs:
       - name: Get version from tag
         id: get_version
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          VERSION=${VERSION#v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            VERSION=${VERSION#v}
+          else
+            # Manual run on a branch (T0086): the ref has slashes, so name the
+            # artifacts <Cargo.toml version>-dev.<short sha> instead.
+            VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)-dev.${GITHUB_SHA::7}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -198,7 +246,7 @@ jobs:
               local radius=$((size / 5))  # macOS-like squircle radius
 
               # Create icon with gradient background, centered logo, and rounded corners
-              magick -size ${size}x${size} \
+              magick -size "${size}x${size}" \
                 gradient:'#FF6B35-#F7931E' \
                 \( docs/assets/logo-transparent.png -resize $((size * 70 / 100))x$((size * 70 / 100)) \) \
                 -gravity center -composite \
@@ -255,8 +303,8 @@ jobs:
           path: ${{ env.PROJECT_NAME }}-v${{ steps.get_version.outputs.version }}-macos.dmg
 
   sign-binaries:
-    needs: [build-linux, build-windows, build-macos]
-    if: always()
+    needs: [release-gate, build-linux, build-windows, build-macos]
+    if: ${{ always() && needs.release-gate.outputs.publish == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Get version from tag
@@ -264,7 +312,7 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
           VERSION=${VERSION#v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Checkout ferrispad-plugins (signer tool)
         uses: actions/checkout@v7
@@ -359,8 +407,8 @@ jobs:
           path: binaries/*.sig
 
   create-release:
-    needs: [build-linux, build-windows, build-macos, sign-binaries]
-    if: always()
+    needs: [release-gate, build-linux, build-windows, build-macos, sign-binaries]
+    if: ${{ always() && needs.release-gate.outputs.publish == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -371,12 +419,12 @@ jobs:
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
           VERSION=${VERSION#v}
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
           if [[ "$VERSION" =~ -(alpha|beta|rc) ]]; then
-            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
           else
-            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Download all artifacts
@@ -433,9 +481,10 @@ jobs:
   # FlatPark's webhook, which verifies them against public data: no secret,
   # no token permissions, pinned to a commit.
   flatpark:
-    needs: create-release
-    # Stable releases only: a -alpha/-beta/-rc tag must not reach Flatpak users.
-    if: ${{ !contains(github.ref_name, '-') }}
+    needs: [release-gate, create-release]
+    # Stable releases only: a -alpha/-beta/-rc tag must not reach Flatpak users,
+    # and a branch (whatever its name) never does.
+    if: ${{ needs.release-gate.outputs.publish == 'true' && !contains(github.ref_name, '-') }}
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions: {}

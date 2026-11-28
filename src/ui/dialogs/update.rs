@@ -1,6 +1,7 @@
+use crate::ui::color::fltk_rgb;
 use fltk::{
     app,
-    enums::{Color, Font, FrameType},
+    enums::{Font, FrameType},
     frame::Frame,
     group::Flex,
     prelude::*,
@@ -123,7 +124,7 @@ pub fn build_update_available_dialog(
     release: &updater::ReleaseInfo,
     install_available: bool,
 ) -> UpdateAvailableUi {
-    let dialog_bg = Color::from_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
+    let dialog_bg = fltk_rgb(theme_bg.0, theme_bg.1, theme_bg.2);
     let current_version = env!("CARGO_PKG_VERSION");
 
     // Regular xdg_toplevel (not modal) — on Wayland/GNOME, make_modal(true) on the

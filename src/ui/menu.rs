@@ -554,7 +554,104 @@ pub fn build_menu(
                 resolve_shortcut(registry, id, default)
             });
         menu.add_emit(&entry.path, shortcut, entry.flag, *sender, entry.msg);
+        // File → Open Recent goes right under File → Open… (T0116). It is
+        // created here, in order, because FLTK's insert() appends a path
+        // item at the end of its submenu whatever the index; the list itself
+        // is filled by rebuild_recent_menu.
+        if entry.path == "File/Open..." {
+            add_empty_recent_item(menu);
+        }
     }
+}
+
+fn add_empty_recent_item(menu: &mut MenuBar) {
+    menu.add(
+        &format!("{OPEN_RECENT_MENU}/(no recent files)"),
+        Shortcut::None,
+        MenuFlag::Inactive,
+        |_| {},
+    );
+}
+
+/// `text` as an FLTK widget label that shows exactly that text: `@` would
+/// start a symbol ("notes@home.md" drew as "notes") and `&` would underline
+/// the next letter as a shortcut. Measure the plain text, show the escaped.
+pub fn escape_label_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '@' => out.push_str("@@"),
+            '&' => out.push_str("&&"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// `text` as ONE FLTK menu item (the part after the last `/` of a path):
+/// [`escape_label_text`], plus `/` (a submenu), `\` (the escape itself) and
+/// a leading `_` (a divider) escaped, and a tab (which right-aligns the rest
+/// of a menu label) shown as a space.
+pub fn escape_menu_item(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for (i, c) in text.chars().enumerate() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '/' => out.push_str("\\/"),
+            '_' if i == 0 => out.push_str("\\_"),
+            '\t' => out.push(' '),
+            _ => out.push_str(&escape_label_text(c.encode_utf8(&mut [0; 4]))),
+        }
+    }
+    out
+}
+
+/// The submenu that lists the recently opened files (T0116).
+pub const OPEN_RECENT_MENU: &str = "File/Open Recent";
+
+/// Rebuild File → Open Recent from `list`: one item per file (most recent
+/// first), a divider, then Clear Recent. An empty list shows a single
+/// inactive "(no recent files)". `build_menu` creates the submenu under
+/// File → Open….
+pub fn rebuild_recent_menu(menu: &mut MenuBar, sender: &Sender<Message>, list: &[String]) {
+    use crate::app::services::recent_files::{CLEAR_RECENT_LABEL, labels};
+
+    let idx = menu.find_index(OPEN_RECENT_MENU);
+    if idx < 0 {
+        // build_menu creates the submenu; without it there is nowhere to go.
+        return;
+    }
+    if let Err(e) = menu.clear_submenu(idx) {
+        eprintln!("[menu] could not clear {OPEN_RECENT_MENU}: {e:?}");
+        return;
+    }
+
+    if list.is_empty() {
+        add_empty_recent_item(menu);
+        return;
+    }
+    let last = list.len() - 1;
+    for (i, (path, label)) in list.iter().zip(labels(list)).enumerate() {
+        let flag = if i == last {
+            MenuFlag::MenuDivider
+        } else {
+            MenuFlag::Normal
+        };
+        menu.add_emit(
+            &format!("{OPEN_RECENT_MENU}/{}", escape_menu_item(&label)),
+            Shortcut::None,
+            flag,
+            *sender,
+            Message::OpenRecentFile(path.clone()),
+        );
+    }
+    menu.add_emit(
+        &format!("{OPEN_RECENT_MENU}/{CLEAR_RECENT_LABEL}"),
+        Shortcut::None,
+        MenuFlag::Normal,
+        *sender,
+        Message::ClearRecentFiles,
+    );
 }
 
 /// Remove all menu entries for a plugin by name.
@@ -852,9 +949,194 @@ pub fn update_preview_menu(menu: &mut MenuBar, file_path: Option<&str>) {
     );
 }
 
+/// FLTK menu checks that must run on the process main thread (see
+/// `ui::dialogs::main_thread_checks`); called by `tests/fltk_main_thread.rs`
+/// (T0089). Not part of the public API.
+#[doc(hidden)]
+pub mod main_thread_checks {
+    use super::*;
+    use crate::app::services::shortcut_registry::ShortcutRegistry;
+
+    fn file_menu_labels(menu: &MenuBar) -> Vec<String> {
+        let file = menu.find_index("File");
+        let mut labels = Vec::new();
+        let mut i = file + 1;
+        let mut depth = 0;
+        while let Some(item) = menu.at(i) {
+            match item.label() {
+                None if depth == 0 => break,
+                None => depth -= 1,
+                Some(label) => {
+                    if depth == 0 {
+                        labels.push(label);
+                    }
+                    if item.is_submenu() {
+                        depth += 1;
+                    }
+                }
+            }
+            i += 1;
+        }
+        labels
+    }
+
+    fn built_menu(list: &[String]) -> MenuBar {
+        let (sender, _receiver) = fltk::app::channel::<Message>();
+        let mut menu = MenuBar::default();
+        build_menu(
+            &mut menu,
+            &sender,
+            &AppSettings::default(),
+            false,
+            true,
+            &ShortcutRegistry::from_settings(&Default::default()),
+        );
+        rebuild_recent_menu(&mut menu, &sender, list);
+        menu
+    }
+
+    fn recent_submenu_labels(menu: &MenuBar) -> Vec<String> {
+        let start = menu.find_index(OPEN_RECENT_MENU) + 1;
+        (start..)
+            .map_while(|i| menu.at(i).and_then(|item| item.label()))
+            .collect()
+    }
+
+    /// T0116 (a3's review): file names with FLTK specials show whole, one
+    /// item per file, and a file named "Clear Recent" does not replace the
+    /// Clear Recent item.
+    pub fn recent_files_open_recent_labels_are_whole() {
+        let list = vec![
+            "/work/notes@home.md".to_string(),
+            "/work/R&D.md".to_string(),
+            "/work/Clear Recent".to_string(),
+        ];
+        let menu = built_menu(&list);
+        assert_eq!(
+            recent_submenu_labels(&menu),
+            vec![
+                "notes@@home.md",
+                "R&&D.md",
+                "Clear Recent (2)",
+                "Clear Recent"
+            ],
+        );
+    }
+
+    /// T0116: File → Open Recent sits right under File → Open…, and a
+    /// rebuild replaces its items instead of adding a second submenu.
+    pub fn recent_files_open_recent_sits_under_open() {
+        let list = vec!["/work/notes.txt".to_string(), "/work/todo.md".to_string()];
+        let mut menu = built_menu(&list);
+        let labels = file_menu_labels(&menu);
+        let open = labels.iter().position(|l| l == "Open...");
+        let recent = labels.iter().position(|l| l == "Open Recent");
+        assert_eq!(recent, open.map(|o| o + 1), "File menu order: {labels:?}");
+        assert!(menu.find_index("File/Open Recent/notes.txt") >= 0);
+        assert!(menu.find_index("File/Open Recent/Clear Recent") >= 0);
+
+        let (sender, _receiver) = fltk::app::channel::<Message>();
+        rebuild_recent_menu(&mut menu, &sender, &[]);
+        let labels = file_menu_labels(&menu);
+        assert_eq!(
+            labels.iter().filter(|l| *l == "Open Recent").count(),
+            1,
+            "{labels:?}"
+        );
+        assert!(menu.find_index("File/Open Recent/notes.txt") < 0);
+        assert!(menu.find_index("File/Open Recent/(no recent files)") >= 0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    /// T0116 (a3's review): FLTK specials in a file name show as the name.
+    #[test]
+    fn recent_files_label_text_escapes_symbols_and_shortcuts() {
+        assert_eq!(escape_label_text("notes@home.md"), "notes@@home.md");
+        assert_eq!(escape_label_text("@types.ts"), "@@types.ts");
+        assert_eq!(escape_label_text("R&D.md"), "R&&D.md");
+        assert_eq!(escape_label_text("a/b\\c_d"), "a/b\\c_d");
+    }
+
+    #[test]
+    fn recent_files_menu_item_escapes_paths_dividers_and_tabs() {
+        assert_eq!(escape_menu_item("notes@home.md"), "notes@@home.md");
+        assert_eq!(escape_menu_item("R&D.md"), "R&&D.md");
+        assert_eq!(escape_menu_item("a/b"), "a\\/b");
+        assert_eq!(escape_menu_item("a\\b.md"), "a\\\\b.md");
+        assert_eq!(escape_menu_item("_draft.md"), "\\_draft.md");
+        assert_eq!(escape_menu_item("x_y.md"), "x_y.md");
+        assert_eq!(escape_menu_item("a\tb.md"), "a b.md");
+        assert_eq!(escape_menu_item("notes — a/b"), "notes — a\\/b");
+    }
+
     use super::*;
+
+    /// T0073: every shortcut an official plugin declares binds without a
+    /// clash against the core shortcuts, the way the Plugins menu binds it
+    /// (`PluginShortcutBinder`: reserved core keys, then earlier items). The
+    /// manifests are copies from the plugin repo
+    /// (`tests/fixtures/official_plugins`); a clash there means the plugin
+    /// ships a shortcut that never works and a warning on every start.
+    #[test]
+    fn plugin_shortcut_conflicts() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/official_plugins");
+        let mut dirs: Vec<_> = std::fs::read_dir(&root)
+            .expect("fixtures dir")
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.join("plugin.toml").is_file())
+            .collect();
+        dirs.sort();
+        assert!(dirs.len() >= 5, "official manifests missing: {dirs:?}");
+
+        // Who holds a key: the core command, else an earlier plugin item.
+        let mut holders: std::collections::HashMap<String, String> =
+            builtin_shortcut_defaults(true)
+                .chain(builtin_shortcut_defaults(false))
+                .map(|(id, sc)| (normalize_shortcut(sc), id.to_string()))
+                .collect();
+        let registry = ShortcutRegistry::default();
+        let mut binder = PluginShortcutBinder::new();
+        let mut failures = Vec::new();
+        for dir in &dirs {
+            let content = std::fs::read_to_string(dir.join("plugin.toml")).unwrap();
+            let meta = crate::app::plugins::loader::parse_plugin_toml_content(&content)
+                .unwrap_or_else(|| panic!("{dir:?}: unparsable plugin.toml"));
+            for item in &meta.menu_items {
+                let path = format!("{}/{}", meta.name, item.label);
+                match binder.bind(&registry, &meta.name, item) {
+                    PluginItemShortcut::Unbound => {}
+                    PluginItemShortcut::Bound(_, normalized) => {
+                        holders.insert(normalized, path);
+                    }
+                    PluginItemShortcut::Conflict(sc) => {
+                        let holder = holders
+                            .get(&normalize_shortcut(&sc))
+                            .map_or("a reserved core shortcut", String::as_str);
+                        failures.push(format!("{path} ({sc}) clashes with {holder}"));
+                    }
+                    PluginItemShortcut::Invalid(sc) => {
+                        failures.push(format!("{path}: invalid shortcut '{sc}'"));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+    }
+
+    /// T0073: the plugin binder keeps plugins off the core keys through
+    /// `RESERVED_SHORTCUTS`, a list kept by hand next to `BUILTIN_SHORTCUTS`.
+    /// A core default missing there would let a plugin take it silently.
+    #[test]
+    fn builtin_shortcuts_are_reserved() {
+        let missing: Vec<_> = builtin_shortcut_defaults(true)
+            .chain(builtin_shortcut_defaults(false))
+            .filter(|(_, sc)| !RESERVED_SHORTCUTS.contains(&normalize_shortcut(sc).as_str()))
+            .collect();
+        assert!(missing.is_empty(), "not reserved: {missing:?}");
+    }
 
     #[test]
     fn test_parse_shortcut_ctrl_key() {

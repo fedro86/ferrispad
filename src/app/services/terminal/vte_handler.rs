@@ -3,6 +3,7 @@
 //! Implements the `vte::Perform` trait to translate terminal escape
 //! sequences into grid operations.
 
+use crate::ui::color::fltk_rgb;
 use fltk::enums::Color;
 
 use super::grid::TerminalGrid;
@@ -19,25 +20,25 @@ fn ansi_to_color(idx: u8) -> Color {
         6 => Color::XtermCyan,
         7 => Color::XtermWhite,
         // Bright variants
-        8 => Color::from_rgb(85, 85, 85),
-        9 => Color::from_rgb(255, 85, 85),
-        10 => Color::from_rgb(85, 255, 85),
-        11 => Color::from_rgb(255, 255, 85),
-        12 => Color::from_rgb(85, 85, 255),
-        13 => Color::from_rgb(255, 85, 255),
-        14 => Color::from_rgb(85, 255, 255),
-        15 => Color::from_rgb(255, 255, 255),
+        8 => fltk_rgb(85, 85, 85),
+        9 => fltk_rgb(255, 85, 85),
+        10 => fltk_rgb(85, 255, 85),
+        11 => fltk_rgb(255, 255, 85),
+        12 => fltk_rgb(85, 85, 255),
+        13 => fltk_rgb(255, 85, 255),
+        14 => fltk_rgb(85, 255, 255),
+        15 => fltk_rgb(255, 255, 255),
         // 256-color: 16-231 = 6×6×6 color cube, 232-255 = grayscale ramp
         16..=231 => {
             let idx = idx - 16;
             let r = (idx / 36) * 51;
             let g = ((idx % 36) / 6) * 51;
             let b = (idx % 6) * 51;
-            Color::from_rgb(r, g, b)
+            fltk_rgb(r, g, b)
         }
         232..=255 => {
             let gray = 8 + (idx - 232) * 10;
-            Color::from_rgb(gray, gray, gray)
+            fltk_rgb(gray, gray, gray)
         }
     }
 }
@@ -243,7 +244,7 @@ impl VteHandler<'_> {
                                 }
                             }
                             2 if i + 4 < params.len() => {
-                                self.grid.current_fg = Color::from_rgb(
+                                self.grid.current_fg = fltk_rgb(
                                     params[i + 2] as u8,
                                     params[i + 3] as u8,
                                     params[i + 4] as u8,
@@ -270,7 +271,7 @@ impl VteHandler<'_> {
                                 }
                             }
                             2 if i + 4 < params.len() => {
-                                self.grid.current_bg = Color::from_rgb(
+                                self.grid.current_bg = fltk_rgb(
                                     params[i + 2] as u8,
                                     params[i + 3] as u8,
                                     params[i + 4] as u8,
@@ -375,6 +376,6 @@ mod tests {
         // Set fg to RGB(100, 150, 200)
         process_bytes(&mut grid, b"\x1b[38;2;100;150;200mX");
         assert_eq!(grid.cells[0][0].ch, 'X');
-        assert_eq!(grid.cells[0][0].fg, Color::from_rgb(100, 150, 200));
+        assert_eq!(grid.cells[0][0].fg, fltk_rgb(100, 150, 200));
     }
 }

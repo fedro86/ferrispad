@@ -1,7 +1,7 @@
 ---
 id: T0105
 title: Themed dialog widgets as reusable components, so no dialog can forget a themed property
-status: review          # todo | review | done
+status: done            # todo | review | done
 created: 2026-11-26
 severity: moderate
 area: ui
@@ -75,11 +75,11 @@ nix shell nixpkgs#xvfb-run -c xvfb-run -a env FERRISPAD_REQUIRE_UI_TESTS=1 \
 
 ## Acceptance criteria
 
-- [ ] Every dialog input selects in the shared selection with readable text,
+- [x] Every dialog input selects in the shared selection with readable text,
       and draws its cursor in the text color, in light and dark.
-- [ ] Guards (a) and (b) are in place; both failed before.
-- [ ] No layout change (the existing layout checks still pass).
-- [ ] Full gates green; Xvfb campaign inspected.
+- [x] Guards (a) and (b) are in place; both failed before.
+- [x] No layout change (the existing layout checks still pass).
+- [x] Full gates green; Xvfb campaign inspected.
 
 ## Affected files
 
@@ -304,3 +304,7 @@ every binary green.
 Landing note: `widgets.rs` calls `Color::from_rgb` for the registry. When
 this meets T0098 (whose guard forbids direct `Color::from_rgb`), switch
 those calls to `fltk_rgb` in the merge.
+
+## User verification
+
+2026-11-26, by the user on Fedora GNOME (Wayland) with the rc.3 integration build `verify/rc3` (checklist VERIFICA-RC3.md, section 2): every field has the thin border, selected text looks the same in every dialog (Settings, Large Files, Find/Replace), buttons are flat, the Sessions button row stays inside, in light and dark.

@@ -360,6 +360,15 @@ fn plugin_dialogs(theme: &DialogTheme) -> Vec<(&'static str, Window)> {
         description: "Lints Python".into(),
         commands: vec!["ruff".into(), "mypy".into()],
     };
+    // A plugin's description is free text of any length (T0110, found by
+    // ferrispad-3b with dialogs-permission.sh).
+    let long_request = PermissionRequest {
+        plugin_name: "Python Lint".into(),
+        description:
+            "Screenshot fixture: a plugin with a menu item, settings and a command permission"
+                .into(),
+        commands: vec!["ruff".into()],
+    };
     let review = |manual: bool| CommunityInstallReview {
         plugin_name: "demo".into(),
         version: "1.0.0".into(),
@@ -416,6 +425,10 @@ fn plugin_dialogs(theme: &DialogTheme) -> Vec<(&'static str, Window)> {
         (
             "permissions",
             build_permission_dialog(theme, &request).dialog,
+        ),
+        (
+            "permissions, long description",
+            build_permission_dialog(theme, &long_request).dialog,
         ),
         (
             "community install, manual",
