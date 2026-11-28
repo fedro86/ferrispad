@@ -86,6 +86,9 @@ automatically — no owner/name hardcoded).
   issue the same way.
 - **One ticket ⇄ one issue.** Don't open issues for tickets you aren't working
   yet, and don't retro-file issues for already-`3-done/` tickets.
+- **Security defects** get their T ticket and GitHub issue only at
+  disclosure, with the release that ships the fix. Until then they live in
+  the private workspace: see `security-fixes.md`.
 
 ## Bugfix tickets — red test first, simplify before patching
 
