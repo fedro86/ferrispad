@@ -92,11 +92,9 @@
     <li>Only geometry changes: no colours, fonts, frame types or wording.</li>
   </ul>
   <div class="meta">
-    <span class="chip"><strong>T0110</strong> in <code>2-review/</code></span>
-    <span class="chip"><strong>30</strong> files · +2570 / −470</span>
-    <span class="chip"><strong>14</strong> code files · +405 / −215 on T0106</span>
-    <span class="chip warn">lands after #208 (T0106)</span>
-    <span class="chip warn">some dialogs get wider</span>
+    <span class="chip"><strong>T0110</strong> in <code>3-done/</code></span>
+    <span class="chip"><strong>15</strong> files · +698 / −215</span>
+    <span class="chip warn">some dialogs get wider (user approved)</span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/212">PR #212 on GitHub</a></span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/issues/210">issue #210</a></span>
   </div>
@@ -119,8 +117,12 @@
       <td>Merge of T0106's new head <code class="sha">49f8fc3</code>. Its conflicts came only from the old merge base and were resolved to this branch's side. Checked: every file that differs from T0106 is newer on master or touched by this ticket.</td></tr>
     <tr><td><code class="sha">bb51140</code></td>
       <td>Restores master's <code>tree-demo</code> scenario plugin (T0104), which <code class="sha">afe13dd</code> had dropped. Now no file of master is missing.</td></tr>
-    <tr><td>this page</td>
-      <td>Docs only: the ticket and this page, in <code>docs/pr/0.9.11/</code>.</td></tr>
+    <tr><td><code class="sha">208dbe4</code>, <code class="sha">77fbfb3</code></td>
+      <td>Docs only: the ticket and this page, in <code>docs/pr/0.9.11/</code>; then the size chip (review nit).</td></tr>
+    <tr><td><code class="sha">b580aab</code></td>
+      <td>Merge of master <code class="sha">9941c6e</code> after T0106 landed (#208). The conflicts came only from T0106's squash: master's code equals T0106's head, which this branch already held. Resolved to this branch's side, and the stale <code>2-review/</code> copy of T0106's ticket removed.</td></tr>
+    <tr><td>the <code>3-done/</code> move</td>
+      <td>Docs only: the ticket moves to <code>3-done/</code> after the user's OK (2026-11-28, widths as proposed) and the reviewer's APPROVE; this page follows.</td></tr>
   </table>
   </div>
   <p>Master holds T0105 as one squash commit, while this branch carries T0105's original commits through T0106. A plain merge conflicted in 20 files. So the merge's tree was built in two clean steps:</p>
@@ -128,7 +130,7 @@
     <li>T0106's head <code class="sha">6f8e505</code> (ferrispad-3b's resolution of master) merged with master <code class="sha">f12fd3c</code>: no conflict;</li>
     <li>this ticket's own delta (<code class="sha">3f53937</code>..<code class="sha">dadf622</code>) replayed on top: no conflict.</li>
   </ol>
-  <p>The replayed delta was line-identical to the original (14 files, +549 / −205). Against T0106's head today, the code diff is this ticket plus the Permissions fix: 14 files, +405 / −215. <strong>So #212 lands after #208</strong>; until then its diff against master also shows T0106 (30 files, +2570 / −470).</p>
+  <p>The replayed delta was line-identical to the original (14 files, +549 / −205). Against T0106's head today, the code diff is this ticket plus the Permissions fix: 14 files, +405 / −215. #208 has landed since (9941c6e), so the diff against master is this ticket alone: 14 code files plus the page and the ticket.</p>
 </section>
 
 <section class="card ticket">
@@ -275,14 +277,14 @@
   </ol>
   <h3>The gates</h3>
   <ol class="steps">
-    <li><code>scripts/gates.sh</code> once T0122 (#246) has landed; until then the safe environment of step 1 above, plus clippy <code>-D warnings</code> and <code>cargo fmt --check</code>
+    <li><code>flatpak-spawn --host bash -lc "$PWD/scripts/gates.sh $PWD"</code>
       <span class="expect">all green, zero warnings.</span></li>
   </ol>
 </section>
 
 <footer>
-  Presentation of PR #212 · branch <code>ticket/T0110</code> · commits <code>cf79314</code> → this page ·
-  ticket <code>docs/tickets/2-review/T0110-dialog-label-clipping.md</code> · issue #210.
+  Presentation of PR #212 · branch <code>ticket/T0110</code> · commits <code>cf79314</code> → the <code>3-done/</code> move ·
+  ticket <code>docs/tickets/3-done/T0110-dialog-label-clipping.md</code> · issue #210.
 </footer>
 </div>
 </body>

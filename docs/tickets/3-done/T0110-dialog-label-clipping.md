@@ -1,7 +1,7 @@
 ---
 id: T0110
 title: Fix clipped labels and overlaps in the dialogs T0106 made testable
-status: review           # todo | review | done
+status: done             # todo | review | done
 created: 2026-11-26
 severity: minor
 area: ui
@@ -72,11 +72,25 @@ nix shell nixpkgs#xvfb-run -c xvfb-run -a env FERRISPAD_REQUIRE_UI_TESTS=1 \
 
 ## Acceptance criteria
 
-- [ ] `KNOWN_LAYOUT_DEFECTS` is gone, and the layout test passes for every
+- [x] `KNOWN_LAYOUT_DEFECTS` is gone, and the layout test passes for every
       dialog in dark and light.
-- [ ] Only geometry changed (diff review), and every other dialog is
+- [x] Only geometry changed (diff review), and every other dialog is
       pixel-identical (Xvfb).
-- [ ] Montage inspected edge by edge; full gates green.
+- [x] Montage inspected edge by edge; full gates green.
+
+## User verification
+
+The user approved the PR on 2026-11-28, relayed by the orchestrator
+(ferrispad-03), with the widths as proposed: Update 588, New Session 317,
+Go To Line 258, Find/Replace 406. They read the presentation
+`docs/pr/0.9.11/PR-212-dialog-label-clipping.html`. The reviewer
+(ferrispad-90) approved 208dbe4, and 77fbfb3 only changed the page's size
+chip. T0106 landed as 9941c6e (#208). b580aab merged master: the conflicts
+came only from T0106's squash, and master's code equals T0106's head
+49f8fc3, which this branch already held. So the code files were resolved
+to this branch's side, and the stale `2-review/` copy of T0106's ticket
+was removed. The diff against master is now this ticket alone: 14 code
+files plus the page and the ticket.
 
 ## Affected files
 
@@ -246,13 +260,14 @@ fonts 16 and 18, light and dark.
   failed on its first run under `set -euo pipefail` (SIGPIPE). Reported to
   ferrispad-3b, who fixed it in T0106's copy.
 
-### Open question for the user: the dialog widths
+### The user's decision on the dialog widths (2026-11-28)
 
 The measured widths make some dialogs wider. Update grows 500 → 588 px
 here, New Session 300 → 317, Go To Line 250 → 258 and Find 400 → 406.
 CI's fonts are wider still. The alternative is shorter labels, a wording
-change this ticket keeps out of scope. The page shows each dialog before
-and after, for the user to decide.
+change this ticket keeps out of scope. The page showed each dialog before
+and after. **The user approved the widths as proposed** (2026-11-28,
+relayed by the orchestrator).
 
 ### Found by ferrispad-3b: Permissions clips a long plugin description
 
