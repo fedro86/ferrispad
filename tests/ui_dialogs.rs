@@ -190,5 +190,338 @@ fn new_dialog_windows_build() {
             ));
         }
     }
+    // Every other dialog, through its build seam (T0106), in dark and light:
+    // layout, and every input, list and button built as a themed component.
+    let mut layout = Vec::new();
+    for (mode, bg, theme) in [
+        ("dark", (43, 48, 59), &dark),
+        ("light", (239, 241, 245), &light),
+    ] {
+        for (name, window) in run_only_dialogs(bg, theme) {
+            let name = format!("{name} {mode}");
+            layout.extend(layout_failures(&window, &name, everything));
+            failures.extend(unthemed_inputs(&window, &name, theme));
+        }
+    }
+    // Layout defects these dialogs had before T0106 made them testable,
+    // fixed by T0110. A defect is known by its identity (dialog, widget path,
+    // kind) with no pixel numbers, because label widths depend on the fonts
+    // installed: CI measures wider than a desktop, so some defects show on
+    // one machine only. Any defect whose identity is not listed fails.
+    for defect in &layout {
+        if !KNOWN_LAYOUT_DEFECTS.contains(&defect_identity(defect).as_str()) {
+            failures.push(format!("new layout defect: {defect}"));
+        }
+    }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// A layout failure without its measurements and theme mode: the same
+/// defect on any machine, at any font size, in dark and light.
+fn defect_identity(failure: &str) -> String {
+    let rules = [
+        (r"^(.*?) (?:dark|light)([/:])", "$1$2"),
+        (
+            r": label needs \d+px at \+\d+pt, widget is \d+px",
+            ": clipped label",
+        ),
+        (r" at \+\d+pt", ""),
+        (r"Rect \{[^}]*\}", ""),
+        (r"\(-?\d+, -?\d+, -?\d+, -?\d+\)", ""),
+        (r"\s+", " "),
+    ];
+    let mut id = failure.to_string();
+    for (pattern, with) in rules {
+        let re = regex_lite::Regex::new(pattern).expect("identity pattern");
+        id = re.replace_all(&id, with).into_owned();
+    }
+    id.trim().to_string()
+}
+
+/// Layout defects of the run-only dialogs, present before T0106 made them
+/// testable, by [`defect_identity`]: the union of what a desktop and CI
+/// report (which of them reproduce depends on the installed fonts). T0110
+/// fixes them and removes this list.
+const KNOWN_LAYOUT_DEFECTS: &[&str] = &[
+    "community install, indexed/2:\"Install Anyway\": clipped label",
+    "community install, manual/2:\"Install Anyway\": clipped label",
+    "file too large/0:\"\"/3:\"\"/0:\"Open Lines:\": clipped label",
+    "find/0:\"Find what:\": clipped label",
+    "find/3:\"Use regex\": clipped label",
+    "find/4:\"(case folding: ASCII only)\": clipped label",
+    "font picker/0:\"Search:\": clipped label",
+    "go to line/0:\"Line number:\": clipped label",
+    "new session/0:\"Session name:\": clipped label",
+    "permissions: \"\" overlaps \"Allow\"",
+    "permissions: \"\" overlaps \"Deny\"",
+    "plugin manager/0:\"\"/1:\"Official\"/1:\"\"/0:\"\"/0:\"\": \"Lints\" overlaps \"Details\"",
+    "plugin manager/0:\"\"/1:\"Official\"/1:\"\"/0:\"\"/0:\"\": \"python-lint v1.3.0\" overlaps \"Details\"",
+    "plugin settings/5:\"e.g. Ctrl+Shift+L\": clipped label",
+    "read-only viewer/0:\"\"/0:\"\"/1:\"Go to Page\": clipped label",
+    "read-only viewer/0:\"\"/0:\"\"/4:\"Go to Line\": clipped label",
+    "read-only viewer/0:\"\"/3:\"\"/1:\"Next Page @>\": clipped label",
+    "replace/0:\"Find what:\": clipped label",
+    "replace/5:\"Use regex\": clipped label",
+    "replace/6:\"(case folding: ASCII only)\": clipped label",
+    "shortcuts, no plugins/0:\"\"/0:\"FerrisPad\"/0:\"\"/0:\"\"/19:\"\"/0:\"Plugins > General > Run All Checks\": clipped label",
+    "shortcuts/0:\"\"/0:\"FerrisPad\"/0:\"\"/0:\"\"/22:\"\"/0:\"Plugins > General > Run All Checks\": clipped label",
+    "update, manual only/0:\"\"/4:\"\"/0:\"Manual Update Only\": clipped label",
+    "update, manual only/0:\"\"/4:\"\"/1:\"View on GitHub\": clipped label",
+    "update, manual only/0:\"\"/4:\"\"/2:\"Skip This Version\": clipped label",
+    "update, manual only/0:\"\"/4:\"\"/3:\"Remind Later\": clipped label",
+    "update/0:\"\"/4:\"\"/1:\"View on GitHub\": clipped label",
+    "update/0:\"\"/4:\"\"/2:\"Skip This Version\": clipped label",
+    "update/0:\"\"/4:\"\"/3:\"Remind Later\": clipped label",
+];
+
+/// The dialogs that build and run in one `show_*` call, built through their
+/// `build_*` seams (T0106) on the theme background `bg`.
+fn run_only_dialogs(bg: (u8, u8, u8), theme: &DialogTheme) -> Vec<(&'static str, Window)> {
+    use ferris_pad::ui::dialogs::{
+        about::build_about_dialog,
+        build_themed_choice, build_themed_message,
+        find::{build_find_dialog, build_replace_dialog},
+        font_picker::build_font_picker,
+        goto_line::build_goto_line_dialog,
+        session_picker::build_new_session_dialog,
+    };
+    let mut dialogs = vec![
+        ("find", build_find_dialog(theme).dialog_win),
+        ("replace", build_replace_dialog(theme).dialog_win),
+        ("go to line", build_goto_line_dialog(theme).dialog_win),
+        (
+            "font picker",
+            build_font_picker(theme, "Courier", 14).dialog_win,
+        ),
+        ("new session", build_new_session_dialog(theme).dialog_win),
+        ("about", build_about_dialog(theme, bg).dialog),
+        (
+            "message",
+            build_themed_message(bg, "Go To Line", "Please enter a valid line number"),
+        ),
+        (
+            "large-file warning",
+            build_themed_choice(
+                bg,
+                "Large File Warning",
+                "\"big.log\" is 120.0 MB which may take a while to load and use \
+                 significant memory.\n\nDo you want to continue?",
+                "Open",
+                "Cancel",
+                "",
+            ),
+        ),
+    ];
+    dialogs.extend(app_data_dialogs(bg, theme));
+    dialogs.extend(plugin_dialogs(theme));
+    dialogs
+}
+
+/// The run-only dialogs that show app data (shortcuts, an update, a large
+/// file), built from small fakes.
+fn app_data_dialogs(bg: (u8, u8, u8), theme: &DialogTheme) -> Vec<(&'static str, Window)> {
+    use ferris_pad::app::plugins::PluginMenuItem;
+    use ferris_pad::app::services::shortcut_registry::ShortcutRegistry;
+    use ferris_pad::app::services::updater::ReleaseInfo;
+    use ferris_pad::ui::dialogs::{
+        large_file::build_file_too_large_dialog,
+        readonly_viewer::build_readonly_viewer,
+        shortcut_dialog::{PluginShortcuts, build_shortcut_dialog},
+        update::build_update_available_dialog,
+    };
+    let items = vec![PluginMenuItem {
+        label: "Lint".into(),
+        action: "lint".into(),
+        shortcut: Some("Ctrl+Shift+L".into()),
+    }];
+    let plugins = [PluginShortcuts {
+        name: "python-lint",
+        menu_items: &items,
+    }];
+    let registry = ShortcutRegistry::default();
+    let release = ReleaseInfo {
+        tag_name: "9.9.9".into(),
+        name: "9.9.9".into(),
+        body: "- Fix A\n- Add B".into(),
+        html_url: "https://example.invalid".into(),
+        published_at: "2026-01-01T00:00:00Z".into(),
+        prerelease: false,
+        assets: vec![],
+    };
+    vec![
+        (
+            "shortcuts",
+            build_shortcut_dialog(theme, &registry, &plugins, true).dialog,
+        ),
+        (
+            "shortcuts, no plugins",
+            build_shortcut_dialog(theme, &registry, &[], false).dialog,
+        ),
+        (
+            "update",
+            build_update_available_dialog(theme, bg, &release, true).dialog,
+        ),
+        (
+            "update, manual only",
+            build_update_available_dialog(theme, bg, &release, false).dialog,
+        ),
+        (
+            "file too large",
+            build_file_too_large_dialog(theme, "huge.log", 200 * 1024 * 1024, 150).dialog,
+        ),
+        (
+            "read-only viewer",
+            build_readonly_viewer(
+                theme,
+                "huge.log",
+                3 * 1024 * 1024,
+                fltk::enums::Font::Courier,
+                14,
+            )
+            .window,
+        ),
+    ]
+}
+
+/// The plugin dialogs, built from small fakes of plugin metadata.
+fn plugin_dialogs(theme: &DialogTheme) -> Vec<(&'static str, Window)> {
+    use ferris_pad::app::domain::settings::PluginConfig;
+    use ferris_pad::app::plugins::ConfigParamDef;
+    use ferris_pad::app::services::plugin_registry::{AvailablePluginInfo, PluginTier};
+    use ferris_pad::ui::dialogs::{
+        community_install::{CommunityInstallReview, build_community_install_dialog},
+        plugin_config::build_plugin_config_dialog,
+        plugin_manager::{InstalledPluginEntry, OfficialPluginEntry, build_plugin_manager_dialog},
+        plugin_permissions::{PermissionRequest, build_permission_dialog},
+        plugin_settings::build_plugin_settings_dialog,
+    };
+    let defs = vec![
+        ConfigParamDef {
+            key: "len".into(),
+            label: "Max length".into(),
+            param_type: "number".into(),
+            default: "80".into(),
+            ..Default::default()
+        },
+        ConfigParamDef {
+            key: "on".into(),
+            label: "Strict".into(),
+            param_type: "boolean".into(),
+            ..Default::default()
+        },
+        ConfigParamDef {
+            key: "mode".into(),
+            label: "Mode".into(),
+            param_type: "choice".into(),
+            options: vec!["a|Alpha".into(), "b".into()],
+            ..Default::default()
+        },
+        ConfigParamDef {
+            key: "args".into(),
+            label: "Args".into(),
+            param_type: "string".into(),
+            placeholder: Some("--flag".into()),
+            ..Default::default()
+        },
+    ];
+    let request = PermissionRequest {
+        plugin_name: "Python Lint".into(),
+        description: "Lints Python".into(),
+        commands: vec!["ruff".into(), "mypy".into()],
+    };
+    let review = |manual: bool| CommunityInstallReview {
+        plugin_name: "demo".into(),
+        version: "1.0.0".into(),
+        author: if manual { String::new() } else { "ann".into() },
+        source_url: "https://github.com/u/demo".into(),
+        permissions: if manual { vec!["git".into()] } else { vec![] },
+        is_manual: manual,
+        has_text_change_hook: manual,
+        scan_warnings: if manual {
+            vec!["uses os.execute".into()]
+        } else {
+            vec![]
+        },
+    };
+    let installed = vec![InstalledPluginEntry {
+        name: "Python Lint".into(),
+        version: "1.2.0".into(),
+        description: "Lints Python".into(),
+        enabled: true,
+        tier: PluginTier::Official,
+    }];
+    let official = vec![OfficialPluginEntry {
+        info: AvailablePluginInfo {
+            name: "python-lint".into(),
+            version: "1.3.0".into(),
+            description: "Lints".into(),
+            path: "python-lint/".into(),
+            author: "ann".into(),
+            _license: "MIT".into(),
+            tags: vec!["lint".into()],
+            _min_ferrispad_version: "0.9.0".into(),
+            checksums: None,
+            signature: None,
+            readme_url: Some("https://example.invalid".into()),
+        },
+        already_installed: true,
+        update_available: true,
+    }];
+    vec![
+        (
+            "plugin config",
+            build_plugin_config_dialog(theme, "Demo", &defs, &PluginConfig::default()).dialog,
+        ),
+        (
+            "plugin settings",
+            build_plugin_settings_dialog(
+                theme,
+                &[],
+                "Ctrl+Shift+L",
+                &[("Python Lint".into(), true), ("Off".into(), false)],
+            )
+            .dialog,
+        ),
+        (
+            "permissions",
+            build_permission_dialog(theme, &request).dialog,
+        ),
+        (
+            "community install, manual",
+            build_community_install_dialog(theme, &review(true)).dialog,
+        ),
+        (
+            "community install, indexed",
+            build_community_install_dialog(theme, &review(false)).dialog,
+        ),
+        (
+            "plugin manager",
+            build_plugin_manager_dialog(theme, &installed, Ok(&official)).dialog,
+        ),
+        (
+            "plugin manager, offline",
+            build_plugin_manager_dialog(theme, &installed, Err("Network error: offline")).dialog,
+        ),
+    ]
+}
+
+/// The same defect has one identity on any machine (CI measures wider), at
+/// +0 and +2 pt, in dark and light.
+#[test]
+fn defect_identity_drops_measurements() {
+    for failure in [
+        "find dark/0:\"Find what:\": label needs 89px at +2pt, widget is 80px",
+        "find light/0:\"Find what:\": label needs 86px at +0pt, widget is 80px",
+    ] {
+        assert_eq!(
+            defect_identity(failure),
+            "find/0:\"Find what:\": clipped label"
+        );
+    }
+    assert_eq!(
+        defect_identity(
+            "permissions dark: \"\" (10, 10, 380, 152) overlaps \"Deny\" (215, 159, 80, 28)"
+        ),
+        "permissions: \"\" overlaps \"Deny\""
+    );
 }

@@ -78,6 +78,10 @@ Coordinates are relative to the main window.
 |---|---|---|
 | `start-page.sh` | the start page of a fresh install | a page with no interaction (T0114) |
 | `editor.sh` | `fixtures/hello.rs` in the editor, the View menu, the Find dialog | the editor, a menu, a dialog |
+| `dialogs.sh` | every dialog reachable from a menu or a shortcut, with the fixture plugin `plugins/dialogs-demo` (T0106) | many dialogs in one run: `_dialog-helpers.sh` (`focus`, `close`, `click_in`) |
+| `dialogs-permission.sh` | the plugin permission request at startup | a dialog shown at startup |
+| `dialogs-large-file.sh` | the large-file warning, on a generated 1.5 MB fixture | a generated, gitignored fixture (`gen_fixture`) |
+| `dialogs-too-large.sh` | "File Too Large", then the read-only viewer | a click inside a dialog |
 | `tab-labels.sh` | the file `fixtures/Untitled` next to a new untitled tab (T0112) | the tab bar after a shortcut |
 | `file-tree.sh` | the file tree with every git-status color, unselected then with a row selected, with the fixture plugin `plugins/tree-demo` (T0104, T0109) | a fixture plugin copied at source time |
 | `file-tree-solarized.sh`, `file-tree-github-eighties.sh`, `file-tree-github-mocha.sh` | `file-tree.sh` on the other built-in themes (T0109) | a scenario that reuses another with different settings |

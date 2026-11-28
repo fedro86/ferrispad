@@ -20,22 +20,29 @@ pub struct PluginSettingsResult {
     pub run_all_checks_shortcut: String,
 }
 
-/// Show the plugin settings dialog
+/// The plugin settings dialog's window and widgets, built but not shown (a
+/// seam for the layout tests).
+pub struct PluginSettingsDialogUi {
+    pub dialog: window::Window,
+    /// One checkbox per available plugin, with the plugin's name.
+    pub checkboxes: Vec<(button::CheckButton, String)>,
+    pub shortcut_input: input::Input,
+    pub save_btn: button::Button,
+    pub cancel_btn: button::Button,
+}
+
+/// Build the plugin settings dialog.
 ///
-/// # Arguments
-/// * `settings` - Current app settings
-/// * `available_plugins` - List of (plugin_name, is_enabled) pairs
-/// * `theme_bg` - Syntax theme background color for consistent styling
-///
-/// # Returns
-/// Some(result) if user clicked Save, None if cancelled
-pub fn show_plugin_settings_dialog(
-    settings: &AppSettings,
+/// `run_all_checks_plugins` and `run_all_checks_shortcut` are the current
+/// values of the same-named `AppSettings` fields; `available_plugins` is a
+/// list of (plugin_name, is_enabled) pairs.
+pub fn build_plugin_settings_dialog(
+    theme: &DialogTheme,
+    run_all_checks_plugins: &[String],
+    run_all_checks_shortcut: &str,
     available_plugins: &[(String, bool)],
-    theme_bg: (u8, u8, u8),
-) -> Option<PluginSettingsResult> {
+) -> PluginSettingsDialogUi {
     // Theme colors from DialogTheme
-    let theme = DialogTheme::from_theme_bg(theme_bg);
     let bg_color = theme.bg;
     let text_color = theme.text;
     let text_dim = theme.text_dim;
@@ -45,10 +52,7 @@ pub fn show_plugin_settings_dialog(
     let mut dialog = window::Window::default()
         .with_size(DIALOG_WIDTH, DIALOG_HEIGHT)
         .with_label("Plugin Settings");
-    dialog.make_modal(true);
     dialog.set_color(bg_color);
-
-    let result: Rc<RefCell<Option<PluginSettingsResult>>> = Rc::new(RefCell::new(None));
 
     // Title
     let mut title = frame::Frame::default()
@@ -80,12 +84,11 @@ pub fn show_plugin_settings_dialog(
     pack.set_spacing(5);
 
     // Determine which plugins are currently selected
-    let selected: HashSet<_> = settings.run_all_checks_plugins.iter().collect();
+    let selected: HashSet<_> = run_all_checks_plugins.iter().collect();
     let all_selected = selected.is_empty(); // Empty means "all enabled"
 
     // Create checkboxes for each plugin
-    let checkboxes: Rc<RefCell<Vec<(button::CheckButton, String)>>> =
-        Rc::new(RefCell::new(Vec::new()));
+    let mut checkboxes: Vec<(button::CheckButton, String)> = Vec::new();
 
     if available_plugins.is_empty() {
         let mut empty_label = frame::Frame::default()
@@ -112,7 +115,7 @@ pub fn show_plugin_settings_dialog(
             };
             cb.set_value(should_check);
 
-            checkboxes.borrow_mut().push((cb, name.clone()));
+            checkboxes.push((cb, name.clone()));
         }
     }
 
@@ -128,7 +131,7 @@ pub fn show_plugin_settings_dialog(
     shortcut_label.set_align(enums::Align::Left | enums::Align::Inside);
 
     let mut shortcut_input = theme.input().with_pos(120, 250).with_size(150, 25);
-    shortcut_input.set_value(&settings.run_all_checks_shortcut);
+    shortcut_input.set_value(run_all_checks_shortcut);
 
     let mut shortcut_hint = frame::Frame::default()
         .with_pos(275, 250)
@@ -139,13 +142,13 @@ pub fn show_plugin_settings_dialog(
     shortcut_hint.set_align(enums::Align::Left | enums::Align::Inside);
 
     // Buttons
-    let mut save_btn = theme
+    let save_btn = theme
         .button()
         .with_pos(DIALOG_WIDTH - 180, DIALOG_HEIGHT - 45)
         .with_size(75, 30)
         .with_label("Save");
 
-    let mut cancel_btn = theme
+    let cancel_btn = theme
         .button()
         .with_pos(DIALOG_WIDTH - 95, DIALOG_HEIGHT - 45)
         .with_size(75, 30)
@@ -153,6 +156,48 @@ pub fn show_plugin_settings_dialog(
 
     dialog.end();
     drop(top_level);
+    PluginSettingsDialogUi {
+        dialog,
+        checkboxes,
+        shortcut_input,
+        save_btn,
+        cancel_btn,
+    }
+}
+
+/// Show the plugin settings dialog
+///
+/// # Arguments
+/// * `settings` - Current app settings
+/// * `available_plugins` - List of (plugin_name, is_enabled) pairs
+/// * `theme_bg` - Syntax theme background color for consistent styling
+///
+/// # Returns
+/// Some(result) if user clicked Save, None if cancelled
+pub fn show_plugin_settings_dialog(
+    settings: &AppSettings,
+    available_plugins: &[(String, bool)],
+    theme_bg: (u8, u8, u8),
+) -> Option<PluginSettingsResult> {
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
+    let PluginSettingsDialogUi {
+        mut dialog,
+        checkboxes,
+        shortcut_input,
+        mut save_btn,
+        mut cancel_btn,
+    } = build_plugin_settings_dialog(
+        &theme,
+        &settings.run_all_checks_plugins,
+        &settings.run_all_checks_shortcut,
+        available_plugins,
+    );
+    dialog.make_modal(true);
+
+    let result: Rc<RefCell<Option<PluginSettingsResult>>> = Rc::new(RefCell::new(None));
+    let checkboxes: Rc<RefCell<Vec<(button::CheckButton, String)>>> =
+        Rc::new(RefCell::new(checkboxes));
 
     // Callbacks
     let checkboxes_save = checkboxes.clone();

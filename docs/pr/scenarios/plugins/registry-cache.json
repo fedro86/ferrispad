@@ -1,0 +1,1 @@
+{"version":1,"updated":"2026-11-26T00:00:00Z","plugins":[{"name":"python-lint","version":"9.9.9","description":"Lints Python files","path":"python-lint/","author":"ann","license":"MIT","tags":["lint"],"min_ferrispad_version":"0.9.0","readme_url":"https://example.invalid/readme"}]}

@@ -96,20 +96,20 @@ pub struct PluginConfigResult {
 }
 
 /// Widget types for parameter values
-enum ParamWidget {
+pub enum ParamWidget {
     Input(input::Input),
     Check(button::CheckButton),
     Choice(menu::Choice),
 }
 
 /// Stored info about a parameter widget for validation and value retrieval
-struct ParamWidgetInfo {
-    key: String,
-    label: String,
-    widget: ParamWidget,
-    option_values: Vec<String>,
-    param_type: String,
-    validate: Option<String>,
+pub struct ParamWidgetInfo {
+    pub key: String,
+    pub label: String,
+    pub widget: ParamWidget,
+    pub option_values: Vec<String>,
+    pub param_type: String,
+    pub validate: Option<String>,
 }
 
 /// Parse an option string into (value, display_label)
@@ -122,24 +122,26 @@ fn parse_option(opt: &str) -> (String, String) {
     }
 }
 
-/// Show the per-plugin configuration dialog
-///
-/// # Arguments
-/// * `plugin_name` - Name of the plugin
-/// * `param_defs` - Configuration parameter definitions from plugin.toml
-/// * `current_config` - Current config values from settings
-/// * `theme_bg` - Syntax theme background color for consistent styling
-///
-/// # Returns
-/// Some(result) if user clicked Save and validation passed, None if cancelled
-pub fn show_plugin_config_dialog(
+/// The per-plugin configuration dialog's window and widgets, built but not
+/// shown (a seam for the layout tests).
+pub struct PluginConfigDialogUi {
+    pub dialog: window::Window,
+    /// One entry per parameter definition, in definition order.
+    pub param_widgets: Vec<ParamWidgetInfo>,
+    pub error_label: frame::Frame,
+    pub save_btn: button::Button,
+    pub cancel_btn: button::Button,
+}
+
+/// Build the per-plugin configuration dialog for `plugin_name`, with one
+/// field per `param_defs` entry filled from `current_config`.
+pub fn build_plugin_config_dialog(
+    theme: &DialogTheme,
     plugin_name: &str,
     param_defs: &[ConfigParamDef],
     current_config: &PluginConfig,
-    theme_bg: (u8, u8, u8),
-) -> Option<PluginConfigResult> {
+) -> PluginConfigDialogUi {
     // Theme colors from DialogTheme
-    let theme = DialogTheme::from_theme_bg(theme_bg);
     let bg_color = theme.bg;
     let text_color = theme.text;
     let text_dim = theme.text_dim;
@@ -156,10 +158,7 @@ pub fn show_plugin_config_dialog(
     let mut dialog = window::Window::default()
         .with_size(DIALOG_WIDTH, dialog_height)
         .with_label(&format!("{} Settings", plugin_name));
-    dialog.make_modal(true);
     dialog.set_color(bg_color);
-
-    let result: Rc<RefCell<Option<PluginConfigResult>>> = Rc::new(RefCell::new(None));
 
     let mut y = 15;
 
@@ -173,7 +172,7 @@ pub fn show_plugin_config_dialog(
     y += ROW_HEIGHT + SPACING;
 
     // Store references to input widgets for retrieval and validation
-    let param_widgets: Rc<RefCell<Vec<ParamWidgetInfo>>> = Rc::new(RefCell::new(Vec::new()));
+    let mut param_widgets: Vec<ParamWidgetInfo> = Vec::new();
 
     for def in param_defs {
         // Stacked layout: label above input field
@@ -201,7 +200,7 @@ pub fn show_plugin_config_dialog(
                     .with_size(FIELD_WIDTH, 25)
                     .with_label("Enabled");
                 cb.set_value(current_value.eq_ignore_ascii_case("true"));
-                param_widgets.borrow_mut().push(ParamWidgetInfo {
+                param_widgets.push(ParamWidgetInfo {
                     key: def.key.clone(),
                     label: def.label.clone(),
                     widget: ParamWidget::Check(cb),
@@ -234,7 +233,7 @@ pub fn show_plugin_config_dialog(
                     choice.set_value(selected_idx);
                 }
 
-                param_widgets.borrow_mut().push(ParamWidgetInfo {
+                param_widgets.push(ParamWidgetInfo {
                     key: def.key.clone(),
                     label: def.label.clone(),
                     widget: ParamWidget::Choice(choice),
@@ -268,7 +267,7 @@ pub fn show_plugin_config_dialog(
                     });
                 }
 
-                param_widgets.borrow_mut().push(ParamWidgetInfo {
+                param_widgets.push(ParamWidgetInfo {
                     key: def.key.clone(),
                     label: def.label.clone(),
                     widget: ParamWidget::Input(inp),
@@ -295,13 +294,13 @@ pub fn show_plugin_config_dialog(
     // Buttons at the bottom
     let button_y = dialog_height - 45;
 
-    let mut save_btn = theme
+    let save_btn = theme
         .button()
         .with_pos(DIALOG_WIDTH - 180, button_y)
         .with_size(75, 30)
         .with_label("Save");
 
-    let mut cancel_btn = theme
+    let cancel_btn = theme
         .button()
         .with_pos(DIALOG_WIDTH - 95, button_y)
         .with_size(75, 30)
@@ -309,6 +308,46 @@ pub fn show_plugin_config_dialog(
 
     dialog.end();
     drop(top_level);
+    PluginConfigDialogUi {
+        dialog,
+        param_widgets,
+        error_label,
+        save_btn,
+        cancel_btn,
+    }
+}
+
+/// Show the per-plugin configuration dialog
+///
+/// # Arguments
+/// * `plugin_name` - Name of the plugin
+/// * `param_defs` - Configuration parameter definitions from plugin.toml
+/// * `current_config` - Current config values from settings
+/// * `theme_bg` - Syntax theme background color for consistent styling
+///
+/// # Returns
+/// Some(result) if user clicked Save and validation passed, None if cancelled
+pub fn show_plugin_config_dialog(
+    plugin_name: &str,
+    param_defs: &[ConfigParamDef],
+    current_config: &PluginConfig,
+    theme_bg: (u8, u8, u8),
+) -> Option<PluginConfigResult> {
+    // Theme colors from DialogTheme
+    let theme = DialogTheme::from_theme_bg(theme_bg);
+
+    let PluginConfigDialogUi {
+        mut dialog,
+        param_widgets,
+        error_label,
+        mut save_btn,
+        mut cancel_btn,
+    } = build_plugin_config_dialog(&theme, plugin_name, param_defs, current_config);
+    dialog.make_modal(true);
+
+    let result: Rc<RefCell<Option<PluginConfigResult>>> = Rc::new(RefCell::new(None));
+    // Store references to input widgets for retrieval and validation
+    let param_widgets: Rc<RefCell<Vec<ParamWidgetInfo>>> = Rc::new(RefCell::new(param_widgets));
 
     // Callbacks
     let param_widgets_save = param_widgets.clone();
