@@ -321,7 +321,8 @@ impl TreePanel {
 
     /// Resolve a semantic label color name to an FLTK Color, theme-aware.
     fn resolve_label_color(&self, name: &str) -> Option<Color> {
-        git_label_rgb(name, self.is_dark).map(|(r, g, b)| fltk_rgb(r, g, b))
+        readable_git_label_rgb(name, self.is_dark, self.theme_bg.get())
+            .map(|(r, g, b)| fltk_rgb(r, g, b))
     }
 
     /// Add a node to the tree recursively.
@@ -1027,9 +1028,95 @@ pub fn git_label_rgb(name: &str, is_dark: bool) -> Option<(u8, u8, u8)> {
     })
 }
 
+/// Minimum WCAG contrast of a git-status label on the tree (AA text).
+const GIT_LABEL_CONTRAST: f64 = 4.5;
+
+/// The git-status color drawn on a tree with background `tree_bg` (T0109):
+/// [`git_label_rgb`], unchanged where it already reads at
+/// [`GIT_LABEL_CONTRAST`], otherwise stepped in lightness only (its hue
+/// kept) until it does, by the shared `push_to_contrast` rule.
+pub fn readable_git_label_rgb(
+    name: &str,
+    is_dark: bool,
+    tree_bg: (u8, u8, u8),
+) -> Option<(u8, u8, u8)> {
+    use crate::ui::color::push_to_contrast;
+    let base = ThemeRgb::from_tuple(git_label_rgb(name, is_dark)?);
+    let bg = ThemeRgb::from_tuple(tree_bg);
+    Some(push_to_contrast(base, bg, GIT_LABEL_CONTRAST, bg.brightness() < 128).to_tuple())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Hue in degrees, or `None` for a gray.
+    fn hue((r, g, b): (u8, u8, u8)) -> Option<f64> {
+        let (r, g, b) = (f64::from(r), f64::from(g), f64::from(b));
+        let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+        let d = max - min;
+        if d < 8.0 {
+            return None;
+        }
+        let h = if max == r {
+            ((g - b) / d).rem_euclid(6.0)
+        } else if max == g {
+            (b - r) / d + 2.0
+        } else {
+            (r - g) / d + 4.0
+        };
+        Some(h * 60.0)
+    }
+
+    /// T0109: every git-status color reads (>= 4.5:1) on the tree background
+    /// and keeps its hue; a color that already read is unchanged. The hue is
+    /// strict on the built-in themes. On a mid-tone custom background 4.5:1
+    /// can need near-white or near-black, where a hue fades toward gray
+    /// (readability wins, as for T0104's selected row), but it never turns
+    /// into another hue.
+    #[test]
+    fn git_labels_read_on_the_tree() {
+        use crate::app::domain::settings::SyntaxTheme;
+        use crate::ui::color::{ThemeRgb, wcag_contrast};
+        let mut failures = Vec::new();
+        for (theme, bg) in crate::ui::color::theme_test_backgrounds() {
+            let built_in = SyntaxTheme::all().iter().any(|t| t.background() == bg);
+            let is_dark = ThemeRgb::from_tuple(bg).brightness() < 128;
+            for name in ["modified", "added", "untracked", "conflict", "ignored"] {
+                let base = git_label_rgb(name, is_dark).expect("known status");
+                let got = readable_git_label_rgb(name, is_dark, bg).expect("known status");
+                let ratio = wcag_contrast(got, bg);
+                // Built-in themes: the hue is kept (integer rounding only).
+                // Custom mid-tones: within 12°, or faded to near-gray.
+                let chroma = {
+                    let (r, g, b) = got;
+                    r.max(g).max(b) - r.min(g).min(b)
+                };
+                let hue_ok = match (hue(got), hue(base)) {
+                    (Some(a), Some(b)) => {
+                        let d = (a - b).abs();
+                        let d = d.min(360.0 - d);
+                        if built_in {
+                            d <= 3.0
+                        } else {
+                            d <= 12.0 || chroma < 16
+                        }
+                    }
+                    (None, None) => true,
+                    (None, Some(_)) => !built_in,
+                    (Some(_), None) => false,
+                };
+                let unchanged_ok = wcag_contrast(base, bg) < 4.5 || got == base;
+                if ratio < 4.5 || !hue_ok || !unchanged_ok {
+                    failures.push(format!(
+                        "{theme}: {name} {got:?} (was {base:?}) on {bg:?} = {ratio:.2}:1, \
+                         hue kept: {hue_ok}, unchanged where readable: {unchanged_ok}"
+                    ));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+    }
 
     fn node(icon: Option<&str>, with_child: bool) -> TreeNode {
         TreeNode {
