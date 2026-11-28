@@ -1,7 +1,7 @@
 ---
 id: T0109
 title: Readable git-status colors on the file tree's unselected rows
-status: review           # todo | review | done
+status: done             # todo | review | done
 created: 2026-11-26
 severity: minor
 area: ui
@@ -54,10 +54,10 @@ env -u DISPLAY -u WAYLAND_DISPLAY -u WAYLAND_SOCKET -u DBUS_SESSION_BUS_ADDRESS 
 
 ## Acceptance criteria
 
-- [ ] Every git-status color is ≥ 4.5:1 on the tree background, on the 7
+- [x] Every git-status color is ≥ 4.5:1 on the tree background, on the 7
       themes and T0097's 54-background sweep.
-- [ ] Each keeps its hue; colors that already passed are unchanged.
-- [ ] The user approved the montage; full gates green.
+- [x] Each keeps its hue; colors that already passed are unchanged.
+- [x] The user approved the montage; full gates green.
 
 ## Affected files
 
@@ -157,4 +157,12 @@ row draws the same git color on its soft band, so T0109 changes it too:
 on the band the labels read at 3.02-5.75:1 (master: 1.84-5.75:1). That is
 better everywhere, but not 4.5:1 for every status. The band is the user's
 T0104 choice and stays. 4.5:1 on the band too would be a separate ticket.
+
+## User verification
+
+The user approved the PR as is on 2026-11-28, relayed by the orchestrator
+(ferrispad-03): the look is OK, and the selected row keeps T0104's band
+with no follow-up ticket. The reviewer (ferrispad-90) approved 592d415; its
+one nit (the test recipe's environment) is fixed in 3e9cb40. This commit
+only moves the ticket and updates the page.
 

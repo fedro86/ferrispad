@@ -92,8 +92,8 @@
     <li>The tree's selected row keeps its band. Its label is the same git color, so it follows the same change.</li>
   </ul>
   <div class="meta">
-    <span class="chip"><strong>T0109</strong> in <code>2-review/</code></span>
-    <span class="chip"><strong>7</strong> files · +270 / −3</span>
+    <span class="chip"><strong>T0109</strong> in <code>3-done/</code></span>
+    <span class="chip"><strong>7</strong> files · +278 / −3</span>
     <span class="chip warn">tree git colors change</span>
     <span class="chip green">gates green at every commit</span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/217">PR #217 on GitHub</a></span>
@@ -120,8 +120,10 @@
       <td>Merge of <code>master</code> 32fe29f (T0110). No conflict.</td></tr>
     <tr><td><code class="sha">592d415</code></td>
       <td>Docs only: the ticket's record and this page.</td></tr>
-    <tr><td><code class="sha">this commit</code></td>
+    <tr><td><code class="sha">3e9cb40</code></td>
       <td>Docs only, review nit: the test recipe uses the private-display environment of <code>scripts/gates.sh</code>.</td></tr>
+    <tr><td><code class="sha">this commit</code></td>
+      <td>Docs only: the user approved the PR as is (2026-11-28); the ticket moves to <code>3-done/</code>.</td></tr>
   </table>
   </div>
   <p>The older commits listed by <code>git log</code> (T0097, T0104, T0105) reached <code>master</code> as their own squash commits, so they add nothing here. After the merges, the diff against <code>master</code> is T0109's alone: <code>src/ui/tree_panel.rs</code>, <code>src/ui/theme.rs</code>, the scenarios, the ticket and this page. Master gets one squash commit.</p>
@@ -161,7 +163,7 @@
     <code>Base16MochaDark: conflict (224, 108, 117) on (59, 50, 40) = 3.93:1</code>,
     <code>InspiredGitHub: ignored (160, 160, 160) on (255, 255, 255) = 2.61:1</code>.</div>
   <div class="why"><strong>Why lightness only.</strong> The user turned down restyles on 2026-11-26, and the established look is the hues: ochre, green, red, gray. A new palette was the alternative, and it would be a restyle. Stepping the lightness keeps each color recognisably itself, and the same rule already serves the list selection and the input borders.</div>
-  <div class="followup"><strong class="tag">For your decision: the selected row.</strong> On the selected row the labels sit on T0104's soft band, which is a little darker (light themes) or lighter (dark themes) than the tree. There they read at 3.02–5.75:1 with T0109, against 1.84–5.75:1 on master. That is better everywhere, but not 4.5:1 for every status. Reaching 4.5:1 on the band too would mean darker colors on light themes, or a stronger band. The band was your choice in T0104, and this PR leaves it alone. If you want the selected row at 4.5:1 as well, that is a separate ticket.</div>
+  <div class="followup"><strong class="tag">Decided: the selected row stays as T0104 made it.</strong> On the selected row the labels sit on T0104's soft band, which is a little darker (light themes) or lighter (dark themes) than the tree. There they read at 3.02–5.75:1 with T0109, against 1.84–5.75:1 on master. That is better everywhere, but not 4.5:1 for every status. Reaching 4.5:1 on the band too would mean darker colors on light themes, or a stronger band. The band was the user's choice in T0104, and this PR leaves it alone. The user approved this as is (2026-11-28): no follow-up ticket.</div>
   <div class="followup"><strong class="tag">Custom themes.</strong> On a mid-tone custom background, 4.5:1 can need a near-white or near-black label. There the hue may drift up to 12° or fade toward gray. Readability wins, as for T0104's selected row. The test sweeps T0097's 54 backgrounds and allows this only off the built-in themes.</div>
   <h3>How to test T0109</h3>
   <ol class="steps">
@@ -221,8 +223,7 @@
 <section class="card">
   <h2>What remains open</h2>
   <ul>
-    <li><strong>Your OK on the look:</strong> the ticket requires it before the PR leaves draft (the figures above).</li>
-    <li><strong>The selected row at 4.5:1:</strong> only if you want it; a new ticket (see the decision box).</li>
+    <li><strong>Nothing.</strong> The user approved the look as is (2026-11-28). The band stays as T0104 decided, and no follow-up ticket is opened for the selected row.</li>
   </ul>
 </section>
 
@@ -256,7 +257,7 @@
 
 <footer>
   Presentation of PR #217 · branch <code>ticket/T0109</code> · commits <code>ae9c198</code> → <code>this commit</code> ·
-  ticket <code>docs/tickets/2-review/T0109-tree-git-label-contrast.md</code> · issue #216.
+  ticket <code>docs/tickets/3-done/T0109-tree-git-label-contrast.md</code> · issue #216.
 </footer>
 </div>
 </body>
