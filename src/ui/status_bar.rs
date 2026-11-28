@@ -144,27 +144,11 @@ impl StatusBar {
             self.last_width = current_width;
 
             let total_chars = (current_width / CHAR_WIDTH).max(0) as usize;
-            let pos_len = self.pos_text.len();
+            let pos_len = self.pos_text.chars().count();
             let margin = 6; // 2 chars left + 4 chars right padding
             let available_for_path = total_chars.saturating_sub(pos_len + margin);
 
-            // Truncate path from left if needed
-            let display_path = if self.path_text.is_empty() {
-                String::new()
-            } else if self.path_text.len() <= available_for_path {
-                self.path_text.clone()
-            } else if available_for_path > 5 {
-                // Find a `/` boundary to truncate at
-                let skip = self.path_text.len() - (available_for_path - 2); // 2 for "…/"
-                if let Some(slash_offset) = self.path_text[skip..].find('/') {
-                    format!("\u{2026}{}", &self.path_text[skip + slash_offset..])
-                } else {
-                    // No slash found — just hard-truncate
-                    format!("\u{2026}{}", &self.path_text[skip..])
-                }
-            } else {
-                String::new() // Too narrow to show anything useful
-            };
+            let display_path = fit_path_left(&self.path_text, available_for_path);
 
             let label = if display_path.is_empty() {
                 // Right-align with right padding
@@ -172,7 +156,8 @@ impl StatusBar {
                 format!("{:>width$}    ", self.pos_text, width = inner)
             } else {
                 // Path on left, Ln/Col on right, fill with spaces
-                let gap = total_chars.saturating_sub(display_path.len() + pos_len + margin);
+                let gap =
+                    total_chars.saturating_sub(display_path.chars().count() + pos_len + margin);
                 format!(
                     "  {}{:gap$}{}    ",
                     display_path,
@@ -190,11 +175,67 @@ impl StatusBar {
     }
 }
 
+/// `path` shortened from the left to fit `available` characters: "…/rest"
+/// cut at a `/` when there is one, or empty when too narrow to be useful.
+/// Counted and cut in characters, never bytes: a byte offset can fall inside
+/// a multi-byte character and panic (T0124).
+fn fit_path_left(path: &str, available: usize) -> String {
+    let len = path.chars().count();
+    if path.is_empty() {
+        String::new()
+    } else if len <= available {
+        path.to_string()
+    } else if available > 5 {
+        // Keep the last characters, leaving 2 for "…/".
+        let keep = available - 2;
+        let skip = path
+            .char_indices()
+            .nth(len - keep)
+            .map_or(path.len(), |(i, _)| i);
+        let tail = &path[skip..];
+        // Start at a `/` when there is one; else hard-truncate.
+        let from = tail.find('/').unwrap_or(0);
+        format!("\u{2026}{}", &tail[from..])
+    } else {
+        String::new() // Too narrow to show anything useful
+    }
+}
+
 impl Themeable for StatusBar {
     /// Colors derived from the syntax theme background (matches tab bar).
     fn apply_theme(&mut self, theme: PanelTheme) {
         let dialog = DialogTheme::from_theme_bg(theme.bg);
         self.frame.set_color(dialog.bg);
         self.frame.set_label_color(dialog.text_dim);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A path with multi-byte characters everywhere, so some width cuts
+    /// inside one of them.
+    const PATH: &str =
+        "/home/user/Präsentationen-ÄÖÜ-äöü-ß/Übersicht-Größenänderung/日本語のメモ/notes.txt";
+
+    #[test]
+    fn long_non_ascii_path_never_panics() {
+        for available in 0..=PATH.chars().count() + 2 {
+            let shown = fit_path_left(PATH, available);
+            assert!(
+                shown.chars().count() <= available,
+                "{shown:?} is wider than {available} characters"
+            );
+        }
+    }
+
+    #[test]
+    fn shortened_path_starts_at_a_slash() {
+        let shown = fit_path_left(PATH, 30);
+        assert!(shown.starts_with("\u{2026}/"), "{shown:?}");
+        assert!(PATH.ends_with(shown.trim_start_matches('\u{2026}')));
+        assert_eq!(fit_path_left("/a/b.txt", 30), "/a/b.txt");
+        assert_eq!(fit_path_left(PATH, 3), "");
     }
 }
