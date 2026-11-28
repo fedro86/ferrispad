@@ -90,12 +90,12 @@
     <li><strong>Triage:</strong> input someone else can shape that crosses a trust boundary is a security defect; an ordinary local crash stays a public bugfix.</li>
     <li><strong>Private workspace:</strong> gitignored <code>docs/internal/security/S&lt;N&gt;-*.md</code> tickets, local <code>sec/</code> branches with no upstream, append-only merge notes, wording that names the area and not the exploit.</li>
     <li><strong>Work loop:</strong> red test first, <code>scripts/gates.sh</code>, private compare.sh scenarios, review by message, a blind recipe with throwaway XDG directories, and an integration dry run before the release.</li>
-    <li><strong>Disclosure with the release:</strong> the T ticket and issue are created then, the CHANGELOG gets a <code>### Security</code> section and <code>SECURITY.md</code> a row, and every fix is on <code>master</code> before the tag.</li>
+    <li><strong>Disclosure with the release:</strong> the first push of a fix starts the disclosure, so it happens in the release window, in one sitting: each fix as one commit on a fresh <code>ticket/</code> branch, its issue and PR, CI, merge; then the CHANGELOG <code>### Security</code> section and the <code>SECURITY.md</code> row on <code>master</code>; then the tag.</li>
     <li>One pointer each in <code>CLAUDE.md</code> and <code>work-sequence.md</code>.</li>
   </ul>
   <div class="meta">
     <span class="chip"><strong>T0123</strong> in <code>2-review/</code></span>
-    <span class="chip"><strong>4</strong> files · +251 / −0</span>
+    <span class="chip"><strong>4</strong> files · +267 / −0</span>
     <span class="chip">No visible change</span>
     <span class="chip green">gates green at every commit</span>
     <span class="chip"><a href="https://github.com/fedro86/ferrispad/pull/253">PR #253 on GitHub</a></span>
@@ -110,8 +110,12 @@
     <tr><th>Commit</th><th>What changes</th></tr>
     <tr><td><code class="sha">aa6dad4</code></td>
       <td>The rule, the two pointers and the ticket.</td></tr>
-    <tr><td>this page</td>
-      <td>Docs only.</td></tr>
+    <tr><td><code class="sha">d3e77ab</code></td>
+      <td>Docs only: this page.</td></tr>
+    <tr><td><code class="sha">41a1eea</code></td>
+      <td>Docs only: the ticket's notes in general terms.</td></tr>
+    <tr><td>this commit</td>
+      <td>Review fix (ferrispad-90): the disclosure steps in one order (the first push starts the disclosure), where the saved outputs go, and who may receive peer messages.</td></tr>
   </table>
   </div>
   <p>The branch starts from <code>master</code> 4dc245e (fast-forwarded from f12fd3c, where the ticket was first written).</p>
@@ -122,7 +126,7 @@
   <div class="flow">
     <div><strong>Found</strong> · Triage says private: an S ticket in <code>docs/internal/security/</code>, gitignored, with the next <code>S</code> number.</div>
     <div><strong>Fixed</strong> · A local <code>sec/&lt;slug&gt;</code> branch, red test first, the gates, a local review by message, the user's blind check.</div>
-    <div><strong>Released</strong> · At the release: a T ticket, an issue and a PR for each fix, all on <code>master</code>, then the tag, then the CHANGELOG Security section is public.</div>
+    <div><strong>Released</strong> · In the release window, in one sitting: a T ticket, one commit, an issue and a PR for each fix, merged in the dry run's order; the CHANGELOG Security section on <code>master</code>; then the tag.</div>
   </div>
 </section>
 

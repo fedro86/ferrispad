@@ -70,10 +70,14 @@ including one that starts after a session reset.
     scenarios and montages, review by message in the named worktree, a
     blind recipe with throwaway XDG directories, and an integration dry run
     of all `sec/` branches before the release;
-  - disclosure with the release: T ticket and issue at that point, the
-    CHANGELOG `### Security` section and the `SECURITY.md` Changelog row,
-    all fixes on `master` before the tag and before anything public, and a
-    GitHub advisory record as the user's call per release;
+  - disclosure with the release: the first push of a fix starts it, so it
+    happens in the release window in one sitting. Each fix becomes one
+    commit on a fresh `ticket/` branch (the area named, not the exploit),
+    with its T ticket (straight to `3-done/`: the private verification
+    counts), issue and PR, merged in the dry run's order. Then come the
+    CHANGELOG `### Security` section and the `SECURITY.md` row on `master`
+    (`release.yml` reads the CHANGELOG), then the tag. A GitHub advisory
+    record is the user's call per release;
   - the "never" list.
 - It describes the procedure used so far. It names
   none of them and gives no exploit detail: the examples are generic

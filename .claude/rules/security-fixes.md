@@ -52,12 +52,14 @@ finding made public too early cannot be taken back.
   - several sessions write to it, so **append only** (`>>`) and continue
     from its last number. Never rewrite the file.
 - **Supporting files** stay in `docs/internal/security/` too: screenshot
-  scenarios, before/after montages, a manual recipe. Red-test outputs go
-  next to the worktrees, outside the repository.
+  scenarios, before/after montages, a manual recipe. Red-test and gate
+  outputs go to `~/Code/personal/ferrispad-wt/<worktree>.saved/`, next to
+  the worktrees and outside the repository; the S ticket names the file.
 - **Words that may travel:**
   - commit messages, branch names, test names and peer messages name the
     *area* (for example "session files" or "the file dialog"), never the way
-    to exploit it;
+    to exploit it. Peer messages go only to sessions already told the work
+    is private (see *Never*);
   - a peer message about a finding says it is private, and gives the
     worktree path and the commit, not a PR.
 
@@ -67,7 +69,7 @@ The usual ticket loop, in the private workspace:
 
 1. **Red test first.** Write the regression test that reproduces the defect
    and run it. It must fail for the defect's reason, and the run is
-   recorded in the S ticket (saved outside the repository). When the
+   saved in `<worktree>.saved/` and named in the S ticket. When the
    failing test has to be committed before its fix, mark it
    `#[ignore = "<why>"]` and remove the mark with the fix.
 2. **Fix**, with the gates green: `scripts/gates.sh` (UI tests on a
@@ -87,18 +89,28 @@ The usual ticket loop, in the private workspace:
 
 ## Disclosure, with the release
 
-In the release that ships the fixes:
+**The first push of any fix starts the disclosure.** A pushed branch is
+public: its diff, test names, doc comments and commit messages describe the
+defect. So nothing is pushed before the release window, and then everything
+happens in one sitting, with no pause:
 
-1. Each S ticket becomes a normal T ticket (the `new-ticket` skill), with a
-   GitHub issue. Its branch is pushed and lands through a PR, with its
-   presentation page, under the usual `master` gate.
-2. `CHANGELOG.md` gets a `### Security` section in that release's entry,
-   and `SECURITY.md`'s Changelog table gets a row. Credit a reporter who
-   asked for it.
-3. The order: every fix on `master` first, then the tag, then anything
-   public about the findings (release notes, issues, pages).
-4. Publishing a GitHub Security Advisory record at release time is the
-   user's call, per release.
+1. **Prepare, still local.** The integration dry run (above) decides the
+   order the fixes land in. For each S ticket, take a T ID with the
+   `new-ticket` skill, move the ticket to `docs/tickets/3-done/` (the
+   user's private verification counts for the `master` gate), and put the
+   fix on a fresh `ticket/T<NNNN>` branch as **one commit** whose message
+   names the area, not the exploit. The `sec/` branch's own commits are
+   never pushed.
+2. **Push and land**, in the dry run's order: push the `ticket/` branch,
+   open its GitHub issue and its PR with the presentation page (the title
+   and the page name the area), wait for CI to be green, and merge.
+3. **Release notes on `master`.** One commit adds the `### Security` section
+   to that release's `CHANGELOG.md` entry (`release.yml` builds the release
+   notes from it, so it must be on `master` before the tag) and a row to
+   `SECURITY.md`'s Changelog table. Credit a reporter who asked for it.
+4. **Tag** the release.
+5. Publishing a GitHub Security Advisory record afterwards is the user's
+   call, per release.
 
 ## Never
 
